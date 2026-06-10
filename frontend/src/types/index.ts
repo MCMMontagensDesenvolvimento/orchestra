@@ -4,7 +4,10 @@ export type McpServerStatus = 'active' | 'inactive' | 'error';
 export type RiskLevel = 'low' | 'medium' | 'high' | 'critical';
 export type FeedbackType = 'positive' | 'negative' | 'neutral';
 export type AssistantTestStatus = 'passed' | 'failed' | 'needs_review';
-export type AuditEventType = 'assistant_created' | 'assistant_published' | 'assistant_unpublished' | 'assistant_rollback' | 'assistant_updated' | 'assistant_archived' | 'assistant_restored' | 'assistant_feedback_created' | 'assistant_test_result_created' | 'tool_executed' | 'knowledge_updated' | 'user_login' | 'policy_changed' | 'security_alert' | 'approval_requested' | 'approval_granted';
+export type AssistantApprovalStatus = 'pending' | 'approved' | 'rejected' | 'cancelled' | 'expired';
+export type AssistantApprovalAction = 'publish' | 'rollback' | 'restore' | 'enable_execution' | 'configure_sandbox';
+export type AssistantExecutionMode = 'draft_test' | 'sandbox' | 'published' | 'blocked' | 'archived';
+export type AuditEventType = 'assistant_created' | 'assistant_published' | 'assistant_unpublished' | 'assistant_rollback' | 'assistant_updated' | 'assistant_archived' | 'assistant_restored' | 'assistant_feedback_created' | 'assistant_test_result_created' | 'assistant_approval_requested' | 'assistant_approval_approved' | 'assistant_approval_rejected' | 'assistant_approval_cancelled' | 'assistant_execution_policy_updated' | 'assistant_sandbox_policy_updated' | 'assistant_execution_blocked' | 'assistant_publish_blocked_by_approval' | 'permission_denied' | 'tool_executed' | 'knowledge_updated' | 'user_login' | 'policy_changed' | 'security_alert' | 'approval_requested' | 'approval_granted';
 
 export interface AssistantPublication {
   id: string;
@@ -17,6 +20,56 @@ export interface AssistantPublication {
   unpublishedAt?: string | null;
   rollbackFromPublicationId?: string | null;
   rollbackReason?: string | null;
+}
+
+export interface AssistantApprovalRequest {
+  id: string;
+  assistantId: string;
+  assistantVersionId?: string | null;
+  publicationId?: string | null;
+  requestedById: string;
+  decidedById?: string | null;
+  action: AssistantApprovalAction;
+  status: AssistantApprovalStatus;
+  reason?: string | null;
+  decisionReason?: string | null;
+  metadata?: unknown;
+  createdAt: string;
+  updatedAt: string;
+  decidedAt?: string | null;
+  cancelledAt?: string | null;
+}
+
+export interface AssistantExecutionPolicy {
+  id: string;
+  assistantId: string;
+  executionMode: AssistantExecutionMode;
+  requiresApprovalToPublish: boolean;
+  sandboxEnabled: boolean;
+  sandboxRequiresAuth: boolean;
+  sandboxAllowedForRoles?: string[] | null;
+  sandboxBlocksExternalTools: boolean;
+  sandboxBlocksRealProviders: boolean;
+  sandboxLogsRequired: boolean;
+  sandboxCostLimitPlaceholder?: number | null;
+  allowDraftTesting: boolean;
+  allowPublishedExecution: boolean;
+  isExecutionEnabled: boolean;
+  updatedById?: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface AssistantExecutionPrecheckReason {
+  code: string;
+  message: string;
+}
+
+export interface AssistantExecutionPrecheckResult {
+  canExecute: boolean;
+  mode: AssistantExecutionMode;
+  reasons: AssistantExecutionPrecheckReason[];
+  requestId: string;
 }
 
 export interface Assistant {
@@ -54,6 +107,7 @@ export interface Assistant {
   escalationPolicy?: string;
   environment?: string;
   activePublication?: AssistantPublication | null;
+  executionPolicy?: AssistantExecutionPolicy;
 }
 
 export interface AssistantVersion {

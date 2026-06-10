@@ -119,14 +119,82 @@ expect_status 201 "assistant-version-create" \
 
 version_id="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["data"]["id"])' "$response_file")"
 
+expect_status 200 "assistant-execution-policy-get" \
+  -b "$cookie_file" \
+  "$BASE_URL/api/v1/assistants/$assistant_id/execution-policy"
+
+cat > "$payload_file" <<JSON
+{
+  "requiresApprovalToPublish": true,
+  "sandboxEnabled": true,
+  "sandboxRequiresAuth": true,
+  "sandboxBlocksExternalTools": true,
+  "sandboxBlocksRealProviders": true,
+  "sandboxLogsRequired": true,
+  "allowDraftTesting": true
+}
+JSON
+
+expect_status 200 "assistant-execution-policy-configure" \
+  -b "$cookie_file" \
+  -X PATCH \
+  -H 'Content-Type: application/json' \
+  --data-binary "@$payload_file" \
+  "$BASE_URL/api/v1/assistants/$assistant_id/execution-policy"
+
+cat > "$payload_file" <<'JSON'
+{
+  "mode": "sandbox"
+}
+JSON
+
+expect_status 200 "assistant-execution-precheck-sandbox" \
+  -b "$cookie_file" \
+  -H 'Content-Type: application/json' \
+  --data-binary "@$payload_file" \
+  "$BASE_URL/api/v1/assistants/$assistant_id/execution-precheck"
+
+cat > "$payload_file" <<JSON
+{
+  "action": "publish",
+  "assistantVersionId": "$version_id",
+  "reason": "Smoke approval workflow validation."
+}
+JSON
+
+expect_status 201 "assistant-approval-create" \
+  -b "$cookie_file" \
+  -H 'Content-Type: application/json' \
+  --data-binary "@$payload_file" \
+  "$BASE_URL/api/v1/assistants/$assistant_id/approvals"
+
+approval_id="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["data"]["id"])' "$response_file")"
+
+cat > "$payload_file" <<'JSON'
+{
+  "decisionReason": "Smoke approval granted."
+}
+JSON
+
+expect_status 200 "assistant-approval-approve" \
+  -b "$cookie_file" \
+  -H 'Content-Type: application/json' \
+  --data-binary "@$payload_file" \
+  "$BASE_URL/api/v1/assistants/$assistant_id/approvals/$approval_id/approve"
+
+expect_status 200 "assistant-approvals-list" \
+  -b "$cookie_file" \
+  "$BASE_URL/api/v1/assistants/$assistant_id/approvals"
+
 cat > "$payload_file" <<JSON
 {
   "versionId": "$version_id",
+  "approvalId": "$approval_id",
   "reason": "Smoke publication workflow validation."
 }
 JSON
 
-expect_status 200 "assistant-publish" \
+expect_status 200 "assistant-publish-with-approval" \
   -b "$cookie_file" \
   -H 'Content-Type: application/json' \
   --data-binary "@$payload_file" \
@@ -135,6 +203,33 @@ expect_status 200 "assistant-publish" \
 expect_status 200 "assistant-active-publication" \
   -b "$cookie_file" \
   "$BASE_URL/api/v1/assistants/$assistant_id/publications/active"
+
+cat > "$payload_file" <<JSON
+{
+  "executionMode": "published",
+  "allowPublishedExecution": true,
+  "isExecutionEnabled": true
+}
+JSON
+
+expect_status 200 "assistant-execution-policy-enable" \
+  -b "$cookie_file" \
+  -X PATCH \
+  -H 'Content-Type: application/json' \
+  --data-binary "@$payload_file" \
+  "$BASE_URL/api/v1/assistants/$assistant_id/execution-policy"
+
+cat > "$payload_file" <<'JSON'
+{
+  "mode": "published"
+}
+JSON
+
+expect_status 200 "assistant-execution-precheck-published" \
+  -b "$cookie_file" \
+  -H 'Content-Type: application/json' \
+  --data-binary "@$payload_file" \
+  "$BASE_URL/api/v1/assistants/$assistant_id/execution-precheck"
 
 cat > "$payload_file" <<JSON
 {

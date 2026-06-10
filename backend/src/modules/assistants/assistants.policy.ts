@@ -61,9 +61,49 @@ export const assistantPolicies = {
     return canManageOwned(user, assistant, 'assistants.rollback') || (hasPermission(user, 'assistants.rollback') && isPlatformAdmin(user));
   },
 
+  canReadPublications(user: AuthenticatedUser, assistant: AssistantPolicySubject) {
+    return (hasPermission(user, 'assistants.publications.read') || hasPermission(user, 'assistants.read')) && hasWorkspaceScope(user, assistant);
+  },
+
   canShareAssistant(user: AuthenticatedUser, assistant: AssistantPolicySubject) {
     if (assistant.status === 'archived') return false;
     return canManageOwned(user, assistant, 'assistants.share') || (hasPermission(user, 'assistants.share') && isPlatformAdmin(user));
+  },
+
+  canRequestApproval(user: AuthenticatedUser, assistant: AssistantPolicySubject) {
+    if (assistant.status === 'archived' && !hasPermission(user, 'assistants.restore')) return false;
+    return hasPermission(user, 'assistants.approval.request') && hasWorkspaceScope(user, assistant);
+  },
+
+  canApproveApproval(user: AuthenticatedUser, assistant: AssistantPolicySubject) {
+    return hasPermission(user, 'assistants.approval.approve') && hasWorkspaceScope(user, assistant);
+  },
+
+  canRejectApproval(user: AuthenticatedUser, assistant: AssistantPolicySubject) {
+    return hasPermission(user, 'assistants.approval.reject') && hasWorkspaceScope(user, assistant);
+  },
+
+  canCancelApproval(user: AuthenticatedUser, assistant: AssistantPolicySubject) {
+    return hasPermission(user, 'assistants.approval.cancel') && hasWorkspaceScope(user, assistant);
+  },
+
+  canConfigureExecutionPolicy(user: AuthenticatedUser, assistant: AssistantPolicySubject) {
+    if (assistant.status === 'archived') return false;
+    return hasPermission(user, 'assistants.execution.configure') && hasWorkspaceScope(user, assistant);
+  },
+
+  canEnableExecution(user: AuthenticatedUser, assistant: AssistantPolicySubject) {
+    if (assistant.status === 'archived') return false;
+    return hasPermission(user, 'assistants.execution.enable') && hasWorkspaceScope(user, assistant);
+  },
+
+  canRunExecutionPrecheck(user: AuthenticatedUser, assistant: AssistantPolicySubject) {
+    return hasPermission(user, 'assistants.read') && hasWorkspaceScope(user, assistant);
+  },
+
+  canUseSandbox(user: AuthenticatedUser, assistant: AssistantPolicySubject) {
+    if (assistant.status === 'archived') return false;
+    return hasPermission(user, 'assistants.execution.sandbox') && hasWorkspaceScope(user, assistant);
   },
 
   canCreateFeedback(user: AuthenticatedUser, assistant: AssistantPolicySubject) {

@@ -21,6 +21,16 @@ const mocks = vi.hoisted(() => {
     rollback: vi.fn(),
     listPublications: vi.fn(),
     getActivePublication: vi.fn(),
+    findPublication: vi.fn(),
+    listApprovals: vi.fn(),
+    findApproval: vi.fn(),
+    createApproval: vi.fn(),
+    decideApproval: vi.fn(),
+    cancelApproval: vi.fn(),
+    findApprovedApproval: vi.fn(),
+    countPendingApprovals: vi.fn(),
+    getExecutionPolicy: vi.fn(),
+    updateExecutionPolicy: vi.fn(),
     resolveVersion: vi.fn(),
     listFeedback: vi.fn(),
     createFeedback: vi.fn(),
@@ -54,6 +64,7 @@ const userId = '00000000-0000-0000-0000-000000000001';
 const assistantId = '00000000-0000-0000-0000-000000000101';
 const versionId = '00000000-0000-0000-0000-000000000201';
 const publicationId = '00000000-0000-0000-0000-000000000301';
+const approvalId = '00000000-0000-0000-0000-000000000601';
 
 const allAssistantPermissions = [
   'assistants.read',
@@ -69,6 +80,15 @@ const allAssistantPermissions = [
   'assistants.feedback.create',
   'assistants.testResults.read',
   'assistants.testResults.create',
+  'assistants.approval.request',
+  'assistants.approval.approve',
+  'assistants.approval.reject',
+  'assistants.approval.cancel',
+  'assistants.execution.configure',
+  'assistants.execution.sandbox',
+  'assistants.execution.enable',
+  'assistants.publications.read',
+  'assistants.publications.manage',
   'audit.read',
 ];
 
@@ -158,10 +178,60 @@ function publicationFixture(status = 'active') {
   };
 }
 
+function approvalFixture(status = 'pending', action = 'publish') {
+  return {
+    id: approvalId,
+    tenantId,
+    workspaceId,
+    assistantId,
+    assistantVersionId: versionId,
+    publicationId: null,
+    requestedById: userId,
+    decidedById: status === 'pending' ? null : userId,
+    action,
+    status,
+    reason: 'Publish requires approval.',
+    decisionReason: status === 'pending' ? null : 'Decision recorded.',
+    metadata: null,
+    createdAt: new Date('2026-06-10T10:40:00.000Z'),
+    updatedAt: new Date('2026-06-10T10:40:00.000Z'),
+    decidedAt: status === 'approved' || status === 'rejected' ? new Date('2026-06-10T10:50:00.000Z') : null,
+    cancelledAt: status === 'cancelled' ? new Date('2026-06-10T10:55:00.000Z') : null,
+  };
+}
+
+function executionPolicyFixture(overrides: Record<string, unknown> = {}) {
+  return {
+    id: '00000000-0000-0000-0000-000000000701',
+    tenantId,
+    workspaceId,
+    assistantId,
+    executionMode: 'draft_test',
+    requiresApprovalToPublish: false,
+    sandboxEnabled: true,
+    sandboxRequiresAuth: true,
+    sandboxAllowedForRoles: ['admin_platform'],
+    sandboxBlocksExternalTools: true,
+    sandboxBlocksRealProviders: true,
+    sandboxLogsRequired: true,
+    sandboxCostLimitPlaceholder: null,
+    allowDraftTesting: true,
+    allowPublishedExecution: false,
+    isExecutionEnabled: false,
+    updatedById: userId,
+    createdAt: new Date('2026-06-10T10:40:00.000Z'),
+    updatedAt: new Date('2026-06-10T10:40:00.000Z'),
+    ...overrides,
+  };
+}
+
 describe('assistant governance endpoints', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mocks.recordAuditEvent.mockResolvedValue(undefined);
+    mocks.assistantsRepository.getExecutionPolicy.mockResolvedValue(executionPolicyFixture());
+    mocks.assistantsRepository.countPendingApprovals.mockResolvedValue(0);
+    mocks.assistantsRepository.getActivePublication.mockResolvedValue(null);
   });
 
   it('publishes an assistant version with permission', async () => {
@@ -227,6 +297,191 @@ describe('assistant governance endpoints', () => {
 
     expect(response.body.data.status).toBe('published');
     expect(mocks.recordAuditEvent).toHaveBeenCalledWith(expect.objectContaining({ action: 'assistant_rollback' }));
+  });
+
+  it('creates, lists and approves approval requests', async () => {
+    mocks.assistantsRepository.findById.mockResolvedValue(assistantFixture('draft'));
+    mocks.assistantsRepository.resolveVersion.mockResolvedValue(versionFixture('draft'));
+    mocks.assistantsRepository.createApproval.mockResolvedValueOnce(approvalFixture('pending', 'publish'));
+    mocks.assistantsRepository.listApprovals.mockResolvedValueOnce([approvalFixture('pending', 'publish')]);
+    mocks.assistantsRepository.findApproval.mockResolvedValueOnce(approvalFixture('pending', 'publish'));
+    mocks.assistantsRepository.decideApproval.mockResolvedValueOnce(approvalFixture('approved', 'publish'));
+
+    await request(createApp())
+      .post(`/api/v1/assistants/${assistantId}/approvals`)
+      .set('Cookie', [sessionCookie()])
+      .send({ action: 'publish', assistantVersionId: versionId, reason: 'Approve publication.' })
+      .expect(201);
+
+    const listResponse = await request(createApp())
+      .get(`/api/v1/assistants/${assistantId}/approvals`)
+      .set('Cookie', [sessionCookie()])
+      .expect(200);
+
+    expect(listResponse.body.data[0].status).toBe('pending');
+
+    const approveResponse = await request(createApp())
+      .post(`/api/v1/assistants/${assistantId}/approvals/${approvalId}/approve`)
+      .set('Cookie', [sessionCookie()])
+      .send({ decisionReason: 'Ready to publish.' })
+      .expect(200);
+
+    expect(approveResponse.body.data.status).toBe('approved');
+    expect(mocks.recordAuditEvent).toHaveBeenCalledWith(expect.objectContaining({ action: 'assistant_approval_requested' }));
+    expect(mocks.recordAuditEvent).toHaveBeenCalledWith(expect.objectContaining({ action: 'assistant_approval_approved' }));
+  });
+
+  it('rejects and cancels pending approval requests', async () => {
+    mocks.assistantsRepository.findById.mockResolvedValue(assistantFixture('draft'));
+    mocks.assistantsRepository.findApproval.mockResolvedValueOnce(approvalFixture('pending', 'publish'));
+    mocks.assistantsRepository.decideApproval.mockResolvedValueOnce(approvalFixture('rejected', 'publish'));
+    mocks.assistantsRepository.findApproval.mockResolvedValueOnce(approvalFixture('pending', 'restore'));
+    mocks.assistantsRepository.cancelApproval.mockResolvedValueOnce(approvalFixture('cancelled', 'restore'));
+
+    const rejectResponse = await request(createApp())
+      .post(`/api/v1/assistants/${assistantId}/approvals/${approvalId}/reject`)
+      .set('Cookie', [sessionCookie()])
+      .send({ decisionReason: 'Needs more testing.' })
+      .expect(200);
+
+    expect(rejectResponse.body.data.status).toBe('rejected');
+
+    const cancelResponse = await request(createApp())
+      .post(`/api/v1/assistants/${assistantId}/approvals/${approvalId}/cancel`)
+      .set('Cookie', [sessionCookie()])
+      .send({ decisionReason: 'Request superseded.' })
+      .expect(200);
+
+    expect(cancelResponse.body.data.status).toBe('cancelled');
+    expect(mocks.recordAuditEvent).toHaveBeenCalledWith(expect.objectContaining({ action: 'assistant_approval_rejected' }));
+    expect(mocks.recordAuditEvent).toHaveBeenCalledWith(expect.objectContaining({ action: 'assistant_approval_cancelled' }));
+  });
+
+  it('does not approve or reject non-pending approval requests', async () => {
+    mocks.assistantsRepository.findById.mockResolvedValue(assistantFixture('draft'));
+    mocks.assistantsRepository.findApproval.mockResolvedValueOnce(approvalFixture('approved', 'publish'));
+
+    const approveResponse = await request(createApp())
+      .post(`/api/v1/assistants/${assistantId}/approvals/${approvalId}/approve`)
+      .set('Cookie', [sessionCookie()])
+      .send({})
+      .expect(409);
+
+    expect(approveResponse.body.code).toBe('APPROVAL_ALREADY_DECIDED');
+
+    mocks.assistantsRepository.findApproval.mockResolvedValueOnce(approvalFixture('cancelled', 'publish'));
+    const rejectResponse = await request(createApp())
+      .post(`/api/v1/assistants/${assistantId}/approvals/${approvalId}/reject`)
+      .set('Cookie', [sessionCookie()])
+      .send({})
+      .expect(409);
+
+    expect(rejectResponse.body.code).toBe('APPROVAL_ALREADY_DECIDED');
+    expect(mocks.assistantsRepository.decideApproval).not.toHaveBeenCalled();
+  });
+
+  it('blocks approval requests when permission is missing', async () => {
+    const response = await request(createApp())
+      .post(`/api/v1/assistants/${assistantId}/approvals`)
+      .set('Cookie', [sessionCookie({ ...testUser, permissions: ['assistants.read'] })])
+      .send({ action: 'publish' })
+      .expect(403);
+
+    expect(response.body.code).toBe('FORBIDDEN');
+    expect(mocks.assistantsRepository.createApproval).not.toHaveBeenCalled();
+    expect(mocks.recordAuditEvent).toHaveBeenCalledWith(expect.objectContaining({ action: 'permission_denied' }));
+  });
+
+  it('blocks publish when approval is required and absent', async () => {
+    mocks.assistantsRepository.findById.mockResolvedValueOnce(assistantFixture('draft'));
+    mocks.assistantsRepository.getExecutionPolicy.mockResolvedValueOnce(executionPolicyFixture({ requiresApprovalToPublish: true }));
+
+    const response = await request(createApp())
+      .post(`/api/v1/assistants/${assistantId}/publish`)
+      .set('Cookie', [sessionCookie()])
+      .send({ versionId })
+      .expect(409);
+
+    expect(response.body.code).toBe('APPROVAL_REQUIRED');
+    expect(mocks.assistantsRepository.publish).not.toHaveBeenCalled();
+    expect(mocks.recordAuditEvent).toHaveBeenCalledWith(expect.objectContaining({ action: 'assistant_publish_blocked_by_approval' }));
+  });
+
+  it('reads and updates execution policy', async () => {
+    mocks.assistantsRepository.findById.mockResolvedValue(assistantFixture('draft'));
+    mocks.assistantsRepository.getExecutionPolicy.mockResolvedValueOnce(executionPolicyFixture());
+    mocks.assistantsRepository.updateExecutionPolicy.mockResolvedValueOnce(executionPolicyFixture({
+      requiresApprovalToPublish: true,
+      sandboxCostLimitPlaceholder: decimal,
+    }));
+
+    const getResponse = await request(createApp())
+      .get(`/api/v1/assistants/${assistantId}/execution-policy`)
+      .set('Cookie', [sessionCookie()])
+      .expect(200);
+
+    expect(getResponse.body.data.executionMode).toBe('draft_test');
+
+    const patchResponse = await request(createApp())
+      .patch(`/api/v1/assistants/${assistantId}/execution-policy`)
+      .set('Cookie', [sessionCookie()])
+      .send({
+        requiresApprovalToPublish: true,
+        sandboxEnabled: true,
+        sandboxBlocksExternalTools: true,
+        sandboxBlocksRealProviders: true,
+        sandboxLogsRequired: true,
+        sandboxCostLimitPlaceholder: 25,
+      })
+      .expect(200);
+
+    expect(patchResponse.body.data.requiresApprovalToPublish).toBe(true);
+    expect(mocks.recordAuditEvent).toHaveBeenCalledWith(expect.objectContaining({ action: 'assistant_execution_policy_updated' }));
+    expect(mocks.recordAuditEvent).toHaveBeenCalledWith(expect.objectContaining({ action: 'assistant_sandbox_policy_updated' }));
+  });
+
+  it('prechecks execution without running AI', async () => {
+    mocks.assistantsRepository.findById.mockResolvedValueOnce(assistantFixture('archived'));
+    mocks.assistantsRepository.getExecutionPolicy.mockResolvedValueOnce(executionPolicyFixture());
+    mocks.assistantsRepository.getActivePublication.mockResolvedValueOnce(null);
+
+    const archivedResponse = await request(createApp())
+      .post(`/api/v1/assistants/${assistantId}/execution-precheck`)
+      .set('Cookie', [sessionCookie()])
+      .send({ mode: 'published' })
+      .expect(200);
+
+    expect(archivedResponse.body.canExecute).toBe(false);
+    expect(archivedResponse.body.reasons.some((reason: { code: string }) => reason.code === 'ASSISTANT_ARCHIVED')).toBe(true);
+
+    mocks.assistantsRepository.findById.mockResolvedValueOnce(assistantFixture('published'));
+    mocks.assistantsRepository.getExecutionPolicy.mockResolvedValueOnce(executionPolicyFixture({
+      allowPublishedExecution: true,
+      isExecutionEnabled: true,
+    }));
+    mocks.assistantsRepository.getActivePublication.mockResolvedValueOnce(null);
+
+    const noPublicationResponse = await request(createApp())
+      .post(`/api/v1/assistants/${assistantId}/execution-precheck`)
+      .set('Cookie', [sessionCookie()])
+      .send({ mode: 'published' })
+      .expect(200);
+
+    expect(noPublicationResponse.body.canExecute).toBe(false);
+    expect(noPublicationResponse.body.reasons.some((reason: { code: string }) => reason.code === 'NO_ACTIVE_PUBLICATION')).toBe(true);
+
+    mocks.assistantsRepository.findById.mockResolvedValueOnce(assistantFixture('draft'));
+    mocks.assistantsRepository.getExecutionPolicy.mockResolvedValueOnce(executionPolicyFixture());
+    mocks.assistantsRepository.getActivePublication.mockResolvedValueOnce(null);
+
+    const sandboxResponse = await request(createApp())
+      .post(`/api/v1/assistants/${assistantId}/execution-precheck`)
+      .set('Cookie', [sessionCookie()])
+      .send({ mode: 'sandbox' })
+      .expect(200);
+
+    expect(sandboxResponse.body.canExecute).toBe(true);
+    expect(mocks.recordAuditEvent).toHaveBeenCalledWith(expect.objectContaining({ action: 'assistant_execution_blocked' }));
   });
 
   it('creates and lists manual test results', async () => {

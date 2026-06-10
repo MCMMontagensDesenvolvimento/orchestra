@@ -1,6 +1,6 @@
 # Orchestra Core Domain Database
 
-Status: migrations incrementais da Fase 05 e Fase 05B.
+Status: migrations incrementais da Fase 05, Fase 05B e Fase 05C.
 
 ## Migration
 
@@ -14,6 +14,21 @@ Alteracoes:
 
 - `workspaces.description` como campo opcional.
 - indice `audit_logs_entity_idx` para filtros por entidade.
+
+Nao houve migration destrutiva.
+
+Foi adicionada a migration:
+
+```txt
+backend/prisma/migrations/20260610170000_phase05c_approval_execution_governance/migration.sql
+```
+
+Alteracoes:
+
+- nova tabela `assistant_approval_requests`;
+- nova tabela `assistant_execution_policies`;
+- indices para tenant, workspace, assistant, status, action e modos de execucao;
+- relacionamentos com users para requester, decision maker e updater.
 
 Nao houve migration destrutiva.
 
@@ -53,6 +68,8 @@ O schema existente da Fase 04 ja continha as entidades necessarias para a maior 
 - `AssistantShare`
 - `AssistantFeedback`
 - `AssistantTestResult`
+- `AssistantApprovalRequest`
+- `AssistantExecutionPolicy`
 - `AuditLog`
 
 Publicacao agora e estruturada por `AssistantPublication`, com `Assistant.status`, `AssistantVersion.status` e `AssistantVersion.publishedAt` como estados auxiliares de leitura.
@@ -67,6 +84,15 @@ O seed permanece idempotente e foi expandido com permissoes:
 - `assistants.unpublish`
 - `assistants.rollback`
 - `assistants.restore`
+- `assistants.approval.request`
+- `assistants.approval.approve`
+- `assistants.approval.reject`
+- `assistants.approval.cancel`
+- `assistants.execution.configure`
+- `assistants.execution.sandbox`
+- `assistants.execution.enable`
+- `assistants.publications.read`
+- `assistants.publications.manage`
 - `assistants.feedback.read`
 - `assistants.feedback.create`
 - `assistants.testResults.read`
@@ -79,4 +105,4 @@ O workspace padrao recebe descricao estrutural.
 - Nao ha dados reais de IA.
 - Nao ha vector store.
 - Nao ha secrets persistidos em banco.
-- Nao ha tabela dedicada de publicacoes nesta fase.
+- Nao ha runtime executor persistindo execucoes reais nesta fase.

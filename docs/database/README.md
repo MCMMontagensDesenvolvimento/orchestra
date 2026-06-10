@@ -1,13 +1,13 @@
 # Database
 
-Status: operacional para a fundacao da Fase 04, incrementos da Fase 05 e governanca de assistants da Fase 05B.
+Status: operacional para a fundacao da Fase 04, incrementos da Fase 05 e governanca de assistants das Fases 05B/05C.
 
 Esta pasta concentra a modelagem de dados do Orchestra.
 
 ## Documentos
 
 - `ORCHESTRA_DATABASE_FOUNDATION.md`: Prisma schema, migracao inicial, seed, convencoes, auditoria e limites atuais.
-- `ORCHESTRA_CORE_DOMAIN_DATABASE.md`: migrations incrementais, seed e limites de banco da Fase 05/05B.
+- `ORCHESTRA_CORE_DOMAIN_DATABASE.md`: migrations incrementais, seed e limites de banco da Fase 05/05B/05C.
 
 ## Base Atual
 
@@ -18,4 +18,5 @@ Esta pasta concentra a modelagem de dados do Orchestra.
 - Migration inicial versionada.
 - Migration incremental de core domain versionada.
 - Migration de governanca de assistants versionada.
+- Migration de approval e execution governance versionada.
 - Seed dummy para desenvolvimento.

@@ -7,6 +7,9 @@ export const assistantFeedbackRatingValues = ['positive', 'negative', 'neutral']
 export const assistantTestResultStatusValues = ['passed', 'failed', 'needs_review'] as const;
 export const assistantShareTargetValues = ['workspace', 'user', 'role', 'tenant'] as const;
 export const assistantSharePermissionValues = ['can_use', 'can_edit', 'can_manage', 'can_share'] as const;
+export const assistantApprovalStatusValues = ['pending', 'approved', 'rejected', 'cancelled', 'expired'] as const;
+export const assistantApprovalActionValues = ['publish', 'rollback', 'restore', 'enable_execution', 'configure_sandbox'] as const;
+export const assistantExecutionModeValues = ['draft_test', 'sandbox', 'published', 'blocked', 'archived'] as const;
 
 export const assistantsQuerySchema = paginationQuerySchema.extend({
   sortBy: z.enum(['name', 'status', 'createdAt', 'updatedAt']).default('updatedAt'),
@@ -57,17 +60,23 @@ export const assistantVersionParamsSchema = z.object({
 
 export const assistantPublishSchema = z.object({
   versionId: z.string().uuid().optional(),
+  approvalId: z.string().uuid().optional(),
   reason: z.string().trim().max(500).optional(),
 }).default({});
 
 export const assistantRollbackSchema = z.object({
   publicationId: z.string().uuid().optional(),
   versionId: z.string().uuid().optional(),
+  approvalId: z.string().uuid().optional(),
   reason: z.string().trim().min(2).max(500).optional(),
 }).refine((input) => input.publicationId || input.versionId || input.reason, {
   path: ['reason'],
   message: 'Informe publicationId, versionId ou reason para registrar o rollback.',
 });
+
+export const assistantRestoreSchema = z.object({
+  approvalId: z.string().uuid().optional(),
+}).default({});
 
 export const assistantShareCreateSchema = z.object({
   shareType: z.enum(assistantShareTargetValues).optional(),
@@ -112,12 +121,55 @@ export const assistantTestResultCreateSchema = z.object({
   notes: z.string().trim().max(4000).optional(),
 });
 
+export const assistantApprovalParamsSchema = z.object({
+  id: z.string().uuid(),
+  approvalId: z.string().uuid(),
+});
+
+export const assistantApprovalCreateSchema = z.object({
+  action: z.enum(assistantApprovalActionValues),
+  assistantVersionId: z.string().uuid().optional(),
+  publicationId: z.string().uuid().optional(),
+  reason: z.string().trim().min(2).max(1000).optional(),
+  metadata: z.record(z.unknown()).optional(),
+});
+
+export const assistantApprovalDecisionSchema = z.object({
+  decisionReason: z.string().trim().max(1000).optional(),
+}).default({});
+
+export const assistantExecutionPolicyUpdateSchema = z.object({
+  executionMode: z.enum(assistantExecutionModeValues).optional(),
+  requiresApprovalToPublish: z.boolean().optional(),
+  sandboxEnabled: z.boolean().optional(),
+  sandboxRequiresAuth: z.boolean().optional(),
+  sandboxAllowedForRoles: z.array(z.string().trim().min(1).max(80)).max(20).optional(),
+  sandboxBlocksExternalTools: z.boolean().optional(),
+  sandboxBlocksRealProviders: z.boolean().optional(),
+  sandboxLogsRequired: z.boolean().optional(),
+  sandboxCostLimitPlaceholder: z.number().min(0).max(1_000_000).nullable().optional(),
+  allowDraftTesting: z.boolean().optional(),
+  allowPublishedExecution: z.boolean().optional(),
+  isExecutionEnabled: z.boolean().optional(),
+}).refine((input) => Object.keys(input).length > 0, {
+  message: 'Informe ao menos uma propriedade de policy.',
+});
+
+export const assistantExecutionPrecheckSchema = z.object({
+  mode: z.enum(assistantExecutionModeValues),
+});
+
 export type AssistantsQuery = z.infer<typeof assistantsQuerySchema>;
 export type AssistantCreateInput = z.infer<typeof assistantCreateSchema>;
 export type AssistantUpdateInput = z.infer<typeof assistantUpdateSchema>;
 export type AssistantVersionCreateInput = z.infer<typeof assistantVersionCreateSchema>;
 export type AssistantPublishInput = z.infer<typeof assistantPublishSchema>;
 export type AssistantRollbackInput = z.infer<typeof assistantRollbackSchema>;
+export type AssistantRestoreInput = z.infer<typeof assistantRestoreSchema>;
 export type AssistantShareCreateInput = z.infer<typeof assistantShareCreateSchema>;
 export type AssistantFeedbackCreateInput = z.infer<typeof assistantFeedbackCreateSchema>;
 export type AssistantTestResultCreateInput = z.infer<typeof assistantTestResultCreateSchema>;
+export type AssistantApprovalCreateInput = z.infer<typeof assistantApprovalCreateSchema>;
+export type AssistantApprovalDecisionInput = z.infer<typeof assistantApprovalDecisionSchema>;
+export type AssistantExecutionPolicyUpdateInput = z.infer<typeof assistantExecutionPolicyUpdateSchema>;
+export type AssistantExecutionPrecheckInput = z.infer<typeof assistantExecutionPrecheckSchema>;

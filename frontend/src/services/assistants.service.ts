@@ -1,5 +1,10 @@
 import type {
   Assistant,
+  AssistantApprovalAction,
+  AssistantApprovalRequest,
+  AssistantExecutionMode,
+  AssistantExecutionPolicy,
+  AssistantExecutionPrecheckResult,
   AssistantFeedback,
   AssistantPublication,
   AssistantTestResult,
@@ -45,6 +50,44 @@ interface ApiAssistantPublication {
   rollbackReason: string | null;
 }
 
+interface ApiAssistantApprovalRequest {
+  id: string;
+  assistantId: string;
+  assistantVersionId: string | null;
+  publicationId: string | null;
+  requestedById: string;
+  decidedById: string | null;
+  action: AssistantApprovalAction;
+  status: AssistantApprovalRequest['status'];
+  reason: string | null;
+  decisionReason: string | null;
+  metadata?: unknown;
+  createdAt: string;
+  updatedAt: string;
+  decidedAt: string | null;
+  cancelledAt: string | null;
+}
+
+interface ApiAssistantExecutionPolicy {
+  id: string;
+  assistantId: string;
+  executionMode: AssistantExecutionMode;
+  requiresApprovalToPublish: boolean;
+  sandboxEnabled: boolean;
+  sandboxRequiresAuth: boolean;
+  sandboxAllowedForRoles?: unknown;
+  sandboxBlocksExternalTools: boolean;
+  sandboxBlocksRealProviders: boolean;
+  sandboxLogsRequired: boolean;
+  sandboxCostLimitPlaceholder: number | null;
+  allowDraftTesting: boolean;
+  allowPublishedExecution: boolean;
+  isExecutionEnabled: boolean;
+  updatedById: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
 interface ApiAssistant {
   id: string;
   tenantId: string;
@@ -59,6 +102,7 @@ interface ApiAssistant {
   versions?: ApiAssistantVersion[];
   activePublication?: ApiAssistantPublication | null;
   publications?: ApiAssistantPublication[];
+  executionPolicy?: ApiAssistantExecutionPolicy;
 }
 
 interface ApiAssistantFeedback {
@@ -86,6 +130,44 @@ interface ApiAssistantTestResult {
   notes: string | null;
   createdAt: string;
 }
+
+const mapApproval = (approval: ApiAssistantApprovalRequest): AssistantApprovalRequest => ({
+  id: approval.id,
+  assistantId: approval.assistantId,
+  assistantVersionId: approval.assistantVersionId,
+  publicationId: approval.publicationId,
+  requestedById: approval.requestedById,
+  decidedById: approval.decidedById,
+  action: approval.action,
+  status: approval.status,
+  reason: approval.reason,
+  decisionReason: approval.decisionReason,
+  metadata: approval.metadata,
+  createdAt: approval.createdAt,
+  updatedAt: approval.updatedAt,
+  decidedAt: approval.decidedAt,
+  cancelledAt: approval.cancelledAt,
+});
+
+const mapExecutionPolicy = (policy: ApiAssistantExecutionPolicy): AssistantExecutionPolicy => ({
+  id: policy.id,
+  assistantId: policy.assistantId,
+  executionMode: policy.executionMode,
+  requiresApprovalToPublish: policy.requiresApprovalToPublish,
+  sandboxEnabled: policy.sandboxEnabled,
+  sandboxRequiresAuth: policy.sandboxRequiresAuth,
+  sandboxAllowedForRoles: Array.isArray(policy.sandboxAllowedForRoles) ? policy.sandboxAllowedForRoles.map(String) : null,
+  sandboxBlocksExternalTools: policy.sandboxBlocksExternalTools,
+  sandboxBlocksRealProviders: policy.sandboxBlocksRealProviders,
+  sandboxLogsRequired: policy.sandboxLogsRequired,
+  sandboxCostLimitPlaceholder: policy.sandboxCostLimitPlaceholder,
+  allowDraftTesting: policy.allowDraftTesting,
+  allowPublishedExecution: policy.allowPublishedExecution,
+  isExecutionEnabled: policy.isExecutionEnabled,
+  updatedById: policy.updatedById,
+  createdAt: policy.createdAt,
+  updatedAt: policy.updatedAt,
+});
 
 const mapAssistant = (assistant: ApiAssistant): Assistant => {
   const latestVersion = assistant.versions?.[0];
@@ -116,6 +198,7 @@ const mapAssistant = (assistant: ApiAssistant): Assistant => {
     tasks: instructions,
     environment: assistant.status === 'published' ? 'production' : 'staging',
     activePublication: assistant.activePublication ?? null,
+    executionPolicy: assistant.executionPolicy ? mapExecutionPolicy(assistant.executionPolicy) : undefined,
   } as Assistant;
 };
 
@@ -259,15 +342,15 @@ export const assistantsService = {
     return mapAssistant(response.data.data);
   },
 
-  async restore(id: string): Promise<Assistant> {
+  async restore(id: string, payload?: { approvalId?: string }): Promise<Assistant> {
     if (env.useMocks) return mockFind(mockAssistants, id);
-    const response = await apiClient.post<ApiEnvelope<ApiAssistant>>(endpoints.assistants.restore(id));
+    const response = await apiClient.post<ApiEnvelope<ApiAssistant>>(endpoints.assistants.restore(id), payload ?? {});
     return mapAssistant(response.data.data);
   },
 
-  async publish(id: string): Promise<Assistant> {
+  async publish(id: string, payload?: { versionId?: string; approvalId?: string; reason?: string }): Promise<Assistant> {
     if (env.useMocks) return mockFind(mockAssistants, id);
-    const response = await apiClient.post<ApiEnvelope<ApiAssistant>>(endpoints.assistants.publish(id));
+    const response = await apiClient.post<ApiEnvelope<ApiAssistant>>(endpoints.assistants.publish(id), payload ?? {});
     return mapAssistant(response.data.data);
   },
 
@@ -277,7 +360,7 @@ export const assistantsService = {
     return mapAssistant(response.data.data);
   },
 
-  async rollback(id: string, payload: { versionId?: string; publicationId?: string; reason: string }): Promise<Assistant> {
+  async rollback(id: string, payload: { versionId?: string; publicationId?: string; approvalId?: string; reason: string }): Promise<Assistant> {
     if (env.useMocks) return mockFind(mockAssistants, id);
     const response = await apiClient.post<ApiEnvelope<ApiAssistant>>(endpoints.assistants.rollback(id), payload);
     return mapAssistant(response.data.data);
@@ -299,6 +382,158 @@ export const assistantsService = {
     if (env.useMocks) return mockResponse(null);
     const response = await apiClient.get<ApiEnvelope<ApiAssistantPublication | null>>(endpoints.assistants.activePublication(assistantId));
     return response.data.data ? mapPublication(response.data.data) : null;
+  },
+
+  async approvals(assistantId: string): Promise<AssistantApprovalRequest[]> {
+    if (env.useMocks) return mockResponse([]);
+    const response = await apiClient.get<ApiEnvelope<ApiAssistantApprovalRequest[]>>(endpoints.assistants.approvals(assistantId));
+    return response.data.data.map(mapApproval);
+  },
+
+  async createApproval(assistantId: string, payload: {
+    action: AssistantApprovalAction;
+    assistantVersionId?: string;
+    publicationId?: string;
+    reason?: string;
+    metadata?: Record<string, unknown>;
+  }): Promise<AssistantApprovalRequest> {
+    if (env.useMocks) {
+      return mockResponse({
+        id: `approval-${Date.now()}`,
+        assistantId,
+        assistantVersionId: payload.assistantVersionId,
+        publicationId: payload.publicationId,
+        requestedById: 'mock-user-1',
+        decidedById: null,
+        action: payload.action,
+        status: 'pending',
+        reason: payload.reason,
+        decisionReason: null,
+        metadata: payload.metadata,
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+      });
+    }
+    const response = await apiClient.post<ApiEnvelope<ApiAssistantApprovalRequest>>(endpoints.assistants.approvals(assistantId), payload);
+    return mapApproval(response.data.data);
+  },
+
+  async approveApproval(assistantId: string, approvalId: string, decisionReason?: string): Promise<AssistantApprovalRequest> {
+    if (env.useMocks) {
+      return mockResponse({
+        id: approvalId,
+        assistantId,
+        requestedById: 'mock-user-1',
+        decidedById: 'mock-user-1',
+        action: 'publish',
+        status: 'approved',
+        reason: '',
+        decisionReason,
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+        decidedAt: new Date().toISOString(),
+      } as AssistantApprovalRequest);
+    }
+    const response = await apiClient.post<ApiEnvelope<ApiAssistantApprovalRequest>>(endpoints.assistants.approveApproval(assistantId, approvalId), { decisionReason });
+    return mapApproval(response.data.data);
+  },
+
+  async rejectApproval(assistantId: string, approvalId: string, decisionReason?: string): Promise<AssistantApprovalRequest> {
+    if (env.useMocks) {
+      return mockResponse({
+        id: approvalId,
+        assistantId,
+        requestedById: 'mock-user-1',
+        decidedById: 'mock-user-1',
+        action: 'publish',
+        status: 'rejected',
+        reason: '',
+        decisionReason,
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+        decidedAt: new Date().toISOString(),
+      } as AssistantApprovalRequest);
+    }
+    const response = await apiClient.post<ApiEnvelope<ApiAssistantApprovalRequest>>(endpoints.assistants.rejectApproval(assistantId, approvalId), { decisionReason });
+    return mapApproval(response.data.data);
+  },
+
+  async cancelApproval(assistantId: string, approvalId: string, decisionReason?: string): Promise<AssistantApprovalRequest> {
+    if (env.useMocks) {
+      return mockResponse({
+        id: approvalId,
+        assistantId,
+        requestedById: 'mock-user-1',
+        decidedById: null,
+        action: 'publish',
+        status: 'cancelled',
+        reason: '',
+        decisionReason,
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+        cancelledAt: new Date().toISOString(),
+      } as AssistantApprovalRequest);
+    }
+    const response = await apiClient.post<ApiEnvelope<ApiAssistantApprovalRequest>>(endpoints.assistants.cancelApproval(assistantId, approvalId), { decisionReason });
+    return mapApproval(response.data.data);
+  },
+
+  async executionPolicy(assistantId: string): Promise<AssistantExecutionPolicy> {
+    if (env.useMocks) {
+      return mockResponse({
+        id: `policy-${assistantId}`,
+        assistantId,
+        executionMode: 'draft_test',
+        requiresApprovalToPublish: false,
+        sandboxEnabled: true,
+        sandboxRequiresAuth: true,
+        sandboxAllowedForRoles: ['admin_platform'],
+        sandboxBlocksExternalTools: true,
+        sandboxBlocksRealProviders: true,
+        sandboxLogsRequired: true,
+        sandboxCostLimitPlaceholder: null,
+        allowDraftTesting: true,
+        allowPublishedExecution: false,
+        isExecutionEnabled: false,
+        updatedById: 'mock-user-1',
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+      });
+    }
+    const response = await apiClient.get<ApiEnvelope<ApiAssistantExecutionPolicy>>(endpoints.assistants.executionPolicy(assistantId));
+    return mapExecutionPolicy(response.data.data);
+  },
+
+  async updateExecutionPolicy(assistantId: string, payload: Partial<Pick<AssistantExecutionPolicy,
+    'executionMode' |
+    'requiresApprovalToPublish' |
+    'sandboxEnabled' |
+    'sandboxRequiresAuth' |
+    'sandboxAllowedForRoles' |
+    'sandboxBlocksExternalTools' |
+    'sandboxBlocksRealProviders' |
+    'sandboxLogsRequired' |
+    'sandboxCostLimitPlaceholder' |
+    'allowDraftTesting' |
+    'allowPublishedExecution' |
+    'isExecutionEnabled'
+  >>): Promise<AssistantExecutionPolicy> {
+    if (env.useMocks) return assistantsService.executionPolicy(assistantId);
+    const response = await apiClient.patch<ApiEnvelope<ApiAssistantExecutionPolicy>>(endpoints.assistants.executionPolicy(assistantId), payload);
+    return mapExecutionPolicy(response.data.data);
+  },
+
+  async executionPrecheck(assistantId: string, mode: AssistantExecutionMode): Promise<AssistantExecutionPrecheckResult> {
+    if (env.useMocks) {
+      return mockResponse({
+        canExecute: mode === 'sandbox' || mode === 'draft_test',
+        mode,
+        reasons: mode === 'published' ? [{ code: 'NO_ACTIVE_PUBLICATION', message: 'O assistente nao possui publicacao ativa.' }] : [],
+        requestId: `mock-${Date.now()}`,
+      });
+    }
+    const response = await apiClient.post<AssistantExecutionPrecheckResult>(endpoints.assistants.executionPrecheck(assistantId), { mode });
+    return response.data;
   },
 
   async feedback(assistantId: string): Promise<AssistantFeedback[]> {

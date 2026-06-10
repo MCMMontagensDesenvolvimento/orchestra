@@ -1,9 +1,12 @@
+import type { Prisma } from '@prisma/client';
 import { AppError } from '../../shared/errors/app-error';
 import type { AuthenticatedUser } from '../../shared/types/auth';
 import { paginationMeta } from '../../shared/validation/pagination';
 import { recordAuditEvent } from '../audit/audit.service';
 import {
   mapAssistant,
+  mapAssistantApprovalRequest,
+  mapAssistantExecutionPolicy,
   mapAssistantFeedback,
   mapAssistantPublication,
   mapAssistantShare,
@@ -14,10 +17,15 @@ import { assistantPolicies, type AssistantPolicySubject } from './assistants.pol
 import { assistantsRepository } from './assistants.repository';
 import type {
   AssistantCreateInput,
+  AssistantApprovalCreateInput,
+  AssistantApprovalDecisionInput,
+  AssistantExecutionPolicyUpdateInput,
+  AssistantExecutionPrecheckInput,
   AssistantFeedbackCreateInput,
   AssistantsQuery,
   AssistantPublishInput,
   AssistantRollbackInput,
+  AssistantRestoreInput,
   AssistantShareCreateInput,
   AssistantTestResultCreateInput,
   AssistantUpdateInput,
@@ -31,6 +39,7 @@ interface RequestContext {
 }
 
 const userWorkspaceIds = (user: AuthenticatedUser) => user.workspaces.map((workspace) => workspace.id);
+const unsafeMetadataKeys = new Set(['instructions', 'prompt', 'content', 'secret', 'token', 'password', 'apiKey', 'authorization']);
 
 function subjectFromAssistant(assistant: AssistantPolicySubject): AssistantPolicySubject {
   return {
@@ -38,6 +47,37 @@ function subjectFromAssistant(assistant: AssistantPolicySubject): AssistantPolic
     createdById: assistant.createdById,
     status: assistant.status,
   };
+}
+
+function sanitizeMetadata(value: unknown, depth = 0): unknown {
+  if (value == null || typeof value === 'boolean' || typeof value === 'number') return value;
+  if (typeof value === 'string') return value.slice(0, 300);
+  if (depth >= 3) return '[truncated]';
+  if (Array.isArray(value)) return value.slice(0, 20).map((item) => sanitizeMetadata(item, depth + 1));
+  if (typeof value !== 'object') return undefined;
+
+  return Object.fromEntries(
+    Object.entries(value as Record<string, unknown>)
+      .slice(0, 30)
+      .map(([key, item]) => [
+        key,
+        unsafeMetadataKeys.has(key) || unsafeMetadataKeys.has(key.toLowerCase()) ? '[redacted]' : sanitizeMetadata(item, depth + 1),
+      ]),
+  );
+}
+
+async function assertApprovedAction(assistantId: string, action: string, approvalId?: string, versionId?: string) {
+  if (!approvalId) {
+    throw new AppError(409, 'APPROVAL_REQUIRED', 'A acao exige approval aprovado.');
+  }
+  const approval = await assistantsRepository.findApprovedApproval({ assistantId, approvalId, action });
+  if (!approval) {
+    throw new AppError(409, 'APPROVAL_NOT_APPROVED', 'Approval aprovado nao encontrado para esta acao.');
+  }
+  if (versionId && approval.assistantVersionId && approval.assistantVersionId !== versionId) {
+    throw new AppError(409, 'APPROVAL_VERSION_MISMATCH', 'Approval aprovado nao corresponde a versao solicitada.');
+  }
+  return approval;
 }
 
 async function recordDenied(
@@ -215,7 +255,7 @@ export const assistantsService = {
     return mapAssistant(assistant);
   },
 
-  async restore(id: string, user: AuthenticatedUser, context: RequestContext) {
+  async restore(id: string, input: AssistantRestoreInput, user: AuthenticatedUser, context: RequestContext) {
     const current = await getAssistantOrThrow(id, user);
     await assertAllowed(
       assistantPolicies.canRestoreAssistant(user, subjectFromAssistant(current)),
@@ -224,6 +264,9 @@ export const assistantsService = {
       current,
       context,
     );
+    if (input.approvalId) {
+      await assertApprovedAction(current.id, 'restore', input.approvalId);
+    }
 
     const assistant = await assistantsRepository.restore(id, user.tenant.id, userWorkspaceIds(user));
     if (!assistant) {
@@ -317,6 +360,25 @@ export const assistantsService = {
       current,
       context,
     );
+    const executionPolicy = await assistantsRepository.getExecutionPolicy(current);
+    if (executionPolicy.requiresApprovalToPublish && !input.approvalId) {
+      await recordAuditEvent({
+        tenantId: user.tenant.id,
+        workspaceId: current.workspaceId,
+        actorUserId: user.id,
+        action: 'assistant_publish_blocked_by_approval',
+        entity: 'assistant',
+        entityId: current.id,
+        metadata: { requiresApprovalToPublish: true },
+        requestId: context.requestId,
+        ipAddress: context.ipAddress,
+        userAgent: context.userAgent,
+      });
+      throw new AppError(409, 'APPROVAL_REQUIRED', 'Publicacao exige approval aprovado.');
+    }
+    if (executionPolicy.requiresApprovalToPublish) {
+      await assertApprovedAction(current.id, 'publish', input.approvalId, input.versionId);
+    }
 
     const result = await assistantsRepository.publish({
       id,
@@ -394,6 +456,9 @@ export const assistantsService = {
       current,
       context,
     );
+    if (input.approvalId) {
+      await assertApprovedAction(current.id, 'rollback', input.approvalId, input.versionId);
+    }
 
     const result = await assistantsRepository.rollback({
       id,
@@ -430,8 +495,8 @@ export const assistantsService = {
   async listPublications(id: string, user: AuthenticatedUser, context: RequestContext) {
     const assistant = await getAssistantOrThrow(id, user);
     await assertAllowed(
-      assistantPolicies.canReadAssistant(user, subjectFromAssistant(assistant)),
-      'canReadAssistant',
+      assistantPolicies.canReadPublications(user, subjectFromAssistant(assistant)),
+      'canReadPublications',
       user,
       assistant,
       context,
@@ -443,14 +508,363 @@ export const assistantsService = {
   async getActivePublication(id: string, user: AuthenticatedUser, context: RequestContext) {
     const assistant = await getAssistantOrThrow(id, user);
     await assertAllowed(
-      assistantPolicies.canReadAssistant(user, subjectFromAssistant(assistant)),
-      'canReadAssistant',
+      assistantPolicies.canReadPublications(user, subjectFromAssistant(assistant)),
+      'canReadPublications',
       user,
       assistant,
       context,
     );
     const publication = await assistantsRepository.getActivePublication(assistant.id);
     return publication ? mapAssistantPublication(publication) : null;
+  },
+
+  async listApprovals(id: string, user: AuthenticatedUser, context: RequestContext) {
+    const assistant = await getAssistantOrThrow(id, user);
+    await assertAllowed(
+      assistantPolicies.canReadAssistant(user, subjectFromAssistant(assistant)),
+      'canReadAssistant',
+      user,
+      assistant,
+      context,
+    );
+    const approvals = await assistantsRepository.listApprovals(assistant.id);
+    return approvals.map(mapAssistantApprovalRequest);
+  },
+
+  async getApproval(id: string, approvalId: string, user: AuthenticatedUser, context: RequestContext) {
+    const assistant = await getAssistantOrThrow(id, user);
+    await assertAllowed(
+      assistantPolicies.canReadAssistant(user, subjectFromAssistant(assistant)),
+      'canReadAssistant',
+      user,
+      assistant,
+      context,
+    );
+    const approval = await assistantsRepository.findApproval(assistant.id, approvalId);
+    if (!approval) {
+      throw new AppError(404, 'ASSISTANT_APPROVAL_NOT_FOUND', 'Approval nao encontrado.');
+    }
+    return mapAssistantApprovalRequest(approval);
+  },
+
+  async createApproval(id: string, input: AssistantApprovalCreateInput, user: AuthenticatedUser, context: RequestContext) {
+    const assistant = await getAssistantOrThrow(id, user);
+    await assertAllowed(
+      assistantPolicies.canRequestApproval(user, subjectFromAssistant(assistant)),
+      'canRequestApproval',
+      user,
+      assistant,
+      context,
+    );
+    if (input.assistantVersionId) {
+      await resolveVersionOrThrow(assistant.id, input.assistantVersionId);
+    }
+    if (input.publicationId) {
+      const publication = await assistantsRepository.findPublication(assistant.id, input.publicationId);
+      if (!publication) {
+        throw new AppError(404, 'ASSISTANT_PUBLICATION_NOT_FOUND', 'Publicacao nao encontrada.');
+      }
+    }
+
+    const approval = await assistantsRepository.createApproval({
+      ...input,
+      tenantId: user.tenant.id,
+      workspaceId: assistant.workspaceId,
+      assistantId: assistant.id,
+      requestedById: user.id,
+      metadata: sanitizeMetadata(input.metadata) as Prisma.InputJsonValue | undefined,
+    });
+    await recordAuditEvent({
+      tenantId: user.tenant.id,
+      workspaceId: assistant.workspaceId,
+      actorUserId: user.id,
+      action: 'assistant_approval_requested',
+      entity: 'assistant_approval_request',
+      entityId: approval.id,
+      metadata: {
+        assistantId: assistant.id,
+        action: approval.action,
+        versionId: approval.assistantVersionId,
+        publicationId: approval.publicationId,
+      },
+      requestId: context.requestId,
+      ipAddress: context.ipAddress,
+      userAgent: context.userAgent,
+    });
+    return mapAssistantApprovalRequest(approval);
+  },
+
+  async approveApproval(id: string, approvalId: string, input: AssistantApprovalDecisionInput, user: AuthenticatedUser, context: RequestContext) {
+    const assistant = await getAssistantOrThrow(id, user);
+    await assertAllowed(
+      assistantPolicies.canApproveApproval(user, subjectFromAssistant(assistant)),
+      'canApproveApproval',
+      user,
+      assistant,
+      context,
+    );
+    const current = await assistantsRepository.findApproval(assistant.id, approvalId);
+    if (!current) {
+      throw new AppError(404, 'ASSISTANT_APPROVAL_NOT_FOUND', 'Approval nao encontrado.');
+    }
+    if (current.status !== 'pending') {
+      throw new AppError(409, 'APPROVAL_ALREADY_DECIDED', 'Approval ja foi decidido.');
+    }
+    const approval = await assistantsRepository.decideApproval({
+      assistantId: assistant.id,
+      approvalId,
+      status: 'approved',
+      decidedById: user.id,
+      decisionReason: input.decisionReason,
+    });
+    await recordAuditEvent({
+      tenantId: user.tenant.id,
+      workspaceId: assistant.workspaceId,
+      actorUserId: user.id,
+      action: 'assistant_approval_approved',
+      entity: 'assistant_approval_request',
+      entityId: approval.id,
+      metadata: { assistantId: assistant.id, action: approval.action, requestedById: approval.requestedById },
+      requestId: context.requestId,
+      ipAddress: context.ipAddress,
+      userAgent: context.userAgent,
+    });
+    return mapAssistantApprovalRequest(approval);
+  },
+
+  async rejectApproval(id: string, approvalId: string, input: AssistantApprovalDecisionInput, user: AuthenticatedUser, context: RequestContext) {
+    const assistant = await getAssistantOrThrow(id, user);
+    await assertAllowed(
+      assistantPolicies.canRejectApproval(user, subjectFromAssistant(assistant)),
+      'canRejectApproval',
+      user,
+      assistant,
+      context,
+    );
+    const current = await assistantsRepository.findApproval(assistant.id, approvalId);
+    if (!current) {
+      throw new AppError(404, 'ASSISTANT_APPROVAL_NOT_FOUND', 'Approval nao encontrado.');
+    }
+    if (current.status !== 'pending') {
+      throw new AppError(409, 'APPROVAL_ALREADY_DECIDED', 'Approval ja foi decidido.');
+    }
+    const approval = await assistantsRepository.decideApproval({
+      assistantId: assistant.id,
+      approvalId,
+      status: 'rejected',
+      decidedById: user.id,
+      decisionReason: input.decisionReason,
+    });
+    await recordAuditEvent({
+      tenantId: user.tenant.id,
+      workspaceId: assistant.workspaceId,
+      actorUserId: user.id,
+      action: 'assistant_approval_rejected',
+      entity: 'assistant_approval_request',
+      entityId: approval.id,
+      metadata: { assistantId: assistant.id, action: approval.action, requestedById: approval.requestedById },
+      requestId: context.requestId,
+      ipAddress: context.ipAddress,
+      userAgent: context.userAgent,
+    });
+    return mapAssistantApprovalRequest(approval);
+  },
+
+  async cancelApproval(id: string, approvalId: string, input: AssistantApprovalDecisionInput, user: AuthenticatedUser, context: RequestContext) {
+    const assistant = await getAssistantOrThrow(id, user);
+    await assertAllowed(
+      assistantPolicies.canCancelApproval(user, subjectFromAssistant(assistant)),
+      'canCancelApproval',
+      user,
+      assistant,
+      context,
+    );
+    const current = await assistantsRepository.findApproval(assistant.id, approvalId);
+    if (!current) {
+      throw new AppError(404, 'ASSISTANT_APPROVAL_NOT_FOUND', 'Approval nao encontrado.');
+    }
+    if (current.status !== 'pending') {
+      throw new AppError(409, 'APPROVAL_ALREADY_DECIDED', 'Approval ja foi decidido.');
+    }
+    const approval = await assistantsRepository.cancelApproval({
+      assistantId: assistant.id,
+      approvalId,
+      requestedById: user.id,
+      decisionReason: input.decisionReason,
+    });
+    await recordAuditEvent({
+      tenantId: user.tenant.id,
+      workspaceId: assistant.workspaceId,
+      actorUserId: user.id,
+      action: 'assistant_approval_cancelled',
+      entity: 'assistant_approval_request',
+      entityId: approval.id,
+      metadata: { assistantId: assistant.id, action: approval.action, requestedById: approval.requestedById },
+      requestId: context.requestId,
+      ipAddress: context.ipAddress,
+      userAgent: context.userAgent,
+    });
+    return mapAssistantApprovalRequest(approval);
+  },
+
+  async getExecutionPolicy(id: string, user: AuthenticatedUser, context: RequestContext) {
+    const assistant = await getAssistantOrThrow(id, user);
+    await assertAllowed(
+      assistantPolicies.canReadAssistant(user, subjectFromAssistant(assistant)),
+      'canReadAssistant',
+      user,
+      assistant,
+      context,
+    );
+    const policy = await assistantsRepository.getExecutionPolicy(assistant);
+    return mapAssistantExecutionPolicy(policy);
+  },
+
+  async updateExecutionPolicy(id: string, input: AssistantExecutionPolicyUpdateInput, user: AuthenticatedUser, context: RequestContext) {
+    const assistant = await getAssistantOrThrow(id, user);
+    await assertAllowed(
+      assistantPolicies.canConfigureExecutionPolicy(user, subjectFromAssistant(assistant)),
+      'canConfigureExecutionPolicy',
+      user,
+      assistant,
+      context,
+    );
+    if (input.isExecutionEnabled === true) {
+      await assertAllowed(
+        assistantPolicies.canEnableExecution(user, subjectFromAssistant(assistant)),
+        'canEnableExecution',
+        user,
+        assistant,
+        context,
+      );
+    }
+    if (input.sandboxBlocksExternalTools === false || input.sandboxBlocksRealProviders === false) {
+      throw new AppError(422, 'REAL_EXECUTION_NOT_AVAILABLE', 'Sandbox deve bloquear tools externas e providers reais nesta fase.');
+    }
+    if (input.sandboxLogsRequired === false) {
+      throw new AppError(422, 'SANDBOX_LOGS_REQUIRED', 'Sandbox deve exigir logs nesta fase.');
+    }
+    if (assistant.status === 'archived') {
+      throw new AppError(422, 'ARCHIVED_ASSISTANT_BLOCKED', 'Assistente arquivado nao pode ter execucao habilitada.');
+    }
+    if (input.executionMode === 'published' || input.allowPublishedExecution === true) {
+      const activePublication = await assistantsRepository.getActivePublication(assistant.id);
+      if (!activePublication || assistant.status !== 'published') {
+        throw new AppError(422, 'NO_ACTIVE_PUBLICATION', 'Execucao published exige publicacao ativa.');
+      }
+    }
+
+    const policy = await assistantsRepository.updateExecutionPolicy({
+      assistant,
+      payload: input,
+      updatedById: user.id,
+    });
+    await recordAuditEvent({
+      tenantId: user.tenant.id,
+      workspaceId: assistant.workspaceId,
+      actorUserId: user.id,
+      action: 'assistant_execution_policy_updated',
+      entity: 'assistant_execution_policy',
+      entityId: policy.id,
+      metadata: {
+        assistantId: assistant.id,
+        executionMode: policy.executionMode,
+        isExecutionEnabled: policy.isExecutionEnabled,
+        requiresApprovalToPublish: policy.requiresApprovalToPublish,
+      },
+      requestId: context.requestId,
+      ipAddress: context.ipAddress,
+      userAgent: context.userAgent,
+    });
+    const sandboxKeys = ['sandboxEnabled', 'sandboxRequiresAuth', 'sandboxAllowedForRoles', 'sandboxBlocksExternalTools', 'sandboxBlocksRealProviders', 'sandboxLogsRequired', 'sandboxCostLimitPlaceholder'];
+    if (sandboxKeys.some((key) => key in input)) {
+      await recordAuditEvent({
+        tenantId: user.tenant.id,
+        workspaceId: assistant.workspaceId,
+        actorUserId: user.id,
+        action: 'assistant_sandbox_policy_updated',
+        entity: 'assistant_execution_policy',
+        entityId: policy.id,
+        metadata: { assistantId: assistant.id, sandboxEnabled: policy.sandboxEnabled },
+        requestId: context.requestId,
+        ipAddress: context.ipAddress,
+        userAgent: context.userAgent,
+      });
+    }
+    return mapAssistantExecutionPolicy(policy);
+  },
+
+  async executionPrecheck(id: string, input: AssistantExecutionPrecheckInput, user: AuthenticatedUser, context: RequestContext) {
+    const assistant = await getAssistantOrThrow(id, user);
+    await assertAllowed(
+      assistantPolicies.canRunExecutionPrecheck(user, subjectFromAssistant(assistant)),
+      'canRunExecutionPrecheck',
+      user,
+      assistant,
+      context,
+    );
+    if (input.mode === 'sandbox') {
+      await assertAllowed(
+        assistantPolicies.canUseSandbox(user, subjectFromAssistant(assistant)),
+        'canUseSandbox',
+        user,
+        assistant,
+        context,
+      );
+    }
+
+    const policy = await assistantsRepository.getExecutionPolicy(assistant);
+    const activePublication = await assistantsRepository.getActivePublication(assistant.id);
+    const pendingApprovals = await assistantsRepository.countPendingApprovals(assistant.id, ['publish', 'enable_execution']);
+    const reasons: { code: string; message: string }[] = [];
+
+    if (assistant.status === 'archived') {
+      reasons.push({ code: 'ASSISTANT_ARCHIVED', message: 'Assistente arquivado nao pode executar.' });
+    }
+    if (input.mode === 'archived') {
+      reasons.push({ code: 'MODE_ARCHIVED', message: 'Modo archived e apenas estado de bloqueio, nao modo executavel.' });
+    }
+    if (input.mode === 'blocked') {
+      reasons.push({ code: 'MODE_BLOCKED', message: 'Modo blocked impede execucao.' });
+    }
+    if (input.mode === 'draft_test' && !policy.allowDraftTesting) {
+      reasons.push({ code: 'DRAFT_TESTING_DISABLED', message: 'Testes em draft estao desabilitados pela policy.' });
+    }
+    if (input.mode === 'sandbox') {
+      if (!policy.sandboxEnabled) reasons.push({ code: 'SANDBOX_DISABLED', message: 'Sandbox esta desabilitado pela policy.' });
+      if (!policy.sandboxBlocksExternalTools) reasons.push({ code: 'EXTERNAL_TOOLS_NOT_BLOCKED', message: 'Sandbox deve bloquear tools externas nesta fase.' });
+      if (!policy.sandboxBlocksRealProviders) reasons.push({ code: 'REAL_PROVIDERS_NOT_BLOCKED', message: 'Sandbox deve bloquear providers reais nesta fase.' });
+      if (!policy.sandboxLogsRequired) reasons.push({ code: 'SANDBOX_LOGS_REQUIRED', message: 'Sandbox exige logs para rastreabilidade.' });
+    }
+    if (input.mode === 'published') {
+      if (assistant.status !== 'published') reasons.push({ code: 'ASSISTANT_NOT_PUBLISHED', message: 'Assistente nao esta publicado.' });
+      if (!activePublication) reasons.push({ code: 'NO_ACTIVE_PUBLICATION', message: 'O assistente nao possui publicacao ativa.' });
+      if (!policy.allowPublishedExecution) reasons.push({ code: 'PUBLISHED_EXECUTION_DISABLED', message: 'Execucao published nao foi liberada pela policy.' });
+      if (!policy.isExecutionEnabled) reasons.push({ code: 'EXECUTION_DISABLED', message: 'Execucao esta desabilitada pela policy.' });
+      if (pendingApprovals > 0) reasons.push({ code: 'PENDING_APPROVAL', message: 'Ha approval pendente relacionado a publicacao ou execucao.' });
+    }
+
+    if (reasons.length > 0) {
+      await recordAuditEvent({
+        tenantId: user.tenant.id,
+        workspaceId: assistant.workspaceId,
+        actorUserId: user.id,
+        action: 'assistant_execution_blocked',
+        entity: 'assistant',
+        entityId: assistant.id,
+        metadata: { mode: input.mode, reasons: reasons.map((reason) => reason.code) },
+        requestId: context.requestId,
+        ipAddress: context.ipAddress,
+        userAgent: context.userAgent,
+      });
+    }
+
+    return {
+      canExecute: reasons.length === 0,
+      mode: input.mode,
+      reasons,
+      requestId: context.requestId,
+    };
   },
 
   async listFeedback(id: string, user: AuthenticatedUser, context: RequestContext) {

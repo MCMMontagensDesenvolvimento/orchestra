@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { assistantsService } from '@/services/assistants.service';
-import type { AssistantTestStatus, FeedbackType, AssistantWizardFormData } from '@/types';
+import type { AssistantApprovalAction, AssistantExecutionMode, AssistantExecutionPolicy, AssistantTestStatus, FeedbackType, AssistantWizardFormData } from '@/types';
 import { queryKeys } from './queryKeys';
 
 export const useAssistants = () =>
@@ -31,6 +31,20 @@ export const useAssistantActivePublication = (id: string | undefined) =>
   useQuery({
     queryKey: queryKeys.assistants.activePublication(id ?? ''),
     queryFn: () => assistantsService.activePublication(id!),
+    enabled: !!id,
+  });
+
+export const useAssistantApprovals = (id: string | undefined) =>
+  useQuery({
+    queryKey: queryKeys.assistants.approvals(id ?? ''),
+    queryFn: () => assistantsService.approvals(id!),
+    enabled: !!id,
+  });
+
+export const useAssistantExecutionPolicy = (id: string | undefined) =>
+  useQuery({
+    queryKey: queryKeys.assistants.executionPolicy(id ?? ''),
+    queryFn: () => assistantsService.executionPolicy(id!),
     enabled: !!id,
   });
 
@@ -106,10 +120,16 @@ export const useRestoreAssistantMutation = () => {
 export const usePublishAssistantMutation = () => {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: (id: string) => assistantsService.publish(id),
-    onSuccess: (_assistant, id) => {
+    mutationFn: (input: string | { id: string; versionId?: string; approvalId?: string; reason?: string }) =>
+      typeof input === 'string' ? assistantsService.publish(input) : assistantsService.publish(input.id, input),
+    onSuccess: (_assistant, input) => {
+      const id = typeof input === 'string' ? input : input.id;
       void queryClient.invalidateQueries({ queryKey: queryKeys.assistants.all });
       void queryClient.invalidateQueries({ queryKey: queryKeys.assistants.detail(id) });
+      void queryClient.invalidateQueries({ queryKey: queryKeys.assistants.versions(id) });
+      void queryClient.invalidateQueries({ queryKey: queryKeys.assistants.publications(id) });
+      void queryClient.invalidateQueries({ queryKey: queryKeys.assistants.activePublication(id) });
+      void queryClient.invalidateQueries({ queryKey: queryKeys.assistants.approvals(id) });
       void queryClient.invalidateQueries({ queryKey: queryKeys.audit.logs });
     },
   });
@@ -156,6 +176,90 @@ export const useCreateAssistantFeedbackMutation = () => {
     },
   });
 };
+
+export const useCreateAssistantApprovalMutation = () => {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, action, assistantVersionId, publicationId, reason }: {
+      id: string;
+      action: AssistantApprovalAction;
+      assistantVersionId?: string;
+      publicationId?: string;
+      reason?: string;
+    }) => assistantsService.createApproval(id, { action, assistantVersionId, publicationId, reason }),
+    onSuccess: (_approval, variables) => {
+      void queryClient.invalidateQueries({ queryKey: queryKeys.assistants.detail(variables.id) });
+      void queryClient.invalidateQueries({ queryKey: queryKeys.assistants.approvals(variables.id) });
+      void queryClient.invalidateQueries({ queryKey: queryKeys.audit.logs });
+    },
+  });
+};
+
+export const useApproveAssistantApprovalMutation = () => {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, approvalId, decisionReason }: { id: string; approvalId: string; decisionReason?: string }) =>
+      assistantsService.approveApproval(id, approvalId, decisionReason),
+    onSuccess: (_approval, variables) => {
+      void queryClient.invalidateQueries({ queryKey: queryKeys.assistants.approvals(variables.id) });
+      void queryClient.invalidateQueries({ queryKey: queryKeys.audit.logs });
+    },
+  });
+};
+
+export const useRejectAssistantApprovalMutation = () => {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, approvalId, decisionReason }: { id: string; approvalId: string; decisionReason?: string }) =>
+      assistantsService.rejectApproval(id, approvalId, decisionReason),
+    onSuccess: (_approval, variables) => {
+      void queryClient.invalidateQueries({ queryKey: queryKeys.assistants.approvals(variables.id) });
+      void queryClient.invalidateQueries({ queryKey: queryKeys.audit.logs });
+    },
+  });
+};
+
+export const useCancelAssistantApprovalMutation = () => {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, approvalId, decisionReason }: { id: string; approvalId: string; decisionReason?: string }) =>
+      assistantsService.cancelApproval(id, approvalId, decisionReason),
+    onSuccess: (_approval, variables) => {
+      void queryClient.invalidateQueries({ queryKey: queryKeys.assistants.approvals(variables.id) });
+      void queryClient.invalidateQueries({ queryKey: queryKeys.audit.logs });
+    },
+  });
+};
+
+export const useUpdateAssistantExecutionPolicyMutation = () => {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, payload }: { id: string; payload: Partial<Pick<AssistantExecutionPolicy,
+      'executionMode' |
+      'requiresApprovalToPublish' |
+      'sandboxEnabled' |
+      'sandboxRequiresAuth' |
+      'sandboxAllowedForRoles' |
+      'sandboxBlocksExternalTools' |
+      'sandboxBlocksRealProviders' |
+      'sandboxLogsRequired' |
+      'sandboxCostLimitPlaceholder' |
+      'allowDraftTesting' |
+      'allowPublishedExecution' |
+      'isExecutionEnabled'
+    >> }) => assistantsService.updateExecutionPolicy(id, payload),
+    onSuccess: (_policy, variables) => {
+      void queryClient.invalidateQueries({ queryKey: queryKeys.assistants.detail(variables.id) });
+      void queryClient.invalidateQueries({ queryKey: queryKeys.assistants.executionPolicy(variables.id) });
+      void queryClient.invalidateQueries({ queryKey: queryKeys.audit.logs });
+    },
+  });
+};
+
+export const useAssistantExecutionPrecheckMutation = () =>
+  useMutation({
+    mutationFn: ({ id, mode }: { id: string; mode: AssistantExecutionMode }) => assistantsService.executionPrecheck(id, mode),
+  });
 
 export const useCreateAssistantTestResultMutation = () => {
   const queryClient = useQueryClient();

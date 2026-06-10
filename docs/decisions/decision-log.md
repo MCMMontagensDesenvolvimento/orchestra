@@ -241,3 +241,33 @@ Status: decidida.
 Publicacao, despublicacao, rollback, arquivamento, restauracao, feedback e test results devem ser autorizados no backend por permissao e policy de dominio. O frontend apenas ajusta a experiencia visual.
 
 Status: decidida.
+
+## DEC-GOV-001 - Approval request como entidade auditavel para acoes sensiveis
+
+Approvals de assistant devem ser persistidos em entidade propria, com tenant, workspace, requester, decision maker, action, status, motivos e metadata sanitizada. Isso preserva historico antes de workflows multi-etapas mais avancados.
+
+Status: decidida.
+
+## DEC-GOV-002 - Execution precheck antes de runtime real de IA
+
+Antes de qualquer runtime real, o control plane deve expor precheck de execucao para informar se um assistant poderia executar em determinado modo e quais bloqueios se aplicam.
+
+Status: decidida.
+
+## DEC-GOV-003 - Sandbox policy preparada antes de providers, RAG e MCP reais
+
+Sandbox deve existir como policy de governanca antes de integracoes reais. Nesta fase, sandbox permanece bloqueando tools externas e providers reais, com logs obrigatorios.
+
+Status: decidida.
+
+## DEC-GOV-004 - Backend como autoridade de approval e execution policy
+
+Frontend pode exibir ou ocultar controles com base nas permissoes da sessao, mas approval, execution policy, sandbox policy e bloqueios continuam validados no backend.
+
+Status: decidida.
+
+## DEC-GOV-005 - Approval workflow simples antes de workflow multi-etapas avancado
+
+O workflow inicial suporta request, approve, reject, cancel, listagem e historico. Separacao avancada de responsabilidades, expiracao automatica e cadeias multi-aprovador ficam para fases posteriores.
+
+Status: decidida.

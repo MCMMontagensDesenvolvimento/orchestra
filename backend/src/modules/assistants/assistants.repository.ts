@@ -3,6 +3,8 @@ import { prisma } from '../../infrastructure/prisma/prisma.service';
 import { paginationOffset } from '../../shared/validation/pagination';
 import type {
   AssistantCreateInput,
+  AssistantApprovalCreateInput,
+  AssistantExecutionPolicyUpdateInput,
   AssistantFeedbackCreateInput,
   AssistantPublishInput,
   AssistantRollbackInput,
@@ -24,6 +26,7 @@ const assistantListInclude = {
     orderBy: { publishedAt: 'desc' },
     take: 1,
   },
+  executionPolicy: true,
 } satisfies Prisma.AssistantInclude;
 
 const assistantDetailInclude = {
@@ -37,6 +40,7 @@ const assistantDetailInclude = {
   shares: {
     orderBy: { createdAt: 'desc' },
   },
+  executionPolicy: true,
 } satisfies Prisma.AssistantInclude;
 
 const publicationOrder = [{ publishedAt: 'desc' as const }, { createdAt: 'desc' as const }];
@@ -62,6 +66,29 @@ function versionData(input: AssistantVersionCreateInput & { version: string }, c
     temperature: input.temperature != null ? new Prisma.Decimal(input.temperature) : undefined,
     configuration: input.configuration as Prisma.InputJsonValue | undefined,
     createdById,
+  };
+}
+
+function executionPolicyData(input: AssistantExecutionPolicyUpdateInput, updatedById?: string) {
+  return {
+    executionMode: input.executionMode,
+    requiresApprovalToPublish: input.requiresApprovalToPublish,
+    sandboxEnabled: input.sandboxEnabled,
+    sandboxRequiresAuth: input.sandboxRequiresAuth,
+    sandboxAllowedForRoles: input.sandboxAllowedForRoles as Prisma.InputJsonValue | undefined,
+    sandboxBlocksExternalTools: input.sandboxBlocksExternalTools,
+    sandboxBlocksRealProviders: input.sandboxBlocksRealProviders,
+    sandboxLogsRequired: input.sandboxLogsRequired,
+    sandboxCostLimitPlaceholder:
+      input.sandboxCostLimitPlaceholder === null
+        ? null
+        : input.sandboxCostLimitPlaceholder !== undefined
+          ? new Prisma.Decimal(input.sandboxCostLimitPlaceholder)
+          : undefined,
+    allowDraftTesting: input.allowDraftTesting,
+    allowPublishedExecution: input.allowPublishedExecution,
+    isExecutionEnabled: input.isExecutionEnabled,
+    updatedById,
   };
 }
 
@@ -123,6 +150,12 @@ export const assistantsRepository = {
             temperature: initialVersion?.temperature != null ? new Prisma.Decimal(initialVersion.temperature) : undefined,
             configuration: initialVersion?.configuration as Prisma.InputJsonValue | undefined,
             createdById: input.createdById,
+          },
+        },
+        executionPolicy: {
+          create: {
+            tenantId: input.tenantId,
+            workspaceId: input.workspaceId,
           },
         },
       },
@@ -455,6 +488,127 @@ export const assistantsRepository = {
     return prisma.assistantPublication.findFirst({
       where: { assistantId, status: 'active' },
       orderBy: publicationOrder,
+    });
+  },
+
+  findPublication(assistantId: string, publicationId: string) {
+    return prisma.assistantPublication.findFirst({
+      where: { id: publicationId, assistantId },
+    });
+  },
+
+  listApprovals(assistantId: string) {
+    return prisma.assistantApprovalRequest.findMany({
+      where: { assistantId },
+      orderBy: [{ createdAt: 'desc' }, { updatedAt: 'desc' }],
+    });
+  },
+
+  findApproval(assistantId: string, approvalId: string) {
+    return prisma.assistantApprovalRequest.findFirst({
+      where: { id: approvalId, assistantId },
+    });
+  },
+
+  createApproval(input: Omit<AssistantApprovalCreateInput, 'metadata'> & {
+    tenantId: string;
+    workspaceId: string;
+    assistantId: string;
+    requestedById: string;
+    metadata?: Prisma.InputJsonValue;
+  }) {
+    return prisma.assistantApprovalRequest.create({
+      data: {
+        tenantId: input.tenantId,
+        workspaceId: input.workspaceId,
+        assistantId: input.assistantId,
+        assistantVersionId: input.assistantVersionId,
+        publicationId: input.publicationId,
+        requestedById: input.requestedById,
+        action: input.action,
+        status: 'pending',
+        reason: input.reason,
+        metadata: input.metadata,
+      },
+    });
+  },
+
+  decideApproval(input: {
+    assistantId: string;
+    approvalId: string;
+    status: 'approved' | 'rejected';
+    decidedById: string;
+    decisionReason?: string;
+  }) {
+    return prisma.assistantApprovalRequest.update({
+      where: { id: input.approvalId },
+      data: {
+        status: input.status,
+        decidedById: input.decidedById,
+        decisionReason: input.decisionReason,
+        decidedAt: new Date(),
+      },
+    });
+  },
+
+  cancelApproval(input: { assistantId: string; approvalId: string; requestedById?: string; decisionReason?: string }) {
+    return prisma.assistantApprovalRequest.update({
+      where: { id: input.approvalId },
+      data: {
+        status: 'cancelled',
+        decisionReason: input.decisionReason,
+        cancelledAt: new Date(),
+      },
+    });
+  },
+
+  findApprovedApproval(input: { assistantId: string; approvalId: string; action: string }) {
+    return prisma.assistantApprovalRequest.findFirst({
+      where: {
+        id: input.approvalId,
+        assistantId: input.assistantId,
+        action: input.action,
+        status: 'approved',
+      },
+    });
+  },
+
+  countPendingApprovals(assistantId: string, actions?: string[]) {
+    return prisma.assistantApprovalRequest.count({
+      where: {
+        assistantId,
+        status: 'pending',
+        ...(actions ? { action: { in: actions } } : {}),
+      },
+    });
+  },
+
+  getExecutionPolicy(assistant: { id: string; tenantId: string; workspaceId: string }) {
+    return prisma.assistantExecutionPolicy.upsert({
+      where: { assistantId: assistant.id },
+      update: {},
+      create: {
+        tenantId: assistant.tenantId,
+        workspaceId: assistant.workspaceId,
+        assistantId: assistant.id,
+      },
+    });
+  },
+
+  updateExecutionPolicy(input: {
+    assistant: { id: string; tenantId: string; workspaceId: string };
+    payload: AssistantExecutionPolicyUpdateInput;
+    updatedById: string;
+  }) {
+    return prisma.assistantExecutionPolicy.upsert({
+      where: { assistantId: input.assistant.id },
+      create: {
+        tenantId: input.assistant.tenantId,
+        workspaceId: input.assistant.workspaceId,
+        assistantId: input.assistant.id,
+        ...executionPolicyData(input.payload, input.updatedById),
+      },
+      update: executionPolicyData(input.payload, input.updatedById),
     });
   },
 

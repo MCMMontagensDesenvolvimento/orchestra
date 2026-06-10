@@ -8,48 +8,52 @@ datasource db {
 }
 
 model Tenant {
-  id                    String                 @id @default(uuid()) @db.Uuid
-  name                  String
-  slug                  String                 @unique
-  status                String                 @default("active")
-  createdAt             DateTime               @default(now()) @map("created_at")
-  updatedAt             DateTime               @updatedAt @map("updated_at")
-  deletedAt             DateTime?              @map("deleted_at")
-  workspaces            Workspace[]
-  users                 User[]
-  roles                 Role[]
-  settings              Setting[]
-  auditLogs             AuditLog[]
-  assistants            Assistant[]
-  assistantPublications AssistantPublication[]
-  assistantFeedbacks    AssistantFeedback[]
-  assistantTestResults  AssistantTestResult[]
-  knowledgeBases        KnowledgeBase[]
-  mcpServers            McpServer[]
-  providerConfigs       ProviderConfig[]
-  usageRecords          UsageRecord[]
+  id                         String                     @id @default(uuid()) @db.Uuid
+  name                       String
+  slug                       String                     @unique
+  status                     String                     @default("active")
+  createdAt                  DateTime                   @default(now()) @map("created_at")
+  updatedAt                  DateTime                   @updatedAt @map("updated_at")
+  deletedAt                  DateTime?                  @map("deleted_at")
+  workspaces                 Workspace[]
+  users                      User[]
+  roles                      Role[]
+  settings                   Setting[]
+  auditLogs                  AuditLog[]
+  assistants                 Assistant[]
+  assistantPublications      AssistantPublication[]
+  assistantFeedbacks         AssistantFeedback[]
+  assistantTestResults       AssistantTestResult[]
+  assistantApprovals         AssistantApprovalRequest[]
+  assistantExecutionPolicies AssistantExecutionPolicy[]
+  knowledgeBases             KnowledgeBase[]
+  mcpServers                 McpServer[]
+  providerConfigs            ProviderConfig[]
+  usageRecords               UsageRecord[]
 
   @@map("tenants")
 }
 
 model Workspace {
-  id                    String                 @id @default(uuid()) @db.Uuid
-  tenantId              String                 @map("tenant_id") @db.Uuid
-  name                  String
-  slug                  String
-  description           String?
-  status                String                 @default("active")
-  createdAt             DateTime               @default(now()) @map("created_at")
-  updatedAt             DateTime               @updatedAt @map("updated_at")
-  deletedAt             DateTime?              @map("deleted_at")
-  tenant                Tenant                 @relation(fields: [tenantId], references: [id], onDelete: Cascade)
-  memberships           WorkspaceMembership[]
-  settings              Setting[]
-  auditLogs             AuditLog[]
-  assistants            Assistant[]
-  assistantPublications AssistantPublication[]
-  assistantFeedbacks    AssistantFeedback[]
-  assistantTestResults  AssistantTestResult[]
+  id                         String                     @id @default(uuid()) @db.Uuid
+  tenantId                   String                     @map("tenant_id") @db.Uuid
+  name                       String
+  slug                       String
+  description                String?
+  status                     String                     @default("active")
+  createdAt                  DateTime                   @default(now()) @map("created_at")
+  updatedAt                  DateTime                   @updatedAt @map("updated_at")
+  deletedAt                  DateTime?                  @map("deleted_at")
+  tenant                     Tenant                     @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  memberships                WorkspaceMembership[]
+  settings                   Setting[]
+  auditLogs                  AuditLog[]
+  assistants                 Assistant[]
+  assistantPublications      AssistantPublication[]
+  assistantFeedbacks         AssistantFeedback[]
+  assistantTestResults       AssistantTestResult[]
+  assistantApprovals         AssistantApprovalRequest[]
+  assistantExecutionPolicies AssistantExecutionPolicy[]
 
   @@unique([tenantId, slug])
   @@index([tenantId])
@@ -57,32 +61,35 @@ model Workspace {
 }
 
 model User {
-  id                               String                 @id @default(uuid()) @db.Uuid
-  tenantId                         String                 @map("tenant_id") @db.Uuid
-  email                            String                 @unique
-  name                             String
-  passwordHash                     String?                @map("password_hash")
-  status                           String                 @default("active")
-  lastLoginAt                      DateTime?              @map("last_login_at")
-  createdAt                        DateTime               @default(now()) @map("created_at")
-  updatedAt                        DateTime               @updatedAt @map("updated_at")
-  deletedAt                        DateTime?              @map("deleted_at")
-  tenant                           Tenant                 @relation(fields: [tenantId], references: [id], onDelete: Cascade)
-  roles                            UserRole[]
-  memberships                      WorkspaceMembership[]
-  sessions                         Session[]
-  auditLogs                        AuditLog[]             @relation("ActorAuditLogs")
-  assistants                       Assistant[]            @relation("AssistantCreator")
-  versions                         AssistantVersion[]     @relation("AssistantVersionCreator")
-  publishedAssistantPublications   AssistantPublication[] @relation("AssistantPublicationPublisher")
-  unpublishedAssistantPublications AssistantPublication[] @relation("AssistantPublicationUnpublisher")
-  assistantShares                  AssistantShare[]       @relation("AssistantShareCreator")
-  assistantFeedbacks               AssistantFeedback[]    @relation("AssistantFeedbackUser")
-  assistantTestResults             AssistantTestResult[]  @relation("AssistantTestResultTester")
-  conversations                    Conversation[]
-  messages                         ConversationMessage[]
-  agentRuns                        AgentRun[]
-  toolCalls                        ToolCall[]
+  id                                String                     @id @default(uuid()) @db.Uuid
+  tenantId                          String                     @map("tenant_id") @db.Uuid
+  email                             String                     @unique
+  name                              String
+  passwordHash                      String?                    @map("password_hash")
+  status                            String                     @default("active")
+  lastLoginAt                       DateTime?                  @map("last_login_at")
+  createdAt                         DateTime                   @default(now()) @map("created_at")
+  updatedAt                         DateTime                   @updatedAt @map("updated_at")
+  deletedAt                         DateTime?                  @map("deleted_at")
+  tenant                            Tenant                     @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  roles                             UserRole[]
+  memberships                       WorkspaceMembership[]
+  sessions                          Session[]
+  auditLogs                         AuditLog[]                 @relation("ActorAuditLogs")
+  assistants                        Assistant[]                @relation("AssistantCreator")
+  versions                          AssistantVersion[]         @relation("AssistantVersionCreator")
+  publishedAssistantPublications    AssistantPublication[]     @relation("AssistantPublicationPublisher")
+  unpublishedAssistantPublications  AssistantPublication[]     @relation("AssistantPublicationUnpublisher")
+  requestedAssistantApprovals       AssistantApprovalRequest[] @relation("AssistantApprovalRequester")
+  decidedAssistantApprovals         AssistantApprovalRequest[] @relation("AssistantApprovalDecider")
+  updatedAssistantExecutionPolicies AssistantExecutionPolicy[] @relation("AssistantExecutionPolicyUpdater")
+  assistantShares                   AssistantShare[]           @relation("AssistantShareCreator")
+  assistantFeedbacks                AssistantFeedback[]        @relation("AssistantFeedbackUser")
+  assistantTestResults              AssistantTestResult[]      @relation("AssistantTestResultTester")
+  conversations                     Conversation[]
+  messages                          ConversationMessage[]
+  agentRuns                         AgentRun[]
+  toolCalls                         ToolCall[]
 
   @@index([tenantId])
   @@map("users")
@@ -217,27 +224,29 @@ model Setting {
 }
 
 model Assistant {
-  id            String                 @id @default(uuid()) @db.Uuid
-  tenantId      String                 @map("tenant_id") @db.Uuid
-  workspaceId   String                 @map("workspace_id") @db.Uuid
-  name          String
-  description   String?
-  status        String                 @default("draft")
-  createdById   String                 @map("created_by_id") @db.Uuid
-  createdAt     DateTime               @default(now()) @map("created_at")
-  updatedAt     DateTime               @updatedAt @map("updated_at")
-  deletedAt     DateTime?              @map("deleted_at")
-  tenant        Tenant                 @relation(fields: [tenantId], references: [id], onDelete: Cascade)
-  workspace     Workspace              @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
-  createdBy     User                   @relation("AssistantCreator", fields: [createdById], references: [id], onDelete: Restrict)
-  versions      AssistantVersion[]
-  shares        AssistantShare[]
-  publications  AssistantPublication[]
-  feedbacks     AssistantFeedback[]
-  testResults   AssistantTestResult[]
-  conversations Conversation[]
-  agentRuns     AgentRun[]
-  usageRecords  UsageRecord[]
+  id               String                     @id @default(uuid()) @db.Uuid
+  tenantId         String                     @map("tenant_id") @db.Uuid
+  workspaceId      String                     @map("workspace_id") @db.Uuid
+  name             String
+  description      String?
+  status           String                     @default("draft")
+  createdById      String                     @map("created_by_id") @db.Uuid
+  createdAt        DateTime                   @default(now()) @map("created_at")
+  updatedAt        DateTime                   @updatedAt @map("updated_at")
+  deletedAt        DateTime?                  @map("deleted_at")
+  tenant           Tenant                     @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  workspace        Workspace                  @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  createdBy        User                       @relation("AssistantCreator", fields: [createdById], references: [id], onDelete: Restrict)
+  versions         AssistantVersion[]
+  shares           AssistantShare[]
+  publications     AssistantPublication[]
+  feedbacks        AssistantFeedback[]
+  testResults      AssistantTestResult[]
+  approvalRequests AssistantApprovalRequest[]
+  executionPolicy  AssistantExecutionPolicy?
+  conversations    Conversation[]
+  agentRuns        AgentRun[]
+  usageRecords     UsageRecord[]
 
   @@index([tenantId])
   @@index([workspaceId])
@@ -246,26 +255,27 @@ model Assistant {
 }
 
 model AssistantVersion {
-  id            String                 @id @default(uuid()) @db.Uuid
-  assistantId   String                 @map("assistant_id") @db.Uuid
-  version       String
-  status        String                 @default("draft")
-  displayName   String                 @map("display_name")
-  description   String?
-  instructions  String?
-  modelProvider String?                @map("model_provider")
-  modelName     String?                @map("model_name")
-  temperature   Decimal?               @db.Decimal(4, 2)
-  configuration Json?
-  createdById   String                 @map("created_by_id") @db.Uuid
-  createdAt     DateTime               @default(now()) @map("created_at")
-  publishedAt   DateTime?              @map("published_at")
-  archivedAt    DateTime?              @map("archived_at")
-  assistant     Assistant              @relation(fields: [assistantId], references: [id], onDelete: Cascade)
-  createdBy     User                   @relation("AssistantVersionCreator", fields: [createdById], references: [id], onDelete: Restrict)
-  publications  AssistantPublication[]
-  feedbacks     AssistantFeedback[]
-  testResults   AssistantTestResult[]
+  id               String                     @id @default(uuid()) @db.Uuid
+  assistantId      String                     @map("assistant_id") @db.Uuid
+  version          String
+  status           String                     @default("draft")
+  displayName      String                     @map("display_name")
+  description      String?
+  instructions     String?
+  modelProvider    String?                    @map("model_provider")
+  modelName        String?                    @map("model_name")
+  temperature      Decimal?                   @db.Decimal(4, 2)
+  configuration    Json?
+  createdById      String                     @map("created_by_id") @db.Uuid
+  createdAt        DateTime                   @default(now()) @map("created_at")
+  publishedAt      DateTime?                  @map("published_at")
+  archivedAt       DateTime?                  @map("archived_at")
+  assistant        Assistant                  @relation(fields: [assistantId], references: [id], onDelete: Cascade)
+  createdBy        User                       @relation("AssistantVersionCreator", fields: [createdById], references: [id], onDelete: Restrict)
+  publications     AssistantPublication[]
+  feedbacks        AssistantFeedback[]
+  testResults      AssistantTestResult[]
+  approvalRequests AssistantApprovalRequest[]
 
   @@unique([assistantId, version])
   @@index([assistantId])
@@ -299,28 +309,29 @@ model AssistantShare {
 }
 
 model AssistantPublication {
-  id                        String                 @id @default(uuid()) @db.Uuid
-  tenantId                  String                 @map("tenant_id") @db.Uuid
-  workspaceId               String                 @map("workspace_id") @db.Uuid
-  assistantId               String                 @map("assistant_id") @db.Uuid
-  assistantVersionId        String                 @map("assistant_version_id") @db.Uuid
-  status                    String                 @default("active")
-  publishedById             String                 @map("published_by_id") @db.Uuid
-  publishedAt               DateTime               @default(now()) @map("published_at")
-  unpublishedById           String?                @map("unpublished_by_id") @db.Uuid
-  unpublishedAt             DateTime?              @map("unpublished_at")
-  rollbackFromPublicationId String?                @map("rollback_from_publication_id") @db.Uuid
-  rollbackReason            String?                @map("rollback_reason")
-  createdAt                 DateTime               @default(now()) @map("created_at")
-  updatedAt                 DateTime               @updatedAt @map("updated_at")
-  tenant                    Tenant                 @relation(fields: [tenantId], references: [id], onDelete: Cascade)
-  workspace                 Workspace              @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
-  assistant                 Assistant              @relation(fields: [assistantId], references: [id], onDelete: Cascade)
-  assistantVersion          AssistantVersion       @relation(fields: [assistantVersionId], references: [id], onDelete: Cascade)
-  publishedBy               User                   @relation("AssistantPublicationPublisher", fields: [publishedById], references: [id], onDelete: Restrict)
-  unpublishedBy             User?                  @relation("AssistantPublicationUnpublisher", fields: [unpublishedById], references: [id], onDelete: SetNull)
-  rollbackFromPublication   AssistantPublication?  @relation("AssistantPublicationRollback", fields: [rollbackFromPublicationId], references: [id], onDelete: SetNull)
-  rollbackPublications      AssistantPublication[] @relation("AssistantPublicationRollback")
+  id                        String                     @id @default(uuid()) @db.Uuid
+  tenantId                  String                     @map("tenant_id") @db.Uuid
+  workspaceId               String                     @map("workspace_id") @db.Uuid
+  assistantId               String                     @map("assistant_id") @db.Uuid
+  assistantVersionId        String                     @map("assistant_version_id") @db.Uuid
+  status                    String                     @default("active")
+  publishedById             String                     @map("published_by_id") @db.Uuid
+  publishedAt               DateTime                   @default(now()) @map("published_at")
+  unpublishedById           String?                    @map("unpublished_by_id") @db.Uuid
+  unpublishedAt             DateTime?                  @map("unpublished_at")
+  rollbackFromPublicationId String?                    @map("rollback_from_publication_id") @db.Uuid
+  rollbackReason            String?                    @map("rollback_reason")
+  createdAt                 DateTime                   @default(now()) @map("created_at")
+  updatedAt                 DateTime                   @updatedAt @map("updated_at")
+  tenant                    Tenant                     @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  workspace                 Workspace                  @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  assistant                 Assistant                  @relation(fields: [assistantId], references: [id], onDelete: Cascade)
+  assistantVersion          AssistantVersion           @relation(fields: [assistantVersionId], references: [id], onDelete: Cascade)
+  publishedBy               User                       @relation("AssistantPublicationPublisher", fields: [publishedById], references: [id], onDelete: Restrict)
+  unpublishedBy             User?                      @relation("AssistantPublicationUnpublisher", fields: [unpublishedById], references: [id], onDelete: SetNull)
+  rollbackFromPublication   AssistantPublication?      @relation("AssistantPublicationRollback", fields: [rollbackFromPublicationId], references: [id], onDelete: SetNull)
+  rollbackPublications      AssistantPublication[]     @relation("AssistantPublicationRollback")
+  approvalRequests          AssistantApprovalRequest[]
 
   @@index([tenantId])
   @@index([workspaceId])
@@ -387,6 +398,77 @@ model AssistantTestResult {
   @@index([status])
   @@index([createdAt])
   @@map("assistant_test_results")
+}
+
+model AssistantApprovalRequest {
+  id                 String                @id @default(uuid()) @db.Uuid
+  tenantId           String                @map("tenant_id") @db.Uuid
+  workspaceId        String                @map("workspace_id") @db.Uuid
+  assistantId        String                @map("assistant_id") @db.Uuid
+  assistantVersionId String?               @map("assistant_version_id") @db.Uuid
+  publicationId      String?               @map("publication_id") @db.Uuid
+  requestedById      String                @map("requested_by_id") @db.Uuid
+  decidedById        String?               @map("decided_by_id") @db.Uuid
+  action             String
+  status             String                @default("pending")
+  reason             String?
+  decisionReason     String?               @map("decision_reason")
+  metadata           Json?
+  createdAt          DateTime              @default(now()) @map("created_at")
+  updatedAt          DateTime              @updatedAt @map("updated_at")
+  decidedAt          DateTime?             @map("decided_at")
+  cancelledAt        DateTime?             @map("cancelled_at")
+  tenant             Tenant                @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  workspace          Workspace             @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  assistant          Assistant             @relation(fields: [assistantId], references: [id], onDelete: Cascade)
+  assistantVersion   AssistantVersion?     @relation(fields: [assistantVersionId], references: [id], onDelete: SetNull)
+  publication        AssistantPublication? @relation(fields: [publicationId], references: [id], onDelete: SetNull)
+  requestedBy        User                  @relation("AssistantApprovalRequester", fields: [requestedById], references: [id], onDelete: Restrict)
+  decidedBy          User?                 @relation("AssistantApprovalDecider", fields: [decidedById], references: [id], onDelete: SetNull)
+
+  @@index([tenantId])
+  @@index([workspaceId])
+  @@index([assistantId])
+  @@index([assistantVersionId])
+  @@index([publicationId])
+  @@index([requestedById])
+  @@index([decidedById])
+  @@index([action])
+  @@index([status])
+  @@index([createdAt])
+  @@map("assistant_approval_requests")
+}
+
+model AssistantExecutionPolicy {
+  id                          String    @id @default(uuid()) @db.Uuid
+  tenantId                    String    @map("tenant_id") @db.Uuid
+  workspaceId                 String    @map("workspace_id") @db.Uuid
+  assistantId                 String    @unique @map("assistant_id") @db.Uuid
+  executionMode               String    @default("draft_test") @map("execution_mode")
+  requiresApprovalToPublish   Boolean   @default(false) @map("requires_approval_to_publish")
+  sandboxEnabled              Boolean   @default(true) @map("sandbox_enabled")
+  sandboxRequiresAuth         Boolean   @default(true) @map("sandbox_requires_auth")
+  sandboxAllowedForRoles      Json?     @map("sandbox_allowed_for_roles")
+  sandboxBlocksExternalTools  Boolean   @default(true) @map("sandbox_blocks_external_tools")
+  sandboxBlocksRealProviders  Boolean   @default(true) @map("sandbox_blocks_real_providers")
+  sandboxLogsRequired         Boolean   @default(true) @map("sandbox_logs_required")
+  sandboxCostLimitPlaceholder Decimal?  @map("sandbox_cost_limit_placeholder") @db.Decimal(12, 4)
+  allowDraftTesting           Boolean   @default(true) @map("allow_draft_testing")
+  allowPublishedExecution     Boolean   @default(false) @map("allow_published_execution")
+  isExecutionEnabled          Boolean   @default(false) @map("is_execution_enabled")
+  createdAt                   DateTime  @default(now()) @map("created_at")
+  updatedAt                   DateTime  @updatedAt @map("updated_at")
+  updatedById                 String?   @map("updated_by_id") @db.Uuid
+  tenant                      Tenant    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  workspace                   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  assistant                   Assistant @relation(fields: [assistantId], references: [id], onDelete: Cascade)
+  updatedBy                   User?     @relation("AssistantExecutionPolicyUpdater", fields: [updatedById], references: [id], onDelete: SetNull)
+
+  @@index([tenantId])
+  @@index([workspaceId])
+  @@index([executionMode])
+  @@index([isExecutionEnabled])
+  @@map("assistant_execution_policies")
 }
 
 model KnowledgeBase {

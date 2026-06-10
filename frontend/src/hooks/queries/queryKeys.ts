@@ -16,6 +16,8 @@ export const queryKeys = {
     versions: (id: string) => [...queryKeys.assistants.all, 'versions', id] as const,
     publications: (id: string) => [...queryKeys.assistants.all, 'publications', id] as const,
     activePublication: (id: string) => [...queryKeys.assistants.all, 'active-publication', id] as const,
+    approvals: (id: string) => [...queryKeys.assistants.all, 'approvals', id] as const,
+    executionPolicy: (id: string) => [...queryKeys.assistants.all, 'execution-policy', id] as const,
     feedback: (id: string) => [...queryKeys.assistants.all, 'feedback', id] as const,
     tests: (id: string) => [...queryKeys.assistants.all, 'tests', id] as const,
   },

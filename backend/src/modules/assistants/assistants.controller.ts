@@ -68,12 +68,93 @@ export const assistantsController = {
   },
 
   async restore(req: Request, res: Response) {
-    const data = await assistantsService.restore(req.params.id, req.user!, {
+    const data = await assistantsService.restore(req.params.id, req.body, req.user!, {
       requestId: req.requestId,
       ipAddress: req.ip,
       userAgent: req.get('user-agent'),
     });
     return res.status(200).json({ data, requestId: req.requestId });
+  },
+
+  async listApprovals(req: Request, res: Response) {
+    const data = await assistantsService.listApprovals(req.params.id, req.user!, {
+      requestId: req.requestId,
+      ipAddress: req.ip,
+      userAgent: req.get('user-agent'),
+    });
+    return res.status(200).json({ data, requestId: req.requestId });
+  },
+
+  async getApproval(req: Request, res: Response) {
+    const data = await assistantsService.getApproval(req.params.id, req.params.approvalId, req.user!, {
+      requestId: req.requestId,
+      ipAddress: req.ip,
+      userAgent: req.get('user-agent'),
+    });
+    return res.status(200).json({ data, requestId: req.requestId });
+  },
+
+  async createApproval(req: Request, res: Response) {
+    const data = await assistantsService.createApproval(req.params.id, req.body, req.user!, {
+      requestId: req.requestId,
+      ipAddress: req.ip,
+      userAgent: req.get('user-agent'),
+    });
+    return res.status(201).json({ data, requestId: req.requestId });
+  },
+
+  async approveApproval(req: Request, res: Response) {
+    const data = await assistantsService.approveApproval(req.params.id, req.params.approvalId, req.body, req.user!, {
+      requestId: req.requestId,
+      ipAddress: req.ip,
+      userAgent: req.get('user-agent'),
+    });
+    return res.status(200).json({ data, requestId: req.requestId });
+  },
+
+  async rejectApproval(req: Request, res: Response) {
+    const data = await assistantsService.rejectApproval(req.params.id, req.params.approvalId, req.body, req.user!, {
+      requestId: req.requestId,
+      ipAddress: req.ip,
+      userAgent: req.get('user-agent'),
+    });
+    return res.status(200).json({ data, requestId: req.requestId });
+  },
+
+  async cancelApproval(req: Request, res: Response) {
+    const data = await assistantsService.cancelApproval(req.params.id, req.params.approvalId, req.body, req.user!, {
+      requestId: req.requestId,
+      ipAddress: req.ip,
+      userAgent: req.get('user-agent'),
+    });
+    return res.status(200).json({ data, requestId: req.requestId });
+  },
+
+  async getExecutionPolicy(req: Request, res: Response) {
+    const data = await assistantsService.getExecutionPolicy(req.params.id, req.user!, {
+      requestId: req.requestId,
+      ipAddress: req.ip,
+      userAgent: req.get('user-agent'),
+    });
+    return res.status(200).json({ data, requestId: req.requestId });
+  },
+
+  async updateExecutionPolicy(req: Request, res: Response) {
+    const data = await assistantsService.updateExecutionPolicy(req.params.id, req.body, req.user!, {
+      requestId: req.requestId,
+      ipAddress: req.ip,
+      userAgent: req.get('user-agent'),
+    });
+    return res.status(200).json({ data, requestId: req.requestId });
+  },
+
+  async executionPrecheck(req: Request, res: Response) {
+    const data = await assistantsService.executionPrecheck(req.params.id, req.body, req.user!, {
+      requestId: req.requestId,
+      ipAddress: req.ip,
+      userAgent: req.get('user-agent'),
+    });
+    return res.status(200).json(data);
   },
 
   async rollback(req: Request, res: Response) {

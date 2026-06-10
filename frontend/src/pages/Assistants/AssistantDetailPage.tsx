@@ -11,20 +11,28 @@ import { Switch } from '@/components/ui/switch';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Badge } from '@/components/ui/badge';
-import type { Assistant, AssistantTestStatus, FeedbackType, KnowledgeBase, McpTool } from '@/types';
+import type { Assistant, AssistantApprovalAction, AssistantExecutionMode, AssistantExecutionPolicy, AssistantTestStatus, FeedbackType, KnowledgeBase, McpTool } from '@/types';
 import {
+  useApproveAssistantApprovalMutation,
   useArchiveAssistantMutation,
   useAssistant,
+  useAssistantApprovals,
+  useAssistantExecutionPolicy,
+  useAssistantExecutionPrecheckMutation,
   useAssistantFeedback,
   useAssistantTestResults,
   useAssistantVersions,
   useAssistants,
+  useCancelAssistantApprovalMutation,
+  useCreateAssistantApprovalMutation,
   useCreateAssistantFeedbackMutation,
   useCreateAssistantTestResultMutation,
   usePublishAssistantMutation,
+  useRejectAssistantApprovalMutation,
   useRestoreAssistantMutation,
   useRollbackAssistantMutation,
   useUnpublishAssistantMutation,
+  useUpdateAssistantExecutionPolicyMutation,
 } from '@/hooks/queries/useAssistants';
 import { useCurrentSession } from '@/hooks/queries/useAuth';
 import { useKnowledgeBases } from '@/hooks/queries/useKnowledge';
@@ -42,11 +50,12 @@ import {
 import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, BarChart, Bar } from 'recharts';
 import { toast } from 'sonner';
 
-type TabId = 'overview' | 'config' | 'knowledge' | 'tools' | 'prompt' | 'tests' | 'analytics' | 'audit';
+type TabId = 'overview' | 'config' | 'governance' | 'knowledge' | 'tools' | 'prompt' | 'tests' | 'analytics' | 'audit';
 
 const tabs: { id: TabId; label: string; icon: typeof Bot }[] = [
   { id: 'overview', label: 'Overview', icon: Bot },
   { id: 'config', label: 'Configuração', icon: Wrench },
+  { id: 'governance', label: 'Governança', icon: Shield },
   { id: 'knowledge', label: 'Conhecimento', icon: BookOpen },
   { id: 'tools', label: 'Ferramentas', icon: Server },
   { id: 'prompt', label: 'Prompt Compilado', icon: FileCode },
@@ -68,12 +77,20 @@ export default function AssistantDetailPage() {
   const { data: mockAssistantVersions = [] } = useAssistantVersions(id);
   const { data: mockAssistantFeedbacks = [] } = useAssistantFeedback(id);
   const { data: mockTestResults = [] } = useAssistantTestResults(id);
+  const { data: assistantApprovals = [] } = useAssistantApprovals(id);
+  const { data: assistantExecutionPolicy } = useAssistantExecutionPolicy(id);
   const { data: session } = useCurrentSession();
   const publishMutation = usePublishAssistantMutation();
   const unpublishMutation = useUnpublishAssistantMutation();
   const archiveMutation = useArchiveAssistantMutation();
   const restoreMutation = useRestoreAssistantMutation();
   const rollbackMutation = useRollbackAssistantMutation();
+  const createApprovalMutation = useCreateAssistantApprovalMutation();
+  const approveApprovalMutation = useApproveAssistantApprovalMutation();
+  const rejectApprovalMutation = useRejectAssistantApprovalMutation();
+  const cancelApprovalMutation = useCancelAssistantApprovalMutation();
+  const updateExecutionPolicyMutation = useUpdateAssistantExecutionPolicyMutation();
+  const executionPrecheckMutation = useAssistantExecutionPrecheckMutation();
   const createFeedbackMutation = useCreateAssistantFeedbackMutation();
   const createTestResultMutation = useCreateAssistantTestResultMutation();
   const navigate = useNavigate();
@@ -99,6 +116,13 @@ export default function AssistantDetailPage() {
   const [rollbackDialogOpen, setRollbackDialogOpen] = useState(false);
   const [rollbackVersionId, setRollbackVersionId] = useState('');
   const [rollbackReason, setRollbackReason] = useState('');
+  const [approvalDialogOpen, setApprovalDialogOpen] = useState(false);
+  const [approvalForm, setApprovalForm] = useState<{ action: AssistantApprovalAction; reason: string; assistantVersionId: string }>({
+    action: 'publish',
+    reason: '',
+    assistantVersionId: '',
+  });
+  const [precheckMode, setPrecheckMode] = useState<AssistantExecutionMode>('sandbox');
 
   const assistant = assistantQuery.data ?? mockAssistants.find(a => a.id === id) ?? mockAssistants[0];
 
@@ -114,6 +138,8 @@ export default function AssistantDetailPage() {
   const versions = mockAssistantVersions.filter(v => v.assistantId === assistant.id);
   const feedbacks = mockAssistantFeedbacks.filter(f => f.assistantId === assistant.id);
   const tests = mockTestResults.filter(t => t.assistantId === assistant.id);
+  const approvals = assistantApprovals.filter(approval => approval.assistantId === assistant.id);
+  const executionPolicy = assistantExecutionPolicy ?? assistant.executionPolicy;
   const conversations = mockConversations.filter(c => c.assistantId === assistant.id);
   const kbs = mockKnowledgeBases.filter(kb => assistant.knowledgeBases.includes(kb.id));
   const tools = mockMcpTools.filter(t => assistant.mcpTools.includes(t.id));
@@ -122,6 +148,7 @@ export default function AssistantDetailPage() {
   const positiveFeedbacks = feedbacks.filter(f => f.type === 'positive').length;
   const negativeFeedbacks = feedbacks.filter(f => f.type === 'negative').length;
   const rollbackCandidates = versions.filter(v => v.id !== assistant.activePublication?.assistantVersionId);
+  const pendingApprovals = approvals.filter(approval => approval.status === 'pending');
   const hasPermission = (permission: string) => session?.permissions.includes(permission) ?? false;
 
   const handleLifecycleAction = async (action: 'publish' | 'unpublish' | 'archive' | 'restore') => {
@@ -157,6 +184,89 @@ export default function AssistantDetailPage() {
       toast.success('Rollback aplicado');
     } catch (error) {
       toast.error('Nao foi possivel aplicar rollback', {
+        description: error instanceof Error ? error.message : 'Tente novamente em instantes.',
+      });
+    }
+  };
+
+  const handleCreateApproval = async () => {
+    try {
+      await createApprovalMutation.mutateAsync({
+        id: assistant.id,
+        action: approvalForm.action,
+        assistantVersionId: approvalForm.assistantVersionId || undefined,
+        reason: approvalForm.reason || undefined,
+      });
+      setApprovalDialogOpen(false);
+      setApprovalForm({ action: 'publish', reason: '', assistantVersionId: versions[0]?.id ?? '' });
+      toast.success('Approval solicitado');
+    } catch (error) {
+      toast.error('Nao foi possivel solicitar approval', {
+        description: error instanceof Error ? error.message : 'Tente novamente em instantes.',
+      });
+    }
+  };
+
+  const handleApprovalDecision = async (approvalId: string, decision: 'approve' | 'reject' | 'cancel') => {
+    try {
+      if (decision === 'approve') {
+        await approveApprovalMutation.mutateAsync({ id: assistant.id, approvalId, decisionReason: 'Aprovado pela governanca.' });
+        toast.success('Approval aprovado');
+      }
+      if (decision === 'reject') {
+        await rejectApprovalMutation.mutateAsync({ id: assistant.id, approvalId, decisionReason: 'Rejeitado pela governanca.' });
+        toast.success('Approval rejeitado');
+      }
+      if (decision === 'cancel') {
+        await cancelApprovalMutation.mutateAsync({ id: assistant.id, approvalId, decisionReason: 'Cancelado pela governanca.' });
+        toast.success('Approval cancelado');
+      }
+    } catch (error) {
+      toast.error('Nao foi possivel decidir approval', {
+        description: error instanceof Error ? error.message : 'Tente novamente em instantes.',
+      });
+    }
+  };
+
+  const handlePublishWithApproval = async (approvalId: string, versionId?: string | null) => {
+    try {
+      await publishMutation.mutateAsync({
+        id: assistant.id,
+        approvalId,
+        versionId: versionId ?? undefined,
+        reason: 'Publicacao liberada por approval aprovado.',
+      });
+      toast.success('Assistente publicado com approval');
+    } catch (error) {
+      toast.error('Nao foi possivel publicar com approval', {
+        description: error instanceof Error ? error.message : 'Tente novamente em instantes.',
+      });
+    }
+  };
+
+  const handlePolicyUpdate = async (payload: Partial<Pick<AssistantExecutionPolicy,
+    'executionMode' |
+    'requiresApprovalToPublish' |
+    'sandboxEnabled' |
+    'allowDraftTesting' |
+    'allowPublishedExecution' |
+    'isExecutionEnabled'
+  >>) => {
+    try {
+      await updateExecutionPolicyMutation.mutateAsync({ id: assistant.id, payload });
+      toast.success('Policy atualizada');
+    } catch (error) {
+      toast.error('Nao foi possivel atualizar policy', {
+        description: error instanceof Error ? error.message : 'Tente novamente em instantes.',
+      });
+    }
+  };
+
+  const handleExecutionPrecheck = async () => {
+    try {
+      await executionPrecheckMutation.mutateAsync({ id: assistant.id, mode: precheckMode });
+    } catch (error) {
+      toast.error('Nao foi possivel executar precheck', {
         description: error instanceof Error ? error.message : 'Tente novamente em instantes.',
       });
     }
@@ -538,6 +648,182 @@ ${tools.map(t => `- ${t.name}: ${t.description}${t.requiresApproval ? ' [REQUER 
           </div>
         )}
 
+        {activeTab === 'governance' && (
+          <div className="space-y-4">
+            <div className="grid gap-4 lg:grid-cols-2">
+              <div className="rounded-lg border bg-card p-5">
+                <div className="mb-4 flex items-center justify-between gap-2">
+                  <div>
+                    <h3 className="text-sm font-semibold flex items-center gap-2">
+                      <Shield className="h-4 w-4 text-primary" /> Approvals
+                    </h3>
+                    <p className="text-xs text-muted-foreground">{pendingApprovals.length} pendente(s)</p>
+                  </div>
+                  {hasPermission('assistants.approval.request') && (
+                    <Button
+                      size="sm"
+                      onClick={() => {
+                        setApprovalForm({ action: 'publish', reason: '', assistantVersionId: versions[0]?.id ?? '' });
+                        setApprovalDialogOpen(true);
+                      }}
+                    >
+                      <Shield className="h-3.5 w-3.5 mr-1" />Solicitar
+                    </Button>
+                  )}
+                </div>
+                {approvals.length > 0 ? (
+                  <div className="space-y-3">
+                    {approvals.slice(0, 8).map(approval => (
+                      <div key={approval.id} className="rounded-md border p-3">
+                        <div className="flex items-start justify-between gap-2">
+                          <div className="min-w-0">
+                            <p className="text-sm font-medium">{approval.action.replace(/_/g, ' ')}</p>
+                            <p className="text-xs text-muted-foreground">
+                              {approval.requestedById} · {new Date(approval.createdAt).toLocaleString('pt-BR')}
+                            </p>
+                            {approval.reason && <p className="mt-1 text-xs text-muted-foreground">{approval.reason}</p>}
+                          </div>
+                          <StatusBadge status={approval.status} />
+                        </div>
+                        <div className="mt-3 flex flex-wrap gap-2">
+                          {approval.status === 'pending' && hasPermission('assistants.approval.approve') && (
+                            <Button variant="outline" size="sm" className="h-7 text-xs" onClick={() => { void handleApprovalDecision(approval.id, 'approve'); }}>
+                              <CheckCircle className="h-3.5 w-3.5 mr-1" />Aprovar
+                            </Button>
+                          )}
+                          {approval.status === 'pending' && hasPermission('assistants.approval.reject') && (
+                            <Button variant="outline" size="sm" className="h-7 text-xs" onClick={() => { void handleApprovalDecision(approval.id, 'reject'); }}>
+                              <XCircle className="h-3.5 w-3.5 mr-1" />Rejeitar
+                            </Button>
+                          )}
+                          {approval.status === 'pending' && hasPermission('assistants.approval.cancel') && (
+                            <Button variant="ghost" size="sm" className="h-7 text-xs" onClick={() => { void handleApprovalDecision(approval.id, 'cancel'); }}>
+                              <X className="h-3.5 w-3.5 mr-1" />Cancelar
+                            </Button>
+                          )}
+                          {approval.status === 'approved' && approval.action === 'publish' && hasPermission('assistants.publish') && (
+                            <Button size="sm" className="h-7 text-xs" onClick={() => { void handlePublishWithApproval(approval.id, approval.assistantVersionId); }}>
+                              <Send className="h-3.5 w-3.5 mr-1" />Publicar
+                            </Button>
+                          )}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <p className="text-sm text-muted-foreground">Nenhum approval registrado.</p>
+                )}
+              </div>
+
+              <div className="space-y-4">
+                <div className="rounded-lg border bg-card p-5">
+                  <div className="mb-4 flex items-center justify-between gap-2">
+                    <h3 className="text-sm font-semibold flex items-center gap-2">
+                      <Wrench className="h-4 w-4 text-primary" /> Execution Policy
+                    </h3>
+                    {executionPolicy && <StatusBadge status={executionPolicy.executionMode} />}
+                  </div>
+                  {executionPolicy ? (
+                    <div className="space-y-3">
+                      <div className="space-y-2">
+                        <Label>Modo</Label>
+                        <Select
+                          value={executionPolicy.executionMode}
+                          onValueChange={value => { void handlePolicyUpdate({ executionMode: value as AssistantExecutionMode }); }}
+                          disabled={!hasPermission('assistants.execution.configure') || updateExecutionPolicyMutation.isPending}
+                        >
+                          <SelectTrigger><SelectValue /></SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="draft_test">Draft test</SelectItem>
+                            <SelectItem value="sandbox">Sandbox</SelectItem>
+                            <SelectItem value="published">Published</SelectItem>
+                            <SelectItem value="blocked">Blocked</SelectItem>
+                          </SelectContent>
+                        </Select>
+                      </div>
+                      <PolicySwitch
+                        label="Approval para publicar"
+                        checked={executionPolicy.requiresApprovalToPublish}
+                        disabled={!hasPermission('assistants.execution.configure') || updateExecutionPolicyMutation.isPending}
+                        onCheckedChange={checked => { void handlePolicyUpdate({ requiresApprovalToPublish: checked }); }}
+                      />
+                      <PolicySwitch
+                        label="Sandbox habilitado"
+                        checked={executionPolicy.sandboxEnabled}
+                        disabled={!hasPermission('assistants.execution.configure') || updateExecutionPolicyMutation.isPending}
+                        onCheckedChange={checked => { void handlePolicyUpdate({ sandboxEnabled: checked }); }}
+                      />
+                      <PolicySwitch
+                        label="Teste draft"
+                        checked={executionPolicy.allowDraftTesting}
+                        disabled={!hasPermission('assistants.execution.configure') || updateExecutionPolicyMutation.isPending}
+                        onCheckedChange={checked => { void handlePolicyUpdate({ allowDraftTesting: checked }); }}
+                      />
+                      <PolicySwitch
+                        label="Execução published"
+                        checked={executionPolicy.allowPublishedExecution}
+                        disabled={!hasPermission('assistants.execution.configure') || updateExecutionPolicyMutation.isPending}
+                        onCheckedChange={checked => { void handlePolicyUpdate({ allowPublishedExecution: checked }); }}
+                      />
+                      <PolicySwitch
+                        label="Execução habilitada"
+                        checked={executionPolicy.isExecutionEnabled}
+                        disabled={!hasPermission('assistants.execution.enable') || updateExecutionPolicyMutation.isPending}
+                        onCheckedChange={checked => { void handlePolicyUpdate({ isExecutionEnabled: checked }); }}
+                      />
+                      <div className="grid grid-cols-2 gap-2 border-t pt-3 text-xs text-muted-foreground">
+                        <span>Tools externas: {executionPolicy.sandboxBlocksExternalTools ? 'bloqueadas' : 'liberadas'}</span>
+                        <span>Providers reais: {executionPolicy.sandboxBlocksRealProviders ? 'bloqueados' : 'liberados'}</span>
+                        <span>Auth sandbox: {executionPolicy.sandboxRequiresAuth ? 'obrigatorio' : 'opcional'}</span>
+                        <span>Logs: {executionPolicy.sandboxLogsRequired ? 'obrigatorios' : 'opcionais'}</span>
+                      </div>
+                    </div>
+                  ) : (
+                    <p className="text-sm text-muted-foreground">Policy ainda nao carregada.</p>
+                  )}
+                </div>
+
+                <div className="rounded-lg border bg-card p-5">
+                  <h3 className="mb-4 text-sm font-semibold flex items-center gap-2">
+                    <Play className="h-4 w-4 text-primary" /> Execution Precheck
+                  </h3>
+                  <div className="flex flex-col gap-3 sm:flex-row">
+                    <Select value={precheckMode} onValueChange={value => setPrecheckMode(value as AssistantExecutionMode)}>
+                      <SelectTrigger className="sm:w-48"><SelectValue /></SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="draft_test">Draft test</SelectItem>
+                        <SelectItem value="sandbox">Sandbox</SelectItem>
+                        <SelectItem value="published">Published</SelectItem>
+                      </SelectContent>
+                    </Select>
+                    <Button onClick={() => { void handleExecutionPrecheck(); }} disabled={executionPrecheckMutation.isPending}>
+                      <Play className="h-3.5 w-3.5 mr-1" />Checar
+                    </Button>
+                  </div>
+                  {executionPrecheckMutation.data && (
+                    <div className={`mt-4 rounded-md border p-3 ${executionPrecheckMutation.data.canExecute ? 'border-success/30 bg-success/5' : 'border-warning/30 bg-warning/5'}`}>
+                      <div className="flex items-center justify-between gap-2">
+                        <span className="text-sm font-medium">{executionPrecheckMutation.data.canExecute ? 'Liberado' : 'Bloqueado'}</span>
+                        <StatusBadge status={executionPrecheckMutation.data.mode} />
+                      </div>
+                      {executionPrecheckMutation.data.reasons.length > 0 && (
+                        <ul className="mt-2 space-y-1 text-xs text-muted-foreground">
+                          {executionPrecheckMutation.data.reasons.map(reason => (
+                            <li key={reason.code} className="flex gap-2">
+                              <AlertTriangle className="mt-0.5 h-3 w-3 shrink-0 text-warning" />
+                              <span>{reason.code}: {reason.message}</span>
+                            </li>
+                          ))}
+                        </ul>
+                      )}
+                    </div>
+                  )}
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+
         {activeTab === 'knowledge' && (
           <div className="space-y-4">
             <div className="flex items-center justify-between">
@@ -768,6 +1054,52 @@ ${tools.map(t => `- ${t.name}: ${t.description}${t.requiresApproval ? ' [REQUER 
             )}
           </div>
         )}
+
+        <Dialog open={approvalDialogOpen} onOpenChange={setApprovalDialogOpen}>
+          <DialogContent className="max-w-md">
+            <DialogHeader>
+              <DialogTitle>Solicitar approval</DialogTitle>
+              <DialogDescription>Crie uma solicitação auditável para uma ação sensível.</DialogDescription>
+            </DialogHeader>
+            <div className="space-y-4">
+              <div className="space-y-2">
+                <Label>Ação</Label>
+                <Select value={approvalForm.action} onValueChange={value => setApprovalForm(prev => ({ ...prev, action: value as AssistantApprovalAction }))}>
+                  <SelectTrigger><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="publish">Publicar</SelectItem>
+                    <SelectItem value="rollback">Rollback</SelectItem>
+                    <SelectItem value="restore">Restaurar</SelectItem>
+                    <SelectItem value="enable_execution">Habilitar execução</SelectItem>
+                    <SelectItem value="configure_sandbox">Configurar sandbox</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-2">
+                <Label>Versão</Label>
+                <Select value={approvalForm.assistantVersionId || 'none'} onValueChange={value => setApprovalForm(prev => ({ ...prev, assistantVersionId: value === 'none' ? '' : value }))}>
+                  <SelectTrigger><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="none">Sem versão específica</SelectItem>
+                    {versions.map(version => (
+                      <SelectItem key={version.id} value={version.id}>v{version.version} · {version.changelog}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-2">
+                <Label>Motivo</Label>
+                <Textarea value={approvalForm.reason} onChange={e => setApprovalForm(prev => ({ ...prev, reason: e.target.value }))} rows={3} />
+              </div>
+            </div>
+            <DialogFooter>
+              <Button variant="outline" onClick={() => setApprovalDialogOpen(false)}>Cancelar</Button>
+              <Button onClick={() => { void handleCreateApproval(); }} disabled={createApprovalMutation.isPending}>
+                Solicitar
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
 
         <Dialog open={rollbackDialogOpen} onOpenChange={setRollbackDialogOpen}>
           <DialogContent className="max-w-md">
@@ -1155,6 +1487,20 @@ function PromptCompiledTab({ assistant, kbs, tools, compiledPrompt }: {
 }
 
 // ─── Helpers ───
+
+function PolicySwitch({ label, checked, disabled, onCheckedChange }: {
+  label: string;
+  checked: boolean;
+  disabled?: boolean;
+  onCheckedChange: (checked: boolean) => void;
+}) {
+  return (
+    <label className="flex items-center justify-between gap-3 rounded-md border p-3 text-sm">
+      <span className="font-medium">{label}</span>
+      <Switch checked={checked} disabled={disabled} onCheckedChange={onCheckedChange} />
+    </label>
+  );
+}
 
 function Section({ title, children }: { title: string; children: React.ReactNode }) {
   return (

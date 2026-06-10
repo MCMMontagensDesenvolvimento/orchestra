@@ -1,5 +1,7 @@
 import type {
   Assistant,
+  AssistantApprovalRequest,
+  AssistantExecutionPolicy,
   AssistantFeedback,
   AssistantPublication,
   AssistantShare,
@@ -12,6 +14,7 @@ export function mapAssistant(
     versions?: AssistantVersion[];
     shares?: AssistantShare[];
     publications?: AssistantPublication[];
+    executionPolicy?: AssistantExecutionPolicy | null;
     createdBy?: { id: string; name: string; email: string };
   },
 ) {
@@ -48,6 +51,7 @@ export function mapAssistant(
     })),
     activePublication: activePublication ? mapAssistantPublication(activePublication) : null,
     publications: assistant.publications?.map(mapAssistantPublication),
+    executionPolicy: assistant.executionPolicy ? mapAssistantExecutionPolicy(assistant.executionPolicy) : undefined,
     shares: assistant.shares?.map(mapAssistantShare),
   };
 }
@@ -140,5 +144,51 @@ export function mapAssistantTestResult(result: AssistantTestResult) {
     score: result.score,
     notes: result.notes,
     createdAt: result.createdAt.toISOString(),
+  };
+}
+
+export function mapAssistantApprovalRequest(approval: AssistantApprovalRequest) {
+  return {
+    id: approval.id,
+    tenantId: approval.tenantId,
+    workspaceId: approval.workspaceId,
+    assistantId: approval.assistantId,
+    assistantVersionId: approval.assistantVersionId,
+    publicationId: approval.publicationId,
+    requestedById: approval.requestedById,
+    decidedById: approval.decidedById,
+    action: approval.action,
+    status: approval.status,
+    reason: approval.reason,
+    decisionReason: approval.decisionReason,
+    metadata: approval.metadata,
+    createdAt: approval.createdAt.toISOString(),
+    updatedAt: approval.updatedAt.toISOString(),
+    decidedAt: approval.decidedAt?.toISOString() ?? null,
+    cancelledAt: approval.cancelledAt?.toISOString() ?? null,
+  };
+}
+
+export function mapAssistantExecutionPolicy(policy: AssistantExecutionPolicy) {
+  return {
+    id: policy.id,
+    tenantId: policy.tenantId,
+    workspaceId: policy.workspaceId,
+    assistantId: policy.assistantId,
+    executionMode: policy.executionMode,
+    requiresApprovalToPublish: policy.requiresApprovalToPublish,
+    sandboxEnabled: policy.sandboxEnabled,
+    sandboxRequiresAuth: policy.sandboxRequiresAuth,
+    sandboxAllowedForRoles: policy.sandboxAllowedForRoles,
+    sandboxBlocksExternalTools: policy.sandboxBlocksExternalTools,
+    sandboxBlocksRealProviders: policy.sandboxBlocksRealProviders,
+    sandboxLogsRequired: policy.sandboxLogsRequired,
+    sandboxCostLimitPlaceholder: policy.sandboxCostLimitPlaceholder?.toNumber() ?? null,
+    allowDraftTesting: policy.allowDraftTesting,
+    allowPublishedExecution: policy.allowPublishedExecution,
+    isExecutionEnabled: policy.isExecutionEnabled,
+    updatedById: policy.updatedById,
+    createdAt: policy.createdAt.toISOString(),
+    updatedAt: policy.updatedAt.toISOString(),
   };
 }
