@@ -40,8 +40,64 @@ expect_status 200 "auth-me" \
   -b "$cookie_file" \
   "$BASE_URL/api/v1/auth/me"
 
+expect_status 200 "workspaces" \
+  -b "$cookie_file" \
+  "$BASE_URL/api/v1/workspaces"
+
+expect_status 200 "users" \
+  -b "$cookie_file" \
+  "$BASE_URL/api/v1/users"
+
+expect_status 200 "roles" \
+  -b "$cookie_file" \
+  "$BASE_URL/api/v1/roles"
+
+expect_status 200 "permissions" \
+  -b "$cookie_file" \
+  "$BASE_URL/api/v1/permissions"
+
 expect_status 200 "assistants" \
   -b "$cookie_file" \
   "$BASE_URL/api/v1/assistants"
+
+cat > "$payload_file" <<'JSON'
+{
+  "name": "Smoke Assistant",
+  "description": "Assistant created by local smoke test.",
+  "status": "draft",
+  "version": {
+    "displayName": "Smoke draft",
+    "instructions": "Smoke test instructions only.",
+    "modelProvider": "none",
+    "modelName": "not-configured",
+    "temperature": 0.2
+  }
+}
+JSON
+
+expect_status 201 "assistant-create" \
+  -b "$cookie_file" \
+  -H 'Content-Type: application/json' \
+  --data-binary "@$payload_file" \
+  "$BASE_URL/api/v1/assistants"
+
+assistant_id="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["data"]["id"])' "$response_file")"
+
+cat > "$payload_file" <<'JSON'
+{
+  "description": "Assistant updated by local smoke test."
+}
+JSON
+
+expect_status 200 "assistant-update" \
+  -b "$cookie_file" \
+  -X PATCH \
+  -H 'Content-Type: application/json' \
+  --data-binary "@$payload_file" \
+  "$BASE_URL/api/v1/assistants/$assistant_id"
+
+expect_status 200 "audit-logs" \
+  -b "$cookie_file" \
+  "$BASE_URL/api/v1/audit-logs"
 
 echo "Smoke local concluido."

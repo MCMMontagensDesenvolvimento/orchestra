@@ -1,17 +1,36 @@
 import { useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useLocation, useNavigate } from 'react-router-dom';
 import { Zap, Eye, EyeOff } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { env } from '@/lib/env';
+import { useDevLoginMutation } from '@/hooks/queries/useAuth';
 
 export default function LoginPage() {
   const navigate = useNavigate();
+  const location = useLocation();
+  const devLoginMutation = useDevLoginMutation();
   const [showPassword, setShowPassword] = useState(false);
+  const [email, setEmail] = useState(env.useMocks ? 'maria.silva@empresa.com' : 'admin.dev@orchestra.local');
+  const [password, setPassword] = useState('password123');
 
-  const handleLogin = (e: React.FormEvent) => {
+  const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
-    navigate('/app/dashboard');
+    const state = location.state as { from?: { pathname?: string } } | null;
+    const redirectTo = state?.from?.pathname ?? '/app/dashboard';
+
+    if (env.useMocks) {
+      navigate(redirectTo);
+      return;
+    }
+
+    try {
+      await devLoginMutation.mutateAsync(email);
+      navigate(redirectTo);
+    } catch {
+      // Error state is rendered from the mutation.
+    }
   };
 
   return (
@@ -67,10 +86,17 @@ export default function LoginPage() {
           <h2 className="text-2xl font-bold">Bem-vindo de volta</h2>
           <p className="mt-1 text-sm text-muted-foreground">Entre com suas credenciais para acessar a plataforma.</p>
 
-          <form onSubmit={handleLogin} className="mt-8 space-y-4">
+          <form onSubmit={(event) => { void handleLogin(event); }} className="mt-8 space-y-4">
             <div className="space-y-2">
               <Label htmlFor="email">E-mail</Label>
-              <Input id="email" type="email" autoComplete="email" placeholder="seu@empresa.com" defaultValue="maria.silva@empresa.com" />
+              <Input
+                id="email"
+                type="email"
+                autoComplete="email"
+                placeholder="seu@empresa.com"
+                value={email}
+                onChange={(event) => setEmail(event.target.value)}
+              />
             </div>
             <div className="space-y-2">
               <div className="flex items-center justify-between">
@@ -78,7 +104,13 @@ export default function LoginPage() {
                 <button type="button" className="text-xs text-primary hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring rounded">Esqueceu a senha?</button>
               </div>
               <div className="relative">
-                <Input id="password" type={showPassword ? 'text' : 'password'} autoComplete="current-password" defaultValue="password123" />
+                <Input
+                  id="password"
+                  type={showPassword ? 'text' : 'password'}
+                  autoComplete="current-password"
+                  value={password}
+                  onChange={(event) => setPassword(event.target.value)}
+                />
                 <button
                   type="button"
                   onClick={() => setShowPassword(!showPassword)}
@@ -90,8 +122,13 @@ export default function LoginPage() {
                 </button>
               </div>
             </div>
-            <Button type="submit" className="w-full">
-              Entrar
+            {devLoginMutation.isError && (
+              <p className="text-sm text-destructive">
+                Nao foi possivel iniciar a sessao. Verifique se o backend local esta disponivel.
+              </p>
+            )}
+            <Button type="submit" className="w-full" disabled={devLoginMutation.isPending}>
+              {devLoginMutation.isPending ? 'Entrando...' : 'Entrar'}
             </Button>
           </form>
 

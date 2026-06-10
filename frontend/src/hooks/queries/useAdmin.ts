@@ -7,3 +7,9 @@ export const useUsers = () =>
 
 export const useWorkspaces = () =>
   useQuery({ queryKey: queryKeys.admin.workspaces, queryFn: () => adminService.workspaces() });
+
+export const useRoles = () =>
+  useQuery({ queryKey: queryKeys.admin.roles, queryFn: () => adminService.roles() });
+
+export const usePermissions = () =>
+  useQuery({ queryKey: queryKeys.admin.permissions, queryFn: () => adminService.permissions() });

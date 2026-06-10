@@ -3,6 +3,9 @@
  * Evita strings soltas espalhadas e facilita invalidação por domínio.
  */
 export const queryKeys = {
+  auth: {
+    me: ['auth', 'me'] as const,
+  },
   dashboard: {
     summary: ['dashboard', 'summary'] as const,
   },
@@ -43,5 +46,8 @@ export const queryKeys = {
   admin: {
     users: ['admin', 'users'] as const,
     workspaces: ['admin', 'workspaces'] as const,
+    roles: ['admin', 'roles'] as const,
+    permissions: ['admin', 'permissions'] as const,
+    settings: ['admin', 'settings'] as const,
   },
 } as const;

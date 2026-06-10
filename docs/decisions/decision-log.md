@@ -169,3 +169,39 @@ Status: recomendada.
 O MVP inicial deve priorizar `frontend`, `backend` e `db`. Redis, workers, vector store e servicos MCP dedicados devem entrar apenas com justificativa e fase clara.
 
 Status: decidida.
+
+## DEC-AUTH-001 - Integracao frontend usa cookie HttpOnly e credentials include
+
+O frontend em modo API real usa `withCredentials: true` para consumir a sessao HttpOnly emitida pelo backend. Tokens nao devem ser persistidos em `localStorage`.
+
+Status: decidida.
+
+## DEC-AUTH-002 - Dev-login permanece restrito a ambiente nao produtivo
+
+O `POST /api/v1/auth/dev-login` continua disponivel para desenvolvimento local e bloqueado em producao. Ele nao substitui SSO corporativo.
+
+Status: decidida.
+
+## DEC-FE-API-001 - Frontend mantem modo mock/API via VITE_USE_MOCKS
+
+O frontend preserva mocks com `VITE_USE_MOCKS=true` e usa a API real com `VITE_USE_MOCKS=false`. A migracao ocorre service por service.
+
+Status: decidida.
+
+## DEC-DOMAIN-001 - Core domain prioriza tenants, workspaces, users, roles, permissions e assistants
+
+A Fase 05 prioriza o control plane fundacional. Runtime de IA, RAG, MCP, providers externos e streaming permanecem fora do escopo.
+
+Status: decidida.
+
+## DEC-SSO-001 - Microsoft SSO preparado como integracao backend-side futura
+
+As variaveis e a documentacao de Microsoft SSO foram preparadas para uma fase posterior. O client secret deve permanecer somente no backend ou em secret manager.
+
+Status: decidida.
+
+## DEC-AUDIT-001 - Acoes criticas do core domain geram audit log
+
+Alteracoes em tenants, workspaces, users, roles, permissoes, assistants, versions, publication e sharing devem registrar eventos de auditoria com tenant, ator e request id quando disponiveis.
+
+Status: decidida.

@@ -1,12 +1,13 @@
 # API
 
-Status: operacional para a fundacao da Fase 04.
+Status: operacional para a fundacao da Fase 04 e contratos de core domain da Fase 05.
 
 Esta pasta concentra contratos HTTP e convencoes de integracao do backend.
 
 ## Documentos
 
 - `ORCHESTRA_API_FOUNDATION.md`: prefixos, envelopes de resposta, erros, autenticacao e endpoints implementados.
+- `ORCHESTRA_CORE_DOMAIN_API.md`: endpoints, paginacao e filtros da Fase 05.
 
 ## Convencoes Atuais
 
@@ -16,3 +17,4 @@ Esta pasta concentra contratos HTTP e convencoes de integracao do backend.
 - Cookie HttpOnly para sessao.
 - Request id em header e corpo JSON.
 - Erros estruturados com `status`, `code`, `message`, `fieldErrors` e `requestId`.
+- Listagens paginadas com `data`, `pagination` e `requestId`.

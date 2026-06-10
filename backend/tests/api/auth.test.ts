@@ -1,9 +1,17 @@
 import request from 'supertest';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { createApp } from '../../src/app/app';
 import { env } from '../../src/config/env';
 import { signSession } from '../../src/shared/security/session';
 import type { AuthenticatedUser } from '../../src/shared/types/auth';
+
+vi.mock('../../src/infrastructure/prisma/prisma.service', () => ({
+  prisma: {
+    auditLog: {
+      create: vi.fn().mockResolvedValue({}),
+    },
+  },
+}));
 
 const testUser: AuthenticatedUser = {
   id: '00000000-0000-0000-0000-000000000001',
@@ -42,7 +50,9 @@ describe('auth endpoints', () => {
       .expect(200);
 
     expect(response.body.user.email).toBe('admin.dev@orchestra.local');
-    expect(response.body.user.permissions).toContain('assistants.read');
+    expect(response.body.tenant.slug).toBe('orchestra-dev');
+    expect(response.body.workspaces[0].slug).toBe('default');
+    expect(response.body.permissions).toContain('assistants.read');
   });
 
   it('blocks dev-login in production', async () => {
@@ -56,5 +66,38 @@ describe('auth endpoints', () => {
 
     process.env.NODE_ENV = previousNodeEnv;
     expect(response.body.code).toBe('DEV_LOGIN_DISABLED');
+  });
+
+  it('clears session on logout', async () => {
+    const token = signSession({ sub: testUser.id, user: testUser });
+    const response = await request(createApp())
+      .post('/api/v1/auth/logout')
+      .set('Cookie', [`${env.COOKIE_NAME}=${token}`])
+      .expect(204);
+
+    expect(response.headers['set-cookie'][0]).toContain(`${env.COOKIE_NAME}=`);
+  });
+
+  it('returns 403 when permission is missing', async () => {
+    const token = signSession({ sub: testUser.id, user: { ...testUser, permissions: [] } });
+    const response = await request(createApp())
+      .get('/api/v1/workspaces')
+      .set('Cookie', [`${env.COOKIE_NAME}=${token}`])
+      .expect(403);
+
+    expect(response.body.code).toBe('FORBIDDEN');
+    expect(response.body.requestId).toMatch(/^req_/);
+  });
+
+  it('returns 422 with fieldErrors and requestId for invalid params', async () => {
+    const token = signSession({ sub: testUser.id, user: testUser });
+    const response = await request(createApp())
+      .get('/api/v1/assistants/not-a-uuid')
+      .set('Cookie', [`${env.COOKIE_NAME}=${token}`])
+      .expect(422);
+
+    expect(response.body.code).toBe('VALIDATION_ERROR');
+    expect(response.body.fieldErrors[0].field).toBe('id');
+    expect(response.body.requestId).toMatch(/^req_/);
   });
 });

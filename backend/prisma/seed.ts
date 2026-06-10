@@ -7,7 +7,9 @@ const permissions = [
   'users.read',
   'users.manage',
   'roles.read',
+  'roles.manage',
   'permissions.read',
+  'permissions.manage',
   'tenants.read',
   'tenants.manage',
   'workspaces.read',
@@ -23,6 +25,7 @@ const permissions = [
   'mcp.read',
   'mcp.manage',
   'audit.read',
+  'settings.read',
   'settings.manage',
 ];
 
@@ -51,11 +54,14 @@ async function main() {
         slug: 'default',
       },
     },
-    update: {},
+    update: {
+      description: 'Workspace padrao para desenvolvimento local.',
+    },
     create: {
       tenantId: tenant.id,
       name: 'Default Workspace',
       slug: 'default',
+      description: 'Workspace padrao para desenvolvimento local.',
     },
   });
 

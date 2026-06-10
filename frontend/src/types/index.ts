@@ -234,6 +234,57 @@ export interface User {
   lastLogin: string;
 }
 
+export interface Tenant {
+  id: string;
+  name: string;
+  slug: string;
+  status?: string;
+  createdAt?: string;
+  updatedAt?: string;
+}
+
+export interface Workspace {
+  id: string;
+  tenantId?: string;
+  name: string;
+  slug?: string;
+  description?: string | null;
+  status?: string;
+  role?: string;
+  createdAt?: string;
+  updatedAt?: string;
+}
+
+export interface Permission {
+  id: string;
+  key: string;
+  description?: string | null;
+  createdAt?: string;
+  updatedAt?: string;
+}
+
+export interface Role {
+  id: string;
+  tenantId?: string;
+  name: string;
+  description?: string | null;
+  permissions: Permission[];
+  createdAt?: string;
+  updatedAt?: string;
+}
+
+export interface CurrentSession {
+  user: {
+    id: string;
+    name: string;
+    email: string;
+  };
+  tenant: Tenant;
+  workspaces: Workspace[];
+  roles: string[];
+  permissions: string[];
+}
+
 export interface AnalyticsData {
   date: string;
   conversations: number;

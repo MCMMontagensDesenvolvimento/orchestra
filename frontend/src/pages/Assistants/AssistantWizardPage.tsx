@@ -9,7 +9,7 @@ import { Slider } from '@/components/ui/slider';
 import { Switch } from '@/components/ui/switch';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import type { Assistant } from '@/types';
-import { useAssistants } from '@/hooks/queries/useAssistants';
+import { useAssistants, useCreateAssistantMutation, useUpdateAssistantMutation } from '@/hooks/queries/useAssistants';
 import { useKnowledgeBases } from '@/hooks/queries/useKnowledge';
 import { useMcpTools } from '@/hooks/queries/useMcp';
 import { toast } from 'sonner';
@@ -63,6 +63,8 @@ function getFormFromAssistant(a: Assistant): AssistantWizardFormData {
 
 export default function AssistantWizardPage() {
   const { data: mockAssistants = [] } = useAssistants();
+  const createAssistantMutation = useCreateAssistantMutation();
+  const updateAssistantMutation = useUpdateAssistantMutation();
   const { data: mockKnowledgeBases = [] } = useKnowledgeBases();
   const { data: mockMcpTools = [] } = useMcpTools();
   const navigate = useNavigate();
@@ -142,12 +144,21 @@ export default function AssistantWizardPage() {
 
   const canProceed = stepValidation[currentStep];
 
-  const handleSave = (publish: boolean) => {
-    toast.success(
-      publish ? `Assistente "${formData.name}" publicado com sucesso!` : `Assistente "${formData.name}" salvo como rascunho!`,
-      { description: isEditing ? 'Alterações salvas (mock)' : 'Assistente criado (mock)' }
-    );
-    navigate('/app/assistants');
+  const handleSave = async (publish: boolean) => {
+    try {
+      if (isEditing && id) {
+        await updateAssistantMutation.mutateAsync({ id, formData, publish });
+      } else {
+        await createAssistantMutation.mutateAsync({ formData, publish });
+      }
+      toast.success(
+        publish ? `Assistente "${formData.name}" publicado com sucesso!` : `Assistente "${formData.name}" salvo como rascunho!`,
+        { description: isEditing ? 'Alteracoes salvas' : 'Assistente criado' }
+      );
+      navigate('/app/assistants');
+    } catch {
+      toast.error('Nao foi possivel salvar o assistente', { description: 'Tente novamente em instantes.' });
+    }
   };
 
   const modelOptions = [
@@ -549,10 +560,17 @@ export default function AssistantWizardPage() {
               <div className="flex items-center gap-2">
                 {currentStep === steps.length - 1 ? (
                   <>
-                    <Button variant="outline" onClick={() => handleSave(false)}>
+                    <Button
+                      variant="outline"
+                      onClick={() => { void handleSave(false); }}
+                      disabled={createAssistantMutation.isPending || updateAssistantMutation.isPending}
+                    >
                       Salvar Rascunho
                     </Button>
-                    <Button onClick={() => handleSave(true)} disabled={!stepValidation[11]}>
+                    <Button
+                      onClick={() => { void handleSave(true); }}
+                      disabled={!stepValidation[11] || createAssistantMutation.isPending || updateAssistantMutation.isPending}
+                    >
                       <Send className="h-4 w-4 mr-1" /> Publicar
                     </Button>
                   </>

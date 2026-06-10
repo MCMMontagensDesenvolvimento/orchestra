@@ -8,6 +8,7 @@ import { createRolesRouter } from '../modules/roles/roles.routes';
 import { createPermissionsRouter } from '../modules/permissions/permissions.routes';
 import { createAssistantsRouter } from '../modules/assistants/assistants.routes';
 import { createAuditRouter } from '../modules/audit/audit.routes';
+import { createSettingsRouter } from '../modules/settings/settings.routes';
 
 export type AppDependencies = HealthDependencies;
 
@@ -23,6 +24,7 @@ export function registerRoutes(app: express.Express, dependencies: AppDependenci
   api.use('/permissions', createPermissionsRouter());
   api.use('/assistants', createAssistantsRouter());
   api.use('/audit-logs', createAuditRouter());
+  api.use('/settings', createSettingsRouter());
 
   app.use('/api/v1', api);
 }

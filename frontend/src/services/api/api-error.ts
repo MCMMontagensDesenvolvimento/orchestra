@@ -9,13 +9,24 @@ export class ApiError extends Error {
   status: HttpStatusCode | number;
   code?: string;
   details?: unknown;
+  requestId?: string;
+  fieldErrors?: Array<{ field: string; message: string }>;
 
-  constructor(message: string, status: HttpStatusCode | number, code?: string, details?: unknown) {
+  constructor(
+    message: string,
+    status: HttpStatusCode | number,
+    code?: string,
+    details?: unknown,
+    requestId?: string,
+    fieldErrors?: Array<{ field: string; message: string }>,
+  ) {
     super(message);
     this.name = 'ApiError';
     this.status = status;
     this.code = code;
     this.details = details;
+    this.requestId = requestId;
+    this.fieldErrors = fieldErrors;
   }
 
   static forbidden(message = 'Acesso negado') { return new ApiError(message, HttpStatus.FORBIDDEN, 'FORBIDDEN'); }

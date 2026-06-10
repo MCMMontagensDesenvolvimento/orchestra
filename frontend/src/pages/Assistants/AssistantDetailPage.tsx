@@ -12,7 +12,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Badge } from '@/components/ui/badge';
 import type { Assistant, KnowledgeBase, McpTool } from '@/types';
-import { useAssistants, useAssistantVersions, useAssistantFeedback, useAssistantTestResults } from '@/hooks/queries/useAssistants';
+import { useAssistant, useAssistants, useAssistantVersions, useAssistantFeedback, useAssistantTestResults } from '@/hooks/queries/useAssistants';
 import { useKnowledgeBases } from '@/hooks/queries/useKnowledge';
 import { useMcpTools } from '@/hooks/queries/useMcp';
 import { useConversations } from '@/hooks/queries/useChat';
@@ -50,17 +50,18 @@ export default function AssistantDetailPage() {
   const { data: mockAuditLogs = [] } = useAuditLogs();
   const { data: mockAnalytics = [] } = useAnalytics();
   const { id } = useParams();
+  const assistantQuery = useAssistant(id);
   const { data: mockAssistantVersions = [] } = useAssistantVersions(id);
   const { data: mockAssistantFeedbacks = [] } = useAssistantFeedback(id);
   const { data: mockTestResults = [] } = useAssistantTestResults(id);
   const navigate = useNavigate();
   const [activeTab, setActiveTab] = useState<TabId>('overview');
 
-  const assistant = mockAssistants.find(a => a.id === id) || mockAssistants[0];
+  const assistant = assistantQuery.data ?? mockAssistants.find(a => a.id === id) ?? mockAssistants[0];
 
-  if (assistantsQuery.isLoading || !assistant) {
-    if (assistantsQuery.isError) {
-      return <AppShell><div className="flex items-center justify-center py-16 text-sm text-muted-foreground">Não foi possível carregar o assistente. <Button variant="link" onClick={() => assistantsQuery.refetch()}>Tentar novamente</Button></div></AppShell>;
+  if (assistantQuery.isLoading || assistantsQuery.isLoading || !assistant) {
+    if (assistantQuery.isError || assistantsQuery.isError) {
+      return <AppShell><div className="flex items-center justify-center py-16 text-sm text-muted-foreground">Nao foi possivel carregar o assistente. <Button variant="link" onClick={() => { void assistantQuery.refetch(); }}>Tentar novamente</Button></div></AppShell>;
     }
     if (mockAssistants.length === 0 && !assistantsQuery.isLoading) {
       return <AppShell><div className="flex items-center justify-center py-16 text-sm text-muted-foreground">Assistente não encontrado.</div></AppShell>;

@@ -12,3 +12,9 @@ export const validateQuery = (schema: ZodSchema) =>
     req.query = schema.parse(req.query) as typeof req.query;
     next();
   };
+
+export const validateParams = (schema: ZodSchema) =>
+  (req: Request, _res: Response, next: NextFunction) => {
+    req.params = schema.parse(req.params) as typeof req.params;
+    next();
+  };

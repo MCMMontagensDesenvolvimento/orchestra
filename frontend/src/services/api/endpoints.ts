@@ -1,24 +1,49 @@
-/**
- * Catálogo central de endpoints da API futura.
- * Strings aqui ainda não chamam nada real — servem como contrato para os
- * services no momento da troca de mocks por HTTP real.
- */
 export const endpoints = {
   auth: {
-    login: '/auth/login',
+    devLogin: '/auth/dev-login',
     logout: '/auth/logout',
     me: '/auth/me',
   },
-  dashboard: {
-    summary: '/dashboard/summary',
+  tenants: {
+    list: '/tenants',
+    detail: (id: string) => `/tenants/${id}`,
+  },
+  workspaces: {
+    list: '/workspaces',
+    detail: (id: string) => `/workspaces/${id}`,
+  },
+  users: {
+    list: '/users',
+    detail: (id: string) => `/users/${id}`,
+  },
+  roles: {
+    list: '/roles',
+    detail: (id: string) => `/roles/${id}`,
+    permission: (id: string, permissionId: string) => `/roles/${id}/permissions/${permissionId}`,
+  },
+  permissions: {
+    list: '/permissions',
+    detail: (id: string) => `/permissions/${id}`,
   },
   assistants: {
     list: '/assistants',
     detail: (id: string) => `/assistants/${id}`,
+    archive: (id: string) => `/assistants/${id}/archive`,
     versions: (id: string) => `/assistants/${id}/versions`,
-    feedback: (id: string) => `/assistants/${id}/feedback`,
-    test: (id: string) => `/assistants/${id}/test`,
+    version: (id: string, versionId: string) => `/assistants/${id}/versions/${versionId}`,
     publish: (id: string) => `/assistants/${id}/publish`,
+    unpublish: (id: string) => `/assistants/${id}/unpublish`,
+    shares: (id: string) => `/assistants/${id}/shares`,
+    share: (id: string, shareId: string) => `/assistants/${id}/shares/${shareId}`,
+  },
+  audit: {
+    logs: '/audit-logs',
+  },
+  settings: {
+    list: '/settings',
+  },
+  dashboard: {
+    summary: '/dashboard/summary',
   },
   knowledge: {
     list: '/knowledge-bases',
@@ -41,13 +66,5 @@ export const endpoints = {
   },
   analytics: {
     overview: '/analytics/overview',
-  },
-  audit: {
-    logs: '/audit/logs',
-  },
-  admin: {
-    users: '/admin/users',
-    roles: '/admin/roles',
-    workspaces: '/admin/workspaces',
   },
 } as const;
