@@ -4,12 +4,19 @@ import { AppShell } from '@/components/shared/AppShell';
 import { PageHeader } from '@/components/shared/PageHeader';
 import { StatusBadge } from '@/components/shared/StatusBadge';
 import { Button } from '@/components/ui/button';
-import { useAssistants } from '@/hooks/queries/useAssistants';
+import {
+  useArchiveAssistantMutation,
+  useAssistants,
+  usePublishAssistantMutation,
+  useRestoreAssistantMutation,
+  useUnpublishAssistantMutation,
+} from '@/hooks/queries/useAssistants';
+import { useCurrentSession } from '@/hooks/queries/useAuth';
 import { QueryState, ListLoading } from '@/components/shared/QueryState';
 import {
   Plus, Bot, MessageSquare, DollarSign, ThumbsUp,
   LayoutGrid, List, Search, SlidersHorizontal, ArrowUpDown,
-  MoreHorizontal, Edit, Copy, Play, Archive, Send, Eye,
+  MoreHorizontal, Edit, Copy, Play, Archive, Send, Eye, RotateCcw, Undo2,
   ChevronDown, X
 } from 'lucide-react';
 import {
@@ -28,12 +35,19 @@ const statusFilters: { label: string; value: AssistantStatus | 'all' }[] = [
   { label: 'Todos', value: 'all' },
   { label: 'Publicados', value: 'published' },
   { label: 'Rascunhos', value: 'draft' },
+  { label: 'Em teste', value: 'testing' },
+  { label: 'Aguardando aprovação', value: 'pending_approval' },
   { label: 'Arquivados', value: 'archived' },
 ];
 
 export default function AssistantsPage() {
   const assistantsQuery = useAssistants();
-  const mockAssistants = assistantsQuery.data ?? [];
+  const { data: session } = useCurrentSession();
+  const publishMutation = usePublishAssistantMutation();
+  const unpublishMutation = useUnpublishAssistantMutation();
+  const archiveMutation = useArchiveAssistantMutation();
+  const restoreMutation = useRestoreAssistantMutation();
+  const mockAssistants = useMemo(() => assistantsQuery.data ?? [], [assistantsQuery.data]);
   const owners = ['Todos', ...Array.from(new Set(mockAssistants.map(a => a.owner)))];
   const [viewMode, setViewMode] = useState<ViewMode>('cards');
   const [statusFilter, setStatusFilter] = useState<AssistantStatus | 'all'>('all');
@@ -66,12 +80,37 @@ export default function AssistantsPage() {
       return sortDir === 'asc' ? cmp : -cmp;
     });
     return result;
-  }, [statusFilter, areaFilter, ownerFilter, searchQuery, sortField, sortDir]);
+  }, [mockAssistants, statusFilter, areaFilter, ownerFilter, searchQuery, sortField, sortDir]);
 
   const activeFilterCount = [statusFilter !== 'all', areaFilter !== 'Todos', ownerFilter !== 'Todos'].filter(Boolean).length;
 
+  const hasPermission = (permission: string) => session?.permissions.includes(permission) ?? false;
+
   const handleAction = (action: string, name: string) => {
-    toast.success(`${action}: ${name}`, { description: 'Ação executada com sucesso (mock)' });
+    toast.success(`${action}: ${name}`);
+  };
+
+  const handleAssistantAction = async (
+    action: 'publish' | 'unpublish' | 'archive' | 'restore',
+    assistant: { id: string; name: string },
+  ) => {
+    try {
+      if (action === 'publish') await publishMutation.mutateAsync(assistant.id);
+      if (action === 'unpublish') await unpublishMutation.mutateAsync(assistant.id);
+      if (action === 'archive') await archiveMutation.mutateAsync(assistant.id);
+      if (action === 'restore') await restoreMutation.mutateAsync(assistant.id);
+      const labels = {
+        publish: 'Publicado',
+        unpublish: 'Despublicado',
+        archive: 'Arquivado',
+        restore: 'Restaurado',
+      };
+      toast.success(`${labels[action]}: ${assistant.name}`);
+    } catch (error) {
+      toast.error('Nao foi possivel executar a acao', {
+        description: error instanceof Error ? error.message : 'Tente novamente em instantes.',
+      });
+    }
   };
 
   return (
@@ -253,9 +292,11 @@ export default function AssistantsPage() {
                         <DropdownMenuItem asChild>
                           <Link to={`/assistants/${a.id}`}><Eye className="h-3.5 w-3.5 mr-2" />Ver detalhes</Link>
                         </DropdownMenuItem>
-                        <DropdownMenuItem asChild>
-                          <Link to={`/assistants/${a.id}/edit`}><Edit className="h-3.5 w-3.5 mr-2" />Editar</Link>
-                        </DropdownMenuItem>
+                        {hasPermission('assistants.update') && (
+                          <DropdownMenuItem asChild>
+                            <Link to={`/assistants/${a.id}/edit`}><Edit className="h-3.5 w-3.5 mr-2" />Editar</Link>
+                          </DropdownMenuItem>
+                        )}
                         <DropdownMenuItem onClick={() => handleAction('Duplicado', a.name)}>
                           <Copy className="h-3.5 w-3.5 mr-2" />Duplicar
                         </DropdownMenuItem>
@@ -263,14 +304,24 @@ export default function AssistantsPage() {
                           <Link to={`/chat/${a.id}`}><Play className="h-3.5 w-3.5 mr-2" />Testar</Link>
                         </DropdownMenuItem>
                         <DropdownMenuSeparator />
-                        {a.status === 'draft' && (
-                          <DropdownMenuItem onClick={() => handleAction('Publicado', a.name)}>
+                        {a.status !== 'published' && a.status !== 'archived' && hasPermission('assistants.publish') && (
+                          <DropdownMenuItem onClick={() => { void handleAssistantAction('publish', a); }}>
                             <Send className="h-3.5 w-3.5 mr-2" />Publicar
                           </DropdownMenuItem>
                         )}
-                        {a.status === 'published' && (
-                          <DropdownMenuItem onClick={() => handleAction('Arquivado', a.name)}>
+                        {a.status === 'published' && hasPermission('assistants.unpublish') && (
+                          <DropdownMenuItem onClick={() => { void handleAssistantAction('unpublish', a); }}>
+                            <Undo2 className="h-3.5 w-3.5 mr-2" />Despublicar
+                          </DropdownMenuItem>
+                        )}
+                        {a.status !== 'archived' && hasPermission('assistants.archive') && (
+                          <DropdownMenuItem onClick={() => { void handleAssistantAction('archive', a); }}>
                             <Archive className="h-3.5 w-3.5 mr-2" />Arquivar
+                          </DropdownMenuItem>
+                        )}
+                        {a.status === 'archived' && hasPermission('assistants.restore') && (
+                          <DropdownMenuItem onClick={() => { void handleAssistantAction('restore', a); }}>
+                            <RotateCcw className="h-3.5 w-3.5 mr-2" />Restaurar
                           </DropdownMenuItem>
                         )}
                       </DropdownMenuContent>
@@ -374,9 +425,11 @@ export default function AssistantsPage() {
                             <DropdownMenuItem asChild>
                               <Link to={`/assistants/${a.id}`}><Eye className="h-3.5 w-3.5 mr-2" />Ver detalhes</Link>
                             </DropdownMenuItem>
-                            <DropdownMenuItem asChild>
-                              <Link to={`/assistants/${a.id}/edit`}><Edit className="h-3.5 w-3.5 mr-2" />Editar</Link>
-                            </DropdownMenuItem>
+                            {hasPermission('assistants.update') && (
+                              <DropdownMenuItem asChild>
+                                <Link to={`/assistants/${a.id}/edit`}><Edit className="h-3.5 w-3.5 mr-2" />Editar</Link>
+                              </DropdownMenuItem>
+                            )}
                             <DropdownMenuItem onClick={() => handleAction('Duplicado', a.name)}>
                               <Copy className="h-3.5 w-3.5 mr-2" />Duplicar
                             </DropdownMenuItem>
@@ -384,14 +437,24 @@ export default function AssistantsPage() {
                               <Link to={`/chat/${a.id}`}><Play className="h-3.5 w-3.5 mr-2" />Testar</Link>
                             </DropdownMenuItem>
                             <DropdownMenuSeparator />
-                            {a.status === 'draft' && (
-                              <DropdownMenuItem onClick={() => handleAction('Publicado', a.name)}>
+                            {a.status !== 'published' && a.status !== 'archived' && hasPermission('assistants.publish') && (
+                              <DropdownMenuItem onClick={() => { void handleAssistantAction('publish', a); }}>
                                 <Send className="h-3.5 w-3.5 mr-2" />Publicar
                               </DropdownMenuItem>
                             )}
-                            {a.status !== 'archived' && (
-                              <DropdownMenuItem onClick={() => handleAction('Arquivado', a.name)} className="text-destructive">
+                            {a.status === 'published' && hasPermission('assistants.unpublish') && (
+                              <DropdownMenuItem onClick={() => { void handleAssistantAction('unpublish', a); }}>
+                                <Undo2 className="h-3.5 w-3.5 mr-2" />Despublicar
+                              </DropdownMenuItem>
+                            )}
+                            {a.status !== 'archived' && hasPermission('assistants.archive') && (
+                              <DropdownMenuItem onClick={() => { void handleAssistantAction('archive', a); }} className="text-destructive">
                                 <Archive className="h-3.5 w-3.5 mr-2" />Arquivar
+                              </DropdownMenuItem>
+                            )}
+                            {a.status === 'archived' && hasPermission('assistants.restore') && (
+                              <DropdownMenuItem onClick={() => { void handleAssistantAction('restore', a); }}>
+                                <RotateCcw className="h-3.5 w-3.5 mr-2" />Restaurar
                               </DropdownMenuItem>
                             )}
                           </DropdownMenuContent>

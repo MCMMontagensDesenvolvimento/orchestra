@@ -18,8 +18,15 @@ const permissions = [
   'assistants.create',
   'assistants.update',
   'assistants.publish',
+  'assistants.unpublish',
+  'assistants.rollback',
   'assistants.share',
   'assistants.archive',
+  'assistants.restore',
+  'assistants.feedback.read',
+  'assistants.feedback.create',
+  'assistants.testResults.read',
+  'assistants.testResults.create',
   'knowledge.read',
   'knowledge.manage',
   'mcp.read',
@@ -36,6 +43,51 @@ const roles = [
   'consumer',
   'auditor',
 ];
+
+const rolePermissionKeys: Record<string, string[]> = {
+  admin_platform: permissions,
+  creator_owner: [
+    'assistants.read',
+    'assistants.create',
+    'assistants.update',
+    'assistants.publish',
+    'assistants.unpublish',
+    'assistants.rollback',
+    'assistants.share',
+    'assistants.archive',
+    'assistants.restore',
+    'assistants.feedback.read',
+    'assistants.feedback.create',
+    'assistants.testResults.read',
+    'assistants.testResults.create',
+    'knowledge.read',
+    'mcp.read',
+    'audit.read',
+    'settings.read',
+  ],
+  editor: [
+    'assistants.read',
+    'assistants.create',
+    'assistants.update',
+    'assistants.feedback.create',
+    'assistants.testResults.read',
+    'assistants.testResults.create',
+    'knowledge.read',
+    'mcp.read',
+    'settings.read',
+  ],
+  consumer: [
+    'assistants.read',
+    'assistants.feedback.create',
+  ],
+  auditor: [
+    'assistants.read',
+    'assistants.feedback.read',
+    'assistants.testResults.read',
+    'audit.read',
+    'settings.read',
+  ],
+};
 
 async function main() {
   const tenant = await prisma.tenant.upsert({
@@ -142,22 +194,33 @@ async function main() {
     },
   });
 
+  const permissionsByKey = new Map(permissionRecords.map((permission) => [permission.key, permission]));
+  const rolesByName = new Map(roleRecords.map((role) => [role.name, role]));
+
   await Promise.all(
-    permissionRecords.map((permission) =>
-      prisma.rolePermission.upsert({
-        where: {
-          roleId_permissionId: {
-            roleId: adminRole.id,
+    Object.entries(rolePermissionKeys).flatMap(([roleName, keys]) => {
+      const role = rolesByName.get(roleName);
+      if (!role) return [];
+
+      return keys.flatMap((key) => {
+        const permission = permissionsByKey.get(key);
+        if (!permission) return [];
+
+        return prisma.rolePermission.upsert({
+          where: {
+            roleId_permissionId: {
+              roleId: role.id,
+              permissionId: permission.id,
+            },
+          },
+          update: {},
+          create: {
+            roleId: role.id,
             permissionId: permission.id,
           },
-        },
-        update: {},
-        create: {
-          roleId: adminRole.id,
-          permissionId: permission.id,
-        },
-      }),
-    ),
+        });
+      });
+    }),
   );
 
   await prisma.assistant.upsert({
@@ -176,10 +239,15 @@ async function main() {
           version: '0.1.0',
           status: 'draft',
           displayName: 'Foundation draft',
+          description: 'Initial local draft for governance validation.',
           instructions: 'Dummy instructions for local development only.',
           modelProvider: 'none',
           modelName: 'not-configured',
           temperature: '0.20',
+          configuration: {
+            source: 'seed',
+            runtimeEnabled: false,
+          },
           createdById: admin.id,
         },
       },

@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { assistantsService } from '@/services/assistants.service';
-import type { AssistantWizardFormData } from '@/types';
+import type { AssistantTestStatus, FeedbackType, AssistantWizardFormData } from '@/types';
 import { queryKeys } from './queryKeys';
 
 export const useAssistants = () =>
@@ -17,6 +17,20 @@ export const useAssistantVersions = (id: string | undefined) =>
   useQuery({
     queryKey: queryKeys.assistants.versions(id ?? ''),
     queryFn: () => assistantsService.versions(id!),
+    enabled: !!id,
+  });
+
+export const useAssistantPublications = (id: string | undefined) =>
+  useQuery({
+    queryKey: queryKeys.assistants.publications(id ?? ''),
+    queryFn: () => assistantsService.publications(id!),
+    enabled: !!id,
+  });
+
+export const useAssistantActivePublication = (id: string | undefined) =>
+  useQuery({
+    queryKey: queryKeys.assistants.activePublication(id ?? ''),
+    queryFn: () => assistantsService.activePublication(id!),
     enabled: !!id,
   });
 
@@ -54,6 +68,7 @@ export const useUpdateAssistantMutation = () => {
     onSuccess: (_assistant, variables) => {
       void queryClient.invalidateQueries({ queryKey: queryKeys.assistants.all });
       void queryClient.invalidateQueries({ queryKey: queryKeys.assistants.detail(variables.id) });
+      void queryClient.invalidateQueries({ queryKey: queryKeys.assistants.versions(variables.id) });
       void queryClient.invalidateQueries({ queryKey: queryKeys.audit.logs });
     },
   });
@@ -66,6 +81,23 @@ export const useArchiveAssistantMutation = () => {
     onSuccess: (_assistant, id) => {
       void queryClient.invalidateQueries({ queryKey: queryKeys.assistants.all });
       void queryClient.invalidateQueries({ queryKey: queryKeys.assistants.detail(id) });
+      void queryClient.invalidateQueries({ queryKey: queryKeys.assistants.publications(id) });
+      void queryClient.invalidateQueries({ queryKey: queryKeys.assistants.activePublication(id) });
+      void queryClient.invalidateQueries({ queryKey: queryKeys.audit.logs });
+    },
+  });
+};
+
+export const useRestoreAssistantMutation = () => {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) => assistantsService.restore(id),
+    onSuccess: (_assistant, id) => {
+      void queryClient.invalidateQueries({ queryKey: queryKeys.assistants.all });
+      void queryClient.invalidateQueries({ queryKey: queryKeys.assistants.detail(id) });
+      void queryClient.invalidateQueries({ queryKey: queryKeys.assistants.versions(id) });
+      void queryClient.invalidateQueries({ queryKey: queryKeys.assistants.publications(id) });
+      void queryClient.invalidateQueries({ queryKey: queryKeys.assistants.activePublication(id) });
       void queryClient.invalidateQueries({ queryKey: queryKeys.audit.logs });
     },
   });
@@ -78,6 +110,86 @@ export const usePublishAssistantMutation = () => {
     onSuccess: (_assistant, id) => {
       void queryClient.invalidateQueries({ queryKey: queryKeys.assistants.all });
       void queryClient.invalidateQueries({ queryKey: queryKeys.assistants.detail(id) });
+      void queryClient.invalidateQueries({ queryKey: queryKeys.audit.logs });
+    },
+  });
+};
+
+export const useUnpublishAssistantMutation = () => {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) => assistantsService.unpublish(id),
+    onSuccess: (_assistant, id) => {
+      void queryClient.invalidateQueries({ queryKey: queryKeys.assistants.all });
+      void queryClient.invalidateQueries({ queryKey: queryKeys.assistants.detail(id) });
+      void queryClient.invalidateQueries({ queryKey: queryKeys.assistants.publications(id) });
+      void queryClient.invalidateQueries({ queryKey: queryKeys.assistants.activePublication(id) });
+      void queryClient.invalidateQueries({ queryKey: queryKeys.audit.logs });
+    },
+  });
+};
+
+export const useRollbackAssistantMutation = () => {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, versionId, publicationId, reason }: { id: string; versionId?: string; publicationId?: string; reason: string }) =>
+      assistantsService.rollback(id, { versionId, publicationId, reason }),
+    onSuccess: (_assistant, variables) => {
+      void queryClient.invalidateQueries({ queryKey: queryKeys.assistants.all });
+      void queryClient.invalidateQueries({ queryKey: queryKeys.assistants.detail(variables.id) });
+      void queryClient.invalidateQueries({ queryKey: queryKeys.assistants.versions(variables.id) });
+      void queryClient.invalidateQueries({ queryKey: queryKeys.assistants.publications(variables.id) });
+      void queryClient.invalidateQueries({ queryKey: queryKeys.assistants.activePublication(variables.id) });
+      void queryClient.invalidateQueries({ queryKey: queryKeys.audit.logs });
+    },
+  });
+};
+
+export const useCreateAssistantFeedbackMutation = () => {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, rating, comment, assistantVersionId }: { id: string; rating: FeedbackType; comment?: string; assistantVersionId?: string }) =>
+      assistantsService.createFeedback(id, { rating, comment, assistantVersionId }),
+    onSuccess: (_feedback, variables) => {
+      void queryClient.invalidateQueries({ queryKey: queryKeys.assistants.feedback(variables.id) });
+      void queryClient.invalidateQueries({ queryKey: queryKeys.audit.logs });
+    },
+  });
+};
+
+export const useCreateAssistantTestResultMutation = () => {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({
+      id,
+      assistantVersionId,
+      input,
+      expectedBehavior,
+      actualOutput,
+      status,
+      score,
+      notes,
+    }: {
+      id: string;
+      assistantVersionId?: string;
+      input: string;
+      expectedBehavior?: string;
+      actualOutput: string;
+      status: AssistantTestStatus;
+      score?: number;
+      notes?: string;
+    }) =>
+      assistantsService.createTestResult(id, {
+        assistantVersionId,
+        input,
+        expectedBehavior,
+        actualOutput,
+        status,
+        score,
+        notes,
+      }),
+    onSuccess: (_testResult, variables) => {
+      void queryClient.invalidateQueries({ queryKey: queryKeys.assistants.tests(variables.id) });
       void queryClient.invalidateQueries({ queryKey: queryKeys.audit.logs });
     },
   });

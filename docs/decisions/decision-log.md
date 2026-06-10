@@ -205,3 +205,39 @@ Status: decidida.
 Alteracoes em tenants, workspaces, users, roles, permissoes, assistants, versions, publication e sharing devem registrar eventos de auditoria com tenant, ator e request id quando disponiveis.
 
 Status: decidida.
+
+## DEC-ASST-001 - Publicacao aponta para versao especifica do assistant
+
+Publicacoes de assistant devem usar `AssistantPublication` dedicada e apontar para `AssistantVersion`. A versao ativa para uso futuro de runtime deve ser lida pela publicacao ativa, nao apenas pelo status do assistant.
+
+Status: decidida.
+
+## DEC-ASST-002 - Alteracoes em assistant publicado exigem nova versao
+
+Alteracoes de configuracao feitas pelo frontend em modo API real criam nova versao draft antes de nova publicacao. O objetivo e preservar rastreabilidade e evitar sobrescrita silenciosa da versao publicada.
+
+Status: decidida.
+
+## DEC-ASST-003 - Rollback preserva historico
+
+Rollback nao apaga publicacoes anteriores. A publicacao ativa corrente e inativada, e uma nova publicacao ativa e criada apontando para a versao restaurada.
+
+Status: decidida.
+
+## DEC-ASST-004 - Feedback pode existir antes do runtime real
+
+Feedback pode ser registrado por assistant e, opcionalmente, por versao antes da existencia do runtime/chat real. Esse registro prepara metricas e governanca futuras sem acionar provedores de IA.
+
+Status: decidida.
+
+## DEC-ASST-005 - Test results manuais antecipam avaliacoes futuras
+
+Resultados de teste manuais/simulados sao persistidos por assistant e versao para criar a base de avaliacoes futuras. Nenhum teste desta fase chama runtime, RAG, MCP ou provider real.
+
+Status: decidida.
+
+## DEC-SEC-ASSISTANTS-001 - Publicacao e rollback exigem permissao server-side
+
+Publicacao, despublicacao, rollback, arquivamento, restauracao, feedback e test results devem ser autorizados no backend por permissao e policy de dominio. O frontend apenas ajusta a experiencia visual.
+
+Status: decidida.

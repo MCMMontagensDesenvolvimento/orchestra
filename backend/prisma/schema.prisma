@@ -8,42 +8,48 @@ datasource db {
 }
 
 model Tenant {
-  id              String           @id @default(uuid()) @db.Uuid
-  name            String
-  slug            String           @unique
-  status          String           @default("active")
-  createdAt       DateTime         @default(now()) @map("created_at")
-  updatedAt       DateTime         @updatedAt @map("updated_at")
-  deletedAt       DateTime?        @map("deleted_at")
-  workspaces      Workspace[]
-  users           User[]
-  roles           Role[]
-  settings        Setting[]
-  auditLogs       AuditLog[]
-  assistants      Assistant[]
-  knowledgeBases  KnowledgeBase[]
-  mcpServers      McpServer[]
-  providerConfigs ProviderConfig[]
-  usageRecords    UsageRecord[]
+  id                    String                 @id @default(uuid()) @db.Uuid
+  name                  String
+  slug                  String                 @unique
+  status                String                 @default("active")
+  createdAt             DateTime               @default(now()) @map("created_at")
+  updatedAt             DateTime               @updatedAt @map("updated_at")
+  deletedAt             DateTime?              @map("deleted_at")
+  workspaces            Workspace[]
+  users                 User[]
+  roles                 Role[]
+  settings              Setting[]
+  auditLogs             AuditLog[]
+  assistants            Assistant[]
+  assistantPublications AssistantPublication[]
+  assistantFeedbacks    AssistantFeedback[]
+  assistantTestResults  AssistantTestResult[]
+  knowledgeBases        KnowledgeBase[]
+  mcpServers            McpServer[]
+  providerConfigs       ProviderConfig[]
+  usageRecords          UsageRecord[]
 
   @@map("tenants")
 }
 
 model Workspace {
-  id          String                @id @default(uuid()) @db.Uuid
-  tenantId    String                @map("tenant_id") @db.Uuid
-  name        String
-  slug        String
-  description String?
-  status      String                @default("active")
-  createdAt   DateTime              @default(now()) @map("created_at")
-  updatedAt   DateTime              @updatedAt @map("updated_at")
-  deletedAt   DateTime?             @map("deleted_at")
-  tenant      Tenant                @relation(fields: [tenantId], references: [id], onDelete: Cascade)
-  memberships WorkspaceMembership[]
-  settings    Setting[]
-  auditLogs   AuditLog[]
-  assistants  Assistant[]
+  id                    String                 @id @default(uuid()) @db.Uuid
+  tenantId              String                 @map("tenant_id") @db.Uuid
+  name                  String
+  slug                  String
+  description           String?
+  status                String                 @default("active")
+  createdAt             DateTime               @default(now()) @map("created_at")
+  updatedAt             DateTime               @updatedAt @map("updated_at")
+  deletedAt             DateTime?              @map("deleted_at")
+  tenant                Tenant                 @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  memberships           WorkspaceMembership[]
+  settings              Setting[]
+  auditLogs             AuditLog[]
+  assistants            Assistant[]
+  assistantPublications AssistantPublication[]
+  assistantFeedbacks    AssistantFeedback[]
+  assistantTestResults  AssistantTestResult[]
 
   @@unique([tenantId, slug])
   @@index([tenantId])
@@ -51,27 +57,32 @@ model Workspace {
 }
 
 model User {
-  id             String                @id @default(uuid()) @db.Uuid
-  tenantId       String                @map("tenant_id") @db.Uuid
-  email          String                @unique
-  name           String
-  passwordHash   String?               @map("password_hash")
-  status         String                @default("active")
-  lastLoginAt    DateTime?             @map("last_login_at")
-  createdAt      DateTime              @default(now()) @map("created_at")
-  updatedAt      DateTime              @updatedAt @map("updated_at")
-  deletedAt      DateTime?             @map("deleted_at")
-  tenant         Tenant                @relation(fields: [tenantId], references: [id], onDelete: Cascade)
-  roles          UserRole[]
-  memberships    WorkspaceMembership[]
-  sessions       Session[]
-  auditLogs      AuditLog[]            @relation("ActorAuditLogs")
-  assistants     Assistant[]           @relation("AssistantCreator")
-  versions       AssistantVersion[]    @relation("AssistantVersionCreator")
-  conversations  Conversation[]
-  messages       ConversationMessage[]
-  agentRuns      AgentRun[]
-  toolCalls      ToolCall[]
+  id                               String                 @id @default(uuid()) @db.Uuid
+  tenantId                         String                 @map("tenant_id") @db.Uuid
+  email                            String                 @unique
+  name                             String
+  passwordHash                     String?                @map("password_hash")
+  status                           String                 @default("active")
+  lastLoginAt                      DateTime?              @map("last_login_at")
+  createdAt                        DateTime               @default(now()) @map("created_at")
+  updatedAt                        DateTime               @updatedAt @map("updated_at")
+  deletedAt                        DateTime?              @map("deleted_at")
+  tenant                           Tenant                 @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  roles                            UserRole[]
+  memberships                      WorkspaceMembership[]
+  sessions                         Session[]
+  auditLogs                        AuditLog[]             @relation("ActorAuditLogs")
+  assistants                       Assistant[]            @relation("AssistantCreator")
+  versions                         AssistantVersion[]     @relation("AssistantVersionCreator")
+  publishedAssistantPublications   AssistantPublication[] @relation("AssistantPublicationPublisher")
+  unpublishedAssistantPublications AssistantPublication[] @relation("AssistantPublicationUnpublisher")
+  assistantShares                  AssistantShare[]       @relation("AssistantShareCreator")
+  assistantFeedbacks               AssistantFeedback[]    @relation("AssistantFeedbackUser")
+  assistantTestResults             AssistantTestResult[]  @relation("AssistantTestResultTester")
+  conversations                    Conversation[]
+  messages                         ConversationMessage[]
+  agentRuns                        AgentRun[]
+  toolCalls                        ToolCall[]
 
   @@index([tenantId])
   @@map("users")
@@ -105,13 +116,13 @@ model Permission {
 }
 
 model UserRole {
-  id          String     @id @default(uuid()) @db.Uuid
-  userId      String     @map("user_id") @db.Uuid
-  roleId      String     @map("role_id") @db.Uuid
-  workspaceId String?    @map("workspace_id") @db.Uuid
-  createdAt   DateTime   @default(now()) @map("created_at")
-  user        User       @relation(fields: [userId], references: [id], onDelete: Cascade)
-  role        Role       @relation(fields: [roleId], references: [id], onDelete: Cascade)
+  id          String   @id @default(uuid()) @db.Uuid
+  userId      String   @map("user_id") @db.Uuid
+  roleId      String   @map("role_id") @db.Uuid
+  workspaceId String?  @map("workspace_id") @db.Uuid
+  createdAt   DateTime @default(now()) @map("created_at")
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  role        Role     @relation(fields: [roleId], references: [id], onDelete: Cascade)
 
   @@unique([userId, roleId, workspaceId])
   @@index([userId])
@@ -164,21 +175,21 @@ model Session {
 }
 
 model AuditLog {
-  id          String    @id @default(uuid()) @db.Uuid
-  tenantId    String?   @map("tenant_id") @db.Uuid
-  workspaceId String?   @map("workspace_id") @db.Uuid
-  actorUserId String?   @map("actor_user_id") @db.Uuid
+  id          String     @id @default(uuid()) @db.Uuid
+  tenantId    String?    @map("tenant_id") @db.Uuid
+  workspaceId String?    @map("workspace_id") @db.Uuid
+  actorUserId String?    @map("actor_user_id") @db.Uuid
   action      String
   entity      String
-  entityId    String?   @map("entity_id")
+  entityId    String?    @map("entity_id")
   metadata    Json?
-  ipAddress   String?   @map("ip_address")
-  userAgent   String?   @map("user_agent")
-  requestId   String?   @map("request_id")
-  createdAt   DateTime  @default(now()) @map("created_at")
-  tenant      Tenant?   @relation(fields: [tenantId], references: [id], onDelete: SetNull)
+  ipAddress   String?    @map("ip_address")
+  userAgent   String?    @map("user_agent")
+  requestId   String?    @map("request_id")
+  createdAt   DateTime   @default(now()) @map("created_at")
+  tenant      Tenant?    @relation(fields: [tenantId], references: [id], onDelete: SetNull)
   workspace   Workspace? @relation(fields: [workspaceId], references: [id], onDelete: SetNull)
-  actor       User?     @relation("ActorAuditLogs", fields: [actorUserId], references: [id], onDelete: SetNull)
+  actor       User?      @relation("ActorAuditLogs", fields: [actorUserId], references: [id], onDelete: SetNull)
 
   @@index([tenantId])
   @@index([workspaceId])
@@ -190,14 +201,14 @@ model AuditLog {
 }
 
 model Setting {
-  id          String    @id @default(uuid()) @db.Uuid
-  tenantId    String    @map("tenant_id") @db.Uuid
-  workspaceId String?   @map("workspace_id") @db.Uuid
+  id          String     @id @default(uuid()) @db.Uuid
+  tenantId    String     @map("tenant_id") @db.Uuid
+  workspaceId String?    @map("workspace_id") @db.Uuid
   key         String
   value       Json
-  createdAt   DateTime  @default(now()) @map("created_at")
-  updatedAt   DateTime  @updatedAt @map("updated_at")
-  tenant      Tenant    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  createdAt   DateTime   @default(now()) @map("created_at")
+  updatedAt   DateTime   @updatedAt @map("updated_at")
+  tenant      Tenant     @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   workspace   Workspace? @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
 
   @@unique([tenantId, workspaceId, key])
@@ -206,24 +217,27 @@ model Setting {
 }
 
 model Assistant {
-  id          String             @id @default(uuid()) @db.Uuid
-  tenantId    String             @map("tenant_id") @db.Uuid
-  workspaceId String             @map("workspace_id") @db.Uuid
-  name        String
-  description String?
-  status      String             @default("draft")
-  createdById String             @map("created_by_id") @db.Uuid
-  createdAt   DateTime           @default(now()) @map("created_at")
-  updatedAt   DateTime           @updatedAt @map("updated_at")
-  deletedAt   DateTime?          @map("deleted_at")
-  tenant      Tenant             @relation(fields: [tenantId], references: [id], onDelete: Cascade)
-  workspace   Workspace          @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
-  createdBy   User               @relation("AssistantCreator", fields: [createdById], references: [id], onDelete: Restrict)
-  versions    AssistantVersion[]
-  shares      AssistantShare[]
+  id            String                 @id @default(uuid()) @db.Uuid
+  tenantId      String                 @map("tenant_id") @db.Uuid
+  workspaceId   String                 @map("workspace_id") @db.Uuid
+  name          String
+  description   String?
+  status        String                 @default("draft")
+  createdById   String                 @map("created_by_id") @db.Uuid
+  createdAt     DateTime               @default(now()) @map("created_at")
+  updatedAt     DateTime               @updatedAt @map("updated_at")
+  deletedAt     DateTime?              @map("deleted_at")
+  tenant        Tenant                 @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  workspace     Workspace              @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  createdBy     User                   @relation("AssistantCreator", fields: [createdById], references: [id], onDelete: Restrict)
+  versions      AssistantVersion[]
+  shares        AssistantShare[]
+  publications  AssistantPublication[]
+  feedbacks     AssistantFeedback[]
+  testResults   AssistantTestResult[]
   conversations Conversation[]
-  agentRuns   AgentRun[]
-  usageRecords UsageRecord[]
+  agentRuns     AgentRun[]
+  usageRecords  UsageRecord[]
 
   @@index([tenantId])
   @@index([workspaceId])
@@ -232,20 +246,26 @@ model Assistant {
 }
 
 model AssistantVersion {
-  id            String     @id @default(uuid()) @db.Uuid
-  assistantId   String     @map("assistant_id") @db.Uuid
+  id            String                 @id @default(uuid()) @db.Uuid
+  assistantId   String                 @map("assistant_id") @db.Uuid
   version       String
-  status        String     @default("draft")
-  displayName   String     @map("display_name")
+  status        String                 @default("draft")
+  displayName   String                 @map("display_name")
+  description   String?
   instructions  String?
-  modelProvider String?    @map("model_provider")
-  modelName     String?    @map("model_name")
-  temperature   Decimal?   @db.Decimal(4, 2)
-  createdById   String     @map("created_by_id") @db.Uuid
-  createdAt     DateTime   @default(now()) @map("created_at")
-  publishedAt   DateTime?  @map("published_at")
-  assistant     Assistant  @relation(fields: [assistantId], references: [id], onDelete: Cascade)
-  createdBy     User       @relation("AssistantVersionCreator", fields: [createdById], references: [id], onDelete: Restrict)
+  modelProvider String?                @map("model_provider")
+  modelName     String?                @map("model_name")
+  temperature   Decimal?               @db.Decimal(4, 2)
+  configuration Json?
+  createdById   String                 @map("created_by_id") @db.Uuid
+  createdAt     DateTime               @default(now()) @map("created_at")
+  publishedAt   DateTime?              @map("published_at")
+  archivedAt    DateTime?              @map("archived_at")
+  assistant     Assistant              @relation(fields: [assistantId], references: [id], onDelete: Cascade)
+  createdBy     User                   @relation("AssistantVersionCreator", fields: [createdById], references: [id], onDelete: Restrict)
+  publications  AssistantPublication[]
+  feedbacks     AssistantFeedback[]
+  testResults   AssistantTestResult[]
 
   @@unique([assistantId, version])
   @@index([assistantId])
@@ -253,26 +273,131 @@ model AssistantVersion {
 }
 
 model AssistantShare {
-  id          String    @id @default(uuid()) @db.Uuid
-  assistantId String    @map("assistant_id") @db.Uuid
-  shareType   String    @map("share_type")
-  targetId    String?   @map("target_id")
-  createdAt   DateTime  @default(now()) @map("created_at")
-  assistant   Assistant @relation(fields: [assistantId], references: [id], onDelete: Cascade)
+  id                String    @id @default(uuid()) @db.Uuid
+  assistantId       String    @map("assistant_id") @db.Uuid
+  tenantId          String?   @map("tenant_id") @db.Uuid
+  workspaceId       String?   @map("workspace_id") @db.Uuid
+  shareType         String    @map("share_type")
+  targetId          String?   @map("target_id")
+  targetType        String    @default("workspace") @map("target_type")
+  targetUserId      String?   @map("target_user_id") @db.Uuid
+  targetWorkspaceId String?   @map("target_workspace_id") @db.Uuid
+  targetRoleId      String?   @map("target_role_id") @db.Uuid
+  permission        String    @default("can_use")
+  createdById       String?   @map("created_by_id") @db.Uuid
+  createdAt         DateTime  @default(now()) @map("created_at")
+  assistant         Assistant @relation(fields: [assistantId], references: [id], onDelete: Cascade)
+  createdBy         User?     @relation("AssistantShareCreator", fields: [createdById], references: [id], onDelete: SetNull)
 
   @@index([assistantId])
+  @@index([tenantId])
+  @@index([workspaceId])
+  @@index([targetUserId])
+  @@index([targetWorkspaceId])
+  @@index([targetRoleId])
   @@map("assistant_shares")
 }
 
+model AssistantPublication {
+  id                        String                 @id @default(uuid()) @db.Uuid
+  tenantId                  String                 @map("tenant_id") @db.Uuid
+  workspaceId               String                 @map("workspace_id") @db.Uuid
+  assistantId               String                 @map("assistant_id") @db.Uuid
+  assistantVersionId        String                 @map("assistant_version_id") @db.Uuid
+  status                    String                 @default("active")
+  publishedById             String                 @map("published_by_id") @db.Uuid
+  publishedAt               DateTime               @default(now()) @map("published_at")
+  unpublishedById           String?                @map("unpublished_by_id") @db.Uuid
+  unpublishedAt             DateTime?              @map("unpublished_at")
+  rollbackFromPublicationId String?                @map("rollback_from_publication_id") @db.Uuid
+  rollbackReason            String?                @map("rollback_reason")
+  createdAt                 DateTime               @default(now()) @map("created_at")
+  updatedAt                 DateTime               @updatedAt @map("updated_at")
+  tenant                    Tenant                 @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  workspace                 Workspace              @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  assistant                 Assistant              @relation(fields: [assistantId], references: [id], onDelete: Cascade)
+  assistantVersion          AssistantVersion       @relation(fields: [assistantVersionId], references: [id], onDelete: Cascade)
+  publishedBy               User                   @relation("AssistantPublicationPublisher", fields: [publishedById], references: [id], onDelete: Restrict)
+  unpublishedBy             User?                  @relation("AssistantPublicationUnpublisher", fields: [unpublishedById], references: [id], onDelete: SetNull)
+  rollbackFromPublication   AssistantPublication?  @relation("AssistantPublicationRollback", fields: [rollbackFromPublicationId], references: [id], onDelete: SetNull)
+  rollbackPublications      AssistantPublication[] @relation("AssistantPublicationRollback")
+
+  @@index([tenantId])
+  @@index([workspaceId])
+  @@index([assistantId])
+  @@index([assistantVersionId])
+  @@index([status])
+  @@index([publishedAt])
+  @@map("assistant_publications")
+}
+
+model AssistantFeedback {
+  id                 String            @id @default(uuid()) @db.Uuid
+  tenantId           String            @map("tenant_id") @db.Uuid
+  workspaceId        String            @map("workspace_id") @db.Uuid
+  assistantId        String            @map("assistant_id") @db.Uuid
+  assistantVersionId String?           @map("assistant_version_id") @db.Uuid
+  conversationId     String?           @map("conversation_id")
+  messageId          String?           @map("message_id")
+  userId             String            @map("user_id") @db.Uuid
+  rating             String
+  comment            String?
+  createdAt          DateTime          @default(now()) @map("created_at")
+  tenant             Tenant            @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  workspace          Workspace         @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  assistant          Assistant         @relation(fields: [assistantId], references: [id], onDelete: Cascade)
+  assistantVersion   AssistantVersion? @relation(fields: [assistantVersionId], references: [id], onDelete: SetNull)
+  user               User              @relation("AssistantFeedbackUser", fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId])
+  @@index([workspaceId])
+  @@index([assistantId])
+  @@index([assistantVersionId])
+  @@index([userId])
+  @@index([rating])
+  @@index([createdAt])
+  @@map("assistant_feedback")
+}
+
+model AssistantTestResult {
+  id                 String           @id @default(uuid()) @db.Uuid
+  tenantId           String           @map("tenant_id") @db.Uuid
+  workspaceId        String           @map("workspace_id") @db.Uuid
+  assistantId        String           @map("assistant_id") @db.Uuid
+  assistantVersionId String           @map("assistant_version_id") @db.Uuid
+  testedById         String           @map("tested_by_id") @db.Uuid
+  input              String
+  expectedBehavior   String?          @map("expected_behavior")
+  actualOutput       String           @map("actual_output")
+  status             String
+  score              Int?
+  notes              String?
+  createdAt          DateTime         @default(now()) @map("created_at")
+  tenant             Tenant           @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  workspace          Workspace        @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  assistant          Assistant        @relation(fields: [assistantId], references: [id], onDelete: Cascade)
+  assistantVersion   AssistantVersion @relation(fields: [assistantVersionId], references: [id], onDelete: Cascade)
+  testedBy           User             @relation("AssistantTestResultTester", fields: [testedById], references: [id], onDelete: Restrict)
+
+  @@index([tenantId])
+  @@index([workspaceId])
+  @@index([assistantId])
+  @@index([assistantVersionId])
+  @@index([testedById])
+  @@index([status])
+  @@index([createdAt])
+  @@map("assistant_test_results")
+}
+
 model KnowledgeBase {
-  id          String    @id @default(uuid()) @db.Uuid
-  tenantId    String    @map("tenant_id") @db.Uuid
+  id          String   @id @default(uuid()) @db.Uuid
+  tenantId    String   @map("tenant_id") @db.Uuid
   name        String
   description String?
-  status      String    @default("pending")
-  createdAt   DateTime  @default(now()) @map("created_at")
-  updatedAt   DateTime  @updatedAt @map("updated_at")
-  tenant      Tenant    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  status      String   @default("pending")
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+  tenant      Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
 
   @@index([tenantId])
   @@map("knowledge_bases")
@@ -296,16 +421,16 @@ model McpServer {
 }
 
 model McpTool {
-  id               String    @id @default(uuid()) @db.Uuid
-  serverId         String    @map("server_id") @db.Uuid
+  id               String     @id @default(uuid()) @db.Uuid
+  serverId         String     @map("server_id") @db.Uuid
   name             String
   description      String?
-  riskLevel        String    @default("medium") @map("risk_level")
-  requiresApproval Boolean   @default(false) @map("requires_approval")
-  inputSchema      Json?     @map("input_schema")
-  createdAt        DateTime  @default(now()) @map("created_at")
-  updatedAt        DateTime  @updatedAt @map("updated_at")
-  server           McpServer @relation(fields: [serverId], references: [id], onDelete: Cascade)
+  riskLevel        String     @default("medium") @map("risk_level")
+  requiresApproval Boolean    @default(false) @map("requires_approval")
+  inputSchema      Json?      @map("input_schema")
+  createdAt        DateTime   @default(now()) @map("created_at")
+  updatedAt        DateTime   @updatedAt @map("updated_at")
+  server           McpServer  @relation(fields: [serverId], references: [id], onDelete: Cascade)
   toolCalls        ToolCall[]
 
   @@index([serverId])
@@ -367,19 +492,19 @@ model AgentRun {
 }
 
 model ToolCall {
-  id          String    @id @default(uuid()) @db.Uuid
-  agentRunId  String?   @map("agent_run_id") @db.Uuid
-  toolId      String?   @map("tool_id") @db.Uuid
-  userId      String?   @map("user_id") @db.Uuid
-  status      String    @default("pending")
-  input       Json?
-  output      Json?
-  error       String?
-  durationMs  Int?      @map("duration_ms")
-  createdAt   DateTime  @default(now()) @map("created_at")
-  agentRun    AgentRun? @relation(fields: [agentRunId], references: [id], onDelete: SetNull)
-  tool        McpTool?   @relation(fields: [toolId], references: [id], onDelete: SetNull)
-  user        User?      @relation(fields: [userId], references: [id], onDelete: SetNull)
+  id         String    @id @default(uuid()) @db.Uuid
+  agentRunId String?   @map("agent_run_id") @db.Uuid
+  toolId     String?   @map("tool_id") @db.Uuid
+  userId     String?   @map("user_id") @db.Uuid
+  status     String    @default("pending")
+  input      Json?
+  output     Json?
+  error      String?
+  durationMs Int?      @map("duration_ms")
+  createdAt  DateTime  @default(now()) @map("created_at")
+  agentRun   AgentRun? @relation(fields: [agentRunId], references: [id], onDelete: SetNull)
+  tool       McpTool?  @relation(fields: [toolId], references: [id], onDelete: SetNull)
+  user       User?     @relation(fields: [userId], references: [id], onDelete: SetNull)
 
   @@index([agentRunId])
   @@index([toolId])
@@ -387,36 +512,36 @@ model ToolCall {
 }
 
 model ProviderConfig {
-  id          String    @id @default(uuid()) @db.Uuid
-  tenantId    String    @map("tenant_id") @db.Uuid
+  id          String   @id @default(uuid()) @db.Uuid
+  tenantId    String   @map("tenant_id") @db.Uuid
   provider    String
-  displayName String    @map("display_name")
-  baseUrl     String?   @map("base_url")
-  secretRef   String?   @map("secret_ref")
-  isEnabled   Boolean   @default(false) @map("is_enabled")
+  displayName String   @map("display_name")
+  baseUrl     String?  @map("base_url")
+  secretRef   String?  @map("secret_ref")
+  isEnabled   Boolean  @default(false) @map("is_enabled")
   metadata    Json?
-  createdAt   DateTime  @default(now()) @map("created_at")
-  updatedAt   DateTime  @updatedAt @map("updated_at")
-  tenant      Tenant    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+  tenant      Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
 
   @@index([tenantId])
   @@map("provider_configs")
 }
 
 model UsageRecord {
-  id            String     @id @default(uuid()) @db.Uuid
-  tenantId      String     @map("tenant_id") @db.Uuid
-  assistantId   String?    @map("assistant_id") @db.Uuid
-  agentRunId    String?    @map("agent_run_id") @db.Uuid
-  provider      String?
-  modelName     String?    @map("model_name")
-  inputTokens   Int?       @map("input_tokens")
-  outputTokens  Int?       @map("output_tokens")
-  costEstimate  Decimal?   @map("cost_estimate") @db.Decimal(12, 4)
-  createdAt     DateTime   @default(now()) @map("created_at")
-  tenant        Tenant     @relation(fields: [tenantId], references: [id], onDelete: Cascade)
-  assistant     Assistant? @relation(fields: [assistantId], references: [id], onDelete: SetNull)
-  agentRun      AgentRun?  @relation(fields: [agentRunId], references: [id], onDelete: SetNull)
+  id           String     @id @default(uuid()) @db.Uuid
+  tenantId     String     @map("tenant_id") @db.Uuid
+  assistantId  String?    @map("assistant_id") @db.Uuid
+  agentRunId   String?    @map("agent_run_id") @db.Uuid
+  provider     String?
+  modelName    String?    @map("model_name")
+  inputTokens  Int?       @map("input_tokens")
+  outputTokens Int?       @map("output_tokens")
+  costEstimate Decimal?   @map("cost_estimate") @db.Decimal(12, 4)
+  createdAt    DateTime   @default(now()) @map("created_at")
+  tenant       Tenant     @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  assistant    Assistant? @relation(fields: [assistantId], references: [id], onDelete: SetNull)
+  agentRun     AgentRun?  @relation(fields: [agentRunId], references: [id], onDelete: SetNull)
 
   @@index([tenantId])
   @@index([assistantId])

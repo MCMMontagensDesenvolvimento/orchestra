@@ -14,6 +14,8 @@ export const queryKeys = {
     list: () => [...queryKeys.assistants.all, 'list'] as const,
     detail: (id: string) => [...queryKeys.assistants.all, 'detail', id] as const,
     versions: (id: string) => [...queryKeys.assistants.all, 'versions', id] as const,
+    publications: (id: string) => [...queryKeys.assistants.all, 'publications', id] as const,
+    activePublication: (id: string) => [...queryKeys.assistants.all, 'active-publication', id] as const,
     feedback: (id: string) => [...queryKeys.assistants.all, 'feedback', id] as const,
     tests: (id: string) => [...queryKeys.assistants.all, 'tests', id] as const,
   },

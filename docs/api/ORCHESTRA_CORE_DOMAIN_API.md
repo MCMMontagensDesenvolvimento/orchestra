@@ -69,16 +69,67 @@ Resposta:
 - `POST /assistants`
 - `PATCH /assistants/:id`
 - `POST /assistants/:id/archive`
+- `POST /assistants/:id/restore`
 - `GET /assistants/:id/versions`
 - `POST /assistants/:id/versions`
 - `GET /assistants/:id/versions/:versionId`
 - `POST /assistants/:id/publish`
 - `POST /assistants/:id/unpublish`
+- `POST /assistants/:id/rollback`
+- `GET /assistants/:id/publications`
+- `GET /assistants/:id/publications/active`
+- `GET /assistants/:id/feedback`
+- `POST /assistants/:id/feedback`
+- `GET /assistants/:id/test-results`
+- `POST /assistants/:id/test-results`
 - `GET /assistants/:id/shares`
 - `POST /assistants/:id/shares`
 - `DELETE /assistants/:id/shares/:shareId`
 
-Publicacao e compartilhamento sao estruturais. Nenhum runtime de assistant e acionado.
+Publicacao aponta para uma versao especifica e cria historico em `AssistantPublication`. Rollback promove versao ou publicacao anterior sem apagar historico. Feedback e test results sao registros manuais/simulados. Nenhum runtime de assistant e acionado.
+
+Payload de `publish`:
+
+```json
+{
+  "versionId": "uuid-opcional",
+  "reason": "texto opcional"
+}
+```
+
+Payload de `rollback`:
+
+```json
+{
+  "versionId": "uuid-opcional",
+  "publicationId": "uuid-opcional",
+  "reason": "motivo operacional"
+}
+```
+
+Payload de `feedback`:
+
+```json
+{
+  "assistantVersionId": "uuid-opcional",
+  "rating": "positive",
+  "comment": "texto opcional"
+}
+```
+
+Payload de `test-results`:
+
+```json
+{
+  "assistantVersionId": "uuid-opcional",
+  "input": "entrada testada",
+  "expectedBehavior": "comportamento esperado",
+  "actualOutput": "saida observada",
+  "status": "passed",
+  "score": 100,
+  "notes": "observacoes opcionais"
+}
+```
 
 ## Audit Logs
 

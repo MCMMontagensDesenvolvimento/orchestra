@@ -1,9 +1,23 @@
-export type AssistantStatus = 'draft' | 'published' | 'archived';
+export type AssistantStatus = 'draft' | 'testing' | 'pending_approval' | 'published' | 'archived';
 export type IngestionStatus = 'pending' | 'processing' | 'completed' | 'failed';
 export type McpServerStatus = 'active' | 'inactive' | 'error';
 export type RiskLevel = 'low' | 'medium' | 'high' | 'critical';
-export type FeedbackType = 'positive' | 'negative';
-export type AuditEventType = 'assistant_created' | 'assistant_published' | 'assistant_updated' | 'tool_executed' | 'knowledge_updated' | 'user_login' | 'policy_changed' | 'security_alert' | 'approval_requested' | 'approval_granted';
+export type FeedbackType = 'positive' | 'negative' | 'neutral';
+export type AssistantTestStatus = 'passed' | 'failed' | 'needs_review';
+export type AuditEventType = 'assistant_created' | 'assistant_published' | 'assistant_unpublished' | 'assistant_rollback' | 'assistant_updated' | 'assistant_archived' | 'assistant_restored' | 'assistant_feedback_created' | 'assistant_test_result_created' | 'tool_executed' | 'knowledge_updated' | 'user_login' | 'policy_changed' | 'security_alert' | 'approval_requested' | 'approval_granted';
+
+export interface AssistantPublication {
+  id: string;
+  assistantId: string;
+  assistantVersionId: string;
+  status: 'active' | 'inactive';
+  publishedById: string;
+  publishedAt: string;
+  unpublishedById?: string | null;
+  unpublishedAt?: string | null;
+  rollbackFromPublicationId?: string | null;
+  rollbackReason?: string | null;
+}
 
 export interface Assistant {
   id: string;
@@ -39,6 +53,7 @@ export interface Assistant {
   limits?: string;
   escalationPolicy?: string;
   environment?: string;
+  activePublication?: AssistantPublication | null;
 }
 
 export interface AssistantVersion {
@@ -49,13 +64,20 @@ export interface AssistantVersion {
   author: string;
   createdAt: string;
   status: AssistantStatus;
+  description?: string | null;
+  instructions?: string | null;
+  publishedAt?: string | null;
+  archivedAt?: string | null;
 }
 
 export interface AssistantFeedback {
   id: string;
   assistantId: string;
-  conversationId: string;
+  assistantVersionId?: string | null;
+  conversationId?: string | null;
+  messageId?: string | null;
   type: FeedbackType;
+  rating?: FeedbackType;
   comment?: string;
   user: string;
   timestamp: string;
@@ -64,6 +86,7 @@ export interface AssistantFeedback {
 export interface AssistantTestResult {
   id: string;
   assistantId: string;
+  assistantVersionId?: string;
   prompt: string;
   response: string;
   model: string;
@@ -73,6 +96,12 @@ export interface AssistantTestResult {
   toolsUsed: string[];
   timestamp: string;
   passed: boolean;
+  input?: string;
+  expectedBehavior?: string | null;
+  actualOutput?: string;
+  status?: AssistantTestStatus;
+  score?: number | null;
+  notes?: string | null;
 }
 
 export type DataClassification = 'Público' | 'Interno' | 'Confidencial' | 'Restrito';

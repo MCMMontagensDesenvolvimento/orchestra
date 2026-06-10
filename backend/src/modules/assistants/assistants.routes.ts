@@ -5,8 +5,12 @@ import { validateBody, validateParams, validateQuery } from '../../shared/valida
 import { assistantsController } from './assistants.controller';
 import {
   assistantCreateSchema,
+  assistantFeedbackCreateSchema,
+  assistantPublishSchema,
+  assistantRollbackSchema,
   assistantShareCreateSchema,
   assistantShareParamsSchema,
+  assistantTestResultCreateSchema,
   assistantsQuerySchema,
   assistantUpdateSchema,
   assistantVersionCreateSchema,
@@ -44,12 +48,64 @@ export function createAssistantsRouter() {
   router.post('/:id/archive', requireAuth, requirePermission('assistants.archive'), validateParams(idParamsSchema), (req, res, next) => {
     void assistantsController.archive(req, res).catch(next);
   });
-  router.post('/:id/publish', requireAuth, requirePermission('assistants.publish'), validateParams(idParamsSchema), (req, res, next) => {
-    void assistantsController.publish(req, res).catch(next);
+  router.post('/:id/restore', requireAuth, requirePermission('assistants.restore'), validateParams(idParamsSchema), (req, res, next) => {
+    void assistantsController.restore(req, res).catch(next);
   });
-  router.post('/:id/unpublish', requireAuth, requirePermission('assistants.publish'), validateParams(idParamsSchema), (req, res, next) => {
+  router.post(
+    '/:id/publish',
+    requireAuth,
+    requirePermission('assistants.publish'),
+    validateParams(idParamsSchema),
+    validateBody(assistantPublishSchema),
+    (req, res, next) => {
+      void assistantsController.publish(req, res).catch(next);
+    },
+  );
+  router.post('/:id/unpublish', requireAuth, requirePermission('assistants.unpublish'), validateParams(idParamsSchema), (req, res, next) => {
     void assistantsController.unpublish(req, res).catch(next);
   });
+  router.post(
+    '/:id/rollback',
+    requireAuth,
+    requirePermission('assistants.rollback'),
+    validateParams(idParamsSchema),
+    validateBody(assistantRollbackSchema),
+    (req, res, next) => {
+      void assistantsController.rollback(req, res).catch(next);
+    },
+  );
+  router.get('/:id/publications/active', requireAuth, requirePermission('assistants.read'), validateParams(idParamsSchema), (req, res, next) => {
+    void assistantsController.getActivePublication(req, res).catch(next);
+  });
+  router.get('/:id/publications', requireAuth, requirePermission('assistants.read'), validateParams(idParamsSchema), (req, res, next) => {
+    void assistantsController.listPublications(req, res).catch(next);
+  });
+  router.get('/:id/feedback', requireAuth, requirePermission('assistants.feedback.read'), validateParams(idParamsSchema), (req, res, next) => {
+    void assistantsController.listFeedback(req, res).catch(next);
+  });
+  router.post(
+    '/:id/feedback',
+    requireAuth,
+    requirePermission('assistants.feedback.create'),
+    validateParams(idParamsSchema),
+    validateBody(assistantFeedbackCreateSchema),
+    (req, res, next) => {
+      void assistantsController.createFeedback(req, res).catch(next);
+    },
+  );
+  router.get('/:id/test-results', requireAuth, requirePermission('assistants.testResults.read'), validateParams(idParamsSchema), (req, res, next) => {
+    void assistantsController.listTestResults(req, res).catch(next);
+  });
+  router.post(
+    '/:id/test-results',
+    requireAuth,
+    requirePermission('assistants.testResults.create'),
+    validateParams(idParamsSchema),
+    validateBody(assistantTestResultCreateSchema),
+    (req, res, next) => {
+      void assistantsController.createTestResult(req, res).catch(next);
+    },
+  );
   router.get('/:id/shares', requireAuth, requirePermission('assistants.read'), validateParams(idParamsSchema), (req, res, next) => {
     void assistantsController.listShares(req, res).catch(next);
   });

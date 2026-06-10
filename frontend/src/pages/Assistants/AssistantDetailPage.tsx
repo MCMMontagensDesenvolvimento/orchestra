@@ -11,8 +11,22 @@ import { Switch } from '@/components/ui/switch';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Badge } from '@/components/ui/badge';
-import type { Assistant, KnowledgeBase, McpTool } from '@/types';
-import { useAssistant, useAssistants, useAssistantVersions, useAssistantFeedback, useAssistantTestResults } from '@/hooks/queries/useAssistants';
+import type { Assistant, AssistantTestStatus, FeedbackType, KnowledgeBase, McpTool } from '@/types';
+import {
+  useArchiveAssistantMutation,
+  useAssistant,
+  useAssistantFeedback,
+  useAssistantTestResults,
+  useAssistantVersions,
+  useAssistants,
+  useCreateAssistantFeedbackMutation,
+  useCreateAssistantTestResultMutation,
+  usePublishAssistantMutation,
+  useRestoreAssistantMutation,
+  useRollbackAssistantMutation,
+  useUnpublishAssistantMutation,
+} from '@/hooks/queries/useAssistants';
+import { useCurrentSession } from '@/hooks/queries/useAuth';
 import { useKnowledgeBases } from '@/hooks/queries/useKnowledge';
 import { useMcpTools } from '@/hooks/queries/useMcp';
 import { useConversations } from '@/hooks/queries/useChat';
@@ -23,7 +37,7 @@ import {
   ThumbsUp, ThumbsDown, Thermometer, Bot, Server, BookOpen, Clock,
   GitBranch, CheckCircle, XCircle, FileCode, Wrench, BarChart3, Shield,
   AlertTriangle, ChevronRight, ExternalLink, Zap, Download, RefreshCw,
-  Hash, Eye, EyeOff, Pencil, Save, X, ChevronDown, ChevronUp, Clipboard, Diff
+  Hash, Eye, EyeOff, Pencil, Save, X, ChevronDown, ChevronUp, Clipboard, Diff, Undo2
 } from 'lucide-react';
 import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, BarChart, Bar } from 'recharts';
 import { toast } from 'sonner';
@@ -54,8 +68,37 @@ export default function AssistantDetailPage() {
   const { data: mockAssistantVersions = [] } = useAssistantVersions(id);
   const { data: mockAssistantFeedbacks = [] } = useAssistantFeedback(id);
   const { data: mockTestResults = [] } = useAssistantTestResults(id);
+  const { data: session } = useCurrentSession();
+  const publishMutation = usePublishAssistantMutation();
+  const unpublishMutation = useUnpublishAssistantMutation();
+  const archiveMutation = useArchiveAssistantMutation();
+  const restoreMutation = useRestoreAssistantMutation();
+  const rollbackMutation = useRollbackAssistantMutation();
+  const createFeedbackMutation = useCreateAssistantFeedbackMutation();
+  const createTestResultMutation = useCreateAssistantTestResultMutation();
   const navigate = useNavigate();
   const [activeTab, setActiveTab] = useState<TabId>('overview');
+  const [feedbackDialogOpen, setFeedbackDialogOpen] = useState(false);
+  const [feedbackForm, setFeedbackForm] = useState<{ rating: FeedbackType; comment: string }>({ rating: 'positive', comment: '' });
+  const [testDialogOpen, setTestDialogOpen] = useState(false);
+  const [testForm, setTestForm] = useState<{
+    input: string;
+    expectedBehavior: string;
+    actualOutput: string;
+    status: AssistantTestStatus;
+    score: string;
+    notes: string;
+  }>({
+    input: '',
+    expectedBehavior: '',
+    actualOutput: '',
+    status: 'passed',
+    score: '100',
+    notes: '',
+  });
+  const [rollbackDialogOpen, setRollbackDialogOpen] = useState(false);
+  const [rollbackVersionId, setRollbackVersionId] = useState('');
+  const [rollbackReason, setRollbackReason] = useState('');
 
   const assistant = assistantQuery.data ?? mockAssistants.find(a => a.id === id) ?? mockAssistants[0];
 
@@ -78,6 +121,93 @@ export default function AssistantDetailPage() {
 
   const positiveFeedbacks = feedbacks.filter(f => f.type === 'positive').length;
   const negativeFeedbacks = feedbacks.filter(f => f.type === 'negative').length;
+  const rollbackCandidates = versions.filter(v => v.id !== assistant.activePublication?.assistantVersionId);
+  const hasPermission = (permission: string) => session?.permissions.includes(permission) ?? false;
+
+  const handleLifecycleAction = async (action: 'publish' | 'unpublish' | 'archive' | 'restore') => {
+    try {
+      if (action === 'publish') await publishMutation.mutateAsync(assistant.id);
+      if (action === 'unpublish') await unpublishMutation.mutateAsync(assistant.id);
+      if (action === 'archive') await archiveMutation.mutateAsync(assistant.id);
+      if (action === 'restore') await restoreMutation.mutateAsync(assistant.id);
+      const labels = {
+        publish: 'Assistente publicado',
+        unpublish: 'Assistente despublicado',
+        archive: 'Assistente arquivado',
+        restore: 'Assistente restaurado',
+      };
+      toast.success(labels[action]);
+    } catch (error) {
+      toast.error('Nao foi possivel executar a acao', {
+        description: error instanceof Error ? error.message : 'Tente novamente em instantes.',
+      });
+    }
+  };
+
+  const handleRollback = async () => {
+    if (!rollbackVersionId) return;
+    try {
+      await rollbackMutation.mutateAsync({
+        id: assistant.id,
+        versionId: rollbackVersionId,
+        reason: rollbackReason || 'Rollback solicitado pela interface.',
+      });
+      setRollbackDialogOpen(false);
+      setRollbackReason('');
+      toast.success('Rollback aplicado');
+    } catch (error) {
+      toast.error('Nao foi possivel aplicar rollback', {
+        description: error instanceof Error ? error.message : 'Tente novamente em instantes.',
+      });
+    }
+  };
+
+  const handleCreateFeedback = async () => {
+    try {
+      await createFeedbackMutation.mutateAsync({
+        id: assistant.id,
+        assistantVersionId: assistant.activePublication?.assistantVersionId,
+        rating: feedbackForm.rating,
+        comment: feedbackForm.comment || undefined,
+      });
+      setFeedbackDialogOpen(false);
+      setFeedbackForm({ rating: 'positive', comment: '' });
+      toast.success('Feedback registrado');
+    } catch (error) {
+      toast.error('Nao foi possivel registrar feedback', {
+        description: error instanceof Error ? error.message : 'Tente novamente em instantes.',
+      });
+    }
+  };
+
+  const handleCreateTestResult = async () => {
+    try {
+      await createTestResultMutation.mutateAsync({
+        id: assistant.id,
+        assistantVersionId: assistant.activePublication?.assistantVersionId ?? versions[0]?.id,
+        input: testForm.input,
+        expectedBehavior: testForm.expectedBehavior || undefined,
+        actualOutput: testForm.actualOutput,
+        status: testForm.status,
+        score: testForm.score ? Number(testForm.score) : undefined,
+        notes: testForm.notes || undefined,
+      });
+      setTestDialogOpen(false);
+      setTestForm({
+        input: '',
+        expectedBehavior: '',
+        actualOutput: '',
+        status: 'passed',
+        score: '100',
+        notes: '',
+      });
+      toast.success('Resultado de teste registrado');
+    } catch (error) {
+      toast.error('Nao foi possivel registrar o teste', {
+        description: error instanceof Error ? error.message : 'Tente novamente em instantes.',
+      });
+    }
+  };
 
   const compiledPrompt = `# System Prompt — ${assistant.name}
 
@@ -170,23 +300,47 @@ ${tools.map(t => `- ${t.name}: ${t.description}${t.requiresApproval ? ' [REQUER 
             </div>
           </div>
           <div className="flex items-center gap-2 flex-wrap">
-            <Button variant="outline" size="sm" onClick={() => navigate(`/app/assistants/${assistant.id}/edit`)}>
-              <Edit className="h-3.5 w-3.5 mr-1" />Editar
-            </Button>
+            {hasPermission('assistants.update') && (
+              <Button variant="outline" size="sm" onClick={() => navigate(`/app/assistants/${assistant.id}/edit`)}>
+                <Edit className="h-3.5 w-3.5 mr-1" />Editar
+              </Button>
+            )}
             <Button variant="outline" size="sm" onClick={() => handleAction('Duplicado')}>
               <Copy className="h-3.5 w-3.5 mr-1" />Duplicar
             </Button>
             <Link to={`/chat/${assistant.id}`}>
               <Button variant="outline" size="sm"><Play className="h-3.5 w-3.5 mr-1" />Testar</Button>
             </Link>
-            {assistant.status === 'draft' && (
-              <Button size="sm" onClick={() => handleAction('Publicado')}>
+            {assistant.status !== 'published' && assistant.status !== 'archived' && hasPermission('assistants.publish') && (
+              <Button size="sm" onClick={() => { void handleLifecycleAction('publish'); }}>
                 <Send className="h-3.5 w-3.5 mr-1" />Publicar
               </Button>
             )}
-            {assistant.status === 'published' && (
-              <Button variant="outline" size="sm" onClick={() => handleAction('Arquivado')} className="text-destructive hover:text-destructive">
+            {assistant.status === 'published' && hasPermission('assistants.unpublish') && (
+              <Button variant="outline" size="sm" onClick={() => { void handleLifecycleAction('unpublish'); }}>
+                <Undo2 className="h-3.5 w-3.5 mr-1" />Despublicar
+              </Button>
+            )}
+            {assistant.status === 'published' && rollbackCandidates.length > 0 && hasPermission('assistants.rollback') && (
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => {
+                  setRollbackVersionId(rollbackCandidates[0]?.id ?? '');
+                  setRollbackDialogOpen(true);
+                }}
+              >
+                <RefreshCw className="h-3.5 w-3.5 mr-1" />Rollback
+              </Button>
+            )}
+            {assistant.status !== 'archived' && hasPermission('assistants.archive') && (
+              <Button variant="outline" size="sm" onClick={() => { void handleLifecycleAction('archive'); }} className="text-destructive hover:text-destructive">
                 <Archive className="h-3.5 w-3.5 mr-1" />Arquivar
+              </Button>
+            )}
+            {assistant.status === 'archived' && hasPermission('assistants.restore') && (
+              <Button variant="outline" size="sm" onClick={() => { void handleLifecycleAction('restore'); }}>
+                <RefreshCw className="h-3.5 w-3.5 mr-1" />Restaurar
               </Button>
             )}
           </div>
@@ -311,7 +465,14 @@ ${tools.map(t => `- ${t.name}: ${t.description}${t.requiresApproval ? ' [REQUER 
               </div>
 
               <div className="rounded-lg border bg-card p-5">
-                <h3 className="text-sm font-semibold mb-3">Feedbacks Recentes</h3>
+                <div className="mb-3 flex items-center justify-between gap-2">
+                  <h3 className="text-sm font-semibold">Feedbacks Recentes</h3>
+                  {hasPermission('assistants.feedback.create') && (
+                    <Button variant="outline" size="sm" className="h-7 text-xs" onClick={() => setFeedbackDialogOpen(true)}>
+                      <ThumbsUp className="h-3.5 w-3.5 mr-1" />Registrar
+                    </Button>
+                  )}
+                </div>
                 <div className="flex items-center gap-4 mb-3">
                   <div className="flex items-center gap-1 text-sm"><ThumbsUp className="h-4 w-4 text-success" /><span className="font-bold">{positiveFeedbacks}</span></div>
                   <div className="flex items-center gap-1 text-sm"><ThumbsDown className="h-4 w-4 text-destructive" /><span className="font-bold">{negativeFeedbacks}</span></div>
@@ -471,15 +632,21 @@ ${tools.map(t => `- ${t.name}: ${t.description}${t.requiresApproval ? ' [REQUER 
           <div className="space-y-4">
             <div className="flex items-center justify-between">
               <h3 className="text-sm font-semibold">Resultados de Testes ({tests.length})</h3>
-              <Button size="sm"><Play className="h-3.5 w-3.5 mr-1" />Executar Teste</Button>
+              {hasPermission('assistants.testResults.create') && (
+                <Button size="sm" onClick={() => setTestDialogOpen(true)}>
+                  <Play className="h-3.5 w-3.5 mr-1" />Registrar Teste
+                </Button>
+              )}
             </div>
             {tests.length > 0 ? (
               <div className="space-y-3">
-                {tests.map(t => (
+                {tests.map(t => {
+                  const testStatus = t.status ?? (t.passed ? 'passed' : 'failed');
+                  return (
                   <div key={t.id} className="rounded-lg border bg-card p-4">
                     <div className="flex items-start justify-between">
                       <div className="flex items-center gap-2">
-                        {t.passed ? <CheckCircle className="h-4 w-4 text-success shrink-0" /> : <XCircle className="h-4 w-4 text-destructive shrink-0" />}
+                        {testStatus === 'passed' ? <CheckCircle className="h-4 w-4 text-success shrink-0" /> : <XCircle className="h-4 w-4 text-destructive shrink-0" />}
                         <div>
                           <p className="text-sm font-medium">Prompt: "{t.prompt}"</p>
                           <p className="text-[10px] text-muted-foreground mt-0.5">
@@ -487,9 +654,7 @@ ${tools.map(t => `- ${t.name}: ${t.description}${t.requiresApproval ? ' [REQUER 
                           </p>
                         </div>
                       </div>
-                      <span className={`text-xs font-medium ${t.passed ? 'text-success' : 'text-destructive'}`}>
-                        {t.passed ? 'Passou' : 'Falhou'}
-                      </span>
+                      <StatusBadge status={testStatus} />
                     </div>
                     <div className="mt-2 rounded-md bg-muted/50 p-3">
                       <p className="text-xs text-muted-foreground font-medium mb-1">Resposta:</p>
@@ -510,13 +675,17 @@ ${tools.map(t => `- ${t.name}: ${t.description}${t.requiresApproval ? ' [REQUER 
                       </div>
                     )}
                   </div>
-                ))}
+                );})}
               </div>
             ) : (
               <div className="text-center py-12">
                 <CheckCircle className="h-10 w-10 mx-auto text-muted-foreground mb-3" />
                 <p className="text-sm text-muted-foreground">Nenhum teste executado ainda</p>
-                <Button size="sm" className="mt-3"><Play className="h-3.5 w-3.5 mr-1" />Executar Primeiro Teste</Button>
+                {hasPermission('assistants.testResults.create') && (
+                  <Button size="sm" className="mt-3" onClick={() => setTestDialogOpen(true)}>
+                    <Play className="h-3.5 w-3.5 mr-1" />Registrar Primeiro Teste
+                  </Button>
+                )}
               </div>
             )}
           </div>
@@ -599,6 +768,118 @@ ${tools.map(t => `- ${t.name}: ${t.description}${t.requiresApproval ? ' [REQUER 
             )}
           </div>
         )}
+
+        <Dialog open={rollbackDialogOpen} onOpenChange={setRollbackDialogOpen}>
+          <DialogContent className="max-w-md">
+            <DialogHeader>
+              <DialogTitle>Rollback de publicação</DialogTitle>
+              <DialogDescription>Promova uma versão anterior como publicação ativa.</DialogDescription>
+            </DialogHeader>
+            <div className="space-y-4">
+              <div className="space-y-2">
+                <Label>Versão</Label>
+                <Select value={rollbackVersionId} onValueChange={setRollbackVersionId}>
+                  <SelectTrigger><SelectValue placeholder="Selecione a versão" /></SelectTrigger>
+                  <SelectContent>
+                    {rollbackCandidates.map(version => (
+                      <SelectItem key={version.id} value={version.id}>v{version.version} · {version.changelog}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-2">
+                <Label>Motivo</Label>
+                <Textarea value={rollbackReason} onChange={e => setRollbackReason(e.target.value)} rows={3} placeholder="Descreva o motivo operacional do rollback." />
+              </div>
+            </div>
+            <DialogFooter>
+              <Button variant="outline" onClick={() => setRollbackDialogOpen(false)}>Cancelar</Button>
+              <Button onClick={() => { void handleRollback(); }} disabled={!rollbackVersionId || rollbackMutation.isPending}>
+                Aplicar rollback
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+
+        <Dialog open={feedbackDialogOpen} onOpenChange={setFeedbackDialogOpen}>
+          <DialogContent className="max-w-md">
+            <DialogHeader>
+              <DialogTitle>Registrar feedback</DialogTitle>
+              <DialogDescription>Feedback associado ao assistente e, quando houver, à publicação ativa.</DialogDescription>
+            </DialogHeader>
+            <div className="space-y-4">
+              <div className="space-y-2">
+                <Label>Avaliação</Label>
+                <Select value={feedbackForm.rating} onValueChange={value => setFeedbackForm(prev => ({ ...prev, rating: value as FeedbackType }))}>
+                  <SelectTrigger><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="positive">Positiva</SelectItem>
+                    <SelectItem value="neutral">Neutra</SelectItem>
+                    <SelectItem value="negative">Negativa</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-2">
+                <Label>Comentário</Label>
+                <Textarea value={feedbackForm.comment} onChange={e => setFeedbackForm(prev => ({ ...prev, comment: e.target.value }))} rows={4} />
+              </div>
+            </div>
+            <DialogFooter>
+              <Button variant="outline" onClick={() => setFeedbackDialogOpen(false)}>Cancelar</Button>
+              <Button onClick={() => { void handleCreateFeedback(); }} disabled={createFeedbackMutation.isPending}>
+                Registrar
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+
+        <Dialog open={testDialogOpen} onOpenChange={setTestDialogOpen}>
+          <DialogContent className="max-w-2xl">
+            <DialogHeader>
+              <DialogTitle>Registrar teste manual</DialogTitle>
+              <DialogDescription>Resultado simulado/manual, sem chamada a runtime ou provedor de IA.</DialogDescription>
+            </DialogHeader>
+            <div className="grid gap-4 sm:grid-cols-2">
+              <div className="space-y-2 sm:col-span-2">
+                <Label>Entrada</Label>
+                <Textarea value={testForm.input} onChange={e => setTestForm(prev => ({ ...prev, input: e.target.value }))} rows={3} />
+              </div>
+              <div className="space-y-2 sm:col-span-2">
+                <Label>Comportamento esperado</Label>
+                <Textarea value={testForm.expectedBehavior} onChange={e => setTestForm(prev => ({ ...prev, expectedBehavior: e.target.value }))} rows={3} />
+              </div>
+              <div className="space-y-2 sm:col-span-2">
+                <Label>Saída observada</Label>
+                <Textarea value={testForm.actualOutput} onChange={e => setTestForm(prev => ({ ...prev, actualOutput: e.target.value }))} rows={3} />
+              </div>
+              <div className="space-y-2">
+                <Label>Status</Label>
+                <Select value={testForm.status} onValueChange={value => setTestForm(prev => ({ ...prev, status: value as AssistantTestStatus }))}>
+                  <SelectTrigger><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="passed">Passou</SelectItem>
+                    <SelectItem value="failed">Falhou</SelectItem>
+                    <SelectItem value="needs_review">Revisar</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-2">
+                <Label>Score</Label>
+                <Input type="number" min={0} max={100} value={testForm.score} onChange={e => setTestForm(prev => ({ ...prev, score: e.target.value }))} />
+              </div>
+              <div className="space-y-2 sm:col-span-2">
+                <Label>Notas</Label>
+                <Textarea value={testForm.notes} onChange={e => setTestForm(prev => ({ ...prev, notes: e.target.value }))} rows={3} />
+              </div>
+            </div>
+            <DialogFooter>
+              <Button variant="outline" onClick={() => setTestDialogOpen(false)}>Cancelar</Button>
+              <Button onClick={() => { void handleCreateTestResult(); }} disabled={!testForm.input || !testForm.actualOutput || createTestResultMutation.isPending}>
+                Registrar teste
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
       </div>
     </AppShell>
   );

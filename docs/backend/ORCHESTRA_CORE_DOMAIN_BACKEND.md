@@ -12,7 +12,7 @@ Este documento descreve a evolucao do backend do Orchestra para o core domain do
 - `users`: listagem paginada, detalhe, criacao estrutural e atualizacao de nome/status.
 - `roles`: listagem paginada, detalhe, criacao, atualizacao e vinculo de permissoes.
 - `permissions`: listagem paginada e detalhe.
-- `assistants`: listagem paginada, detalhe, criacao, atualizacao, archive, versions, publish, unpublish e shares.
+- `assistants`: listagem paginada, detalhe, criacao, atualizacao, archive, restore, versions, publication workflow, rollback, feedback, test results e shares.
 - `audit`: listagem paginada com filtros.
 - `settings`: leitura paginada por tenant e workspace opcional.
 
@@ -55,11 +55,16 @@ Eventos relevantes gravados:
 - `assistant_created`
 - `assistant_updated`
 - `assistant_archived`
+- `assistant_restored`
 - `assistant_version_created`
 - `assistant_published`
 - `assistant_unpublished`
+- `assistant_rollback`
 - `assistant_share_created`
-- `assistant_share_deleted`
+- `assistant_share_removed`
+- `assistant_feedback_created`
+- `assistant_test_result_created`
+- `permission_denied`
 
 O endpoint de leitura de auditoria nao retorna `metadata` bruta.
 
@@ -67,4 +72,5 @@ O endpoint de leitura de auditoria nao retorna `metadata` bruta.
 
 - Microsoft SSO real nao foi implementado.
 - Runtime de IA, RAG, MCP, providers externos, streaming e vector store nao foram implementados.
-- Publicacao de assistant usa status e `AssistantVersion`; uma tabela dedicada de publicacoes fica reservada para fase posterior caso o workflow exija historico mais rico.
+- Publicacao de assistant usa `AssistantPublication` dedicada para historico e publicacao ativa por versao.
+- Feedback e test results sao registros manuais/simulados, sem runtime de IA.
