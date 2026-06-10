@@ -1,221 +1,171 @@
-# Decision Log — Orquestra
+# Orchestra - Decision Log
 
-> Documento de decisões técnicas e de produto do projeto Orquestra.  
-> Caminho futuro recomendado no repositório: `orquestra/docs/decisions/decision-log.md`.
+Registro das decisoes consolidadas para orientar as proximas fases de arquitetura, backend e infraestrutura.
 
----
+## DEC-001 - Nomenclatura canonica do produto
 
-## Status possíveis
+O produto e o repositorio passam a usar a nomenclatura `Orchestra` em documentos operacionais, metadata, README e configuracoes publicas.
 
-```txt
-decidida
-pendente
-assumida_temporariamente
-revisada
-substituída
-```
+Status: decidida.
 
----
+## DEC-002 - Estrategia de frontend pos-prototipo
 
-## DEC-001 — Autenticação via Microsoft SSO
+O frontend nasceu de um prototipo visual e ja passou por uma fase inicial de higienizacao tecnica. O codigo atual deve ser tratado como base frontend local para evolucao tecnica, nao como arquitetura final de backend ou runtime.
 
-```yaml
-decision:
-  id: "DEC-001"
-  topic: "Autenticação oficial dos usuários"
-  status: "decidida"
-  decision: "O Orquestra utilizará login via Microsoft SSO / Microsoft Entra ID."
-  reason: "O sistema será usado em contexto corporativo interno, onde a autenticação via identidade Microsoft centraliza acesso, reduz necessidade de senhas próprias e facilita governança."
-  implementation_direction:
-    frontend:
-      - "Preparar tela de login com ação Entrar com Microsoft."
-      - "Implementar AuthProvider/AuthContext."
-      - "Implementar ProtectedRoute."
-      - "Implementar RoleGuard/PermissionGate quando o modelo de permissões for definido."
-      - "Consultar sessão atual via endpoint backend, como GET /api/v1/auth/me."
-      - "Tratar estados de autenticação: carregando, autenticado, não autenticado, sem permissão e erro."
-    backend:
-      - "Implementar fluxo Microsoft SSO na camada backend."
-      - "Utilizar @azure/msal-node na camada backend."
-      - "Criar endpoints de início de login, callback, sessão atual e logout."
-      - "Validar identidade Microsoft no backend antes de criar sessão da aplicação."
-      - "Gerar sessão segura da aplicação após autenticação bem-sucedida."
-  impacted_areas:
-    - "Frontend"
-    - "Backend"
-    - "Segurança"
-    - "Permissões"
-    - "Auditoria"
-    - "Governança"
-  impacted_artifacts:
-    - "LoginPage"
-    - "AuthProvider"
-    - "ProtectedRoute"
-    - "RoleGuard"
-    - "API de autenticação"
-    - "Modelo de usuário"
-    - "Decision Log"
-  owner: "Time técnico MCM"
-  required_before:
-    - "Implementação de backend real"
-    - "Proteção real de rotas"
-    - "RBAC real"
-  date: "2026-06-04"
-```
+Status: decidida.
 
----
+## DEC-003 - Uso de mocks no frontend
 
-## DEC-002 — Backend como autoridade de sessão e permissões
+Enquanto o frontend nao for integrado a API real, ele permanece usando mocks controlados por `VITE_USE_MOCKS`. A existencia da fundacao backend da Fase 04 nao altera o comportamento do frontend.
 
-```yaml
-decision:
-  id: "DEC-002"
-  topic: "Autoridade de autenticação, sessão e autorização"
-  status: "decidida"
-  decision: "O backend será a autoridade final para autenticação, sessão e permissões. O frontend apenas refletirá o estado autorizado retornado pela API."
-  reason: "Permissões apenas no frontend não são suficientes para segurança. O backend deve validar identidade, roles/permissões e acesso aos recursos."
-  implications:
-    - "Rotas protegidas no frontend são camada de UX, não camada de segurança final."
-    - "Endpoints devem validar usuário autenticado e autorização."
-    - "A UI deve ocultar/desabilitar ações sem permissão, mas o backend deve bloquear chamadas indevidas."
-    - "A definição final de roles e permissões ainda depende de decisão de produto/governança."
-  impacted_areas:
-    - "Frontend"
-    - "Backend"
-    - "APIs"
-    - "Segurança"
-    - "Auditoria"
-  owner: "Time técnico MCM"
-  required_before:
-    - "MVP com usuários reais"
-    - "Publicação de assistentes"
-    - "Compartilhamento de assistentes"
-    - "Execução de ferramentas/MCP"
-  date: "2026-06-04"
-```
+Status: decidida.
 
----
+## DEC-004 - Rotas da aplicacao
 
-## DEC-003 — Orquestra como control plane e runtime de IA como camada especializada
+As rotas principais da area autenticada usam o prefixo `/app/*`. Redirects legados podem existir para compatibilidade ate revisao futura.
 
-```yaml
-decision:
-  id: "DEC-003"
-  topic: "Separação entre plataforma Orquestra e runtime de agentes/IA"
-  status: "decidida"
-  decision: "O Orquestra será a camada de gestão, governança e configuração dos assistentes. A execução real dos agentes/IA será tratada por uma camada runtime especializada."
-  reason: "Separar produto/plataforma de runtime reduz acoplamento e permite avaliar frameworks, providers e estratégias de execução sem transformar o Orquestra em uma dependência rígida de um único motor."
-  implications:
-    - "O Orquestra deve armazenar configuração, versão, status, permissões e governança dos assistentes."
-    - "A execução de agentes, tools, memória, RAG e chamadas a modelos deve ficar em camada especializada."
-    - "Deve existir um contrato intermediário de configuração do agente, como um AgentSpec ou estrutura equivalente."
-    - "A integração com runtime de IA será aprofundada em etapa própria."
-  impacted_areas:
-    - "Arquitetura"
-    - "Backend"
-    - "Orquestração de IA"
-    - "Integrações"
-    - "Segurança"
-    - "Observabilidade"
-    - "Métricas"
-  owner: "Time técnico MCM"
-  required_before:
-    - "Integração real com LLM"
-    - "RAG real"
-    - "MCP/tools reais"
-    - "Chat real com streaming"
-  date: "2026-06-04"
-```
+Status: decidida.
 
----
+## DEC-005 - Servidor Vite local
 
-## DEC-004 — Agno como candidato preferencial para PoC de runtime de agentes
+O Vite local usa `host: "0.0.0.0"`, porta `5173` e `strictPort: true`, favorecendo desenvolvimento local, WSL e Docker.
 
-```yaml
-decision:
-  id: "DEC-004"
-  topic: "Avaliação de framework para runtime de agentes"
-  status: "assumida_temporariamente"
-  decision: "Agno será considerado candidato preferencial para PoC de runtime/orquestração de agentes, mas ainda não está aprovado como dependência final do MVP."
-  reason: "O framework parece aderente ao conceito de agentes, tools, workflows, memória, runtime e governança de IA, mas precisa ser validado tecnicamente em uma PoC antes de decisão definitiva."
-  current_position:
-    - "Agno não deve ser integrado nesta fase inicial de consolidação do frontend."
-    - "Agno deve ser considerado na fase de orquestração de IA."
-    - "A decisão final dependerá de PoC técnica, segurança, deploy, observabilidade, integração com backend e aderência ao modelo de produto."
-  validation_required:
-    - "Criar agente simples em Agno."
-    - "Expor execução via API/runtime."
-    - "Testar chamada do backend do Orquestra para o runtime."
-    - "Testar sessão/conversa."
-    - "Testar uma tool simples."
-    - "Testar integração com base de conhecimento simples."
-    - "Avaliar logs, traces, custo e segurança."
-  impacted_areas:
-    - "Backend"
-    - "Orquestração de IA"
-    - "Integrações externas"
-    - "Observabilidade"
-    - "Segurança"
-    - "Métricas"
-  owner: "Time técnico MCM"
-  review_condition: "Revisar antes de iniciar implementação real de runtime de agentes, RAG, MCP e chat com IA."
-  date: "2026-06-04"
-```
+Status: decidida.
 
----
+## DEC-006 - Package manager
 
-## DEC-005 — Marco 0% do MVP
+O package manager padrao do frontend e `npm`, com `package-lock.json` versionado.
 
-```yaml
-decision:
-  id: "DEC-005"
-  topic: "Marco inicial de acompanhamento do MVP"
-  status: "decidida"
-  decision: "A documentação técnica do estado atual gerada a partir do protótipo Lovable será considerada o Marco 0% oficial do MVP do Orquestra."
-  reason: "O projeto já possui protótipo visual de alta fidelidade, mas ainda não possui backend, banco, autenticação real, runtime de IA, RAG real ou MCP real. Portanto, o marco 0% representa o início da jornada de transformação em MVP real, não ausência total de trabalho."
-  baseline_summary:
-    - "Frontend de alta fidelidade existente."
-    - "Dados mockados."
-    - "Backend ausente."
-    - "Banco ausente."
-    - "Autenticação simulada."
-    - "Runtime de IA ausente."
-    - "RAG real ausente."
-    - "MCP real ausente."
-  next_milestones:
-    - "25% — Frontend consolidado e pronto para integração real."
-    - "50% — Backend, APIs, banco e autenticação core funcionando."
-    - "75% — IA/RAG/MCP reais integrados aos fluxos principais."
-    - "100% — MVP entregue, testado, documentado e homologável."
-  owner: "Time técnico MCM"
-  date: "2026-06-04"
-```
+Status: decidida.
 
----
+## DEC-007 - Backend, API, banco e runtime
 
-# Decisões ainda pendentes
+Backend real, API de gestao, banco PostgreSQL, Prisma e autenticacao estrutural de desenvolvimento foram implementados na Fase 04. RAG real, MCP real, providers reais, SSO, streaming e runtime real continuam nao implementados.
 
-As decisões abaixo ainda não foram fechadas e devem ser validadas com o idealizador/produto antes da especificação funcional e técnica final:
+Status: decidida.
 
-```txt
-PEND-001 — Perfis, papéis e permissões do Orquestra.
-PEND-002 — Modelo de compartilhamento de assistentes/agentes.
-PEND-003 — Modelo tenant/workspace/team para o MVP.
-PEND-004 — Escopo mínimo da criação/publicação de assistentes no MVP.
-PEND-005 — Fluxo de aprovação para publicação de assistentes e uso de tools de risco.
-PEND-006 — Quais áreas/departamentos da MCM serão contemplados no MVP.
-PEND-007 — Quais LLM providers serão permitidos inicialmente.
-PEND-008 — Qual será o nível de auditoria exigido no MVP.
-PEND-009 — Qual será o escopo real do MCP no MVP.
-PEND-010 — Qual será o escopo real do RAG no MVP.
-PEND-011 — Política de retenção de conversas, prompts, respostas e logs.
-PEND-012 — Estratégia de aprovação/homologação de assistentes antes da publicação.
-```
+## DEC-BE-001 - Backend Express modular em TypeScript strict
 
----
+O backend inicial usa Express com TypeScript strict e organizacao por modulos sob `backend/src/modules`. Essa escolha prioriza simplicidade, previsibilidade local e uma base suficiente para o control plane.
 
-# Histórico de alterações
+Status: decidida.
 
-| Data | Alteração | Autor |
-|---|---|---|
-| 2026-06-04 | Criação inicial do Decision Log com decisões já firmadas e pendências iniciais. | Time técnico MCM |
+## DEC-BE-002 - Validacao de entrada com Zod
+
+Payloads HTTP passam por schemas Zod antes de chegar aos controllers. Erros de validacao retornam `422 VALIDATION_ERROR` com `fieldErrors`.
+
+Status: decidida.
+
+## DEC-BE-003 - Logs estruturados com Pino
+
+O backend usa Pino e `pino-http` para logs estruturados, incluindo request id e metadados de requisicao.
+
+Status: decidida.
+
+## DEC-BE-004 - Dev-login apenas fora de producao
+
+A autenticacao implementada na Fase 04 e um dev-login para desenvolvimento local. Ele e bloqueado quando `NODE_ENV=production` e nao substitui SSO corporativo.
+
+Status: decidida.
+
+## DEC-BE-005 - RBAC/ABAC estrutural no backend
+
+Permissoes e escopo de workspace sao aplicados no backend por middlewares e helpers compartilhados. As politicas finais podem evoluir, mas o frontend nao deve ser a autoridade de autorizacao.
+
+Status: decidida.
+
+## DEC-API-001 - REST JSON versionado para gestao
+
+A API de gestao usa REST + JSON sob `/api/v1`. Healthchecks ficam em `/health` e `/health/db` fora do prefixo versionado.
+
+Status: decidida.
+
+## DEC-API-002 - Erros e request id padronizados
+
+Erros HTTP retornam `status`, `code`, `message`, `fieldErrors` quando aplicavel e `requestId`. O request id tambem e enviado no header `X-Request-Id`.
+
+Status: decidida.
+
+## DEC-DB-001 - UUID, snake_case e tenancy desde a migration inicial
+
+O schema usa UUID nativo como identificador, tabelas e colunas em snake_case no banco, e campos de tenant/workspace desde a primeira migration.
+
+Status: decidida.
+
+## DEC-DB-002 - Schema inicial inclui entidades futuras sem runtime
+
+Entidades como knowledge bases, MCP servers/tools, conversations, agent runs, tool calls, provider configs e usage records existem como estrutura de dados inicial. Elas nao significam execucao real de IA nesta fase.
+
+Status: decidida.
+
+## DEC-INFRA-001 - Compose local com frontend, backend e PostgreSQL
+
+A infraestrutura local inicial usa Docker Compose com `frontend`, `backend` e `db`, healthchecks e volumes nomeados. Servicos futuros entram apenas em fases posteriores.
+
+Status: decidida.
+
+## DEC-008 - Proxima fase tecnica
+
+Apos arquitetura e fundacao backend/API/banco/infra, as proximas fases devem detalhar seguranca final, integracao do frontend com API real e runtime de IA em servico separado.
+
+Status: decidida.
+
+## DEC-ARCH-001 - Orchestra como control plane e runtime separado
+
+Orchestra deve atuar como control plane corporativo. A execucao de agent runs, model calls, RAG, tool calls, streaming e traces deve ficar em runtime de IA separado ou servico executor dedicado.
+
+Status: decidida.
+
+## DEC-ARCH-002 - Backend como autoridade de permissoes e governanca
+
+O backend deve ser a fonte de verdade para usuarios, sessoes, tenants, workspaces, roles, permissoes, publicacao, versionamento, auditoria e governanca.
+
+Status: decidida.
+
+## DEC-ARCH-003 - PostgreSQL e Prisma como base de persistencia
+
+PostgreSQL + Prisma sao a base recomendada para persistencia inicial, migrations, tipagem e modelagem incremental do backend.
+
+Status: recomendada.
+
+## DEC-ARCH-004 - REST para gestao e SSE para streaming de IA
+
+REST + JSON deve ser usado para gestao/configuracao. SSE deve ser usado como estrategia inicial de streaming de eventos de IA.
+
+Status: decidida.
+
+## DEC-ARCH-005 - Tenant e workspace desde o MVP
+
+`tenant_id` e `workspace_id` devem ser considerados desde o MVP para reduzir retrabalho em isolamento, sharing, permissoes e auditoria.
+
+Status: decidida.
+
+## DEC-ARCH-006 - Secrets apenas no backend ou ambiente seguro
+
+Credenciais de IA, embeddings, runtime, MCP, vector store e integracoes nao devem ser expostas ao frontend.
+
+Status: decidida.
+
+## DEC-ARCH-007 - Publicacao de assistant via versionamento
+
+Assistentes publicados devem depender de versoes imutaveis e auditaveis, permitindo reproducibilidade e rollback.
+
+Status: decidida.
+
+## DEC-ARCH-008 - Tool calls sensiveis com policy e aprovacao humana
+
+Tools de risco devem ser controladas por allowlist, policy, escopo de permissao e aprovacao humana quando aplicavel.
+
+Status: recomendada.
+
+## DEC-ARCH-009 - Observabilidade de IA desde o boundary de runtime
+
+Agent runs, RAG, tools, tokens, custos, fallbacks, erros e feedback devem gerar eventos e metricas correlacionadas.
+
+Status: recomendada.
+
+## DEC-ARCH-010 - Infraestrutura inicial simples
+
+O MVP inicial deve priorizar `frontend`, `backend` e `db`. Redis, workers, vector store e servicos MCP dedicados devem entrar apenas com justificativa e fase clara.
+
+Status: decidida.

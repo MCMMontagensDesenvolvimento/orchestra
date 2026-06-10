@@ -1,0 +1,22 @@
+import { Router } from 'express';
+import { authRateLimiter } from '../../app/middlewares';
+import { requireAuth } from '../../shared/middleware/auth.middleware';
+import { validateBody } from '../../shared/validation/validate';
+import { authController } from './auth.controller';
+import { devLoginSchema } from './auth.schema';
+
+export function createAuthRouter() {
+  const router = Router();
+
+  router.post('/dev-login', authRateLimiter, validateBody(devLoginSchema), (req, res, next) => {
+    void authController.devLogin(req, res).catch(next);
+  });
+  router.post('/logout', requireAuth, (req, res, next) => {
+    void authController.logout(req, res).catch(next);
+  });
+  router.get('/me', requireAuth, (req, res, next) => {
+    void authController.me(req, res).catch(next);
+  });
+
+  return router;
+}

@@ -1,1 +1,16 @@
-# 
+.env
+.env.*
+!.env.example
+
+node_modules
+dist
+build
+coverage
+logs
+*.log
+
+.DS_Store
+.cache
+.vite
+
+!package-lock.json

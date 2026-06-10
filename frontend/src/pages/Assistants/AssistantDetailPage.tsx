@@ -672,7 +672,15 @@ function PromptCompiledTab({ assistant, kbs, tools, compiledPrompt }: {
   const cancelEdit = () => { setEditingSection(null); setEditValue(''); };
 
   const toggleCollapse = (id: string) => {
-    setCollapsedSections(prev => { const n = new Set(prev); n.has(id) ? n.delete(id) : n.add(id); return n; });
+    setCollapsedSections(prev => {
+      const n = new Set(prev);
+      if (n.has(id)) {
+        n.delete(id);
+      } else {
+        n.add(id);
+      }
+      return n;
+    });
   };
   const collapseAll = () => setCollapsedSections(new Set(sections.map(s => s.id)));
   const expandAll = () => setCollapsedSections(new Set());
