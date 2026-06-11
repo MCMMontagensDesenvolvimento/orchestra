@@ -326,6 +326,79 @@ export const knowledgeRepository = {
     });
   },
 
+  async recordFailedIngestion(input: {
+    documentId: string;
+    tenantId: string;
+    workspaceIds: string[];
+    createdById: string;
+    errorCode: string;
+    errorMessage: string;
+    metadata?: Prisma.InputJsonValue;
+  }) {
+    return prisma.$transaction(async (tx) => {
+      const document = await tx.knowledgeDocument.findFirst({
+        where: {
+          id: input.documentId,
+          tenantId: input.tenantId,
+          workspaceId: { in: input.workspaceIds },
+          deletedAt: null,
+        },
+      });
+      if (!document) return null;
+
+      const now = new Date();
+      const job = await tx.knowledgeIngestionJob.create({
+        data: {
+          tenantId: document.tenantId,
+          workspaceId: document.workspaceId,
+          knowledgeBaseId: document.knowledgeBaseId,
+          documentId: document.id,
+          status: 'failed',
+          strategy: 'local_text_chunking',
+          startedAt: now,
+          completedAt: now,
+          errorCode: input.errorCode,
+          errorMessage: input.errorMessage,
+          chunksCreated: 0,
+          sourceReferencesCreated: 0,
+          createdById: input.createdById,
+          metadata: input.metadata,
+        },
+      });
+
+      const event = await tx.knowledgeIngestionEvent.create({
+        data: {
+          jobId: job.id,
+          tenantId: document.tenantId,
+          workspaceId: document.workspaceId,
+          knowledgeBaseId: document.knowledgeBaseId,
+          documentId: document.id,
+          eventType: 'knowledge_ingestion_failed',
+          level: 'error',
+          message: input.errorMessage,
+          metadata: {
+            errorCode: input.errorCode,
+            strategy: 'local_text_chunking',
+          },
+        },
+      });
+
+      const updatedDocument = await tx.knowledgeDocument.update({
+        where: { id: document.id },
+        data: {
+          status: 'failed',
+          ingestionStatus: 'failed',
+          ingestionErrorCode: input.errorCode,
+          ingestionErrorMessage: input.errorMessage,
+          ingestedAt: null,
+          chunkCount: 0,
+        },
+      });
+
+      return { document: updatedDocument, job, events: [event] };
+    });
+  },
+
   async requestIngestion(input: {
     documentId: string;
     tenantId: string;

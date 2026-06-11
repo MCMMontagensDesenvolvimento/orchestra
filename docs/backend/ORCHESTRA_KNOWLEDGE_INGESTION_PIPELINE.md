@@ -17,6 +17,10 @@ A Fase 06B transforma o catalogo Knowledge em uma base operacional inicial para 
 7. O documento recebe `ingestionStatus=completed`, `status=indexed`, `ingestedAt`, `contentHash` e `chunkCount`.
 8. O job recebe contadores e eventos estruturados.
 
+## Falhas Controladas
+
+Quando o documento nao possui texto simples aproveitavel, ou quando o chunking local rejeita o conteudo por limite operacional, o backend tambem persiste um `KnowledgeIngestionJob` com `status=failed`, `strategy=local_text_chunking`, `errorCode`, `errorMessage`, contadores zerados e evento `knowledge_ingestion_failed`. O documento passa para `ingestionStatus=failed`, preservando o erro estruturado para tela, API e smoke local, enquanto a resposta HTTP permanece `422` para o solicitante.
+
 ## Limites
 
 - Sem parser robusto de PDF, DOCX ou arquivos binarios.
@@ -25,6 +29,7 @@ A Fase 06B transforma o catalogo Knowledge em uma base operacional inicial para 
 - Sem vector store.
 - Sem chamada a LLM, provider externo, runtime Agno ou execucao MCP.
 - Limite documentado de 100000 caracteres por documento textual.
+- Falhas locais esperadas retornam `422` e deixam status persistido no job/documento.
 
 ## Auditoria
 

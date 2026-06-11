@@ -30,7 +30,7 @@ Cada chunk gera:
 - `KnowledgeChunk` com `content`, `contentHash`, `chunkIndex`, `charCount`, `tokenEstimate` e status `active`;
 - `KnowledgeSourceReference` com label, tipo de fonte, URI simples e offsets.
 
-Reingestao marca chunks ativos anteriores como `stale` antes de criar novos chunks.
+Reingestao marca chunks ativos anteriores como `stale` antes de criar novos chunks. Falhas antes da criacao de chunks nao apagam chunks ativos existentes; elas registram job `failed` e erro no documento.
 
 ## Limites
 
