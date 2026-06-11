@@ -50,11 +50,11 @@ export default function McpDetailPage() {
   const navigate = useNavigate();
   const server = mockMcpServers.find(s => s.id === id);
 
-  const tools = useMemo(() => mockMcpTools.filter(t => t.serverId === id), [id]);
-  const resources = useMemo(() => mockMcpResources.filter(r => r.serverId === id), [id]);
-  const prompts = useMemo(() => mockMcpPrompts.filter(p => p.serverId === id), [id]);
-  const bindings = useMemo(() => mockMcpBindings.filter(b => b.serverId === id), [id]);
-  const logs = useMemo(() => mockToolExecutionLogs.filter(l => l.serverId === id), [id]);
+  const tools = useMemo(() => mockMcpTools.filter(t => t.serverId === id), [mockMcpTools, id]);
+  const resources = useMemo(() => mockMcpResources.filter(r => r.serverId === id), [mockMcpResources, id]);
+  const prompts = useMemo(() => mockMcpPrompts.filter(p => p.serverId === id), [mockMcpPrompts, id]);
+  const bindings = useMemo(() => mockMcpBindings.filter(b => b.serverId === id), [mockMcpBindings, id]);
+  const logs = useMemo(() => mockToolExecutionLogs.filter(l => l.serverId === id), [mockToolExecutionLogs, id]);
 
   const [toolSearch, setToolSearch] = useState('');
   const [approvalStates, setApprovalStates] = useState<Record<string, boolean>>(

@@ -331,3 +331,21 @@ Status: decidida.
 Metadata e logs de `AgentRun` nao devem persistir prompts completos, conteudo sensivel, credentials, tokens, passwords, authorization headers ou api keys. O backend guarda resumo da entrada e ids tecnicos.
 
 Status: decidida.
+
+## DEC-FE-001 - Lazy loading por rota para reduzir chunk inicial
+
+O frontend passa a carregar paginas de rota com `React.lazy` e `Suspense`, mantendo providers, layouts e guards principais estaticos. A decisao reduziu o maior chunk JS de aproximadamente `1,189.87 kB` para `383.98 kB` e removeu o alerta Vite de chunk acima de `500 kB`.
+
+Status: decidida.
+
+## DEC-FE-002 - Nao aplicar upgrade major automatico de Vite na Fase 05F
+
+O advisory moderado de Vite/esbuild exige `npm audit fix --force`, que instalaria `vite@8.0.16`. A Fase 05F nao aplica esse salto major porque o audit de nivel alto passa e o upgrade de toolchain precisa de fase propria com matriz de regressao.
+
+Status: decidida.
+
+## DEC-FE-003 - UI primitives devem evitar exports mistos desnecessarios
+
+Primitives React usados pelo frontend devem exportar componentes a partir dos arquivos de componente. Helpers como variants podem viver em arquivos dedicados quando forem consumidos externamente, reduzindo warnings de Fast Refresh sem refactor visual amplo.
+
+Status: decidida.

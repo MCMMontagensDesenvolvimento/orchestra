@@ -2,7 +2,7 @@
 
 Esta pasta concentra a documentacao operacional atual e o arquivo historico do projeto Orchestra.
 
-O frontend ja passou pela higienizacao tecnica inicial e preserva mocks controlados por `VITE_USE_MOCKS`. A fundacao real de backend, API, banco e infraestrutura local foi criada na Fase 04. A Fase 05 iniciou o core domain real e a integracao progressiva do frontend com a API. A Fase 05B consolidou governanca inicial de assistants com publicacao versionada, rollback, feedback e test results manuais/simulados. A Fase 05C adicionou approval workflow, execution policy, sandbox policy e precheck sem runtime real. A Fase 05D containerizou o frontend e validou o stack local `frontend` + `backend` + `db` em modo API real. A Fase 05E adicionou AgentRun, eventos persistidos, runtime boundary fake, cancelamento e contratos observaveis. Runtime real de IA, RAG, MCP, providers reais e SSO real continuam fora do escopo atual.
+O frontend ja passou pela higienizacao tecnica inicial e preserva mocks controlados por `VITE_USE_MOCKS`. A fundacao real de backend, API, banco e infraestrutura local foi criada na Fase 04. A Fase 05 iniciou o core domain real e a integracao progressiva do frontend com a API. A Fase 05B consolidou governanca inicial de assistants com publicacao versionada, rollback, feedback e test results manuais/simulados. A Fase 05C adicionou approval workflow, execution policy, sandbox policy e precheck sem runtime real. A Fase 05D containerizou o frontend e validou o stack local `frontend` + `backend` + `db` em modo API real. A Fase 05E adicionou AgentRun, eventos persistidos, runtime boundary fake, cancelamento e contratos observaveis. A Fase 05F reduziu debt tecnico do frontend, removeu o alerta de bundle acima de 500 kB e documentou hygiene de dependencias. Runtime real de IA, RAG, MCP, providers reais e SSO real continuam fora do escopo atual.
 
 ## Estrutura
 
@@ -12,6 +12,7 @@ docs/
 |-- decisions/
 |-- product/
 |-- engineering/
+|-- frontend/
 |-- architecture/
 |-- backend/
 |-- api/
@@ -43,23 +44,26 @@ docs/
 16. `database/ORCHESTRA_DATABASE_FOUNDATION.md`
 17. `database/ORCHESTRA_CORE_DOMAIN_DATABASE.md`
 18. `engineering/ORCHESTRA_FRONTEND_API_INTEGRATION.md`
-19. `infrastructure/ORCHESTRA_LOCAL_DEV_INFRASTRUCTURE.md`
-20. `infrastructure/ORCHESTRA_FULLSTACK_LOCAL_DEVELOPMENT.md`
-21. `product/ORCHESTRA_CONTEXTO_INICIAL_DO_PROJETO.md`
-22. `product/ORCHESTRA_BRIEF_MESTRE.md`
-23. `product/ORCHESTRA_DISCOVERY_TECNICA_E_ESTRATEGICA.md`
-24. `product/ORCHESTRA_REQUISITOS_DO_SISTEMA.md`
-25. `product/ORCHESTRA_ESPECIFICACAO_FUNCIONAL.md`
-26. `engineering/ORCHESTRA_FRONTEND.md`
-27. `engineering/ORCHESTRA_INVENTARIO_ENTIDADES_FRONTEND.md`
-28. `engineering/ORCHESTRA_HANDOFF_FRONTEND_LOVABLE.md`
-29. READMEs de `security/` e `ai-orchestration/`.
+19. `frontend/ORCHESTRA_FRONTEND_TECHNICAL_DEBT_AND_BUNDLE_HEALTH.md`
+20. `frontend/ORCHESTRA_FRONTEND_DEPENDENCY_HYGIENE.md`
+21. `infrastructure/ORCHESTRA_LOCAL_DEV_INFRASTRUCTURE.md`
+22. `infrastructure/ORCHESTRA_FULLSTACK_LOCAL_DEVELOPMENT.md`
+23. `product/ORCHESTRA_CONTEXTO_INICIAL_DO_PROJETO.md`
+24. `product/ORCHESTRA_BRIEF_MESTRE.md`
+25. `product/ORCHESTRA_DISCOVERY_TECNICA_E_ESTRATEGICA.md`
+26. `product/ORCHESTRA_REQUISITOS_DO_SISTEMA.md`
+27. `product/ORCHESTRA_ESPECIFICACAO_FUNCIONAL.md`
+28. `engineering/ORCHESTRA_FRONTEND.md`
+29. `engineering/ORCHESTRA_INVENTARIO_ENTIDADES_FRONTEND.md`
+30. `engineering/ORCHESTRA_HANDOFF_FRONTEND_LOVABLE.md`
+31. READMEs de `security/` e `ai-orchestration/`.
 
 ## Status Dos Documentos
 
 - `decisions/decision-log.md`: operacional, atualizado ate a Fase 05.
 - `product/`: baseline operacional de produto para orientar arquitetura e backend.
-- `engineering/`: estado tecnico atual do frontend e handoffs uteis.
+- `engineering/`: estado tecnico historico do frontend e handoffs uteis.
+- `frontend/`: debt tecnico, bundle health e hygiene de dependencias do frontend atual.
 - `architecture/`: arquitetura consolidada de software.
 - `backend/`: fundacao backend real, core domain, governanca de assistants, approval/execution governance, AgentRun e validacao operacional local.
 - `api/`: contratos HTTP implementados na fundacao, no core domain, nas acoes de governanca de assistants e em AgentRun.

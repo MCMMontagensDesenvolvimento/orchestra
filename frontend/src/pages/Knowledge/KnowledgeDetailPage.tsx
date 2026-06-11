@@ -47,7 +47,7 @@ export default function KnowledgeDetailPage() {
   const [documents, setDocuments] = useState<KnowledgeDocument[]>([]);
   useEffect(() => {
     setDocuments(mockDocuments.filter(d => d.knowledgeBaseId === id));
-  }, [mockDocuments.length, id]);
+  }, [mockDocuments, id]);
   const [docSearch, setDocSearch] = useState('');
   const [uploadOpen, setUploadOpen] = useState(false);
   const [deleteDocOpen, setDeleteDocOpen] = useState(false);
@@ -60,7 +60,7 @@ export default function KnowledgeDetailPage() {
   const linkedAssistants = useMemo(() => {
     if (!kb) return [];
     return mockAssistants.filter(a => a.knowledgeBases.includes(kb.id));
-  }, [kb]);
+  }, [kb, mockAssistants]);
 
   const filteredDocs = useMemo(() => {
     return documents.filter(d => !docSearch || d.name.toLowerCase().includes(docSearch.toLowerCase()));

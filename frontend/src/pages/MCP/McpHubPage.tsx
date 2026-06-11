@@ -61,13 +61,13 @@ const defaultForm: ServerFormData = {
 
 export default function McpHubPage() {
   const serversQuery = useMcpServers();
-  const mockMcpServers = serversQuery.data ?? [];
+  const mockMcpServers = useMemo(() => serversQuery.data ?? [], [serversQuery.data]);
   const { data: mockMcpTools = [] } = useMcpTools();
   const { data: mockMcpBindings = [] } = useMcpBindings();
   const { data: mockAssistants = [] } = useAssistants();
   const navigate = useNavigate();
   const [servers, setServers] = useState<McpServer[]>(mockMcpServers);
-  useEffect(() => { setServers(mockMcpServers); }, [mockMcpServers.length]);
+  useEffect(() => { setServers(mockMcpServers); }, [mockMcpServers]);
   const [search, setSearch] = useState('');
   const [viewMode, setViewMode] = useState<'table' | 'card'>('table');
   const [filterStatus, setFilterStatus] = useState('all');
@@ -101,7 +101,7 @@ export default function McpHubPage() {
   const serverToolsForEdit = useMemo(() => {
     if (!selected) return [];
     return mockMcpTools.filter(t => t.serverId === selected.id);
-  }, [selected]);
+  }, [selected, mockMcpTools]);
 
   const handleCreate = () => {
     const newServer: McpServer = {

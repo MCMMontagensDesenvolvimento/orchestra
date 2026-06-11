@@ -1,6 +1,6 @@
 # Orchestra Fullstack Local Development
 
-Status: operacional para desenvolvimento local fullstack da Fase 05D.
+Status: operacional para desenvolvimento local fullstack ate a Fase 05F.
 
 ## Objetivo
 
@@ -137,8 +137,11 @@ O smoke valida:
 - `auth/me` com cookie;
 - tenants, workspaces, users, roles, permissions, assistants e audit logs;
 - criacao, leitura, update, workflow de approval, publish, precheck, feedback e test result de assistant;
+- criacao e leitura de agent runs em modo sandbox e bloqueado, sem provider externo;
 - erro `404` estruturado;
 - erro `422` estruturado.
+
+O smoke cria registros locais com nome `Smoke Assistant`, versions, approvals, agent runs e audit logs. Em bancos reaproveitados, a lista de assistants pode acumular registros de execucoes anteriores.
 
 ## Navegacao Manual
 
@@ -150,7 +153,9 @@ Fluxo recomendado:
 4. Acessar `/app/assistants`.
 5. Abrir um assistant existente.
 6. Validar a aba `Governanca`.
-7. Executar acoes basicas ja disponiveis de assistants e governanca em API mode.
+7. Validar a aba `Execucoes`.
+8. Executar acoes basicas ja disponiveis de assistants e governanca em API mode.
+9. Verificar o console do navegador. Na Fase 05F nao foram observados erros; apenas warnings conhecidos de future flags do React Router v7.
 
 ## Alternar Mock E API Real
 

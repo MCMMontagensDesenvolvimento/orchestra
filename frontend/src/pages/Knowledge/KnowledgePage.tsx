@@ -48,11 +48,11 @@ const defaultFormData = {
 
 export default function KnowledgePage() {
   const knowledgeQuery = useKnowledgeBases();
-  const mockKnowledgeBases = knowledgeQuery.data ?? [];
+  const mockKnowledgeBases = useMemo(() => knowledgeQuery.data ?? [], [knowledgeQuery.data]);
   const navigate = useNavigate();
   const [bases, setBases] = useState<KnowledgeBase[]>(mockKnowledgeBases);
   // Sincroniza estado local quando o mock/API resolve (delay simulado).
-  useEffect(() => { setBases(mockKnowledgeBases); }, [mockKnowledgeBases.length]);
+  useEffect(() => { setBases(mockKnowledgeBases); }, [mockKnowledgeBases]);
   const [search, setSearch] = useState('');
   const [viewMode, setViewMode] = useState<'card' | 'table'>('card');
   const [filterStatus, setFilterStatus] = useState<string>('all');
