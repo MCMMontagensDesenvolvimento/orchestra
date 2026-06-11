@@ -2,7 +2,7 @@
 
 Esta pasta concentra a documentacao operacional atual e o arquivo historico do projeto Orchestra.
 
-O frontend ja passou pela higienizacao tecnica inicial e ainda usa mocks controlados por `VITE_USE_MOCKS`. A fundacao real de backend, API, banco e infraestrutura local foi criada na Fase 04. A Fase 05 iniciou o core domain real e a integracao progressiva do frontend com a API. A Fase 05B consolidou governanca inicial de assistants com publicacao versionada, rollback, feedback e test results manuais/simulados. A Fase 05C adicionou approval workflow, execution policy, sandbox policy e precheck sem runtime real. Runtime de IA, RAG, MCP, providers reais e SSO real continuam fora do escopo atual.
+O frontend ja passou pela higienizacao tecnica inicial e preserva mocks controlados por `VITE_USE_MOCKS`. A fundacao real de backend, API, banco e infraestrutura local foi criada na Fase 04. A Fase 05 iniciou o core domain real e a integracao progressiva do frontend com a API. A Fase 05B consolidou governanca inicial de assistants com publicacao versionada, rollback, feedback e test results manuais/simulados. A Fase 05C adicionou approval workflow, execution policy, sandbox policy e precheck sem runtime real. A Fase 05D containerizou o frontend e validou o stack local `frontend` + `backend` + `db` em modo API real. Runtime de IA, RAG, MCP, providers reais e SSO real continuam fora do escopo atual.
 
 ## Estrutura
 
@@ -40,15 +40,16 @@ docs/
 13. `database/ORCHESTRA_CORE_DOMAIN_DATABASE.md`
 14. `engineering/ORCHESTRA_FRONTEND_API_INTEGRATION.md`
 15. `infrastructure/ORCHESTRA_LOCAL_DEV_INFRASTRUCTURE.md`
-16. `product/ORCHESTRA_CONTEXTO_INICIAL_DO_PROJETO.md`
-17. `product/ORCHESTRA_BRIEF_MESTRE.md`
-18. `product/ORCHESTRA_DISCOVERY_TECNICA_E_ESTRATEGICA.md`
-19. `product/ORCHESTRA_REQUISITOS_DO_SISTEMA.md`
-20. `product/ORCHESTRA_ESPECIFICACAO_FUNCIONAL.md`
-21. `engineering/ORCHESTRA_FRONTEND.md`
-22. `engineering/ORCHESTRA_INVENTARIO_ENTIDADES_FRONTEND.md`
-23. `engineering/ORCHESTRA_HANDOFF_FRONTEND_LOVABLE.md`
-24. READMEs de `security/` e `ai-orchestration/`.
+16. `infrastructure/ORCHESTRA_FULLSTACK_LOCAL_DEVELOPMENT.md`
+17. `product/ORCHESTRA_CONTEXTO_INICIAL_DO_PROJETO.md`
+18. `product/ORCHESTRA_BRIEF_MESTRE.md`
+19. `product/ORCHESTRA_DISCOVERY_TECNICA_E_ESTRATEGICA.md`
+20. `product/ORCHESTRA_REQUISITOS_DO_SISTEMA.md`
+21. `product/ORCHESTRA_ESPECIFICACAO_FUNCIONAL.md`
+22. `engineering/ORCHESTRA_FRONTEND.md`
+23. `engineering/ORCHESTRA_INVENTARIO_ENTIDADES_FRONTEND.md`
+24. `engineering/ORCHESTRA_HANDOFF_FRONTEND_LOVABLE.md`
+25. READMEs de `security/` e `ai-orchestration/`.
 
 ## Status Dos Documentos
 
@@ -59,7 +60,7 @@ docs/
 - `backend/`: fundacao backend real, core domain, governanca de assistants, approval/execution governance e validacao operacional local.
 - `api/`: contratos HTTP implementados na fundacao, no core domain e nas acoes de governanca de assistants.
 - `database/`: Prisma schema, migrations e seed.
-- `infrastructure/`: Dockerfiles e Docker Compose local.
+- `infrastructure/`: Dockerfiles, Docker Compose local e guia fullstack local.
 - `security/`: preparacao de hardening, Microsoft SSO e governanca de execucao de assistants.
 - `ai-orchestration/`: area preparada para runtime, RAG, MCP e providers reais.
 - `archive/prototype/`: registros historicos do prototipo, snapshots, roteiros antigos e documentos que nao devem orientar o desenvolvimento atual sem revisao.

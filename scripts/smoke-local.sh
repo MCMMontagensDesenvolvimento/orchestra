@@ -2,6 +2,7 @@
 set -euo pipefail
 
 BASE_URL="${BASE_URL:-http://localhost:3000}"
+FRONTEND_URL="${FRONTEND_URL:-http://localhost:5173}"
 DEV_EMAIL="${DEV_EMAIL:-admin.dev@orchestra.local}"
 
 cookie_file="$(mktemp)"
@@ -25,8 +26,10 @@ expect_status() {
   echo "OK $label $status"
 }
 
-expect_status 200 "health" "$BASE_URL/health"
-expect_status 200 "health-db" "$BASE_URL/health/db"
+expect_status 200 "frontend-health" "$FRONTEND_URL/health.html"
+expect_status 200 "frontend-root" "$FRONTEND_URL/"
+expect_status 200 "backend-health" "$BASE_URL/health"
+expect_status 200 "backend-health-db" "$BASE_URL/health/db"
 expect_status 401 "auth-me-no-cookie" "$BASE_URL/api/v1/auth/me"
 
 printf '{"email":"%s"}' "$DEV_EMAIL" > "$payload_file"
@@ -39,6 +42,10 @@ expect_status 200 "dev-login" \
 expect_status 200 "auth-me" \
   -b "$cookie_file" \
   "$BASE_URL/api/v1/auth/me"
+
+expect_status 200 "tenants" \
+  -b "$cookie_file" \
+  "$BASE_URL/api/v1/tenants"
 
 expect_status 200 "workspaces" \
   -b "$cookie_file" \
@@ -82,6 +89,10 @@ expect_status 201 "assistant-create" \
   "$BASE_URL/api/v1/assistants"
 
 assistant_id="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["data"]["id"])' "$response_file")"
+
+expect_status 200 "assistant-detail" \
+  -b "$cookie_file" \
+  "$BASE_URL/api/v1/assistants/$assistant_id"
 
 cat > "$payload_file" <<'JSON'
 {

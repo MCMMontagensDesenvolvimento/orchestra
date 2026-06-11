@@ -104,6 +104,30 @@ A infraestrutura local inicial usa Docker Compose com `frontend`, `backend` e `d
 
 Status: decidida.
 
+## DEC-INFRA-002 - Frontend containerizado para desenvolvimento local fullstack
+
+O frontend passa a ter `frontend/Dockerfile.dev` dedicado, usando Node.js 20 e `npm install` com `package-lock.json`. O servidor Vite roda em `0.0.0.0:5173` para permitir acesso via Docker Compose e navegador local.
+
+Status: decidida.
+
+## DEC-INFRA-003 - Compose dev sobe frontend, backend e db em API mode
+
+O Compose de desenvolvimento passa a construir o frontend pelo Dockerfile dev, aguardar backend healthy quando possivel e usar `VITE_USE_MOCKS=false` por padrao em `frontend/.env.example`, mantendo a possibilidade de alternar para mocks por variavel de ambiente local.
+
+Status: decidida.
+
+## DEC-INFRA-004 - Frontend healthcheck estatico via health.html
+
+O frontend expoe `frontend/public/health.html` como healthcheck simples para desenvolvimento e imagem estatica de producao. O smoke local e os healthchecks de Compose podem validar esse arquivo sem depender de rotas autenticadas.
+
+Status: decidida.
+
+## DEC-INFRA-005 - Producao frontend usa build estatico com Nginx
+
+O `frontend/Dockerfile.prod` e estrutural nesta fase e gera artefatos estaticos via Vite, servidos por Nginx com fallback de SPA. Variaveis publicas `VITE_*` sao aplicadas em build time.
+
+Status: decidida.
+
 ## DEC-008 - Proxima fase tecnica
 
 Apos arquitetura e fundacao backend/API/banco/infra, as proximas fases devem detalhar seguranca final, integracao do frontend com API real e runtime de IA em servico separado.
