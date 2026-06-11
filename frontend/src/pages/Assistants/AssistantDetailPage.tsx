@@ -11,7 +11,7 @@ import { Switch } from '@/components/ui/switch';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Badge } from '@/components/ui/badge';
-import type { Assistant, AssistantApprovalAction, AssistantExecutionMode, AssistantExecutionPolicy, AssistantTestStatus, FeedbackType, KnowledgeBase, McpTool } from '@/types';
+import type { AgentRun, AgentRunStatus, Assistant, AssistantApprovalAction, AssistantExecutionMode, AssistantExecutionPolicy, AssistantTestStatus, FeedbackType, KnowledgeBase, McpTool } from '@/types';
 import {
   useApproveAssistantApprovalMutation,
   useArchiveAssistantMutation,
@@ -34,6 +34,7 @@ import {
   useUnpublishAssistantMutation,
   useUpdateAssistantExecutionPolicyMutation,
 } from '@/hooks/queries/useAssistants';
+import { useAssistantRuns, useCancelAgentRunMutation, useCreateAgentRunMutation } from '@/hooks/queries/useAgentRuns';
 import { useCurrentSession } from '@/hooks/queries/useAuth';
 import { useKnowledgeBases } from '@/hooks/queries/useKnowledge';
 import { useMcpTools } from '@/hooks/queries/useMcp';
@@ -45,17 +46,19 @@ import {
   ThumbsUp, ThumbsDown, Thermometer, Bot, Server, BookOpen, Clock,
   GitBranch, CheckCircle, XCircle, FileCode, Wrench, BarChart3, Shield,
   AlertTriangle, ChevronRight, ExternalLink, Zap, Download, RefreshCw,
-  Hash, Eye, EyeOff, Pencil, Save, X, ChevronDown, ChevronUp, Clipboard, Diff, Undo2
+  Hash, Eye, EyeOff, Pencil, Save, X, ChevronDown, ChevronUp, Clipboard, Diff, Undo2,
+  Activity, StopCircle
 } from 'lucide-react';
 import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, BarChart, Bar } from 'recharts';
 import { toast } from 'sonner';
 
-type TabId = 'overview' | 'config' | 'governance' | 'knowledge' | 'tools' | 'prompt' | 'tests' | 'analytics' | 'audit';
+type TabId = 'overview' | 'config' | 'governance' | 'runs' | 'knowledge' | 'tools' | 'prompt' | 'tests' | 'analytics' | 'audit';
 
 const tabs: { id: TabId; label: string; icon: typeof Bot }[] = [
   { id: 'overview', label: 'Overview', icon: Bot },
   { id: 'config', label: 'Configuração', icon: Wrench },
   { id: 'governance', label: 'Governança', icon: Shield },
+  { id: 'runs', label: 'Execuções', icon: Activity },
   { id: 'knowledge', label: 'Conhecimento', icon: BookOpen },
   { id: 'tools', label: 'Ferramentas', icon: Server },
   { id: 'prompt', label: 'Prompt Compilado', icon: FileCode },
@@ -79,6 +82,7 @@ export default function AssistantDetailPage() {
   const { data: mockTestResults = [] } = useAssistantTestResults(id);
   const { data: assistantApprovals = [] } = useAssistantApprovals(id);
   const { data: assistantExecutionPolicy } = useAssistantExecutionPolicy(id);
+  const { data: assistantRuns = [], isLoading: assistantRunsLoading, refetch: refetchAssistantRuns } = useAssistantRuns(id);
   const { data: session } = useCurrentSession();
   const publishMutation = usePublishAssistantMutation();
   const unpublishMutation = useUnpublishAssistantMutation();
@@ -93,6 +97,8 @@ export default function AssistantDetailPage() {
   const executionPrecheckMutation = useAssistantExecutionPrecheckMutation();
   const createFeedbackMutation = useCreateAssistantFeedbackMutation();
   const createTestResultMutation = useCreateAssistantTestResultMutation();
+  const createAgentRunMutation = useCreateAgentRunMutation();
+  const cancelAgentRunMutation = useCancelAgentRunMutation();
   const navigate = useNavigate();
   const [activeTab, setActiveTab] = useState<TabId>('overview');
   const [feedbackDialogOpen, setFeedbackDialogOpen] = useState(false);
@@ -123,6 +129,8 @@ export default function AssistantDetailPage() {
     assistantVersionId: '',
   });
   const [precheckMode, setPrecheckMode] = useState<AssistantExecutionMode>('sandbox');
+  const [runMode, setRunMode] = useState<AssistantExecutionMode>('sandbox');
+  const [runInput, setRunInput] = useState('');
 
   const assistant = assistantQuery.data ?? mockAssistants.find(a => a.id === id) ?? mockAssistants[0];
 
@@ -139,6 +147,7 @@ export default function AssistantDetailPage() {
   const feedbacks = mockAssistantFeedbacks.filter(f => f.assistantId === assistant.id);
   const tests = mockTestResults.filter(t => t.assistantId === assistant.id);
   const approvals = assistantApprovals.filter(approval => approval.assistantId === assistant.id);
+  const runs = assistantRuns.filter(run => run.assistantId === assistant.id);
   const executionPolicy = assistantExecutionPolicy ?? assistant.executionPolicy;
   const conversations = mockConversations.filter(c => c.assistantId === assistant.id);
   const kbs = mockKnowledgeBases.filter(kb => assistant.knowledgeBases.includes(kb.id));
@@ -150,6 +159,43 @@ export default function AssistantDetailPage() {
   const rollbackCandidates = versions.filter(v => v.id !== assistant.activePublication?.assistantVersionId);
   const pendingApprovals = approvals.filter(approval => approval.status === 'pending');
   const hasPermission = (permission: string) => session?.permissions.includes(permission) ?? false;
+
+  const handleCreateAgentRun = async () => {
+    if (!runInput.trim()) {
+      toast.error('Informe a entrada da execucao');
+      return;
+    }
+    try {
+      const run = await createAgentRunMutation.mutateAsync({
+        assistantId: assistant.id,
+        input: {
+          mode: runMode,
+          input: runInput,
+          source: 'assistant_detail',
+          metadata: { uiContext: 'assistant_detail_runs' },
+        },
+      });
+      setRunInput('');
+      toast.success(run.status === 'blocked' ? 'Execucao bloqueada pelo precheck' : 'Execucao simulada concluida', {
+        description: `${run.id} · ${run.traceId}`,
+      });
+    } catch (error) {
+      toast.error('Nao foi possivel criar a execucao', {
+        description: error instanceof Error ? error.message : 'Tente novamente em instantes.',
+      });
+    }
+  };
+
+  const handleCancelAgentRun = async (selectedRunId: string) => {
+    try {
+      await cancelAgentRunMutation.mutateAsync(selectedRunId);
+      toast.success('Execucao cancelada');
+    } catch (error) {
+      toast.error('Nao foi possivel cancelar a execucao', {
+        description: error instanceof Error ? error.message : 'Tente novamente em instantes.',
+      });
+    }
+  };
 
   const handleLifecycleAction = async (action: 'publish' | 'unpublish' | 'archive' | 'restore') => {
     try {
@@ -824,6 +870,96 @@ ${tools.map(t => `- ${t.name}: ${t.description}${t.requiresApproval ? ' [REQUER 
           </div>
         )}
 
+        {activeTab === 'runs' && (
+          <div className="space-y-4">
+            <div className="grid gap-4 lg:grid-cols-[minmax(0,0.85fr)_minmax(0,1.15fr)]">
+              <div className="rounded-lg border bg-card p-5">
+                <div className="mb-4 flex items-center justify-between gap-2">
+                  <div>
+                    <h3 className="text-sm font-semibold flex items-center gap-2">
+                      <Activity className="h-4 w-4 text-primary" /> Nova execução
+                    </h3>
+                    <p className="text-xs text-muted-foreground">Run controlado com precheck e runtime fake.</p>
+                  </div>
+                  <Badge variant="outline" className="text-[10px]">sem provider externo</Badge>
+                </div>
+                <div className="space-y-4">
+                  <div className="space-y-2">
+                    <Label>Modo</Label>
+                    <Select value={runMode} onValueChange={value => setRunMode(value as AssistantExecutionMode)}>
+                      <SelectTrigger><SelectValue /></SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="draft_test">Draft test</SelectItem>
+                        <SelectItem value="sandbox">Sandbox</SelectItem>
+                        <SelectItem value="published">Published</SelectItem>
+                        <SelectItem value="blocked">Blocked</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div className="space-y-2">
+                    <Label>Entrada</Label>
+                    <Textarea
+                      value={runInput}
+                      onChange={e => setRunInput(e.target.value)}
+                      rows={6}
+                      maxLength={2000}
+                      placeholder="Digite a entrada controlada para o run."
+                    />
+                    <div className="flex items-center justify-between text-[10px] text-muted-foreground">
+                      <span>{runInput.length}/2000</span>
+                      <span>{executionPolicy?.executionMode ? `Policy: ${executionPolicy.executionMode}` : 'Policy pendente'}</span>
+                    </div>
+                  </div>
+                  <Button
+                    onClick={() => { void handleCreateAgentRun(); }}
+                    disabled={!hasPermission('agent_runs.create') || createAgentRunMutation.isPending || !runInput.trim()}
+                    className="w-full"
+                  >
+                    <Play className="h-3.5 w-3.5 mr-1" />Simular execução
+                  </Button>
+                  {!hasPermission('agent_runs.create') && (
+                    <p className="text-xs text-muted-foreground">Permissão agent_runs.create necessária.</p>
+                  )}
+                </div>
+              </div>
+
+              <div className="rounded-lg border bg-card p-5">
+                <div className="mb-4 flex items-center justify-between gap-2">
+                  <div>
+                    <h3 className="text-sm font-semibold flex items-center gap-2">
+                      <Clock className="h-4 w-4 text-primary" /> Histórico
+                    </h3>
+                    <p className="text-xs text-muted-foreground">{runs.length} run(s) registrado(s)</p>
+                  </div>
+                  <Button variant="outline" size="sm" onClick={() => { void refetchAssistantRuns(); }}>
+                    <RefreshCw className="h-3.5 w-3.5 mr-1" />Atualizar
+                  </Button>
+                </div>
+                {assistantRunsLoading ? (
+                  <p className="text-sm text-muted-foreground">Carregando execuções...</p>
+                ) : runs.length > 0 ? (
+                  <div className="space-y-3">
+                    {runs.slice(0, 8).map(run => (
+                      <AgentRunCard
+                        key={run.id}
+                        run={run}
+                        canCancel={hasPermission('agent_runs.cancel') && canCancelRun(run.status)}
+                        isCancelling={cancelAgentRunMutation.isPending}
+                        onCancel={() => { void handleCancelAgentRun(run.id); }}
+                      />
+                    ))}
+                  </div>
+                ) : (
+                  <div className="py-10 text-center">
+                    <Activity className="h-10 w-10 mx-auto text-muted-foreground mb-3" />
+                    <p className="text-sm text-muted-foreground">Nenhuma execução registrada.</p>
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+        )}
+
         {activeTab === 'knowledge' && (
           <div className="space-y-4">
             <div className="flex items-center justify-between">
@@ -1487,6 +1623,76 @@ function PromptCompiledTab({ assistant, kbs, tools, compiledPrompt }: {
 }
 
 // ─── Helpers ───
+
+function canCancelRun(status: AgentRunStatus | string) {
+  return status === 'queued' || status === 'prechecking' || status === 'running';
+}
+
+function agentRunStatusClass(status: AgentRunStatus | string) {
+  if (status === 'completed') return 'border-success/30 bg-success/5';
+  if (status === 'blocked') return 'border-warning/30 bg-warning/5';
+  if (status === 'failed' || status === 'cancelled') return 'border-destructive/30 bg-destructive/5';
+  return 'border-primary/30 bg-primary/5';
+}
+
+function compactId(value?: string | null) {
+  if (!value) return '—';
+  if (value.length <= 16) return value;
+  return `${value.slice(0, 8)}...${value.slice(-6)}`;
+}
+
+function AgentRunCard({ run, canCancel, isCancelling, onCancel }: {
+  run: AgentRun;
+  canCancel: boolean;
+  isCancelling: boolean;
+  onCancel: () => void;
+}) {
+  const events = run.events ?? [];
+  return (
+    <div className={`rounded-md border p-3 ${agentRunStatusClass(run.status)}`}>
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+        <div className="min-w-0 space-y-1">
+          <div className="flex flex-wrap items-center gap-2">
+            <StatusBadge status={run.status} />
+            <Badge variant="secondary" className="text-[10px]">{run.mode}</Badge>
+            <span className="font-mono text-[11px] text-muted-foreground">{compactId(run.id)}</span>
+          </div>
+          <p className="text-sm font-medium">{run.inputSummary || 'Entrada sem resumo'}</p>
+          <div className="flex flex-wrap gap-x-3 gap-y-1 text-[10px] text-muted-foreground">
+            <span>trace {compactId(run.traceId)}</span>
+            <span>request {compactId(run.requestId)}</span>
+            <span>{new Date(run.createdAt).toLocaleString('pt-BR')}</span>
+          </div>
+          {run.errorCode && (
+            <p className="text-xs text-warning">{run.errorCode}: {run.errorMessage}</p>
+          )}
+        </div>
+        {canCancel && (
+          <Button variant="outline" size="sm" className="shrink-0" onClick={onCancel} disabled={isCancelling}>
+            <StopCircle className="h-3.5 w-3.5 mr-1" />Cancelar
+          </Button>
+        )}
+      </div>
+      {events.length > 0 && (
+        <div className="mt-3 space-y-2 border-t pt-3">
+          {events.slice(0, 6).map(event => (
+            <div key={event.id} className="grid grid-cols-[2rem_minmax(0,1fr)] gap-2 text-xs">
+              <span className="font-mono text-muted-foreground">#{event.sequence}</span>
+              <div className="min-w-0">
+                <div className="flex flex-wrap items-center gap-2">
+                  <span className="font-mono font-medium">{event.type}</span>
+                  {event.status && <span className="text-[10px] text-muted-foreground">{event.status}</span>}
+                </div>
+                {event.message && <p className="text-muted-foreground">{event.message}</p>}
+              </div>
+            </div>
+          ))}
+          {events.length > 6 && <p className="text-[10px] text-muted-foreground">+{events.length - 6} evento(s)</p>}
+        </div>
+      )}
+    </div>
+  );
+}
 
 function PolicySwitch({ label, checked, disabled, onCheckedChange }: {
   label: string;

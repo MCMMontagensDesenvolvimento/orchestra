@@ -7,7 +7,8 @@ export type AssistantTestStatus = 'passed' | 'failed' | 'needs_review';
 export type AssistantApprovalStatus = 'pending' | 'approved' | 'rejected' | 'cancelled' | 'expired';
 export type AssistantApprovalAction = 'publish' | 'rollback' | 'restore' | 'enable_execution' | 'configure_sandbox';
 export type AssistantExecutionMode = 'draft_test' | 'sandbox' | 'published' | 'blocked' | 'archived';
-export type AuditEventType = 'assistant_created' | 'assistant_published' | 'assistant_unpublished' | 'assistant_rollback' | 'assistant_updated' | 'assistant_archived' | 'assistant_restored' | 'assistant_feedback_created' | 'assistant_test_result_created' | 'assistant_approval_requested' | 'assistant_approval_approved' | 'assistant_approval_rejected' | 'assistant_approval_cancelled' | 'assistant_execution_policy_updated' | 'assistant_sandbox_policy_updated' | 'assistant_execution_blocked' | 'assistant_publish_blocked_by_approval' | 'permission_denied' | 'tool_executed' | 'knowledge_updated' | 'user_login' | 'policy_changed' | 'security_alert' | 'approval_requested' | 'approval_granted';
+export type AgentRunStatus = 'queued' | 'prechecking' | 'blocked' | 'running' | 'completed' | 'failed' | 'cancelled';
+export type AuditEventType = 'assistant_created' | 'assistant_published' | 'assistant_unpublished' | 'assistant_rollback' | 'assistant_updated' | 'assistant_archived' | 'assistant_restored' | 'assistant_feedback_created' | 'assistant_test_result_created' | 'assistant_approval_requested' | 'assistant_approval_approved' | 'assistant_approval_rejected' | 'assistant_approval_cancelled' | 'assistant_execution_policy_updated' | 'assistant_sandbox_policy_updated' | 'assistant_execution_blocked' | 'assistant_publish_blocked_by_approval' | 'agent_run_requested' | 'agent_run_precheck_passed' | 'agent_run_blocked' | 'agent_run_started' | 'agent_run_completed' | 'agent_run_failed' | 'agent_run_cancelled' | 'permission_denied' | 'tool_executed' | 'knowledge_updated' | 'user_login' | 'policy_changed' | 'security_alert' | 'approval_requested' | 'approval_granted';
 
 export interface AssistantPublication {
   id: string;
@@ -70,6 +71,57 @@ export interface AssistantExecutionPrecheckResult {
   mode: AssistantExecutionMode;
   reasons: AssistantExecutionPrecheckReason[];
   requestId: string;
+}
+
+export type AgentRunPrecheckSnapshot = AssistantExecutionPrecheckResult;
+
+export interface AgentRunEvent {
+  id: string;
+  agentRunId: string;
+  tenantId?: string;
+  workspaceId?: string;
+  type: string;
+  sequence: number;
+  status?: AgentRunStatus | string | null;
+  message?: string | null;
+  metadata?: unknown;
+  createdAt: string;
+}
+
+export interface AgentRun {
+  id: string;
+  tenantId: string;
+  workspaceId: string;
+  assistantId: string;
+  assistantVersionId?: string | null;
+  assistantPublicationId?: string | null;
+  conversationId?: string | null;
+  requestedById: string;
+  status: AgentRunStatus;
+  mode: AssistantExecutionMode;
+  source: string;
+  inputSummary?: string | null;
+  requestId?: string | null;
+  traceId: string;
+  startedAt?: string | null;
+  completedAt?: string | null;
+  failedAt?: string | null;
+  cancelledAt?: string | null;
+  blockedAt?: string | null;
+  errorCode?: string | null;
+  errorMessage?: string | null;
+  precheckSnapshot?: AgentRunPrecheckSnapshot | null;
+  metadata?: unknown;
+  createdAt: string;
+  updatedAt: string;
+  events?: AgentRunEvent[];
+}
+
+export interface CreateAgentRunInput {
+  mode: AssistantExecutionMode;
+  input: string;
+  source?: string;
+  metadata?: Record<string, unknown>;
 }
 
 export interface Assistant {

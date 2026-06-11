@@ -21,6 +21,13 @@ export const queryKeys = {
     feedback: (id: string) => [...queryKeys.assistants.all, 'feedback', id] as const,
     tests: (id: string) => [...queryKeys.assistants.all, 'tests', id] as const,
   },
+  agentRuns: {
+    all: ['agent-runs'] as const,
+    list: () => [...queryKeys.agentRuns.all, 'list'] as const,
+    assistant: (assistantId: string) => [...queryKeys.agentRuns.all, 'assistant', assistantId] as const,
+    detail: (runId: string) => [...queryKeys.agentRuns.all, 'detail', runId] as const,
+    events: (runId: string) => [...queryKeys.agentRuns.all, 'events', runId] as const,
+  },
   knowledge: {
     all: ['knowledge'] as const,
     list: () => [...queryKeys.knowledge.all, 'list'] as const,

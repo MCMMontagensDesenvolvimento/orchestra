@@ -2,6 +2,8 @@ import { Router } from 'express';
 import { requireAuth, requirePermission } from '../../shared/middleware/auth.middleware';
 import { idParamsSchema } from '../../shared/validation/pagination';
 import { validateBody, validateParams, validateQuery } from '../../shared/validation/validate';
+import { agentRunsController } from '../agent-runs/agent-runs.controller';
+import { assistantRunParamsSchema, agentRunsQuerySchema, createAgentRunSchema } from '../agent-runs/agent-runs.schema';
 import { assistantsController } from './assistants.controller';
 import {
   assistantApprovalCreateSchema,
@@ -166,6 +168,26 @@ export function createAssistantsRouter() {
     validateBody(assistantExecutionPrecheckSchema),
     (req, res, next) => {
       void assistantsController.executionPrecheck(req, res).catch(next);
+    },
+  );
+  router.get(
+    '/:id/runs',
+    requireAuth,
+    requirePermission('agent_runs.read'),
+    validateParams(assistantRunParamsSchema),
+    validateQuery(agentRunsQuerySchema),
+    (req, res, next) => {
+      void agentRunsController.listByAssistant(req, res).catch(next);
+    },
+  );
+  router.post(
+    '/:id/runs',
+    requireAuth,
+    requirePermission('agent_runs.create'),
+    validateParams(assistantRunParamsSchema),
+    validateBody(createAgentRunSchema),
+    (req, res, next) => {
+      void agentRunsController.createForAssistant(req, res).catch(next);
     },
   );
   router.get('/:id/feedback', requireAuth, requirePermission('assistants.feedback.read'), validateParams(idParamsSchema), (req, res, next) => {

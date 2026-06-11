@@ -1,6 +1,6 @@
 # Backend
 
-Status: operacional para a fundacao da Fase 04, core domain inicial da Fase 05 e governanca de assistants das Fases 05B/05C.
+Status: operacional para a fundacao da Fase 04, core domain inicial da Fase 05 e governanca de assistants e agent runs das Fases 05B/05C/05E.
 
 Esta pasta concentra a documentacao do backend real do Orchestra.
 
@@ -12,6 +12,7 @@ Esta pasta concentra a documentacao do backend real do Orchestra.
 - `ORCHESTRA_PHASE_05_HANDOFF.md`: handoff tecnico, validacoes e pendencias da Fase 05.
 - `ORCHESTRA_PHASE_05B_ASSISTANT_GOVERNANCE_HANDOFF.md`: handoff tecnico da governanca de assistants, publicacao, rollback, feedback e test results.
 - `ORCHESTRA_PHASE_05C_APPROVAL_EXECUTION_GOVERNANCE.md`: approval workflow, execution policy, sandbox policy e precheck.
+- `ORCHESTRA_AGENT_RUN_GOVERNANCE.md`: runtime boundary fake, AgentRun, eventos, precheck obrigatorio, cancelamento e auditoria.
 
 ## Escopo Atual
 
@@ -26,12 +27,13 @@ Esta pasta concentra a documentacao do backend real do Orchestra.
 - Core domain inicial com tenants, workspaces, users, roles, permissions, assistants, audit logs e settings.
 - Governanca de assistants com publicacoes versionadas, rollback, feedback e test results manuais/simulados.
 - Approval workflow, execution policy, sandbox policy e execution precheck sem runtime real.
+- Agent runs com runtime boundary fake, eventos persistidos e contratos de cancelamento.
 - Smoke local em `scripts/smoke-local.sh`.
 
 ## Fora Do Escopo Atual
 
 - SSO corporativo.
-- Runtime de IA.
+- Runtime real de IA.
 - Providers reais.
 - RAG, MCP, vector store e streaming.
 - Workers e filas.

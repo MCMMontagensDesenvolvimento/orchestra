@@ -44,6 +44,7 @@ export const endpoints = {
     cancelApproval: (id: string, approvalId: string) => `/assistants/${id}/approvals/${approvalId}/cancel`,
     executionPolicy: (id: string) => `/assistants/${id}/execution-policy`,
     executionPrecheck: (id: string) => `/assistants/${id}/execution-precheck`,
+    runs: (id: string) => `/assistants/${id}/runs`,
     feedback: (id: string) => `/assistants/${id}/feedback`,
     testResults: (id: string) => `/assistants/${id}/test-results`,
     shares: (id: string) => `/assistants/${id}/shares`,
@@ -51,6 +52,12 @@ export const endpoints = {
   },
   audit: {
     logs: '/audit-logs',
+  },
+  agentRuns: {
+    list: '/agent-runs',
+    detail: (runId: string) => `/agent-runs/${runId}`,
+    events: (runId: string) => `/agent-runs/${runId}/events`,
+    cancel: (runId: string) => `/agent-runs/${runId}/cancel`,
   },
   settings: {
     list: '/settings',

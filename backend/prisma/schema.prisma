@@ -30,6 +30,8 @@ model Tenant {
   mcpServers                 McpServer[]
   providerConfigs            ProviderConfig[]
   usageRecords               UsageRecord[]
+  agentRuns                  AgentRun[]
+  agentRunEvents             AgentRunEvent[]
 
   @@map("tenants")
 }
@@ -54,6 +56,8 @@ model Workspace {
   assistantTestResults       AssistantTestResult[]
   assistantApprovals         AssistantApprovalRequest[]
   assistantExecutionPolicies AssistantExecutionPolicy[]
+  agentRuns                  AgentRun[]
+  agentRunEvents             AgentRunEvent[]
 
   @@unique([tenantId, slug])
   @@index([tenantId])
@@ -88,7 +92,7 @@ model User {
   assistantTestResults              AssistantTestResult[]      @relation("AssistantTestResultTester")
   conversations                     Conversation[]
   messages                          ConversationMessage[]
-  agentRuns                         AgentRun[]
+  agentRuns                         AgentRun[]                  @relation("AgentRunRequester")
   toolCalls                         ToolCall[]
 
   @@index([tenantId])
@@ -276,6 +280,7 @@ model AssistantVersion {
   feedbacks        AssistantFeedback[]
   testResults      AssistantTestResult[]
   approvalRequests AssistantApprovalRequest[]
+  agentRuns        AgentRun[]
 
   @@unique([assistantId, version])
   @@index([assistantId])
@@ -332,6 +337,7 @@ model AssistantPublication {
   rollbackFromPublication   AssistantPublication?      @relation("AssistantPublicationRollback", fields: [rollbackFromPublicationId], references: [id], onDelete: SetNull)
   rollbackPublications      AssistantPublication[]     @relation("AssistantPublicationRollback")
   approvalRequests          AssistantApprovalRequest[]
+  agentRuns                 AgentRun[]
 
   @@index([tenantId])
   @@index([workspaceId])
@@ -552,25 +558,78 @@ model ConversationMessage {
 }
 
 model AgentRun {
-  id             String        @id @default(uuid()) @db.Uuid
-  assistantId    String        @map("assistant_id") @db.Uuid
-  conversationId String?       @map("conversation_id") @db.Uuid
-  userId         String?       @map("user_id") @db.Uuid
-  status         String        @default("pending")
-  traceId        String?       @map("trace_id")
-  startedAt      DateTime?     @map("started_at")
-  completedAt    DateTime?     @map("completed_at")
-  createdAt      DateTime      @default(now()) @map("created_at")
-  assistant      Assistant     @relation(fields: [assistantId], references: [id], onDelete: Cascade)
-  conversation   Conversation? @relation(fields: [conversationId], references: [id], onDelete: SetNull)
-  user           User?         @relation(fields: [userId], references: [id], onDelete: SetNull)
-  toolCalls      ToolCall[]
-  usageRecords   UsageRecord[]
+  id                         String                @id @default(uuid()) @db.Uuid
+  tenantId                   String                @map("tenant_id") @db.Uuid
+  workspaceId                String                @map("workspace_id") @db.Uuid
+  assistantId                String                @map("assistant_id") @db.Uuid
+  assistantVersionId         String?               @map("assistant_version_id") @db.Uuid
+  assistantPublicationId     String?               @map("assistant_publication_id") @db.Uuid
+  conversationId             String?               @map("conversation_id") @db.Uuid
+  requestedById              String                @map("requested_by_id") @db.Uuid
+  status                     String                @default("queued")
+  mode                       String
+  source                     String                @default("api")
+  inputSummary               String?               @map("input_summary")
+  requestId                  String?               @map("request_id")
+  traceId                    String                @map("trace_id")
+  startedAt                  DateTime?             @map("started_at")
+  completedAt                DateTime?             @map("completed_at")
+  failedAt                   DateTime?             @map("failed_at")
+  cancelledAt                DateTime?             @map("cancelled_at")
+  blockedAt                  DateTime?             @map("blocked_at")
+  errorCode                  String?               @map("error_code")
+  errorMessage               String?               @map("error_message")
+  precheckSnapshot           Json?                 @map("precheck_snapshot")
+  metadata                   Json?
+  createdAt                  DateTime              @default(now()) @map("created_at")
+  updatedAt                  DateTime              @updatedAt @map("updated_at")
+  tenant                     Tenant                @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  workspace                  Workspace             @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  assistant                  Assistant             @relation(fields: [assistantId], references: [id], onDelete: Cascade)
+  assistantVersion           AssistantVersion?     @relation(fields: [assistantVersionId], references: [id], onDelete: SetNull)
+  assistantPublication       AssistantPublication? @relation(fields: [assistantPublicationId], references: [id], onDelete: SetNull)
+  conversation               Conversation?         @relation(fields: [conversationId], references: [id], onDelete: SetNull)
+  requestedBy                User                  @relation("AgentRunRequester", fields: [requestedById], references: [id], onDelete: Restrict)
+  events                     AgentRunEvent[]
+  toolCalls                  ToolCall[]
+  usageRecords               UsageRecord[]
 
+  @@index([tenantId])
+  @@index([workspaceId])
   @@index([assistantId])
+  @@index([assistantVersionId])
+  @@index([assistantPublicationId])
   @@index([conversationId])
+  @@index([requestedById])
+  @@index([status])
+  @@index([mode])
   @@index([traceId])
+  @@index([createdAt])
   @@map("agent_runs")
+}
+
+model AgentRunEvent {
+  id          String    @id @default(uuid()) @db.Uuid
+  agentRunId  String    @map("agent_run_id") @db.Uuid
+  tenantId    String    @map("tenant_id") @db.Uuid
+  workspaceId String    @map("workspace_id") @db.Uuid
+  type        String
+  sequence    Int
+  status      String?
+  message     String?
+  metadata    Json?
+  createdAt   DateTime  @default(now()) @map("created_at")
+  agentRun    AgentRun  @relation(fields: [agentRunId], references: [id], onDelete: Cascade)
+  tenant      Tenant    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
+  @@unique([agentRunId, sequence])
+  @@index([agentRunId])
+  @@index([tenantId])
+  @@index([workspaceId])
+  @@index([type])
+  @@index([createdAt])
+  @@map("agent_run_events")
 }
 
 model ToolCall {

@@ -165,6 +165,51 @@ expect_status 200 "assistant-execution-precheck-sandbox" \
   --data-binary "@$payload_file" \
   "$BASE_URL/api/v1/assistants/$assistant_id/execution-precheck"
 
+cat > "$payload_file" <<'JSON'
+{
+  "mode": "sandbox",
+  "input": "Smoke controlled execution input.",
+  "source": "smoke-local",
+  "metadata": {
+    "scenario": "sandbox-runtime-contract"
+  }
+}
+JSON
+
+expect_status 201 "agent-run-create-sandbox" \
+  -b "$cookie_file" \
+  -H 'Content-Type: application/json' \
+  --data-binary "@$payload_file" \
+  "$BASE_URL/api/v1/assistants/$assistant_id/runs"
+
+run_id="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["data"]["id"])' "$response_file")"
+
+expect_status 200 "agent-run-list-assistant" \
+  -b "$cookie_file" \
+  "$BASE_URL/api/v1/assistants/$assistant_id/runs"
+
+expect_status 200 "agent-run-detail" \
+  -b "$cookie_file" \
+  "$BASE_URL/api/v1/agent-runs/$run_id"
+
+expect_status 200 "agent-run-events" \
+  -b "$cookie_file" \
+  "$BASE_URL/api/v1/agent-runs/$run_id/events"
+
+cat > "$payload_file" <<'JSON'
+{
+  "mode": "blocked",
+  "input": "Smoke blocked execution input.",
+  "source": "smoke-local"
+}
+JSON
+
+expect_status 201 "agent-run-create-blocked" \
+  -b "$cookie_file" \
+  -H 'Content-Type: application/json' \
+  --data-binary "@$payload_file" \
+  "$BASE_URL/api/v1/assistants/$assistant_id/runs"
+
 cat > "$payload_file" <<JSON
 {
   "action": "publish",
@@ -287,6 +332,10 @@ expect_status 404 "structured-404" \
   -b "$cookie_file" \
   "$BASE_URL/api/v1/assistants/$assistant_id/missing-route"
 
+expect_status 404 "agent-run-structured-404" \
+  -b "$cookie_file" \
+  "$BASE_URL/api/v1/agent-runs/00000000-0000-0000-0000-000000000999"
+
 cat > "$payload_file" <<'JSON'
 {
   "name": ""
@@ -298,5 +347,18 @@ expect_status 422 "structured-422" \
   -H 'Content-Type: application/json' \
   --data-binary "@$payload_file" \
   "$BASE_URL/api/v1/assistants"
+
+cat > "$payload_file" <<'JSON'
+{
+  "mode": "sandbox",
+  "input": ""
+}
+JSON
+
+expect_status 422 "agent-run-structured-422" \
+  -b "$cookie_file" \
+  -H 'Content-Type: application/json' \
+  --data-binary "@$payload_file" \
+  "$BASE_URL/api/v1/assistants/$assistant_id/runs"
 
 echo "Smoke local concluido."

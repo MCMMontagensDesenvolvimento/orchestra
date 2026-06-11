@@ -295,3 +295,39 @@ Status: decidida.
 O workflow inicial suporta request, approve, reject, cancel, listagem e historico. Separacao avancada de responsabilidades, expiracao automatica e cadeias multi-aprovador ficam para fases posteriores.
 
 Status: decidida.
+
+## DEC-RUN-001 - AgentRun como registro auditavel de execucao
+
+Toda tentativa de execucao de assistant deve criar `AgentRun` com tenant, workspace, requester, modo, status, request id, trace id, snapshot de precheck e eventos ordenados.
+
+Status: decidida.
+
+## DEC-RUN-002 - Precheck bloqueante antes do runtime boundary
+
+O backend deve executar precheck obrigatorio antes de acionar qualquer runtime boundary. Quando o precheck bloqueia, o sistema ainda cria um run `blocked` para preservar rastreabilidade.
+
+Status: decidida.
+
+## DEC-RUN-003 - Runtime fake ate existir executor real
+
+A Fase 05E usa `FakeRuntimeAdapter`. Ele nao chama providers externos, tools externas, RAG ou streaming, e retorna eventos controlados para validar contratos observaveis.
+
+Status: decidida.
+
+## DEC-RUN-004 - Eventos persistidos antes de streaming
+
+Eventos de run devem ser persistidos em `agent_run_events` com `sequence` por run. REST expoe a timeline agora; SSE fica reservado para fase futura.
+
+Status: decidida.
+
+## DEC-RUN-005 - Cancelamento apenas para status nao terminal
+
+Cancelamento e aceito somente para `queued`, `prechecking` e `running`. Runs `blocked`, `completed`, `failed` e `cancelled` retornam conflito de dominio.
+
+Status: decidida.
+
+## DEC-RUN-006 - Metadata de run deve ser sanitizada
+
+Metadata e logs de `AgentRun` nao devem persistir prompts completos, conteudo sensivel, credentials, tokens, passwords, authorization headers ou api keys. O backend guarda resumo da entrada e ids tecnicos.
+
+Status: decidida.

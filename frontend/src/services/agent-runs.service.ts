@@ -1,0 +1,215 @@
+import type { AgentRun, AgentRunEvent, AgentRunStatus, AssistantExecutionMode, CreateAgentRunInput } from '@/types';
+import { env } from '@/lib/env';
+import { mockResponse, mockFind } from '@/services/mocks/mock-utils';
+import { apiClient, type ApiEnvelope, type PaginatedApiEnvelope } from './api/api-client';
+import { endpoints } from './api/endpoints';
+
+const nowIso = () => new Date().toISOString();
+const mockRunEvents = (runId: string, traceId: string, mode: AssistantExecutionMode, status: AgentRunStatus): AgentRunEvent[] => {
+  const now = nowIso();
+  const events: AgentRunEvent[] = [
+    {
+      id: `${runId}-event-1`,
+      agentRunId: runId,
+      type: 'run.requested',
+      sequence: 1,
+      status: 'queued',
+      message: 'Run solicitado pelo control plane.',
+      metadata: { mode, traceId },
+      createdAt: now,
+    },
+    {
+      id: `${runId}-event-2`,
+      agentRunId: runId,
+      type: 'run.precheck_passed',
+      sequence: 2,
+      status: status === 'blocked' ? 'blocked' : 'running',
+      message: status === 'blocked' ? 'Precheck bloqueou a execucao.' : 'Precheck aprovado.',
+      metadata: { traceId },
+      createdAt: now,
+    },
+  ];
+
+  if (status === 'blocked') {
+    events.push({
+      id: `${runId}-event-3`,
+      agentRunId: runId,
+      type: 'run.blocked',
+      sequence: 3,
+      status: 'blocked',
+      message: 'Execucao bloqueada por governanca.',
+      metadata: { traceId },
+      createdAt: now,
+    });
+    return events;
+  }
+
+  events.push(
+    {
+      id: `${runId}-event-3`,
+      agentRunId: runId,
+      type: 'run.started',
+      sequence: 3,
+      status: 'running',
+      message: 'Fronteira de runtime acionada em modo controlado.',
+      metadata: { traceId },
+      createdAt: now,
+    },
+    {
+      id: `${runId}-event-4`,
+      agentRunId: runId,
+      type: 'run.mock_runtime_completed',
+      sequence: 4,
+      status: 'completed',
+      message: 'Fake runtime retornou resposta controlada sem provider externo.',
+      metadata: { runtime: 'fake', externalProvidersCalled: false, toolsCalled: false },
+      createdAt: now,
+    },
+    {
+      id: `${runId}-event-5`,
+      agentRunId: runId,
+      type: 'run.completed',
+      sequence: 5,
+      status: 'completed',
+      message: 'Run finalizado pelo control plane.',
+      metadata: { traceId },
+      createdAt: now,
+    },
+  );
+  return events;
+};
+
+const mockAgentRuns: AgentRun[] = [
+  {
+    id: 'mock-run-1',
+    tenantId: 'mock-tenant',
+    workspaceId: 'default',
+    assistantId: '1',
+    assistantVersionId: 'v1',
+    assistantPublicationId: null,
+    requestedById: 'mock-user-1',
+    status: 'completed',
+    mode: 'sandbox',
+    source: 'mock',
+    inputSummary: 'Validar resposta controlada sem runtime externo.',
+    requestId: 'req_mock_1',
+    traceId: 'trace_mock_1',
+    startedAt: nowIso(),
+    completedAt: nowIso(),
+    failedAt: null,
+    cancelledAt: null,
+    blockedAt: null,
+    errorCode: null,
+    errorMessage: null,
+    precheckSnapshot: { canExecute: true, mode: 'sandbox', reasons: [], requestId: 'req_mock_1' },
+    createdAt: nowIso(),
+    updatedAt: nowIso(),
+    events: mockRunEvents('mock-run-1', 'trace_mock_1', 'sandbox', 'completed'),
+  },
+];
+
+export const agentRunsService = {
+  async listForAssistant(assistantId: string): Promise<AgentRun[]> {
+    if (env.useMocks) return mockResponse(mockAgentRuns.filter((run) => run.assistantId === assistantId || assistantId === '1'));
+    const response = await apiClient.get<PaginatedApiEnvelope<AgentRun>>(endpoints.assistants.runs(assistantId));
+    return response.data.data;
+  },
+
+  async list(): Promise<AgentRun[]> {
+    if (env.useMocks) return mockResponse(mockAgentRuns);
+    const response = await apiClient.get<PaginatedApiEnvelope<AgentRun>>(endpoints.agentRuns.list);
+    return response.data.data;
+  },
+
+  async get(runId: string): Promise<AgentRun> {
+    if (env.useMocks) return mockFind(mockAgentRuns, runId);
+    const response = await apiClient.get<ApiEnvelope<AgentRun>>(endpoints.agentRuns.detail(runId));
+    return response.data.data;
+  },
+
+  async events(runId: string): Promise<AgentRunEvent[]> {
+    if (env.useMocks) return mockResponse((await mockFind(mockAgentRuns, runId)).events ?? []);
+    const response = await apiClient.get<ApiEnvelope<AgentRunEvent[]>>(endpoints.agentRuns.events(runId));
+    return response.data.data;
+  },
+
+  async createForAssistant(assistantId: string, input: CreateAgentRunInput): Promise<AgentRun> {
+    if (env.useMocks) {
+      const runId = `mock-run-${Date.now()}`;
+      const traceId = `trace_mock_${Date.now()}`;
+      const status: AgentRunStatus = input.mode === 'blocked' || input.mode === 'archived' ? 'blocked' : 'completed';
+      const now = nowIso();
+      const run: AgentRun = {
+        id: runId,
+        tenantId: 'mock-tenant',
+        workspaceId: 'default',
+        assistantId,
+        assistantVersionId: 'v1',
+        assistantPublicationId: null,
+        requestedById: 'mock-user-1',
+        status,
+        mode: input.mode,
+        source: input.source ?? 'assistant_detail',
+        inputSummary: input.input.replace(/\s+/g, ' ').trim().slice(0, 500),
+        requestId: `req_${runId}`,
+        traceId,
+        startedAt: status === 'blocked' ? null : now,
+        completedAt: status === 'blocked' ? null : now,
+        failedAt: null,
+        cancelledAt: null,
+        blockedAt: status === 'blocked' ? now : null,
+        errorCode: status === 'blocked' ? 'MODE_BLOCKED' : null,
+        errorMessage: status === 'blocked' ? 'Modo bloqueado para execucao.' : null,
+        precheckSnapshot: {
+          canExecute: status !== 'blocked',
+          mode: input.mode,
+          reasons: status === 'blocked' ? [{ code: 'MODE_BLOCKED', message: 'Modo bloqueado para execucao.' }] : [],
+          requestId: `req_${runId}`,
+        },
+        metadata: input.metadata,
+        createdAt: now,
+        updatedAt: now,
+        events: mockRunEvents(runId, traceId, input.mode, status),
+      };
+      mockAgentRuns.unshift(run);
+      return mockResponse(run);
+    }
+    const response = await apiClient.post<ApiEnvelope<AgentRun>>(endpoints.assistants.runs(assistantId), {
+      ...input,
+      source: input.source ?? 'assistant_detail',
+    });
+    return response.data.data;
+  },
+
+  async cancel(runId: string): Promise<AgentRun> {
+    if (env.useMocks) {
+      const run = await mockFind(mockAgentRuns, runId);
+      const now = nowIso();
+      const cancelled: AgentRun = {
+        ...run,
+        status: 'cancelled',
+        cancelledAt: now,
+        completedAt: null,
+        updatedAt: now,
+        events: [
+          ...(run.events ?? []),
+          {
+            id: `${runId}-event-${(run.events?.length ?? 0) + 1}`,
+            agentRunId: runId,
+            type: 'run.cancelled',
+            sequence: (run.events?.length ?? 0) + 1,
+            status: 'cancelled',
+            message: 'Cancelamento registrado pelo control plane.',
+            metadata: { traceId: run.traceId },
+            createdAt: now,
+          },
+        ],
+      };
+      const index = mockAgentRuns.findIndex((item) => item.id === runId);
+      if (index >= 0) mockAgentRuns[index] = cancelled;
+      return mockResponse(cancelled);
+    }
+    const response = await apiClient.post<ApiEnvelope<AgentRun>>(endpoints.agentRuns.cancel(runId));
+    return response.data.data;
+  },
+};
