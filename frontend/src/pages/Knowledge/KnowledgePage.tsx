@@ -13,10 +13,16 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Badge } from '@/components/ui/badge';
-import { useKnowledgeBases } from '@/hooks/queries/useKnowledge';
+import {
+  useArchiveKnowledgeBaseMutation,
+  useCreateKnowledgeBaseMutation,
+  useKnowledgeBases,
+  useUpdateKnowledgeBaseMutation,
+} from '@/hooks/queries/useKnowledge';
 import { QueryState, ListLoading } from '@/components/shared/QueryState';
 import { Plus, Search, Database, LayoutGrid, List, MoreHorizontal, Eye, Pencil, Trash2, Copy, RefreshCw, FileText, Upload, Link2, Filter, X, ShieldCheck } from 'lucide-react';
 import type { KnowledgeBase, DataClassification, ConnectorType, IngestionStatus, RetentionPeriod } from '@/types';
+import type { KnowledgeBasePayload } from '@/services/knowledge.service';
 import { toast } from '@/hooks/use-toast';
 
 const classificationColors: Record<DataClassification, string> = {
@@ -40,14 +46,41 @@ const defaultFormData = {
   description: '',
   classification: 'Interno' as DataClassification,
   connectorType: 'upload' as ConnectorType,
-  embeddingModel: 'text-embedding-3-large',
+  embeddingModel: 'placeholder-not-configured',
   chunkSize: '512',
   chunkOverlap: '64',
   retention: '2 anos' as RetentionPeriod,
 };
 
+function mapClassificationToApi(classification: DataClassification): KnowledgeBasePayload['dataClassification'] {
+  if (classification === 'Público') return 'public';
+  if (classification === 'Interno') return 'internal';
+  if (classification === 'Confidencial') return 'confidential';
+  return 'sensitive';
+}
+
+function buildKnowledgePayload(formData: typeof defaultFormData): KnowledgeBasePayload {
+  return {
+    name: formData.name.trim(),
+    description: formData.description.trim() || undefined,
+    visibility: 'workspace',
+    dataClassification: mapClassificationToApi(formData.classification),
+    metadata: {
+      connectorType: formData.connectorType,
+      embeddingModel: formData.embeddingModel,
+      chunkSize: Number(formData.chunkSize),
+      chunkOverlap: Number(formData.chunkOverlap),
+      retention: formData.retention,
+      phase: 'catalog_placeholder',
+    },
+  };
+}
+
 export default function KnowledgePage() {
   const knowledgeQuery = useKnowledgeBases();
+  const createKnowledgeBaseMutation = useCreateKnowledgeBaseMutation();
+  const updateKnowledgeBaseMutation = useUpdateKnowledgeBaseMutation();
+  const archiveKnowledgeBaseMutation = useArchiveKnowledgeBaseMutation();
   const mockKnowledgeBases = useMemo(() => knowledgeQuery.data ?? [], [knowledgeQuery.data]);
   const navigate = useNavigate();
   const [bases, setBases] = useState<KnowledgeBase[]>(mockKnowledgeBases);
@@ -75,63 +108,65 @@ export default function KnowledgePage() {
     });
   }, [bases, search, filterStatus, filterClassification]);
 
-  const handleCreate = () => {
-    const newBase: KnowledgeBase = {
-      id: String(Date.now()),
-      name: formData.name,
-      description: formData.description,
-      documentCount: 0,
-      totalChunks: 0,
-      status: 'pending',
-      lastUpdated: new Date().toISOString().split('T')[0],
-      size: '0 MB',
-      assistants: [],
-      classification: formData.classification,
-      connectorType: formData.connectorType,
-      embeddingModel: formData.embeddingModel,
-      chunkSize: Number(formData.chunkSize),
-      chunkOverlap: Number(formData.chunkOverlap),
-      retention: formData.retention,
-      owner: 'Usuário Atual',
-      createdAt: new Date().toISOString().split('T')[0],
-    };
-    setBases(prev => [newBase, ...prev]);
-    setCreateOpen(false);
-    setFormData(defaultFormData);
-    toast({ title: 'Base criada', description: `"${newBase.name}" foi criada com sucesso.` });
+  const handleCreate = async () => {
+    try {
+      const newBase = await createKnowledgeBaseMutation.mutateAsync(buildKnowledgePayload(formData));
+      setBases(prev => [newBase, ...prev.filter(kb => kb.id !== newBase.id)]);
+      setCreateOpen(false);
+      setFormData(defaultFormData);
+      toast({ title: 'Base criada', description: `"${newBase.name}" foi adicionada ao catálogo.` });
+    } catch (error) {
+      toast({ title: 'Erro ao criar base', description: error instanceof Error ? error.message : 'Tente novamente em instantes.', variant: 'destructive' });
+    }
   };
 
-  const handleEdit = () => {
+  const handleEdit = async () => {
     if (!selectedBase) return;
-    setBases(prev => prev.map(kb => kb.id === selectedBase.id ? {
-      ...kb,
-      name: formData.name,
-      description: formData.description,
-      classification: formData.classification,
-      connectorType: formData.connectorType,
-      embeddingModel: formData.embeddingModel,
-      chunkSize: Number(formData.chunkSize),
-      chunkOverlap: Number(formData.chunkOverlap),
-      retention: formData.retention,
-      lastUpdated: new Date().toISOString().split('T')[0],
-    } : kb));
-    setEditOpen(false);
-    setSelectedBase(null);
-    toast({ title: 'Base atualizada', description: 'As alterações foram salvas.' });
+    try {
+      const updated = await updateKnowledgeBaseMutation.mutateAsync({ id: selectedBase.id, payload: buildKnowledgePayload(formData) });
+      setBases(prev => prev.map(kb => kb.id === updated.id ? updated : kb));
+      setEditOpen(false);
+      setSelectedBase(null);
+      toast({ title: 'Base atualizada', description: 'As alterações foram salvas.' });
+    } catch (error) {
+      toast({ title: 'Erro ao atualizar base', description: error instanceof Error ? error.message : 'Tente novamente em instantes.', variant: 'destructive' });
+    }
   };
 
-  const handleDelete = () => {
+  const handleDelete = async () => {
     if (!selectedBase) return;
-    setBases(prev => prev.filter(kb => kb.id !== selectedBase.id));
-    setDeleteOpen(false);
-    toast({ title: 'Base removida', description: `"${selectedBase.name}" foi removida.`, variant: 'destructive' });
-    setSelectedBase(null);
+    try {
+      await archiveKnowledgeBaseMutation.mutateAsync(selectedBase.id);
+      setBases(prev => prev.filter(kb => kb.id !== selectedBase.id));
+      setDeleteOpen(false);
+      toast({ title: 'Base arquivada', description: `"${selectedBase.name}" foi arquivada.` });
+      setSelectedBase(null);
+    } catch (error) {
+      toast({ title: 'Erro ao arquivar base', description: error instanceof Error ? error.message : 'Tente novamente em instantes.', variant: 'destructive' });
+    }
   };
 
-  const handleDuplicate = (kb: KnowledgeBase) => {
-    const dup: KnowledgeBase = { ...kb, id: String(Date.now()), name: `${kb.name} (cópia)`, status: 'pending', documentCount: 0, totalChunks: 0, size: '0 MB', createdAt: new Date().toISOString().split('T')[0] };
-    setBases(prev => [dup, ...prev]);
-    toast({ title: 'Base duplicada', description: `"${dup.name}" foi criada.` });
+  const handleDuplicate = async (kb: KnowledgeBase) => {
+    try {
+      const duplicated = await createKnowledgeBaseMutation.mutateAsync({
+        name: `${kb.name} (cópia)`,
+        description: kb.description,
+        visibility: kb.visibility ?? 'workspace',
+        dataClassification: kb.dataClassification ?? mapClassificationToApi(kb.classification),
+        metadata: {
+          connectorType: kb.connectorType,
+          embeddingModel: kb.embeddingModel,
+          chunkSize: kb.chunkSize,
+          chunkOverlap: kb.chunkOverlap,
+          retention: kb.retention,
+          phase: 'catalog_placeholder',
+        },
+      });
+      setBases(prev => [duplicated, ...prev]);
+      toast({ title: 'Base duplicada', description: `"${duplicated.name}" foi criada.` });
+    } catch (error) {
+      toast({ title: 'Erro ao duplicar base', description: error instanceof Error ? error.message : 'Tente novamente em instantes.', variant: 'destructive' });
+    }
   };
 
   const handleReindex = (kb: KnowledgeBase) => {
@@ -201,13 +236,13 @@ export default function KnowledgePage() {
       </div>
       <div className="grid grid-cols-2 gap-4">
         <div className="space-y-2">
-          <Label>Modelo de Embedding</Label>
+          <Label>Referência de embedding</Label>
           <Select value={formData.embeddingModel} onValueChange={v => setFormData(p => ({ ...p, embeddingModel: v }))}>
             <SelectTrigger><SelectValue /></SelectTrigger>
             <SelectContent>
-              <SelectItem value="text-embedding-3-large">text-embedding-3-large</SelectItem>
-              <SelectItem value="text-embedding-3-small">text-embedding-3-small</SelectItem>
-              <SelectItem value="text-embedding-ada-002">text-embedding-ada-002</SelectItem>
+              <SelectItem value="placeholder-not-configured">Placeholder não configurado</SelectItem>
+              <SelectItem value="future-provider-managed">Futuro provider governado</SelectItem>
+              <SelectItem value="external-reference-only">Referência externa apenas</SelectItem>
             </SelectContent>
           </Select>
         </div>
@@ -241,7 +276,7 @@ export default function KnowledgePage() {
   return (
     <AppShell>
       <div className="space-y-6 animate-fade-in">
-        <PageHeader title="Knowledge Hub" description="Gerencie bases de conhecimento para RAG">
+        <PageHeader title="Knowledge Hub" description="Catálogo governado de bases, documentos e ingestão placeholder">
           <Button onClick={() => { setFormData(defaultFormData); setCreateOpen(true); }}>
             <Plus className="h-4 w-4 mr-1" />Nova Base
           </Button>
@@ -310,7 +345,7 @@ export default function KnowledgePage() {
           loading={<ListLoading rows={4} />}
           emptyIcon={<Database className="h-6 w-6" />}
           emptyTitle="Nenhuma base de conhecimento cadastrada"
-          emptyDescription="Crie uma base para começar a indexar documentos e habilitar respostas via RAG."
+          emptyDescription="Crie uma base para catalogar documentos e governar futuras integrações de recuperação."
           emptyAction={
             <Button onClick={() => { setFormData(defaultFormData); setCreateOpen(true); }}>
               <Plus className="h-4 w-4 mr-1" />Nova base
@@ -350,10 +385,10 @@ export default function KnowledgePage() {
                       <DropdownMenuContent align="end" onClick={e => e.stopPropagation()}>
                         <DropdownMenuItem onClick={() => navigate(`/app/knowledge/${kb.id}`)}><Eye className="h-4 w-4 mr-2" />Visualizar</DropdownMenuItem>
                         <DropdownMenuItem onClick={() => openEdit(kb)}><Pencil className="h-4 w-4 mr-2" />Editar</DropdownMenuItem>
-                        <DropdownMenuItem onClick={() => handleDuplicate(kb)}><Copy className="h-4 w-4 mr-2" />Duplicar</DropdownMenuItem>
+                        <DropdownMenuItem onClick={() => { void handleDuplicate(kb); }}><Copy className="h-4 w-4 mr-2" />Duplicar</DropdownMenuItem>
                         <DropdownMenuItem onClick={() => handleReindex(kb)}><RefreshCw className="h-4 w-4 mr-2" />Re-indexar</DropdownMenuItem>
                         <DropdownMenuSeparator />
-                        <DropdownMenuItem onClick={() => openDelete(kb)} className="text-destructive"><Trash2 className="h-4 w-4 mr-2" />Excluir</DropdownMenuItem>
+                        <DropdownMenuItem onClick={() => openDelete(kb)} className="text-destructive"><Trash2 className="h-4 w-4 mr-2" />Arquivar</DropdownMenuItem>
                       </DropdownMenuContent>
                     </DropdownMenu>
                   </div>
@@ -423,10 +458,10 @@ export default function KnowledgePage() {
                         <DropdownMenuContent align="end" onClick={e => e.stopPropagation()}>
                           <DropdownMenuItem onClick={() => navigate(`/app/knowledge/${kb.id}`)}><Eye className="h-4 w-4 mr-2" />Visualizar</DropdownMenuItem>
                           <DropdownMenuItem onClick={() => openEdit(kb)}><Pencil className="h-4 w-4 mr-2" />Editar</DropdownMenuItem>
-                          <DropdownMenuItem onClick={() => handleDuplicate(kb)}><Copy className="h-4 w-4 mr-2" />Duplicar</DropdownMenuItem>
+                          <DropdownMenuItem onClick={() => { void handleDuplicate(kb); }}><Copy className="h-4 w-4 mr-2" />Duplicar</DropdownMenuItem>
                           <DropdownMenuItem onClick={() => handleReindex(kb)}><RefreshCw className="h-4 w-4 mr-2" />Re-indexar</DropdownMenuItem>
                           <DropdownMenuSeparator />
-                          <DropdownMenuItem onClick={() => openDelete(kb)} className="text-destructive"><Trash2 className="h-4 w-4 mr-2" />Excluir</DropdownMenuItem>
+                          <DropdownMenuItem onClick={() => openDelete(kb)} className="text-destructive"><Trash2 className="h-4 w-4 mr-2" />Arquivar</DropdownMenuItem>
                         </DropdownMenuContent>
                       </DropdownMenu>
                     </TableCell>
@@ -444,12 +479,12 @@ export default function KnowledgePage() {
         <DialogContent className="max-w-lg">
           <DialogHeader>
             <DialogTitle>Nova Base de Conhecimento</DialogTitle>
-            <DialogDescription>Configure os parâmetros da nova base de conhecimento para RAG.</DialogDescription>
+            <DialogDescription>Configure a base no catálogo. A indexação real não é executada nesta fase.</DialogDescription>
           </DialogHeader>
           <FormFields />
           <DialogFooter>
             <Button variant="outline" onClick={() => setCreateOpen(false)}>Cancelar</Button>
-            <Button onClick={handleCreate} disabled={!formData.name}>Criar Base</Button>
+            <Button onClick={() => { void handleCreate(); }} disabled={!formData.name || createKnowledgeBaseMutation.isPending}>Criar Base</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
@@ -464,7 +499,7 @@ export default function KnowledgePage() {
           <FormFields />
           <DialogFooter>
             <Button variant="outline" onClick={() => setEditOpen(false)}>Cancelar</Button>
-            <Button onClick={handleEdit} disabled={!formData.name}>Salvar Alterações</Button>
+            <Button onClick={() => { void handleEdit(); }} disabled={!formData.name || updateKnowledgeBaseMutation.isPending}>Salvar Alterações</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
@@ -473,14 +508,14 @@ export default function KnowledgePage() {
       <Dialog open={deleteOpen} onOpenChange={setDeleteOpen}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>Excluir Base de Conhecimento</DialogTitle>
+            <DialogTitle>Arquivar Base de Conhecimento</DialogTitle>
             <DialogDescription>
-              Tem certeza que deseja excluir "{selectedBase?.name}"? Esta ação é irreversível e todos os documentos e chunks associados serão removidos.
+              Tem certeza que deseja arquivar "{selectedBase?.name}"? Os vínculos e eventos ficam preservados para governança.
             </DialogDescription>
           </DialogHeader>
           <DialogFooter>
             <Button variant="outline" onClick={() => setDeleteOpen(false)}>Cancelar</Button>
-            <Button variant="destructive" onClick={handleDelete}>Excluir</Button>
+            <Button variant="destructive" onClick={() => { void handleDelete(); }} disabled={archiveKnowledgeBaseMutation.isPending}>Arquivar</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>

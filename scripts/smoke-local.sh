@@ -96,6 +96,214 @@ expect_status 200 "assistant-detail" \
 
 cat > "$payload_file" <<'JSON'
 {
+  "name": "Smoke Knowledge Base",
+  "description": "Knowledge catalog entry created by local smoke test.",
+  "visibility": "workspace",
+  "dataClassification": "internal",
+  "metadata": {
+    "phase": "smoke-local",
+    "retrievalRuntime": false
+  }
+}
+JSON
+
+expect_status 201 "knowledge-base-create" \
+  -b "$cookie_file" \
+  -H 'Content-Type: application/json' \
+  --data-binary "@$payload_file" \
+  "$BASE_URL/api/v1/knowledge-bases"
+
+knowledge_base_id="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["data"]["id"])' "$response_file")"
+
+expect_status 200 "knowledge-bases-list" \
+  -b "$cookie_file" \
+  "$BASE_URL/api/v1/knowledge-bases"
+
+expect_status 200 "knowledge-base-detail" \
+  -b "$cookie_file" \
+  "$BASE_URL/api/v1/knowledge-bases/$knowledge_base_id"
+
+cat > "$payload_file" <<'JSON'
+{
+  "title": "Smoke Catalog Document",
+  "description": "Document metadata only; no binary upload.",
+  "sourceType": "manual",
+  "sourceUri": "catalog://smoke/document",
+  "mimeType": "text/plain",
+  "dataClassification": "internal",
+  "metadata": {
+    "phase": "smoke-local",
+    "binaryUpload": false
+  }
+}
+JSON
+
+expect_status 201 "knowledge-document-create" \
+  -b "$cookie_file" \
+  -H 'Content-Type: application/json' \
+  --data-binary "@$payload_file" \
+  "$BASE_URL/api/v1/knowledge-bases/$knowledge_base_id/documents"
+
+knowledge_document_id="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["data"]["id"])' "$response_file")"
+
+expect_status 200 "knowledge-documents-list" \
+  -b "$cookie_file" \
+  "$BASE_URL/api/v1/knowledge-bases/$knowledge_base_id/documents"
+
+cat > "$payload_file" <<'JSON'
+{
+  "metadata": {
+    "source": "smoke-local",
+    "placeholderOnly": true
+  }
+}
+JSON
+
+expect_status 201 "knowledge-ingestion-placeholder" \
+  -b "$cookie_file" \
+  -H 'Content-Type: application/json' \
+  --data-binary "@$payload_file" \
+  "$BASE_URL/api/v1/knowledge-documents/$knowledge_document_id/request-ingestion"
+
+expect_status 200 "knowledge-ingestion-list" \
+  -b "$cookie_file" \
+  "$BASE_URL/api/v1/knowledge-documents/$knowledge_document_id/ingestion"
+
+cat > "$payload_file" <<'JSON'
+{
+  "name": "Smoke Data Source",
+  "type": "manual",
+  "config": {
+    "uri": "catalog://smoke/data-source",
+    "connectorExecution": false
+  },
+  "status": "active"
+}
+JSON
+
+expect_status 201 "knowledge-data-source-create" \
+  -b "$cookie_file" \
+  -H 'Content-Type: application/json' \
+  --data-binary "@$payload_file" \
+  "$BASE_URL/api/v1/knowledge-bases/$knowledge_base_id/data-sources"
+
+expect_status 200 "knowledge-data-sources-list" \
+  -b "$cookie_file" \
+  "$BASE_URL/api/v1/knowledge-bases/$knowledge_base_id/data-sources"
+
+cat > "$payload_file" <<JSON
+{
+  "knowledgeBaseId": "$knowledge_base_id",
+  "retrievalMode": "retrieval_placeholder",
+  "priority": 100
+}
+JSON
+
+expect_status 201 "assistant-knowledge-binding-create" \
+  -b "$cookie_file" \
+  -H 'Content-Type: application/json' \
+  --data-binary "@$payload_file" \
+  "$BASE_URL/api/v1/assistants/$assistant_id/knowledge-bindings"
+
+expect_status 200 "assistant-knowledge-bindings-list" \
+  -b "$cookie_file" \
+  "$BASE_URL/api/v1/assistants/$assistant_id/knowledge-bindings"
+
+cat > "$payload_file" <<'JSON'
+{
+  "name": "Smoke MCP Server",
+  "description": "MCP catalog entry created by local smoke test.",
+  "serverType": "remote",
+  "baseUrl": "https://mcp-smoke.example.invalid",
+  "status": "active",
+  "trustLevel": "restricted",
+  "riskLevel": "medium",
+  "authType": "none",
+  "metadata": {
+    "phase": "smoke-local",
+    "runtimeExecution": false
+  }
+}
+JSON
+
+expect_status 201 "mcp-server-create" \
+  -b "$cookie_file" \
+  -H 'Content-Type: application/json' \
+  --data-binary "@$payload_file" \
+  "$BASE_URL/api/v1/mcp/servers"
+
+mcp_server_id="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["data"]["id"])' "$response_file")"
+
+expect_status 200 "mcp-servers-list" \
+  -b "$cookie_file" \
+  "$BASE_URL/api/v1/mcp/servers"
+
+expect_status 200 "mcp-server-detail" \
+  -b "$cookie_file" \
+  "$BASE_URL/api/v1/mcp/servers/$mcp_server_id"
+
+cat > "$payload_file" <<'JSON'
+{
+  "name": "smoke.lookup",
+  "description": "Tool catalog entry only; no MCP execution.",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "query": {
+        "type": "string"
+      }
+    }
+  },
+  "outputSchema": {
+    "type": "object",
+    "properties": {
+      "result": {
+        "type": "string"
+      }
+    }
+  },
+  "riskLevel": "high",
+  "requiresApproval": true,
+  "isEnabled": true,
+  "metadata": {
+    "phase": "smoke-local"
+  }
+}
+JSON
+
+expect_status 201 "mcp-tool-create" \
+  -b "$cookie_file" \
+  -H 'Content-Type: application/json' \
+  --data-binary "@$payload_file" \
+  "$BASE_URL/api/v1/mcp/servers/$mcp_server_id/tools"
+
+mcp_tool_id="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["data"]["id"])' "$response_file")"
+
+expect_status 200 "mcp-tools-list" \
+  -b "$cookie_file" \
+  "$BASE_URL/api/v1/mcp/servers/$mcp_server_id/tools"
+
+cat > "$payload_file" <<JSON
+{
+  "mcpServerId": "$mcp_server_id",
+  "mcpToolId": "$mcp_tool_id",
+  "mode": "sandbox_only",
+  "requiresApprovalOverride": true
+}
+JSON
+
+expect_status 201 "assistant-mcp-binding-create" \
+  -b "$cookie_file" \
+  -H 'Content-Type: application/json' \
+  --data-binary "@$payload_file" \
+  "$BASE_URL/api/v1/assistants/$assistant_id/mcp-bindings"
+
+expect_status 200 "assistant-mcp-bindings-list" \
+  -b "$cookie_file" \
+  "$BASE_URL/api/v1/assistants/$assistant_id/mcp-bindings"
+
+cat > "$payload_file" <<'JSON'
+{
   "description": "Assistant updated by local smoke test."
 }
 JSON
@@ -336,6 +544,14 @@ expect_status 404 "agent-run-structured-404" \
   -b "$cookie_file" \
   "$BASE_URL/api/v1/agent-runs/00000000-0000-0000-0000-000000000999"
 
+expect_status 404 "knowledge-structured-404" \
+  -b "$cookie_file" \
+  "$BASE_URL/api/v1/knowledge-bases/00000000-0000-0000-0000-000000000999"
+
+expect_status 404 "mcp-structured-404" \
+  -b "$cookie_file" \
+  "$BASE_URL/api/v1/mcp/servers/00000000-0000-0000-0000-000000000999"
+
 cat > "$payload_file" <<'JSON'
 {
   "name": ""
@@ -360,5 +576,32 @@ expect_status 422 "agent-run-structured-422" \
   -H 'Content-Type: application/json' \
   --data-binary "@$payload_file" \
   "$BASE_URL/api/v1/assistants/$assistant_id/runs"
+
+cat > "$payload_file" <<'JSON'
+{
+  "name": ""
+}
+JSON
+
+expect_status 422 "knowledge-structured-422" \
+  -b "$cookie_file" \
+  -H 'Content-Type: application/json' \
+  --data-binary "@$payload_file" \
+  "$BASE_URL/api/v1/knowledge-bases"
+
+cat > "$payload_file" <<'JSON'
+{
+  "name": "Smoke Secret Guard",
+  "metadata": {
+    "api_key": "do-not-store"
+  }
+}
+JSON
+
+expect_status 422 "mcp-secret-guard-422" \
+  -b "$cookie_file" \
+  -H 'Content-Type: application/json' \
+  --data-binary "@$payload_file" \
+  "$BASE_URL/api/v1/mcp/servers"
 
 echo "Smoke local concluido."

@@ -36,8 +36,18 @@ import {
 } from '@/hooks/queries/useAssistants';
 import { useAssistantRuns, useCancelAgentRunMutation, useCreateAgentRunMutation } from '@/hooks/queries/useAgentRuns';
 import { useCurrentSession } from '@/hooks/queries/useAuth';
-import { useKnowledgeBases } from '@/hooks/queries/useKnowledge';
-import { useMcpTools } from '@/hooks/queries/useMcp';
+import {
+  useAssistantKnowledgeBindings,
+  useCreateAssistantKnowledgeBindingMutation,
+  useKnowledgeBases,
+  useRemoveAssistantKnowledgeBindingMutation,
+} from '@/hooks/queries/useKnowledge';
+import {
+  useAssistantMcpBindings,
+  useCreateAssistantMcpBindingMutation,
+  useMcpTools,
+  useRemoveAssistantMcpBindingMutation,
+} from '@/hooks/queries/useMcp';
 import { useConversations } from '@/hooks/queries/useChat';
 import { useAuditLogs } from '@/hooks/queries/useAudit';
 import { useAnalytics } from '@/hooks/queries/useAnalytics';
@@ -83,6 +93,8 @@ export default function AssistantDetailPage() {
   const { data: assistantApprovals = [] } = useAssistantApprovals(id);
   const { data: assistantExecutionPolicy } = useAssistantExecutionPolicy(id);
   const { data: assistantRuns = [], isLoading: assistantRunsLoading, refetch: refetchAssistantRuns } = useAssistantRuns(id);
+  const { data: assistantKnowledgeBindings = [] } = useAssistantKnowledgeBindings(id);
+  const { data: assistantMcpBindings = [] } = useAssistantMcpBindings(id);
   const { data: session } = useCurrentSession();
   const publishMutation = usePublishAssistantMutation();
   const unpublishMutation = useUnpublishAssistantMutation();
@@ -99,6 +111,10 @@ export default function AssistantDetailPage() {
   const createTestResultMutation = useCreateAssistantTestResultMutation();
   const createAgentRunMutation = useCreateAgentRunMutation();
   const cancelAgentRunMutation = useCancelAgentRunMutation();
+  const createKnowledgeBindingMutation = useCreateAssistantKnowledgeBindingMutation();
+  const removeKnowledgeBindingMutation = useRemoveAssistantKnowledgeBindingMutation();
+  const createMcpBindingMutation = useCreateAssistantMcpBindingMutation();
+  const removeMcpBindingMutation = useRemoveAssistantMcpBindingMutation();
   const navigate = useNavigate();
   const [activeTab, setActiveTab] = useState<TabId>('overview');
   const [feedbackDialogOpen, setFeedbackDialogOpen] = useState(false);
@@ -131,6 +147,10 @@ export default function AssistantDetailPage() {
   const [precheckMode, setPrecheckMode] = useState<AssistantExecutionMode>('sandbox');
   const [runMode, setRunMode] = useState<AssistantExecutionMode>('sandbox');
   const [runInput, setRunInput] = useState('');
+  const [knowledgeBindingDialogOpen, setKnowledgeBindingDialogOpen] = useState(false);
+  const [selectedKnowledgeBaseId, setSelectedKnowledgeBaseId] = useState('');
+  const [mcpBindingDialogOpen, setMcpBindingDialogOpen] = useState(false);
+  const [selectedMcpToolId, setSelectedMcpToolId] = useState('');
 
   const assistant = assistantQuery.data ?? mockAssistants.find(a => a.id === id) ?? mockAssistants[0];
 
@@ -150,8 +170,18 @@ export default function AssistantDetailPage() {
   const runs = assistantRuns.filter(run => run.assistantId === assistant.id);
   const executionPolicy = assistantExecutionPolicy ?? assistant.executionPolicy;
   const conversations = mockConversations.filter(c => c.assistantId === assistant.id);
-  const kbs = mockKnowledgeBases.filter(kb => assistant.knowledgeBases.includes(kb.id));
-  const tools = mockMcpTools.filter(t => assistant.mcpTools.includes(t.id));
+  const boundKnowledgeBases = assistantKnowledgeBindings
+    .map(binding => binding.knowledgeBase)
+    .filter((kb): kb is KnowledgeBase => Boolean(kb));
+  const boundMcpTools = assistantMcpBindings
+    .map(binding => binding.tool)
+    .filter((tool): tool is McpTool => Boolean(tool));
+  const kbs = boundKnowledgeBases.length > 0 ? boundKnowledgeBases : mockKnowledgeBases.filter(kb => assistant.knowledgeBases.includes(kb.id));
+  const tools = boundMcpTools.length > 0 ? boundMcpTools : mockMcpTools.filter(t => assistant.mcpTools.includes(t.id));
+  const knowledgeBindingByBaseId = new Map(assistantKnowledgeBindings.map(binding => [binding.knowledgeBaseId, binding.id]));
+  const mcpBindingByToolId = new Map(assistantMcpBindings.filter(binding => binding.mcpToolId).map(binding => [binding.mcpToolId, binding.id]));
+  const availableKnowledgeBases = mockKnowledgeBases.filter(kb => !kbs.some(bound => bound.id === kb.id));
+  const availableMcpTools = mockMcpTools.filter(tool => !tools.some(bound => bound.id === tool.id));
   const auditLogs = mockAuditLogs.filter(l => l.resource === assistant.name || l.resource.includes(assistant.name.split(' ')[0]));
 
   const positiveFeedbacks = feedbacks.filter(f => f.type === 'positive').length;
@@ -159,6 +189,76 @@ export default function AssistantDetailPage() {
   const rollbackCandidates = versions.filter(v => v.id !== assistant.activePublication?.assistantVersionId);
   const pendingApprovals = approvals.filter(approval => approval.status === 'pending');
   const hasPermission = (permission: string) => session?.permissions.includes(permission) ?? false;
+
+  const handleBindKnowledgeBase = async () => {
+    if (!selectedKnowledgeBaseId) return;
+    try {
+      await createKnowledgeBindingMutation.mutateAsync({
+        assistantId: assistant.id,
+        payload: {
+          knowledgeBaseId: selectedKnowledgeBaseId,
+          retrievalMode: 'retrieval_placeholder',
+          priority: 100,
+        },
+      });
+      setSelectedKnowledgeBaseId('');
+      setKnowledgeBindingDialogOpen(false);
+      toast.success('Base vinculada ao assistente');
+    } catch (error) {
+      toast.error('Nao foi possivel vincular a base', {
+        description: error instanceof Error ? error.message : 'Tente novamente em instantes.',
+      });
+    }
+  };
+
+  const handleRemoveKnowledgeBaseBinding = async (knowledgeBaseId: string) => {
+    const bindingId = knowledgeBindingByBaseId.get(knowledgeBaseId);
+    if (!bindingId) return;
+    try {
+      await removeKnowledgeBindingMutation.mutateAsync({ assistantId: assistant.id, bindingId });
+      toast.success('Vinculo de conhecimento removido');
+    } catch (error) {
+      toast.error('Nao foi possivel remover o vinculo', {
+        description: error instanceof Error ? error.message : 'Tente novamente em instantes.',
+      });
+    }
+  };
+
+  const handleBindMcpTool = async () => {
+    const tool = mockMcpTools.find(item => item.id === selectedMcpToolId);
+    if (!tool) return;
+    try {
+      await createMcpBindingMutation.mutateAsync({
+        assistantId: assistant.id,
+        payload: {
+          mcpServerId: tool.mcpServerId ?? tool.serverId,
+          mcpToolId: tool.id,
+          mode: 'sandbox_only',
+          requiresApprovalOverride: tool.requiresApproval ? true : null,
+        },
+      });
+      setSelectedMcpToolId('');
+      setMcpBindingDialogOpen(false);
+      toast.success('Tool MCP vinculada em modo sandbox');
+    } catch (error) {
+      toast.error('Nao foi possivel vincular a tool MCP', {
+        description: error instanceof Error ? error.message : 'Tente novamente em instantes.',
+      });
+    }
+  };
+
+  const handleRemoveMcpBinding = async (toolId: string) => {
+    const bindingId = mcpBindingByToolId.get(toolId);
+    if (!bindingId) return;
+    try {
+      await removeMcpBindingMutation.mutateAsync({ assistantId: assistant.id, bindingId });
+      toast.success('Vinculo MCP removido');
+    } catch (error) {
+      toast.error('Nao foi possivel remover o vinculo MCP', {
+        description: error instanceof Error ? error.message : 'Tente novamente em instantes.',
+      });
+    }
+  };
 
   const handleCreateAgentRun = async () => {
     if (!runInput.trim()) {
@@ -964,7 +1064,7 @@ ${tools.map(t => `- ${t.name}: ${t.description}${t.requiresApproval ? ' [REQUER 
           <div className="space-y-4">
             <div className="flex items-center justify-between">
               <h3 className="text-sm font-semibold">Bases de Conhecimento Vinculadas ({kbs.length})</h3>
-              <Button variant="outline" size="sm"><BookOpen className="h-3.5 w-3.5 mr-1" />Vincular Base</Button>
+              <Button variant="outline" size="sm" onClick={() => setKnowledgeBindingDialogOpen(true)}><BookOpen className="h-3.5 w-3.5 mr-1" />Vincular Base</Button>
             </div>
             {kbs.length > 0 ? (
               <div className="grid gap-4 sm:grid-cols-2">
@@ -978,7 +1078,14 @@ ${tools.map(t => `- ${t.name}: ${t.description}${t.requiresApproval ? ' [REQUER 
                           <p className="text-xs text-muted-foreground">{kb.classification}</p>
                         </div>
                       </div>
-                      <StatusBadge status={kb.status} />
+                      <div className="flex items-center gap-2">
+                        <StatusBadge status={kb.status} />
+                        {knowledgeBindingByBaseId.has(kb.id) && (
+                          <Button variant="ghost" size="sm" className="h-7 px-2 text-xs" onClick={() => { void handleRemoveKnowledgeBaseBinding(kb.id); }} disabled={removeKnowledgeBindingMutation.isPending}>
+                            <X className="h-3.5 w-3.5" />
+                          </Button>
+                        )}
+                      </div>
                     </div>
                     <p className="mt-2 text-sm text-muted-foreground">{kb.description}</p>
                     <div className="mt-3 grid grid-cols-3 gap-2 text-center border-t pt-3">
@@ -994,7 +1101,7 @@ ${tools.map(t => `- ${t.name}: ${t.description}${t.requiresApproval ? ' [REQUER 
               <div className="text-center py-12">
                 <BookOpen className="h-10 w-10 mx-auto text-muted-foreground mb-3" />
                 <p className="text-sm text-muted-foreground">Nenhuma base de conhecimento vinculada</p>
-                <Button variant="outline" size="sm" className="mt-3"><BookOpen className="h-3.5 w-3.5 mr-1" />Vincular Base</Button>
+                <Button variant="outline" size="sm" className="mt-3" onClick={() => setKnowledgeBindingDialogOpen(true)}><BookOpen className="h-3.5 w-3.5 mr-1" />Vincular Base</Button>
               </div>
             )}
           </div>
@@ -1004,7 +1111,7 @@ ${tools.map(t => `- ${t.name}: ${t.description}${t.requiresApproval ? ' [REQUER 
           <div className="space-y-4">
             <div className="flex items-center justify-between">
               <h3 className="text-sm font-semibold">Ferramentas MCP Habilitadas ({tools.length})</h3>
-              <Button variant="outline" size="sm"><Server className="h-3.5 w-3.5 mr-1" />Vincular Ferramenta</Button>
+              <Button variant="outline" size="sm" onClick={() => setMcpBindingDialogOpen(true)}><Server className="h-3.5 w-3.5 mr-1" />Vincular Ferramenta</Button>
             </div>
             {tools.length > 0 ? (
               <div className="rounded-lg border bg-card overflow-hidden">
@@ -1016,6 +1123,7 @@ ${tools.map(t => `- ${t.name}: ${t.description}${t.requiresApproval ? ' [REQUER 
                       <th className="px-4 py-3 text-left font-medium text-muted-foreground">Risco</th>
                       <th className="px-4 py-3 text-left font-medium text-muted-foreground">Aprovação</th>
                       <th className="px-4 py-3 text-right font-medium text-muted-foreground">Execuções</th>
+                      <th className="px-4 py-3 text-right font-medium text-muted-foreground">Vínculo</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -1032,6 +1140,15 @@ ${tools.map(t => `- ${t.name}: ${t.description}${t.requiresApproval ? ' [REQUER 
                           )}
                         </td>
                         <td className="px-4 py-3 text-right text-xs">{t.executionCount.toLocaleString()}</td>
+                        <td className="px-4 py-3 text-right">
+                          {mcpBindingByToolId.has(t.id) ? (
+                            <Button variant="ghost" size="sm" className="h-7 px-2 text-xs" onClick={() => { void handleRemoveMcpBinding(t.id); }} disabled={removeMcpBindingMutation.isPending}>
+                              <X className="h-3.5 w-3.5" />
+                            </Button>
+                          ) : (
+                            <span className="text-xs text-muted-foreground">legado</span>
+                          )}
+                        </td>
                       </tr>
                     ))}
                   </tbody>
@@ -1041,6 +1158,7 @@ ${tools.map(t => `- ${t.name}: ${t.description}${t.requiresApproval ? ' [REQUER 
               <div className="text-center py-12">
                 <Server className="h-10 w-10 mx-auto text-muted-foreground mb-3" />
                 <p className="text-sm text-muted-foreground">Nenhuma ferramenta MCP vinculada</p>
+                <Button variant="outline" size="sm" className="mt-3" onClick={() => setMcpBindingDialogOpen(true)}><Server className="h-3.5 w-3.5 mr-1" />Vincular Ferramenta</Button>
               </div>
             )}
           </div>
@@ -1344,6 +1462,66 @@ ${tools.map(t => `- ${t.name}: ${t.description}${t.requiresApproval ? ' [REQUER 
               <Button variant="outline" onClick={() => setTestDialogOpen(false)}>Cancelar</Button>
               <Button onClick={() => { void handleCreateTestResult(); }} disabled={!testForm.input || !testForm.actualOutput || createTestResultMutation.isPending}>
                 Registrar teste
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+
+        <Dialog open={knowledgeBindingDialogOpen} onOpenChange={setKnowledgeBindingDialogOpen}>
+          <DialogContent className="max-w-md">
+            <DialogHeader>
+              <DialogTitle>Vincular Base de Conhecimento</DialogTitle>
+              <DialogDescription>Crie um binding governado em modo retrieval placeholder.</DialogDescription>
+            </DialogHeader>
+            {availableKnowledgeBases.length > 0 ? (
+              <div className="space-y-2">
+                <Label>Base</Label>
+                <Select value={selectedKnowledgeBaseId} onValueChange={setSelectedKnowledgeBaseId}>
+                  <SelectTrigger><SelectValue placeholder="Selecione uma base" /></SelectTrigger>
+                  <SelectContent>
+                    {availableKnowledgeBases.map(kb => (
+                      <SelectItem key={kb.id} value={kb.id}>{kb.name} · {kb.classification}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            ) : (
+              <p className="text-sm text-muted-foreground">Não há bases disponíveis para vincular.</p>
+            )}
+            <DialogFooter>
+              <Button variant="outline" onClick={() => setKnowledgeBindingDialogOpen(false)}>Cancelar</Button>
+              <Button onClick={() => { void handleBindKnowledgeBase(); }} disabled={!selectedKnowledgeBaseId || createKnowledgeBindingMutation.isPending}>
+                Vincular
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+
+        <Dialog open={mcpBindingDialogOpen} onOpenChange={setMcpBindingDialogOpen}>
+          <DialogContent className="max-w-md">
+            <DialogHeader>
+              <DialogTitle>Vincular Tool MCP</DialogTitle>
+              <DialogDescription>Crie um binding governado em modo sandbox, sem execução MCP real.</DialogDescription>
+            </DialogHeader>
+            {availableMcpTools.length > 0 ? (
+              <div className="space-y-2">
+                <Label>Tool</Label>
+                <Select value={selectedMcpToolId} onValueChange={setSelectedMcpToolId}>
+                  <SelectTrigger><SelectValue placeholder="Selecione uma tool" /></SelectTrigger>
+                  <SelectContent>
+                    {availableMcpTools.map(tool => (
+                      <SelectItem key={tool.id} value={tool.id}>{tool.name} · risco {tool.riskLevel}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            ) : (
+              <p className="text-sm text-muted-foreground">Não há tools disponíveis para vincular.</p>
+            )}
+            <DialogFooter>
+              <Button variant="outline" onClick={() => setMcpBindingDialogOpen(false)}>Cancelar</Button>
+              <Button onClick={() => { void handleBindMcpTool(); }} disabled={!selectedMcpToolId || createMcpBindingMutation.isPending}>
+                Vincular
               </Button>
             </DialogFooter>
           </DialogContent>

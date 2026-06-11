@@ -1,23 +1,36 @@
-import { useState, useMemo } from 'react';
+import { useEffect, useState, useMemo } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { AppShell } from '@/components/shared/AppShell';
 import { StatusBadge } from '@/components/shared/StatusBadge';
 import { EmptyState } from '@/components/shared/EmptyState';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import { Textarea } from '@/components/ui/textarea';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Switch } from '@/components/ui/switch';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
-import { useMcpServers, useMcpTools, useMcpResources, useMcpPrompts, useMcpBindings, useMcpExecutions } from '@/hooks/queries/useMcp';
+import {
+  useCreateMcpToolMutation,
+  useMcpBindings,
+  useMcpExecutions,
+  useMcpPrompts,
+  useMcpResources,
+  useMcpServers,
+  useMcpTools,
+  useUpdateMcpToolMutation,
+} from '@/hooks/queries/useMcp';
 import {
   ArrowLeft, Server, Wrench, FileCode, MessageSquare, Link2, Shield, Clock, Globe,
   RefreshCw, Power, PowerOff, Settings, AlertTriangle, CheckCircle2, XCircle, Loader2,
-  MoreHorizontal, Search, Zap, Users, Lock, ExternalLink, Copy
+  MoreHorizontal, Search, Zap, Users, Lock, ExternalLink, Copy, Plus
 } from 'lucide-react';
-import type { RiskLevel, McpBinding } from '@/types';
+import type { RiskLevel } from '@/types';
+import type { McpToolPayload } from '@/services/mcp.service';
 import { toast } from '@/hooks/use-toast';
 
 const riskColors: Record<RiskLevel, string> = {
@@ -38,15 +51,34 @@ const logStatusLabel: Record<string, string> = {
   success: 'Sucesso', error: 'Erro', pending_approval: 'Aguardando', rejected: 'Rejeitado',
 };
 
+const defaultToolForm = {
+  name: '',
+  description: '',
+  riskLevel: 'medium' as RiskLevel,
+  inputSchema: '{\n  "type": "object",\n  "properties": {}\n}',
+  outputSchema: '{\n  "type": "object",\n  "properties": {}\n}',
+  requiresApproval: false,
+};
+
+function parseJsonObject(value: string, label: string): Record<string, unknown> {
+  const parsed = JSON.parse(value || '{}') as unknown;
+  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+    throw new Error(`${label} deve ser um objeto JSON.`);
+  }
+  return parsed as Record<string, unknown>;
+}
+
 export default function McpDetailPage() {
   const serversQuery = useMcpServers();
   const mockMcpServers = serversQuery.data ?? [];
-  const { data: mockMcpTools = [] } = useMcpTools();
-  const { data: mockMcpResources = [] } = useMcpResources();
-  const { data: mockMcpPrompts = [] } = useMcpPrompts();
+  const { id } = useParams<{ id: string }>();
+  const { data: mockMcpTools = [] } = useMcpTools(id);
+  const { data: mockMcpResources = [] } = useMcpResources(id);
+  const { data: mockMcpPrompts = [] } = useMcpPrompts(id);
   const { data: mockMcpBindings = [] } = useMcpBindings();
   const { data: mockToolExecutionLogs = [] } = useMcpExecutions();
-  const { id } = useParams<{ id: string }>();
+  const createMcpToolMutation = useCreateMcpToolMutation();
+  const updateMcpToolMutation = useUpdateMcpToolMutation();
   const navigate = useNavigate();
   const server = mockMcpServers.find(s => s.id === id);
 
@@ -60,7 +92,12 @@ export default function McpDetailPage() {
   const [approvalStates, setApprovalStates] = useState<Record<string, boolean>>(
     Object.fromEntries(tools.map(t => [t.id, t.requiresApproval]))
   );
-  const [bindingDialog, setBindingDialog] = useState(false);
+  const [toolDialogOpen, setToolDialogOpen] = useState(false);
+  const [toolForm, setToolForm] = useState(defaultToolForm);
+
+  useEffect(() => {
+    setApprovalStates(Object.fromEntries(tools.map(t => [t.id, t.requiresApproval])));
+  }, [tools]);
 
   const filteredTools = useMemo(() => {
     return tools.filter(t => !toolSearch || t.name.toLowerCase().includes(toolSearch.toLowerCase()) || t.description.toLowerCase().includes(toolSearch.toLowerCase()));
@@ -76,10 +113,43 @@ export default function McpDetailPage() {
     return <AppShell><EmptyState icon={<Server className="h-6 w-6" />} title="Servidor não encontrado" description="O servidor MCP solicitado não existe." action={<Button onClick={() => navigate('/app/mcp')}>Voltar</Button>} /></AppShell>;
   }
 
-  const toggleApproval = (toolId: string) => {
-    setApprovalStates(prev => ({ ...prev, [toolId]: !prev[toolId] }));
+  const toggleApproval = async (toolId: string) => {
     const tool = tools.find(t => t.id === toolId);
-    toast({ title: 'Política atualizada', description: `Aprovação ${!approvalStates[toolId] ? 'habilitada' : 'removida'} para "${tool?.name}".` });
+    if (!tool) return;
+    const nextRequiresApproval = !(approvalStates[toolId] ?? tool.requiresApproval);
+    try {
+      await updateMcpToolMutation.mutateAsync({
+        toolId,
+        serverId: id,
+        payload: { requiresApproval: nextRequiresApproval },
+      });
+      setApprovalStates(prev => ({ ...prev, [toolId]: nextRequiresApproval }));
+      toast({ title: 'Política atualizada', description: `Aprovação ${nextRequiresApproval ? 'habilitada' : 'removida'} para "${tool.name}".` });
+    } catch (error) {
+      toast({ title: 'Erro ao atualizar política', description: error instanceof Error ? error.message : 'Tente novamente em instantes.', variant: 'destructive' });
+    }
+  };
+
+  const handleCreateTool = async () => {
+    if (!id) return;
+    try {
+      const payload: McpToolPayload = {
+        name: toolForm.name.trim(),
+        description: toolForm.description.trim() || undefined,
+        riskLevel: toolForm.riskLevel,
+        inputSchema: parseJsonObject(toolForm.inputSchema, 'Input schema'),
+        outputSchema: parseJsonObject(toolForm.outputSchema, 'Output schema'),
+        requiresApproval: toolForm.requiresApproval || toolForm.riskLevel === 'high' || toolForm.riskLevel === 'critical',
+        isEnabled: true,
+        metadata: { phase: 'catalog_placeholder' },
+      };
+      await createMcpToolMutation.mutateAsync({ serverId: id, payload });
+      setToolDialogOpen(false);
+      setToolForm(defaultToolForm);
+      toast({ title: 'Tool catalogada', description: `"${payload.name}" foi registrada sem execução MCP real.` });
+    } catch (error) {
+      toast({ title: 'Erro ao catalogar tool', description: error instanceof Error ? error.message : 'Tente novamente em instantes.', variant: 'destructive' });
+    }
   };
 
   return (
@@ -146,12 +216,17 @@ export default function McpDetailPage() {
 
           {/* Tools Tab */}
           <TabsContent value="tools" className="space-y-4">
-            <div className="flex items-center gap-2 rounded-md border bg-muted/50 px-3 py-1.5 max-w-sm">
-              <Search className="h-3.5 w-3.5 text-muted-foreground" />
-              <input type="text" value={toolSearch} onChange={e => setToolSearch(e.target.value)} placeholder="Buscar tools..." className="bg-transparent text-sm outline-none w-full" />
+            <div className="flex flex-wrap items-center gap-2">
+              <div className="flex items-center gap-2 rounded-md border bg-muted/50 px-3 py-1.5 flex-1 max-w-sm">
+                <Search className="h-3.5 w-3.5 text-muted-foreground" />
+                <input type="text" value={toolSearch} onChange={e => setToolSearch(e.target.value)} placeholder="Buscar tools..." className="bg-transparent text-sm outline-none w-full" />
+              </div>
+              <Button size="sm" onClick={() => setToolDialogOpen(true)}>
+                <Plus className="h-4 w-4 mr-1" />Nova tool
+              </Button>
             </div>
             {filteredTools.length === 0 ? (
-              <EmptyState icon={<Wrench className="h-6 w-6" />} title="Nenhuma tool" description="Este servidor não possui tools registradas." />
+              <EmptyState icon={<Wrench className="h-6 w-6" />} title="Nenhuma tool" description="Este servidor não possui tools registradas." action={<Button variant="outline" onClick={() => setToolDialogOpen(true)}><Plus className="h-4 w-4 mr-1" />Nova tool</Button>} />
             ) : (
               <div className="rounded-lg border">
                 <Table>
@@ -174,7 +249,7 @@ export default function McpDetailPage() {
                         <TableCell><span className={`inline-flex rounded-full border px-2 py-0.5 text-[10px] font-medium ${riskColors[tool.riskLevel]}`}>{tool.riskLevel}</span></TableCell>
                         <TableCell>
                           <div className="flex items-center gap-2">
-                            <Switch checked={approvalStates[tool.id] ?? false} onCheckedChange={() => toggleApproval(tool.id)} />
+                            <Switch checked={approvalStates[tool.id] ?? false} onCheckedChange={() => { void toggleApproval(tool.id); }} disabled={updateMcpToolMutation.isPending} />
                             <span className="text-xs text-muted-foreground">{approvalStates[tool.id] ? 'Sim' : 'Não'}</span>
                           </div>
                         </TableCell>
@@ -354,6 +429,64 @@ export default function McpDetailPage() {
           </TabsContent>
         </Tabs>
       </div>
+
+      <Dialog open={toolDialogOpen} onOpenChange={setToolDialogOpen}>
+        <DialogContent className="max-w-2xl">
+          <DialogHeader>
+            <DialogTitle>Nova Tool MCP</DialogTitle>
+            <DialogDescription>Registre uma tool no catálogo governado. Nenhuma chamada MCP real será executada.</DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div className="grid gap-4 sm:grid-cols-2">
+              <div className="space-y-2">
+                <Label>Nome</Label>
+                <Input value={toolForm.name} onChange={event => setToolForm(prev => ({ ...prev, name: event.target.value }))} placeholder="ex: crm.search_customer" />
+              </div>
+              <div className="space-y-2">
+                <Label>Risco</Label>
+                <Select value={toolForm.riskLevel} onValueChange={value => setToolForm(prev => ({ ...prev, riskLevel: value as RiskLevel, requiresApproval: prev.requiresApproval || value === 'high' || value === 'critical' }))}>
+                  <SelectTrigger><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="low">Baixo</SelectItem>
+                    <SelectItem value="medium">Médio</SelectItem>
+                    <SelectItem value="high">Alto</SelectItem>
+                    <SelectItem value="critical">Crítico</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+            <div className="space-y-2">
+              <Label>Descrição</Label>
+              <Textarea value={toolForm.description} onChange={event => setToolForm(prev => ({ ...prev, description: event.target.value }))} rows={2} placeholder="Descreva a finalidade governada desta tool." />
+            </div>
+            <div className="grid gap-4 sm:grid-cols-2">
+              <div className="space-y-2">
+                <Label>Input schema</Label>
+                <Textarea value={toolForm.inputSchema} onChange={event => setToolForm(prev => ({ ...prev, inputSchema: event.target.value }))} rows={7} className="font-mono text-xs" />
+              </div>
+              <div className="space-y-2">
+                <Label>Output schema</Label>
+                <Textarea value={toolForm.outputSchema} onChange={event => setToolForm(prev => ({ ...prev, outputSchema: event.target.value }))} rows={7} className="font-mono text-xs" />
+              </div>
+            </div>
+            <label className="flex items-center justify-between rounded-lg border p-3">
+              <div>
+                <p className="text-sm font-medium">Requer aprovação</p>
+                <p className="text-xs text-muted-foreground">Riscos alto/crítico sempre exigem aprovação.</p>
+              </div>
+              <Switch
+                checked={toolForm.requiresApproval || toolForm.riskLevel === 'high' || toolForm.riskLevel === 'critical'}
+                disabled={toolForm.riskLevel === 'high' || toolForm.riskLevel === 'critical'}
+                onCheckedChange={checked => setToolForm(prev => ({ ...prev, requiresApproval: checked }))}
+              />
+            </label>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setToolDialogOpen(false)}>Cancelar</Button>
+            <Button onClick={() => { void handleCreateTool(); }} disabled={!toolForm.name || createMcpToolMutation.isPending}>Catalogar</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </AppShell>
   );
 }

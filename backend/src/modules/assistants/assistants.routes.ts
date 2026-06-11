@@ -4,6 +4,8 @@ import { idParamsSchema } from '../../shared/validation/pagination';
 import { validateBody, validateParams, validateQuery } from '../../shared/validation/validate';
 import { agentRunsController } from '../agent-runs/agent-runs.controller';
 import { assistantRunParamsSchema, agentRunsQuerySchema, createAgentRunSchema } from '../agent-runs/agent-runs.schema';
+import { registerAssistantKnowledgeBindingRoutes } from '../knowledge/knowledge.routes';
+import { registerAssistantMcpBindingRoutes } from '../mcp/mcp.routes';
 import { assistantsController } from './assistants.controller';
 import {
   assistantApprovalCreateSchema,
@@ -238,6 +240,8 @@ export function createAssistantsRouter() {
       void assistantsController.deleteShare(req, res).catch(next);
     },
   );
+  registerAssistantKnowledgeBindingRoutes(router);
+  registerAssistantMcpBindingRoutes(router);
   router.get('/:id', requireAuth, requirePermission('assistants.read'), validateParams(idParamsSchema), (req, res, next) => {
     void assistantsController.get(req, res).catch(next);
   });

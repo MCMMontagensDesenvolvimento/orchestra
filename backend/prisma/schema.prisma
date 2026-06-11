@@ -8,13 +8,13 @@ datasource db {
 }
 
 model Tenant {
-  id                         String                     @id @default(uuid()) @db.Uuid
+  id                         String                      @id @default(uuid()) @db.Uuid
   name                       String
-  slug                       String                     @unique
-  status                     String                     @default("active")
-  createdAt                  DateTime                   @default(now()) @map("created_at")
-  updatedAt                  DateTime                   @updatedAt @map("updated_at")
-  deletedAt                  DateTime?                  @map("deleted_at")
+  slug                       String                      @unique
+  status                     String                      @default("active")
+  createdAt                  DateTime                    @default(now()) @map("created_at")
+  updatedAt                  DateTime                    @updatedAt @map("updated_at")
+  deletedAt                  DateTime?                   @map("deleted_at")
   workspaces                 Workspace[]
   users                      User[]
   roles                      Role[]
@@ -27,7 +27,17 @@ model Tenant {
   assistantApprovals         AssistantApprovalRequest[]
   assistantExecutionPolicies AssistantExecutionPolicy[]
   knowledgeBases             KnowledgeBase[]
+  knowledgeDocuments         KnowledgeDocument[]
+  knowledgeDataSources       KnowledgeDataSource[]
+  knowledgeIngestionJobs     KnowledgeIngestionJob[]
+  knowledgePolicies          KnowledgePolicy[]
+  assistantKnowledgeBindings AssistantKnowledgeBinding[]
   mcpServers                 McpServer[]
+  mcpTools                   McpTool[]
+  mcpResources               McpResource[]
+  mcpPrompts                 McpPrompt[]
+  mcpToolPolicies            McpToolPolicy[]
+  assistantMcpBindings       AssistantMcpBinding[]
   providerConfigs            ProviderConfig[]
   usageRecords               UsageRecord[]
   agentRuns                  AgentRun[]
@@ -37,16 +47,16 @@ model Tenant {
 }
 
 model Workspace {
-  id                         String                     @id @default(uuid()) @db.Uuid
-  tenantId                   String                     @map("tenant_id") @db.Uuid
+  id                         String                      @id @default(uuid()) @db.Uuid
+  tenantId                   String                      @map("tenant_id") @db.Uuid
   name                       String
   slug                       String
   description                String?
-  status                     String                     @default("active")
-  createdAt                  DateTime                   @default(now()) @map("created_at")
-  updatedAt                  DateTime                   @updatedAt @map("updated_at")
-  deletedAt                  DateTime?                  @map("deleted_at")
-  tenant                     Tenant                     @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  status                     String                      @default("active")
+  createdAt                  DateTime                    @default(now()) @map("created_at")
+  updatedAt                  DateTime                    @updatedAt @map("updated_at")
+  deletedAt                  DateTime?                   @map("deleted_at")
+  tenant                     Tenant                      @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   memberships                WorkspaceMembership[]
   settings                   Setting[]
   auditLogs                  AuditLog[]
@@ -56,6 +66,18 @@ model Workspace {
   assistantTestResults       AssistantTestResult[]
   assistantApprovals         AssistantApprovalRequest[]
   assistantExecutionPolicies AssistantExecutionPolicy[]
+  knowledgeBases             KnowledgeBase[]
+  knowledgeDocuments         KnowledgeDocument[]
+  knowledgeDataSources       KnowledgeDataSource[]
+  knowledgeIngestionJobs     KnowledgeIngestionJob[]
+  knowledgePolicies          KnowledgePolicy[]
+  assistantKnowledgeBindings AssistantKnowledgeBinding[]
+  mcpServers                 McpServer[]
+  mcpTools                   McpTool[]
+  mcpResources               McpResource[]
+  mcpPrompts                 McpPrompt[]
+  mcpToolPolicies            McpToolPolicy[]
+  assistantMcpBindings       AssistantMcpBinding[]
   agentRuns                  AgentRun[]
   agentRunEvents             AgentRunEvent[]
 
@@ -65,35 +87,41 @@ model Workspace {
 }
 
 model User {
-  id                                String                     @id @default(uuid()) @db.Uuid
-  tenantId                          String                     @map("tenant_id") @db.Uuid
-  email                             String                     @unique
+  id                                String                      @id @default(uuid()) @db.Uuid
+  tenantId                          String                      @map("tenant_id") @db.Uuid
+  email                             String                      @unique
   name                              String
-  passwordHash                      String?                    @map("password_hash")
-  status                            String                     @default("active")
-  lastLoginAt                       DateTime?                  @map("last_login_at")
-  createdAt                         DateTime                   @default(now()) @map("created_at")
-  updatedAt                         DateTime                   @updatedAt @map("updated_at")
-  deletedAt                         DateTime?                  @map("deleted_at")
-  tenant                            Tenant                     @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  passwordHash                      String?                     @map("password_hash")
+  status                            String                      @default("active")
+  lastLoginAt                       DateTime?                   @map("last_login_at")
+  createdAt                         DateTime                    @default(now()) @map("created_at")
+  updatedAt                         DateTime                    @updatedAt @map("updated_at")
+  deletedAt                         DateTime?                   @map("deleted_at")
+  tenant                            Tenant                      @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   roles                             UserRole[]
   memberships                       WorkspaceMembership[]
   sessions                          Session[]
-  auditLogs                         AuditLog[]                 @relation("ActorAuditLogs")
-  assistants                        Assistant[]                @relation("AssistantCreator")
-  versions                          AssistantVersion[]         @relation("AssistantVersionCreator")
-  publishedAssistantPublications    AssistantPublication[]     @relation("AssistantPublicationPublisher")
-  unpublishedAssistantPublications  AssistantPublication[]     @relation("AssistantPublicationUnpublisher")
-  requestedAssistantApprovals       AssistantApprovalRequest[] @relation("AssistantApprovalRequester")
-  decidedAssistantApprovals         AssistantApprovalRequest[] @relation("AssistantApprovalDecider")
-  updatedAssistantExecutionPolicies AssistantExecutionPolicy[] @relation("AssistantExecutionPolicyUpdater")
-  assistantShares                   AssistantShare[]           @relation("AssistantShareCreator")
-  assistantFeedbacks                AssistantFeedback[]        @relation("AssistantFeedbackUser")
-  assistantTestResults              AssistantTestResult[]      @relation("AssistantTestResultTester")
+  auditLogs                         AuditLog[]                  @relation("ActorAuditLogs")
+  assistants                        Assistant[]                 @relation("AssistantCreator")
+  versions                          AssistantVersion[]          @relation("AssistantVersionCreator")
+  publishedAssistantPublications    AssistantPublication[]      @relation("AssistantPublicationPublisher")
+  unpublishedAssistantPublications  AssistantPublication[]      @relation("AssistantPublicationUnpublisher")
+  requestedAssistantApprovals       AssistantApprovalRequest[]  @relation("AssistantApprovalRequester")
+  decidedAssistantApprovals         AssistantApprovalRequest[]  @relation("AssistantApprovalDecider")
+  updatedAssistantExecutionPolicies AssistantExecutionPolicy[]  @relation("AssistantExecutionPolicyUpdater")
+  assistantShares                   AssistantShare[]            @relation("AssistantShareCreator")
+  assistantFeedbacks                AssistantFeedback[]         @relation("AssistantFeedbackUser")
+  assistantTestResults              AssistantTestResult[]       @relation("AssistantTestResultTester")
   conversations                     Conversation[]
   messages                          ConversationMessage[]
   agentRuns                         AgentRun[]                  @relation("AgentRunRequester")
   toolCalls                         ToolCall[]
+  ownedKnowledgeBases               KnowledgeBase[]             @relation("KnowledgeBaseOwner")
+  createdKnowledgeDocuments         KnowledgeDocument[]         @relation("KnowledgeDocumentCreator")
+  createdKnowledgeDataSources       KnowledgeDataSource[]       @relation("KnowledgeDataSourceCreator")
+  createdAssistantKnowledgeBindings AssistantKnowledgeBinding[] @relation("AssistantKnowledgeBindingCreator")
+  createdMcpServers                 McpServer[]                 @relation("McpServerCreator")
+  createdAssistantMcpBindings       AssistantMcpBinding[]       @relation("AssistantMcpBindingCreator")
 
   @@index([tenantId])
   @@map("users")
@@ -228,29 +256,31 @@ model Setting {
 }
 
 model Assistant {
-  id               String                     @id @default(uuid()) @db.Uuid
-  tenantId         String                     @map("tenant_id") @db.Uuid
-  workspaceId      String                     @map("workspace_id") @db.Uuid
-  name             String
-  description      String?
-  status           String                     @default("draft")
-  createdById      String                     @map("created_by_id") @db.Uuid
-  createdAt        DateTime                   @default(now()) @map("created_at")
-  updatedAt        DateTime                   @updatedAt @map("updated_at")
-  deletedAt        DateTime?                  @map("deleted_at")
-  tenant           Tenant                     @relation(fields: [tenantId], references: [id], onDelete: Cascade)
-  workspace        Workspace                  @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
-  createdBy        User                       @relation("AssistantCreator", fields: [createdById], references: [id], onDelete: Restrict)
-  versions         AssistantVersion[]
-  shares           AssistantShare[]
-  publications     AssistantPublication[]
-  feedbacks        AssistantFeedback[]
-  testResults      AssistantTestResult[]
-  approvalRequests AssistantApprovalRequest[]
-  executionPolicy  AssistantExecutionPolicy?
-  conversations    Conversation[]
-  agentRuns        AgentRun[]
-  usageRecords     UsageRecord[]
+  id                String                      @id @default(uuid()) @db.Uuid
+  tenantId          String                      @map("tenant_id") @db.Uuid
+  workspaceId       String                      @map("workspace_id") @db.Uuid
+  name              String
+  description       String?
+  status            String                      @default("draft")
+  createdById       String                      @map("created_by_id") @db.Uuid
+  createdAt         DateTime                    @default(now()) @map("created_at")
+  updatedAt         DateTime                    @updatedAt @map("updated_at")
+  deletedAt         DateTime?                   @map("deleted_at")
+  tenant            Tenant                      @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  workspace         Workspace                   @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  createdBy         User                        @relation("AssistantCreator", fields: [createdById], references: [id], onDelete: Restrict)
+  versions          AssistantVersion[]
+  shares            AssistantShare[]
+  publications      AssistantPublication[]
+  feedbacks         AssistantFeedback[]
+  testResults       AssistantTestResult[]
+  approvalRequests  AssistantApprovalRequest[]
+  executionPolicy   AssistantExecutionPolicy?
+  conversations     Conversation[]
+  agentRuns         AgentRun[]
+  usageRecords      UsageRecord[]
+  knowledgeBindings AssistantKnowledgeBinding[]
+  mcpBindings       AssistantMcpBinding[]
 
   @@index([tenantId])
   @@index([workspaceId])
@@ -478,51 +508,337 @@ model AssistantExecutionPolicy {
 }
 
 model KnowledgeBase {
-  id          String   @id @default(uuid()) @db.Uuid
-  tenantId    String   @map("tenant_id") @db.Uuid
-  name        String
-  description String?
-  status      String   @default("pending")
-  createdAt   DateTime @default(now()) @map("created_at")
-  updatedAt   DateTime @updatedAt @map("updated_at")
-  tenant      Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  id                 String                      @id @default(uuid()) @db.Uuid
+  tenantId           String                      @map("tenant_id") @db.Uuid
+  workspaceId        String                      @map("workspace_id") @db.Uuid
+  name               String
+  description        String?
+  status             String                      @default("active")
+  visibility         String                      @default("workspace")
+  dataClassification String                      @default("internal") @map("data_classification")
+  ownerUserId        String?                     @map("owner_user_id") @db.Uuid
+  metadata           Json?
+  createdAt          DateTime                    @default(now()) @map("created_at")
+  updatedAt          DateTime                    @updatedAt @map("updated_at")
+  deletedAt          DateTime?                   @map("deleted_at")
+  tenant             Tenant                      @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  workspace          Workspace                   @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  owner              User?                       @relation("KnowledgeBaseOwner", fields: [ownerUserId], references: [id], onDelete: SetNull)
+  documents          KnowledgeDocument[]
+  dataSources        KnowledgeDataSource[]
+  ingestionJobs      KnowledgeIngestionJob[]
+  bindings           AssistantKnowledgeBinding[]
+  policies           KnowledgePolicy[]
 
   @@index([tenantId])
+  @@index([workspaceId])
+  @@index([status])
+  @@index([visibility])
+  @@index([dataClassification])
   @@map("knowledge_bases")
 }
 
-model McpServer {
-  id          String    @id @default(uuid()) @db.Uuid
-  tenantId    String    @map("tenant_id") @db.Uuid
-  name        String
-  description String?
-  status      String    @default("inactive")
-  riskLevel   String    @default("medium") @map("risk_level")
-  url         String?
-  createdAt   DateTime  @default(now()) @map("created_at")
-  updatedAt   DateTime  @updatedAt @map("updated_at")
-  tenant      Tenant    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
-  tools       McpTool[]
+model KnowledgeDocument {
+  id                    String                  @id @default(uuid()) @db.Uuid
+  tenantId              String                  @map("tenant_id") @db.Uuid
+  workspaceId           String                  @map("workspace_id") @db.Uuid
+  knowledgeBaseId       String                  @map("knowledge_base_id") @db.Uuid
+  title                 String
+  description           String?
+  sourceType            String                  @default("manual") @map("source_type")
+  sourceUri             String?                 @map("source_uri")
+  mimeType              String?                 @map("mime_type")
+  status                String                  @default("draft")
+  ingestionStatus       String                  @default("pending") @map("ingestion_status")
+  ingestionErrorCode    String?                 @map("ingestion_error_code")
+  ingestionErrorMessage String?                 @map("ingestion_error_message")
+  dataClassification    String                  @default("internal") @map("data_classification")
+  metadata              Json?
+  createdById           String?                 @map("created_by_id") @db.Uuid
+  createdAt             DateTime                @default(now()) @map("created_at")
+  updatedAt             DateTime                @updatedAt @map("updated_at")
+  deletedAt             DateTime?               @map("deleted_at")
+  tenant                Tenant                  @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  workspace             Workspace               @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  knowledgeBase         KnowledgeBase           @relation(fields: [knowledgeBaseId], references: [id], onDelete: Cascade)
+  createdBy             User?                   @relation("KnowledgeDocumentCreator", fields: [createdById], references: [id], onDelete: SetNull)
+  ingestionJobs         KnowledgeIngestionJob[]
 
   @@index([tenantId])
+  @@index([workspaceId])
+  @@index([knowledgeBaseId])
+  @@index([status])
+  @@index([ingestionStatus])
+  @@index([createdAt])
+  @@map("knowledge_documents")
+}
+
+model KnowledgeDataSource {
+  id              String        @id @default(uuid()) @db.Uuid
+  tenantId        String        @map("tenant_id") @db.Uuid
+  workspaceId     String        @map("workspace_id") @db.Uuid
+  knowledgeBaseId String        @map("knowledge_base_id") @db.Uuid
+  name            String
+  type            String        @default("manual")
+  config          Json?
+  status          String        @default("active")
+  createdById     String?       @map("created_by_id") @db.Uuid
+  createdAt       DateTime      @default(now()) @map("created_at")
+  updatedAt       DateTime      @updatedAt @map("updated_at")
+  deletedAt       DateTime?     @map("deleted_at")
+  tenant          Tenant        @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  workspace       Workspace     @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  knowledgeBase   KnowledgeBase @relation(fields: [knowledgeBaseId], references: [id], onDelete: Cascade)
+  createdBy       User?         @relation("KnowledgeDataSourceCreator", fields: [createdById], references: [id], onDelete: SetNull)
+
+  @@index([tenantId])
+  @@index([workspaceId])
+  @@index([knowledgeBaseId])
+  @@index([status])
+  @@map("knowledge_data_sources")
+}
+
+model KnowledgeIngestionJob {
+  id              String             @id @default(uuid()) @db.Uuid
+  tenantId        String             @map("tenant_id") @db.Uuid
+  workspaceId     String             @map("workspace_id") @db.Uuid
+  knowledgeBaseId String             @map("knowledge_base_id") @db.Uuid
+  documentId      String?            @map("document_id") @db.Uuid
+  status          String             @default("queued")
+  startedAt       DateTime?          @map("started_at")
+  completedAt     DateTime?          @map("completed_at")
+  errorCode       String?            @map("error_code")
+  errorMessage    String?            @map("error_message")
+  metadata        Json?
+  createdAt       DateTime           @default(now()) @map("created_at")
+  updatedAt       DateTime           @updatedAt @map("updated_at")
+  tenant          Tenant             @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  workspace       Workspace          @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  knowledgeBase   KnowledgeBase      @relation(fields: [knowledgeBaseId], references: [id], onDelete: Cascade)
+  document        KnowledgeDocument? @relation(fields: [documentId], references: [id], onDelete: SetNull)
+
+  @@index([tenantId])
+  @@index([workspaceId])
+  @@index([knowledgeBaseId])
+  @@index([documentId])
+  @@index([status])
+  @@index([createdAt])
+  @@map("knowledge_ingestion_jobs")
+}
+
+model AssistantKnowledgeBinding {
+  id              String        @id @default(uuid()) @db.Uuid
+  tenantId        String        @map("tenant_id") @db.Uuid
+  workspaceId     String        @map("workspace_id") @db.Uuid
+  assistantId     String        @map("assistant_id") @db.Uuid
+  knowledgeBaseId String        @map("knowledge_base_id") @db.Uuid
+  isEnabled       Boolean       @default(true) @map("is_enabled")
+  retrievalMode   String        @default("retrieval_placeholder") @map("retrieval_mode")
+  priority        Int           @default(100)
+  createdById     String?       @map("created_by_id") @db.Uuid
+  createdAt       DateTime      @default(now()) @map("created_at")
+  updatedAt       DateTime      @updatedAt @map("updated_at")
+  tenant          Tenant        @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  workspace       Workspace     @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  assistant       Assistant     @relation(fields: [assistantId], references: [id], onDelete: Cascade)
+  knowledgeBase   KnowledgeBase @relation(fields: [knowledgeBaseId], references: [id], onDelete: Cascade)
+  createdBy       User?         @relation("AssistantKnowledgeBindingCreator", fields: [createdById], references: [id], onDelete: SetNull)
+
+  @@unique([assistantId, knowledgeBaseId])
+  @@index([tenantId])
+  @@index([workspaceId])
+  @@index([assistantId])
+  @@index([knowledgeBaseId])
+  @@index([isEnabled])
+  @@map("assistant_knowledge_bindings")
+}
+
+model KnowledgePolicy {
+  id                         String        @id @default(uuid()) @db.Uuid
+  tenantId                   String        @map("tenant_id") @db.Uuid
+  workspaceId                String        @map("workspace_id") @db.Uuid
+  knowledgeBaseId            String        @map("knowledge_base_id") @db.Uuid
+  allowRuntimeRetrieval      Boolean       @default(false) @map("allow_runtime_retrieval")
+  allowCitationOnly          Boolean       @default(true) @map("allow_citation_only")
+  requireApprovalForExternal Boolean       @default(true) @map("require_approval_for_external")
+  metadata                   Json?
+  createdAt                  DateTime      @default(now()) @map("created_at")
+  updatedAt                  DateTime      @updatedAt @map("updated_at")
+  tenant                     Tenant        @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  workspace                  Workspace     @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  knowledgeBase              KnowledgeBase @relation(fields: [knowledgeBaseId], references: [id], onDelete: Cascade)
+
+  @@unique([knowledgeBaseId])
+  @@index([tenantId])
+  @@index([workspaceId])
+  @@map("knowledge_policies")
+}
+
+model McpServer {
+  id          String                @id @default(uuid()) @db.Uuid
+  tenantId    String                @map("tenant_id") @db.Uuid
+  workspaceId String                @map("workspace_id") @db.Uuid
+  name        String
+  description String?
+  serverType  String                @default("remote") @map("server_type")
+  baseUrl     String?               @map("base_url")
+  status      String                @default("disabled")
+  trustLevel  String                @default("restricted") @map("trust_level")
+  riskLevel   String                @default("medium") @map("risk_level")
+  authType    String                @default("none") @map("auth_type")
+  secretRef   String?               @map("secret_ref")
+  metadata    Json?
+  createdById String?               @map("created_by_id") @db.Uuid
+  createdAt   DateTime              @default(now()) @map("created_at")
+  updatedAt   DateTime              @updatedAt @map("updated_at")
+  deletedAt   DateTime?             @map("deleted_at")
+  tenant      Tenant                @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  workspace   Workspace             @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  createdBy   User?                 @relation("McpServerCreator", fields: [createdById], references: [id], onDelete: SetNull)
+  tools       McpTool[]
+  resources   McpResource[]
+  prompts     McpPrompt[]
+  bindings    AssistantMcpBinding[]
+  policies    McpToolPolicy[]
+
+  @@index([tenantId])
+  @@index([workspaceId])
+  @@index([status])
+  @@index([trustLevel])
+  @@index([riskLevel])
   @@map("mcp_servers")
 }
 
 model McpTool {
-  id               String     @id @default(uuid()) @db.Uuid
-  serverId         String     @map("server_id") @db.Uuid
+  id               String                @id @default(uuid()) @db.Uuid
+  tenantId         String                @map("tenant_id") @db.Uuid
+  workspaceId      String                @map("workspace_id") @db.Uuid
+  mcpServerId      String                @map("server_id") @db.Uuid
   name             String
   description      String?
-  riskLevel        String     @default("medium") @map("risk_level")
-  requiresApproval Boolean    @default(false) @map("requires_approval")
-  inputSchema      Json?      @map("input_schema")
-  createdAt        DateTime   @default(now()) @map("created_at")
-  updatedAt        DateTime   @updatedAt @map("updated_at")
-  server           McpServer  @relation(fields: [serverId], references: [id], onDelete: Cascade)
+  inputSchema      Json?                 @map("input_schema")
+  outputSchema     Json?                 @map("output_schema")
+  riskLevel        String                @default("medium") @map("risk_level")
+  requiresApproval Boolean               @default(false) @map("requires_approval")
+  isEnabled        Boolean               @default(true) @map("is_enabled")
+  metadata         Json?
+  createdAt        DateTime              @default(now()) @map("created_at")
+  updatedAt        DateTime              @updatedAt @map("updated_at")
+  deletedAt        DateTime?             @map("deleted_at")
+  tenant           Tenant                @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  workspace        Workspace             @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  server           McpServer             @relation(fields: [mcpServerId], references: [id], onDelete: Cascade)
+  bindings         AssistantMcpBinding[]
+  policies         McpToolPolicy[]
   toolCalls        ToolCall[]
 
-  @@index([serverId])
+  @@index([tenantId])
+  @@index([workspaceId])
+  @@index([mcpServerId])
+  @@index([riskLevel])
+  @@index([isEnabled])
   @@map("mcp_tools")
+}
+
+model McpResource {
+  id          String    @id @default(uuid()) @db.Uuid
+  tenantId    String    @map("tenant_id") @db.Uuid
+  workspaceId String    @map("workspace_id") @db.Uuid
+  mcpServerId String    @map("server_id") @db.Uuid
+  name        String
+  uri         String
+  description String?
+  mimeType    String?   @map("mime_type")
+  metadata    Json?
+  createdAt   DateTime  @default(now()) @map("created_at")
+  updatedAt   DateTime  @updatedAt @map("updated_at")
+  deletedAt   DateTime? @map("deleted_at")
+  tenant      Tenant    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  server      McpServer @relation(fields: [mcpServerId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId])
+  @@index([workspaceId])
+  @@index([mcpServerId])
+  @@map("mcp_resources")
+}
+
+model McpPrompt {
+  id          String    @id @default(uuid()) @db.Uuid
+  tenantId    String    @map("tenant_id") @db.Uuid
+  workspaceId String    @map("workspace_id") @db.Uuid
+  mcpServerId String    @map("server_id") @db.Uuid
+  name        String
+  description String?
+  template    String?
+  metadata    Json?
+  createdAt   DateTime  @default(now()) @map("created_at")
+  updatedAt   DateTime  @updatedAt @map("updated_at")
+  deletedAt   DateTime? @map("deleted_at")
+  tenant      Tenant    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  server      McpServer @relation(fields: [mcpServerId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId])
+  @@index([workspaceId])
+  @@index([mcpServerId])
+  @@map("mcp_prompts")
+}
+
+model AssistantMcpBinding {
+  id                       String    @id @default(uuid()) @db.Uuid
+  tenantId                 String    @map("tenant_id") @db.Uuid
+  workspaceId              String    @map("workspace_id") @db.Uuid
+  assistantId              String    @map("assistant_id") @db.Uuid
+  mcpServerId              String    @map("mcp_server_id") @db.Uuid
+  mcpToolId                String?   @map("mcp_tool_id") @db.Uuid
+  isEnabled                Boolean   @default(true) @map("is_enabled")
+  mode                     String    @default("sandbox_only")
+  requiresApprovalOverride Boolean?  @map("requires_approval_override")
+  createdById              String?   @map("created_by_id") @db.Uuid
+  createdAt                DateTime  @default(now()) @map("created_at")
+  updatedAt                DateTime  @updatedAt @map("updated_at")
+  tenant                   Tenant    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  workspace                Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  assistant                Assistant @relation(fields: [assistantId], references: [id], onDelete: Cascade)
+  server                   McpServer @relation(fields: [mcpServerId], references: [id], onDelete: Cascade)
+  tool                     McpTool?  @relation(fields: [mcpToolId], references: [id], onDelete: Cascade)
+  createdBy                User?     @relation("AssistantMcpBindingCreator", fields: [createdById], references: [id], onDelete: SetNull)
+
+  @@unique([assistantId, mcpServerId, mcpToolId])
+  @@index([tenantId])
+  @@index([workspaceId])
+  @@index([assistantId])
+  @@index([mcpServerId])
+  @@index([mcpToolId])
+  @@index([isEnabled])
+  @@map("assistant_mcp_bindings")
+}
+
+model McpToolPolicy {
+  id                    String    @id @default(uuid()) @db.Uuid
+  tenantId              String    @map("tenant_id") @db.Uuid
+  workspaceId           String    @map("workspace_id") @db.Uuid
+  mcpServerId           String    @map("mcp_server_id") @db.Uuid
+  mcpToolId             String?   @map("mcp_tool_id") @db.Uuid
+  allowRuntimeExecution Boolean   @default(false) @map("allow_runtime_execution")
+  sandboxOnly           Boolean   @default(true) @map("sandbox_only")
+  requiresApproval      Boolean   @default(true) @map("requires_approval")
+  blockedByDefault      Boolean   @default(true) @map("blocked_by_default")
+  metadata              Json?
+  createdAt             DateTime  @default(now()) @map("created_at")
+  updatedAt             DateTime  @updatedAt @map("updated_at")
+  tenant                Tenant    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  workspace             Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  server                McpServer @relation(fields: [mcpServerId], references: [id], onDelete: Cascade)
+  tool                  McpTool?  @relation(fields: [mcpToolId], references: [id], onDelete: Cascade)
+
+  @@unique([mcpServerId, mcpToolId])
+  @@index([tenantId])
+  @@index([workspaceId])
+  @@index([mcpServerId])
+  @@index([mcpToolId])
+  @@map("mcp_tool_policies")
 }
 
 model Conversation {
@@ -558,41 +874,41 @@ model ConversationMessage {
 }
 
 model AgentRun {
-  id                         String                @id @default(uuid()) @db.Uuid
-  tenantId                   String                @map("tenant_id") @db.Uuid
-  workspaceId                String                @map("workspace_id") @db.Uuid
-  assistantId                String                @map("assistant_id") @db.Uuid
-  assistantVersionId         String?               @map("assistant_version_id") @db.Uuid
-  assistantPublicationId     String?               @map("assistant_publication_id") @db.Uuid
-  conversationId             String?               @map("conversation_id") @db.Uuid
-  requestedById              String                @map("requested_by_id") @db.Uuid
-  status                     String                @default("queued")
-  mode                       String
-  source                     String                @default("api")
-  inputSummary               String?               @map("input_summary")
-  requestId                  String?               @map("request_id")
-  traceId                    String                @map("trace_id")
-  startedAt                  DateTime?             @map("started_at")
-  completedAt                DateTime?             @map("completed_at")
-  failedAt                   DateTime?             @map("failed_at")
-  cancelledAt                DateTime?             @map("cancelled_at")
-  blockedAt                  DateTime?             @map("blocked_at")
-  errorCode                  String?               @map("error_code")
-  errorMessage               String?               @map("error_message")
-  precheckSnapshot           Json?                 @map("precheck_snapshot")
-  metadata                   Json?
-  createdAt                  DateTime              @default(now()) @map("created_at")
-  updatedAt                  DateTime              @updatedAt @map("updated_at")
-  tenant                     Tenant                @relation(fields: [tenantId], references: [id], onDelete: Cascade)
-  workspace                  Workspace             @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
-  assistant                  Assistant             @relation(fields: [assistantId], references: [id], onDelete: Cascade)
-  assistantVersion           AssistantVersion?     @relation(fields: [assistantVersionId], references: [id], onDelete: SetNull)
-  assistantPublication       AssistantPublication? @relation(fields: [assistantPublicationId], references: [id], onDelete: SetNull)
-  conversation               Conversation?         @relation(fields: [conversationId], references: [id], onDelete: SetNull)
-  requestedBy                User                  @relation("AgentRunRequester", fields: [requestedById], references: [id], onDelete: Restrict)
-  events                     AgentRunEvent[]
-  toolCalls                  ToolCall[]
-  usageRecords               UsageRecord[]
+  id                     String                @id @default(uuid()) @db.Uuid
+  tenantId               String                @map("tenant_id") @db.Uuid
+  workspaceId            String                @map("workspace_id") @db.Uuid
+  assistantId            String                @map("assistant_id") @db.Uuid
+  assistantVersionId     String?               @map("assistant_version_id") @db.Uuid
+  assistantPublicationId String?               @map("assistant_publication_id") @db.Uuid
+  conversationId         String?               @map("conversation_id") @db.Uuid
+  requestedById          String                @map("requested_by_id") @db.Uuid
+  status                 String                @default("queued")
+  mode                   String
+  source                 String                @default("api")
+  inputSummary           String?               @map("input_summary")
+  requestId              String?               @map("request_id")
+  traceId                String                @map("trace_id")
+  startedAt              DateTime?             @map("started_at")
+  completedAt            DateTime?             @map("completed_at")
+  failedAt               DateTime?             @map("failed_at")
+  cancelledAt            DateTime?             @map("cancelled_at")
+  blockedAt              DateTime?             @map("blocked_at")
+  errorCode              String?               @map("error_code")
+  errorMessage           String?               @map("error_message")
+  precheckSnapshot       Json?                 @map("precheck_snapshot")
+  metadata               Json?
+  createdAt              DateTime              @default(now()) @map("created_at")
+  updatedAt              DateTime              @updatedAt @map("updated_at")
+  tenant                 Tenant                @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  workspace              Workspace             @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  assistant              Assistant             @relation(fields: [assistantId], references: [id], onDelete: Cascade)
+  assistantVersion       AssistantVersion?     @relation(fields: [assistantVersionId], references: [id], onDelete: SetNull)
+  assistantPublication   AssistantPublication? @relation(fields: [assistantPublicationId], references: [id], onDelete: SetNull)
+  conversation           Conversation?         @relation(fields: [conversationId], references: [id], onDelete: SetNull)
+  requestedBy            User                  @relation("AgentRunRequester", fields: [requestedById], references: [id], onDelete: Restrict)
+  events                 AgentRunEvent[]
+  toolCalls              ToolCall[]
+  usageRecords           UsageRecord[]
 
   @@index([tenantId])
   @@index([workspaceId])

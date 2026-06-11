@@ -14,17 +14,26 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Progress } from '@/components/ui/progress';
-import { useKnowledgeBases, useKnowledgeDocuments } from '@/hooks/queries/useKnowledge';
+import {
+  useArchiveKnowledgeDocumentMutation,
+  useCreateKnowledgeDataSourceMutation,
+  useCreateKnowledgeDocumentMutation,
+  useKnowledgeBases,
+  useKnowledgeDataSources,
+  useKnowledgeDocuments,
+  useRequestKnowledgeIngestionMutation,
+} from '@/hooks/queries/useKnowledge';
 import { useAssistants } from '@/hooks/queries/useAssistants';
 import {
   ArrowLeft, Database, FileText, Upload, Trash2, MoreHorizontal, RefreshCw,
   Settings, Users, ShieldCheck, Clock, HardDrive, Layers, Link2, Eye,
-  FileUp, Search, AlertTriangle, CheckCircle2, Loader2, XCircle, Download
+  FileUp, Search, AlertTriangle, CheckCircle2, Loader2, XCircle, Download, Plus
 } from 'lucide-react';
 import type { KnowledgeDocument, IngestionStatus } from '@/types';
+import type { KnowledgeDataSourcePayload, KnowledgeDocumentPayload } from '@/services/knowledge.service';
 import { toast } from '@/hooks/use-toast';
 
-const statusIcon: Record<IngestionStatus, React.ReactNode> = {
+const statusIcon: Partial<Record<IngestionStatus, React.ReactNode>> = {
   completed: <CheckCircle2 className="h-4 w-4 text-success" />,
   processing: <Loader2 className="h-4 w-4 text-warning animate-spin" />,
   pending: <Clock className="h-4 w-4 text-muted-foreground" />,
@@ -35,12 +44,35 @@ const fileTypeIcon: Record<string, string> = {
   PDF: '📄', DOCX: '📝', XLSX: '📊', CSV: '📋', TXT: '📃', MD: '📑',
 };
 
+const defaultDataSourceForm = {
+  name: '',
+  type: 'manual' as KnowledgeDataSourcePayload['type'],
+  uri: '',
+};
+
+function mimeTypeFromName(name: string) {
+  const extension = name.split('.').pop()?.toLowerCase();
+  if (extension === 'pdf') return 'application/pdf';
+  if (extension === 'docx') return 'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
+  if (extension === 'xlsx') return 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
+  if (extension === 'csv') return 'text/csv';
+  if (extension === 'md') return 'text/markdown';
+  return 'text/plain';
+}
+
 export default function KnowledgeDetailPage() {
   const knowledgeQuery = useKnowledgeBases();
   const mockKnowledgeBases = knowledgeQuery.data ?? [];
-  const { data: mockDocuments = [] } = useKnowledgeDocuments();
-  const { data: mockAssistants = [] } = useAssistants();
   const { id } = useParams<{ id: string }>();
+  const documentsQuery = useKnowledgeDocuments(id);
+  const { data: mockDocuments = [] } = documentsQuery;
+  const dataSourcesQuery = useKnowledgeDataSources(id);
+  const { data: dataSources = [] } = dataSourcesQuery;
+  const { data: mockAssistants = [] } = useAssistants();
+  const createDocumentMutation = useCreateKnowledgeDocumentMutation();
+  const requestIngestionMutation = useRequestKnowledgeIngestionMutation();
+  const archiveDocumentMutation = useArchiveKnowledgeDocumentMutation();
+  const createDataSourceMutation = useCreateKnowledgeDataSourceMutation();
   const navigate = useNavigate();
   const kb = mockKnowledgeBases.find(k => k.id === id);
 
@@ -50,11 +82,12 @@ export default function KnowledgeDetailPage() {
   }, [mockDocuments, id]);
   const [docSearch, setDocSearch] = useState('');
   const [uploadOpen, setUploadOpen] = useState(false);
+  const [dataSourceOpen, setDataSourceOpen] = useState(false);
   const [deleteDocOpen, setDeleteDocOpen] = useState(false);
   const [selectedDoc, setSelectedDoc] = useState<KnowledgeDocument | null>(null);
+  const [dataSourceForm, setDataSourceForm] = useState(defaultDataSourceForm);
 
-  // Upload form
-  const [uploadFiles, setUploadFiles] = useState<string[]>([]);
+  // Documento catalog form. Esta fase registra metadados, não arquivos binários.
   const [uploadFileName, setUploadFileName] = useState('');
 
   const linkedAssistants = useMemo(() => {
@@ -89,47 +122,76 @@ export default function KnowledgeDetailPage() {
     );
   }
 
-  const handleUpload = () => {
-    const newDoc: KnowledgeDocument = {
-      id: `d-${Date.now()}`,
-      knowledgeBaseId: kb.id,
-      name: uploadFileName || 'Novo Documento.pdf',
-      type: uploadFileName.split('.').pop()?.toUpperCase() || 'PDF',
-      size: '5 MB',
-      status: 'pending',
-      chunks: 0,
-      version: '1.0',
-      uploadedBy: 'Usuário Atual',
-      uploadedAt: new Date().toISOString().split('T')[0],
-      lastProcessed: '',
+  const handleUpload = async () => {
+    const title = uploadFileName.trim() || 'Documento catalogado.txt';
+    const payload: KnowledgeDocumentPayload = {
+      title,
+      sourceType: 'manual',
+      sourceUri: `catalog://${kb.id}/${encodeURIComponent(title)}`,
+      mimeType: mimeTypeFromName(title),
+      dataClassification: kb.dataClassification ?? 'internal',
+      metadata: {
+        size: '0 MB',
+        version: '1.0',
+        phase: 'catalog_placeholder',
+      },
     };
-    setDocuments(prev => [newDoc, ...prev]);
-    setUploadOpen(false);
-    setUploadFileName('');
-    toast({ title: 'Documento enviado', description: `"${newDoc.name}" está na fila de processamento.` });
-    // Simulate processing
-    setTimeout(() => {
-      setDocuments(prev => prev.map(d => d.id === newDoc.id ? { ...d, status: 'processing' as IngestionStatus } : d));
-      setTimeout(() => {
-        setDocuments(prev => prev.map(d => d.id === newDoc.id ? { ...d, status: 'completed' as IngestionStatus, chunks: 124, lastProcessed: new Date().toISOString() } : d));
-      }, 3000);
-    }, 1000);
+
+    try {
+      const newDoc = await createDocumentMutation.mutateAsync({ knowledgeBaseId: kb.id, payload });
+      setDocuments(prev => [newDoc, ...prev.filter(doc => doc.id !== newDoc.id)]);
+      const ingestion = await requestIngestionMutation.mutateAsync({ documentId: newDoc.id, knowledgeBaseId: kb.id });
+      setDocuments(prev => prev.map(doc => doc.id === newDoc.id ? ingestion.document : doc));
+      setUploadOpen(false);
+      setUploadFileName('');
+      toast({ title: 'Documento catalogado', description: `"${newDoc.name}" recebeu ingestão placeholder.` });
+    } catch (error) {
+      toast({ title: 'Erro ao catalogar documento', description: error instanceof Error ? error.message : 'Tente novamente em instantes.', variant: 'destructive' });
+    }
   };
 
-  const handleDeleteDoc = () => {
+  const handleDeleteDoc = async () => {
     if (!selectedDoc) return;
-    setDocuments(prev => prev.filter(d => d.id !== selectedDoc.id));
-    setDeleteDocOpen(false);
-    toast({ title: 'Documento removido', description: `"${selectedDoc.name}" foi excluído.`, variant: 'destructive' });
-    setSelectedDoc(null);
+    try {
+      await archiveDocumentMutation.mutateAsync({ documentId: selectedDoc.id, knowledgeBaseId: kb.id });
+      setDocuments(prev => prev.filter(d => d.id !== selectedDoc.id));
+      setDeleteDocOpen(false);
+      toast({ title: 'Documento arquivado', description: `"${selectedDoc.name}" foi arquivado.` });
+      setSelectedDoc(null);
+    } catch (error) {
+      toast({ title: 'Erro ao arquivar documento', description: error instanceof Error ? error.message : 'Tente novamente em instantes.', variant: 'destructive' });
+    }
   };
 
-  const handleReprocessDoc = (doc: KnowledgeDocument) => {
-    setDocuments(prev => prev.map(d => d.id === doc.id ? { ...d, status: 'processing' as IngestionStatus } : d));
-    toast({ title: 'Reprocessando', description: `"${doc.name}" está sendo reprocessado.` });
-    setTimeout(() => {
-      setDocuments(prev => prev.map(d => d.id === doc.id ? { ...d, status: 'completed' as IngestionStatus, lastProcessed: new Date().toISOString() } : d));
-    }, 3000);
+  const handleReprocessDoc = async (doc: KnowledgeDocument) => {
+    try {
+      const ingestion = await requestIngestionMutation.mutateAsync({ documentId: doc.id, knowledgeBaseId: kb.id });
+      setDocuments(prev => prev.map(item => item.id === doc.id ? ingestion.document : item));
+      toast({ title: 'Ingestão placeholder registrada', description: `"${doc.name}" foi marcado como processado nesta fase.` });
+    } catch (error) {
+      toast({ title: 'Erro ao solicitar ingestão', description: error instanceof Error ? error.message : 'Tente novamente em instantes.', variant: 'destructive' });
+    }
+  };
+
+  const handleCreateDataSource = async () => {
+    const payload: KnowledgeDataSourcePayload = {
+      name: dataSourceForm.name.trim(),
+      type: dataSourceForm.type,
+      config: {
+        uri: dataSourceForm.uri.trim() || undefined,
+        phase: 'catalog_placeholder',
+      },
+      status: 'active',
+    };
+
+    try {
+      await createDataSourceMutation.mutateAsync({ knowledgeBaseId: kb.id, payload });
+      setDataSourceOpen(false);
+      setDataSourceForm(defaultDataSourceForm);
+      toast({ title: 'Data source catalogado', description: `"${payload.name}" foi registrado sem execução de conector real.` });
+    } catch (error) {
+      toast({ title: 'Erro ao catalogar data source', description: error instanceof Error ? error.message : 'Tente novamente em instantes.', variant: 'destructive' });
+    }
   };
 
   const classificationColors: Record<string, string> = {
@@ -165,12 +227,12 @@ export default function KnowledgeDetailPage() {
             </div>
             <div className="flex gap-2">
               <Button variant="outline" size="sm" onClick={() => {
-                toast({ title: 'Re-indexação iniciada', description: `Todos os documentos de "${kb.name}" estão sendo reprocessados.` });
+                toast({ title: 'Ingestão placeholder', description: `Solicite o placeholder em cada documento de "${kb.name}".` });
               }}>
-                <RefreshCw className="h-4 w-4 mr-1" />Re-indexar
+                <RefreshCw className="h-4 w-4 mr-1" />Ingestão
               </Button>
               <Button size="sm" onClick={() => setUploadOpen(true)}>
-                <Upload className="h-4 w-4 mr-1" />Upload
+                <Upload className="h-4 w-4 mr-1" />Registrar documento
               </Button>
             </div>
           </div>
@@ -204,7 +266,7 @@ export default function KnowledgeDetailPage() {
               <span className="text-sm font-medium">{docStats.processing} documento{docStats.processing > 1 ? 's' : ''} em processamento</span>
             </div>
             <Progress value={docStats.progress} className="h-2" />
-            <p className="text-xs text-muted-foreground mt-1">{docStats.progress}% dos documentos indexados</p>
+            <p className="text-xs text-muted-foreground mt-1">{docStats.progress}% dos documentos com ingestão placeholder</p>
           </div>
         )}
 
@@ -212,6 +274,7 @@ export default function KnowledgeDetailPage() {
         <Tabs defaultValue="documents" className="space-y-4">
           <TabsList>
             <TabsTrigger value="documents">Documentos ({docStats.total})</TabsTrigger>
+            <TabsTrigger value="data-sources">Data Sources ({dataSources.length})</TabsTrigger>
             <TabsTrigger value="assistants">Assistentes ({linkedAssistants.length})</TabsTrigger>
             <TabsTrigger value="settings">Configuração</TabsTrigger>
             <TabsTrigger value="audit">Atividade</TabsTrigger>
@@ -225,12 +288,12 @@ export default function KnowledgeDetailPage() {
                 <input type="text" value={docSearch} onChange={e => setDocSearch(e.target.value)} placeholder="Buscar documentos..." className="bg-transparent text-sm outline-none w-full" />
               </div>
               <Button size="sm" onClick={() => setUploadOpen(true)}>
-                <FileUp className="h-4 w-4 mr-1" />Upload
+                <FileUp className="h-4 w-4 mr-1" />Registrar
               </Button>
             </div>
 
             {filteredDocs.length === 0 ? (
-              <EmptyState icon={<FileText className="h-6 w-6" />} title="Nenhum documento" description="Faça upload de documentos para alimentar esta base de conhecimento." action={<Button onClick={() => setUploadOpen(true)}><Upload className="h-4 w-4 mr-1" />Upload</Button>} />
+              <EmptyState icon={<FileText className="h-6 w-6" />} title="Nenhum documento" description="Cadastre documentos estruturais para esta base de conhecimento." action={<Button onClick={() => setUploadOpen(true)}><Upload className="h-4 w-4 mr-1" />Registrar</Button>} />
             ) : (
               <div className="rounded-lg border">
                 <Table>
@@ -260,7 +323,7 @@ export default function KnowledgeDetailPage() {
                         <TableCell className="text-xs">{doc.size}</TableCell>
                         <TableCell>
                           <div className="flex items-center gap-1.5">
-                            {statusIcon[doc.status]}
+                            {statusIcon[doc.status] ?? <Clock className="h-4 w-4 text-muted-foreground" />}
                             <StatusBadge status={doc.status} />
                           </div>
                         </TableCell>
@@ -275,14 +338,55 @@ export default function KnowledgeDetailPage() {
                             </DropdownMenuTrigger>
                             <DropdownMenuContent align="end">
                               <DropdownMenuItem><Download className="h-4 w-4 mr-2" />Download</DropdownMenuItem>
-                              <DropdownMenuItem onClick={() => handleReprocessDoc(doc)}><RefreshCw className="h-4 w-4 mr-2" />Reprocessar</DropdownMenuItem>
+                              <DropdownMenuItem onClick={() => { void handleReprocessDoc(doc); }}><RefreshCw className="h-4 w-4 mr-2" />Ingestão placeholder</DropdownMenuItem>
                               <DropdownMenuSeparator />
                               <DropdownMenuItem onClick={() => { setSelectedDoc(doc); setDeleteDocOpen(true); }} className="text-destructive">
-                                <Trash2 className="h-4 w-4 mr-2" />Excluir
+                                <Trash2 className="h-4 w-4 mr-2" />Arquivar
                               </DropdownMenuItem>
                             </DropdownMenuContent>
                           </DropdownMenu>
                         </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </div>
+            )}
+          </TabsContent>
+
+          {/* Data Sources Tab */}
+          <TabsContent value="data-sources" className="space-y-4">
+            <div className="flex justify-end">
+              <Button size="sm" onClick={() => setDataSourceOpen(true)}>
+                <Plus className="h-4 w-4 mr-1" />Novo data source
+              </Button>
+            </div>
+            {dataSources.length === 0 ? (
+              <EmptyState icon={<Link2 className="h-6 w-6" />} title="Nenhum data source" description="Cadastre referências estruturais para futuras rotinas de ingestão." action={<Button variant="outline" onClick={() => setDataSourceOpen(true)}><Plus className="h-4 w-4 mr-1" />Novo data source</Button>} />
+            ) : (
+              <div className="rounded-lg border">
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Nome</TableHead>
+                      <TableHead>Tipo</TableHead>
+                      <TableHead>Status</TableHead>
+                      <TableHead>Configuração</TableHead>
+                      <TableHead>Criado em</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {dataSources.map(source => (
+                      <TableRow key={source.id}>
+                        <TableCell className="font-medium">{source.name}</TableCell>
+                        <TableCell><Badge variant="outline" className="text-[10px]">{source.type}</Badge></TableCell>
+                        <TableCell><StatusBadge status={source.status} /></TableCell>
+                        <TableCell>
+                          <code className="block max-w-[280px] truncate rounded bg-muted px-1.5 py-0.5 text-[10px]">
+                            {source.config ? JSON.stringify(source.config) : '—'}
+                          </code>
+                        </TableCell>
+                        <TableCell className="text-xs text-muted-foreground">{new Date(source.createdAt).toLocaleDateString('pt-BR')}</TableCell>
                       </TableRow>
                     ))}
                   </TableBody>
@@ -321,7 +425,7 @@ export default function KnowledgeDetailPage() {
           <TabsContent value="settings" className="space-y-4">
             <div className="grid gap-4 sm:grid-cols-2">
               <div className="rounded-lg border bg-card p-5 space-y-4">
-                <h3 className="font-semibold flex items-center gap-2"><Settings className="h-4 w-4" />Configuração de Indexação</h3>
+                <h3 className="font-semibold flex items-center gap-2"><Settings className="h-4 w-4" />Configuração de Catálogo</h3>
                 <div className="space-y-3">
                   <div className="flex justify-between text-sm"><span className="text-muted-foreground">Modelo de Embedding</span><span className="font-medium">{kb.embeddingModel}</span></div>
                   <div className="flex justify-between text-sm"><span className="text-muted-foreground">Chunk Size</span><span className="font-medium">{kb.chunkSize} tokens</span></div>
@@ -370,18 +474,18 @@ export default function KnowledgeDetailPage() {
         </Tabs>
       </div>
 
-      {/* Upload Dialog */}
+      {/* Document Dialog */}
       <Dialog open={uploadOpen} onOpenChange={setUploadOpen}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>Upload de Documento</DialogTitle>
-            <DialogDescription>Adicione documentos à base "{kb.name}" para indexação e RAG.</DialogDescription>
+            <DialogTitle>Registrar Documento</DialogTitle>
+            <DialogDescription>Cadastre metadados do documento em "{kb.name}". Nenhum arquivo binário é enviado nesta fase.</DialogDescription>
           </DialogHeader>
           <div className="space-y-4">
             <div className="border-2 border-dashed rounded-lg p-8 text-center hover:border-primary/50 transition-colors cursor-pointer" onClick={() => setUploadFileName('Documento_' + Date.now() + '.pdf')}>
               <Upload className="h-8 w-8 mx-auto text-muted-foreground mb-2" />
-              <p className="text-sm font-medium">Arraste arquivos aqui ou clique para selecionar</p>
-              <p className="text-xs text-muted-foreground mt-1">PDF, DOCX, XLSX, CSV, TXT, MD — Máximo 50 MB</p>
+              <p className="text-sm font-medium">Clique para preencher um nome de referência</p>
+              <p className="text-xs text-muted-foreground mt-1">PDF, DOCX, XLSX, CSV, TXT, MD como metadado catalogado</p>
             </div>
             {uploadFileName && (
               <div className="flex items-center gap-2 p-2 rounded-lg bg-muted/50">
@@ -392,12 +496,52 @@ export default function KnowledgeDetailPage() {
             )}
             <div className="space-y-2">
               <Label>Nome do documento (opcional)</Label>
-              <Input value={uploadFileName} onChange={e => setUploadFileName(e.target.value)} placeholder="Nome será extraído do arquivo" />
+              <Input value={uploadFileName} onChange={e => setUploadFileName(e.target.value)} placeholder="Ex: manual-operacional.pdf" />
             </div>
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setUploadOpen(false)}>Cancelar</Button>
-            <Button onClick={handleUpload} disabled={!uploadFileName}><Upload className="h-4 w-4 mr-1" />Enviar</Button>
+            <Button onClick={() => { void handleUpload(); }} disabled={!uploadFileName || createDocumentMutation.isPending || requestIngestionMutation.isPending}><Upload className="h-4 w-4 mr-1" />Registrar</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Data Source Dialog */}
+      <Dialog open={dataSourceOpen} onOpenChange={setDataSourceOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Novo Data Source</DialogTitle>
+            <DialogDescription>Cadastre uma referência governada. Nenhum conector real será executado nesta fase.</DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div className="space-y-2">
+              <Label>Nome</Label>
+              <Input value={dataSourceForm.name} onChange={event => setDataSourceForm(prev => ({ ...prev, name: event.target.value }))} placeholder="Ex: Manual interno RH" />
+            </div>
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <Label>Tipo</Label>
+                <Select value={dataSourceForm.type} onValueChange={value => setDataSourceForm(prev => ({ ...prev, type: value as KnowledgeDataSourcePayload['type'] }))}>
+                  <SelectTrigger><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="manual">Manual</SelectItem>
+                    <SelectItem value="url">URL</SelectItem>
+                    <SelectItem value="connector">Connector</SelectItem>
+                    <SelectItem value="api">API</SelectItem>
+                    <SelectItem value="storage">Storage</SelectItem>
+                    <SelectItem value="other">Outro</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-2">
+                <Label>URI/Referência</Label>
+                <Input value={dataSourceForm.uri} onChange={event => setDataSourceForm(prev => ({ ...prev, uri: event.target.value }))} placeholder="catalog://source" />
+              </div>
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setDataSourceOpen(false)}>Cancelar</Button>
+            <Button onClick={() => { void handleCreateDataSource(); }} disabled={!dataSourceForm.name || createDataSourceMutation.isPending}>Cadastrar</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
@@ -406,14 +550,14 @@ export default function KnowledgeDetailPage() {
       <Dialog open={deleteDocOpen} onOpenChange={setDeleteDocOpen}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>Excluir Documento</DialogTitle>
+            <DialogTitle>Arquivar Documento</DialogTitle>
             <DialogDescription>
-              Tem certeza que deseja excluir "{selectedDoc?.name}"? Os chunks associados serão removidos do índice.
+              Tem certeza que deseja arquivar "{selectedDoc?.name}"? O histórico de ingestão placeholder será preservado.
             </DialogDescription>
           </DialogHeader>
           <DialogFooter>
             <Button variant="outline" onClick={() => setDeleteDocOpen(false)}>Cancelar</Button>
-            <Button variant="destructive" onClick={handleDeleteDoc}>Excluir</Button>
+            <Button variant="destructive" onClick={() => { void handleDeleteDoc(); }} disabled={archiveDocumentMutation.isPending}>Arquivar</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>

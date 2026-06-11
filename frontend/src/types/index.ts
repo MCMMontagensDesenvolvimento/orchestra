@@ -1,6 +1,6 @@
 export type AssistantStatus = 'draft' | 'testing' | 'pending_approval' | 'published' | 'archived';
-export type IngestionStatus = 'pending' | 'processing' | 'completed' | 'failed';
-export type McpServerStatus = 'active' | 'inactive' | 'error';
+export type IngestionStatus = 'pending' | 'processing' | 'completed' | 'failed' | 'active' | 'archived' | 'disabled' | 'queued' | 'running' | 'completed_placeholder' | 'indexed_placeholder' | 'cancelled';
+export type McpServerStatus = 'active' | 'inactive' | 'disabled' | 'archived' | 'error';
 export type RiskLevel = 'low' | 'medium' | 'high' | 'critical';
 export type FeedbackType = 'positive' | 'negative' | 'neutral';
 export type AssistantTestStatus = 'passed' | 'failed' | 'needs_review';
@@ -216,6 +216,8 @@ export type ConnectorType = 'upload' | 'sharepoint' | 'confluence' | 'google_dri
 
 export interface KnowledgeBase {
   id: string;
+  tenantId?: string;
+  workspaceId?: string;
   name: string;
   description: string;
   documentCount: number;
@@ -232,27 +234,111 @@ export interface KnowledgeBase {
   retention: RetentionPeriod;
   owner: string;
   createdAt: string;
+  updatedAt?: string;
+  deletedAt?: string | null;
+  visibility?: 'private' | 'workspace' | 'tenant';
+  dataClassification?: 'public' | 'internal' | 'sensitive' | 'pii' | 'confidential';
+  bindingCount?: number;
+  dataSourceCount?: number;
+  ingestionJobCount?: number;
+  policy?: KnowledgePolicy | null;
+  metadata?: unknown;
 }
 
 export interface KnowledgeDocument {
   id: string;
+  tenantId?: string;
+  workspaceId?: string;
   knowledgeBaseId: string;
   name: string;
+  title?: string;
+  description?: string | null;
   type: string;
+  sourceType?: string;
+  sourceUri?: string | null;
+  mimeType?: string | null;
   size: string;
   status: IngestionStatus;
+  ingestionStatus?: IngestionStatus | string;
+  ingestionErrorCode?: string | null;
+  ingestionErrorMessage?: string | null;
+  dataClassification?: string;
+  metadata?: unknown;
   chunks: number;
   version: string;
   uploadedBy: string;
   uploadedAt: string;
   lastProcessed: string;
+  updatedAt?: string;
+  deletedAt?: string | null;
+}
+
+export interface KnowledgePolicy {
+  id: string;
+  knowledgeBaseId: string;
+  allowRuntimeRetrieval: boolean;
+  allowCitationOnly: boolean;
+  requireApprovalForExternal: boolean;
+  metadata?: unknown;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface KnowledgeDataSource {
+  id: string;
+  tenantId?: string;
+  workspaceId?: string;
+  knowledgeBaseId: string;
+  name: string;
+  type: string;
+  config?: unknown;
+  status: 'active' | 'disabled' | 'archived';
+  createdById?: string | null;
+  createdAt: string;
+  updatedAt: string;
+  deletedAt?: string | null;
+}
+
+export interface KnowledgeIngestionJob {
+  id: string;
+  tenantId?: string;
+  workspaceId?: string;
+  knowledgeBaseId: string;
+  documentId?: string | null;
+  status: IngestionStatus | string;
+  startedAt?: string | null;
+  completedAt?: string | null;
+  errorCode?: string | null;
+  errorMessage?: string | null;
+  metadata?: unknown;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface AssistantKnowledgeBinding {
+  id: string;
+  tenantId?: string;
+  workspaceId?: string;
+  assistantId: string;
+  knowledgeBaseId: string;
+  isEnabled: boolean;
+  retrievalMode: 'disabled' | 'citation_only' | 'retrieval_placeholder';
+  priority: number;
+  createdById?: string | null;
+  knowledgeBase?: KnowledgeBase;
+  createdAt: string;
+  updatedAt: string;
 }
 
 export interface McpServer {
   id: string;
+  tenantId?: string;
+  workspaceId?: string;
   name: string;
   description: string;
   status: McpServerStatus;
+  serverType?: 'internal' | 'external' | 'local' | 'remote';
+  trustLevel?: 'trusted' | 'restricted' | 'experimental';
   authType: string;
   riskLevel: RiskLevel;
   toolCount: number;
@@ -263,36 +349,74 @@ export interface McpServer {
   url: string;
   owner: string;
   createdAt: string;
+  updatedAt?: string;
+  deletedAt?: string | null;
   version: string;
+  secretRef?: string | null;
+  metadata?: unknown;
 }
 
 export interface McpTool {
   id: string;
   serverId: string;
+  mcpServerId?: string;
+  tenantId?: string;
+  workspaceId?: string;
   name: string;
   description: string;
   riskLevel: RiskLevel;
   requiresApproval: boolean;
+  isEnabled?: boolean;
   executionCount: number;
   inputSchema?: string;
+  outputSchema?: string;
   lastExecuted?: string;
+  metadata?: unknown;
+  createdAt?: string;
+  updatedAt?: string;
+  deletedAt?: string | null;
+  policy?: McpToolPolicy | null;
+}
+
+export interface McpToolPolicy {
+  id: string;
+  mcpServerId: string;
+  mcpToolId?: string | null;
+  allowRuntimeExecution: boolean;
+  sandboxOnly: boolean;
+  requiresApproval: boolean;
+  blockedByDefault: boolean;
+  metadata?: unknown;
+  createdAt: string;
+  updatedAt: string;
 }
 
 export interface McpResource {
   id: string;
   serverId: string;
+  mcpServerId?: string;
   name: string;
   uri: string;
   description: string;
   mimeType: string;
+  metadata?: unknown;
+  createdAt?: string;
+  updatedAt?: string;
+  deletedAt?: string | null;
 }
 
 export interface McpPrompt {
   id: string;
   serverId: string;
+  mcpServerId?: string;
   name: string;
   description: string;
   arguments: string[];
+  template?: string | null;
+  metadata?: unknown;
+  createdAt?: string;
+  updatedAt?: string;
+  deletedAt?: string | null;
 }
 
 export interface McpBinding {
@@ -304,6 +428,22 @@ export interface McpBinding {
   resourcesEnabled: string[];
   createdAt: string;
   approvalPolicy: 'none' | 'manual' | 'auto';
+  mcpServerId?: string;
+  mcpToolId?: string | null;
+  isEnabled?: boolean;
+  mode?: 'disabled' | 'sandbox_only' | 'enabled_placeholder';
+  requiresApprovalOverride?: boolean | null;
+  server?: McpServer;
+  tool?: McpTool;
+  updatedAt?: string;
+}
+
+export interface AssistantMcpBindingPayload {
+  mcpServerId: string;
+  mcpToolId?: string | null;
+  isEnabled?: boolean;
+  mode?: 'disabled' | 'sandbox_only' | 'enabled_placeholder';
+  requiresApprovalOverride?: boolean | null;
 }
 
 export interface ToolExecutionLog {

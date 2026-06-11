@@ -2,6 +2,23 @@
 
 Status: validado localmente em 2026-06-10.
 
+Atualizacao Fase 06: revalidado localmente em 2026-06-11 com `docker-compose.dev.yml`, migration `20260611160000_phase06_knowledge_mcp_catalog`, seed, backend/frontend em API mode e `scripts/smoke-local.sh`.
+
+Escopo adicional validado:
+
+- Knowledge Base create/list/detail.
+- Knowledge document create/list.
+- Knowledge ingestion placeholder retornando `201`.
+- Knowledge data source create/list.
+- Assistant Knowledge binding create/list.
+- MCP server create/list/detail.
+- MCP tool create/list.
+- Assistant MCP binding create/list.
+- Erros estruturados `404` para Knowledge e MCP.
+- Guard `422` contra secrets em metadata MCP.
+
+Resultado Fase 06: smoke local concluido com sucesso. RAG real, embeddings, vector store, MCP execution e providers reais continuam fora do escopo.
+
 Este documento registra a validacao operacional local da fundacao backend criada na Fase 04. A validacao usou PostgreSQL real em container, backend real em container, migrations Prisma, seed, healthchecks e chamadas HTTP contra `localhost:3000`.
 
 ## Objetivo

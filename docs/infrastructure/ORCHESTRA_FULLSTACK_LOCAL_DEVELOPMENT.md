@@ -1,6 +1,6 @@
 # Orchestra Fullstack Local Development
 
-Status: operacional para desenvolvimento local fullstack ate a Fase 05F.
+Status: operacional para desenvolvimento local fullstack ate a Fase 06.
 
 ## Objetivo
 
@@ -138,10 +138,11 @@ O smoke valida:
 - tenants, workspaces, users, roles, permissions, assistants e audit logs;
 - criacao, leitura, update, workflow de approval, publish, precheck, feedback e test result de assistant;
 - criacao e leitura de agent runs em modo sandbox e bloqueado, sem provider externo;
+- catalogo Knowledge/RAG/MCP: Knowledge Base, documento, ingestion placeholder, data source, MCP server, MCP tool e bindings com assistant;
 - erro `404` estruturado;
 - erro `422` estruturado.
 
-O smoke cria registros locais com nome `Smoke Assistant`, versions, approvals, agent runs e audit logs. Em bancos reaproveitados, a lista de assistants pode acumular registros de execucoes anteriores.
+O smoke cria registros locais com nome `Smoke Assistant`, `Smoke Knowledge Base`, `Smoke MCP Server`, versions, approvals, agent runs e audit logs. Em bancos reaproveitados, listas podem acumular registros de execucoes anteriores.
 
 ## Navegacao Manual
 
@@ -154,8 +155,10 @@ Fluxo recomendado:
 5. Abrir um assistant existente.
 6. Validar a aba `Governanca`.
 7. Validar a aba `Execucoes`.
-8. Executar acoes basicas ja disponiveis de assistants e governanca em API mode.
-9. Verificar o console do navegador. Na Fase 05F nao foram observados erros; apenas warnings conhecidos de future flags do React Router v7.
+8. Acessar `/app/knowledge` e validar catalogo, detalhe, documentos e data sources.
+9. Acessar `/app/mcp` e validar servidores, detalhe e tools catalogadas.
+10. Voltar ao detalhe de um assistant e validar abas `Conhecimento` e `Ferramentas`.
+11. Verificar o console do navegador. Warnings conhecidos de future flags do React Router v7 podem aparecer.
 
 ## Alternar Mock E API Real
 

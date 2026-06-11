@@ -218,6 +218,36 @@ A Fase 05 prioriza o control plane fundacional. Runtime de IA, RAG, MCP, provide
 
 Status: decidida.
 
+## DEC-KNOWLEDGE-001 - Knowledge/RAG como catalogo governado antes de runtime
+
+A Fase 06 implementa Knowledge Bases, documentos, data sources, policies, ingestion jobs placeholder e bindings com assistants como estrutura governada. RAG real, embeddings, chunking real e vector store permanecem fora do escopo.
+
+Status: decidida.
+
+## DEC-MCP-001 - MCP como catalogo bloqueado por padrao
+
+MCP servers, tools, resources, prompts, policies e assistant bindings sao persistidos como catalogo governado. A execucao MCP real nao existe nesta fase. Tools nascem com `allowRuntimeExecution=false`, `sandboxOnly=true` e `blockedByDefault=true`.
+
+Status: decidida.
+
+## DEC-MCP-002 - Tools de alto risco exigem approval
+
+Tools MCP com risco `high` ou `critical` devem exigir approval e nao podem receber override que remova essa exigencia. Bindings MCP usam `sandbox_only` por padrao.
+
+Status: decidida.
+
+## DEC-SEC-001 - Catalogo rejeita secrets em JSON e templates
+
+Metadados, configs, schemas e templates de catalogo nao devem conter secrets, tokens, passwords, api keys, authorization headers ou equivalentes. A validacao Zod bloqueia essas chaves antes da persistencia.
+
+Status: decidida.
+
+## DEC-FE-API-002 - Knowledge/MCP preserva modo mock e usa API real por service
+
+O frontend da Fase 06 integra Knowledge/MCP em API mode por services e TanStack Query, mantendo fallback mock via `VITE_USE_MOCKS=true` e sem adicionar providers, runtime, upload binario ou execucao MCP.
+
+Status: decidida.
+
 ## DEC-SSO-001 - Microsoft SSO preparado como integracao backend-side futura
 
 As variaveis e a documentacao de Microsoft SSO foram preparadas para uma fase posterior. O client secret deve permanecer somente no backend ou em secret manager.

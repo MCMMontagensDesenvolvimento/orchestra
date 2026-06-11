@@ -16,7 +16,14 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { useMcpServers, useMcpTools, useMcpBindings } from '@/hooks/queries/useMcp';
+import {
+  useArchiveMcpServerMutation,
+  useCreateMcpServerMutation,
+  useMcpBindings,
+  useMcpServers,
+  useMcpTools,
+  useUpdateMcpServerMutation,
+} from '@/hooks/queries/useMcp';
 import { QueryState, ListLoading } from '@/components/shared/QueryState';
 import { useAssistants } from '@/hooks/queries/useAssistants';
 import {
@@ -25,6 +32,7 @@ import {
   Globe, Settings, Key, RotateCcw
 } from 'lucide-react';
 import type { McpServer, McpServerStatus, RiskLevel } from '@/types';
+import type { McpServerPayload } from '@/services/mcp.service';
 import { toast } from '@/hooks/use-toast';
 
 const riskColors: Record<RiskLevel, string> = {
@@ -53,14 +61,70 @@ interface ServerFormData {
 
 const defaultForm: ServerFormData = {
   name: '', description: '', url: '', authType: 'API Key', riskLevel: 'low',
-  version: '1.0.0', owner: '', status: 'inactive',
+  version: '1.0.0', owner: '', status: 'disabled',
   apiKey: '', rotateCredentials: false,
   healthCheckEnabled: true, healthCheckInterval: '60',
   toolApprovals: {}, selectedAssistants: [],
 };
 
+function mapAuthType(authType: string): McpServerPayload['authType'] {
+  if (authType === 'API Key') return 'api_key';
+  if (authType === 'api_key') return 'api_key';
+  if (authType === 'Bearer Token') return 'bearer';
+  if (authType === 'bearer') return 'bearer';
+  if (authType === 'OAuth 2.0') return 'oauth';
+  if (authType === 'oauth') return 'oauth';
+  if (authType === 'mTLS') return 'mTLS';
+  if (authType === 'none') return 'none';
+  return 'other';
+}
+
+function authTypeForForm(authType: string) {
+  if (authType === 'api_key') return 'API Key';
+  if (authType === 'bearer') return 'Bearer Token';
+  if (authType === 'oauth') return 'OAuth 2.0';
+  if (authType === 'mTLS') return 'mTLS';
+  if (authType === 'none') return 'none';
+  return authType || 'API Key';
+}
+
+function statusForForm(status: McpServerStatus): McpServerStatus {
+  if (status === 'inactive' || status === 'error') return 'disabled';
+  return status;
+}
+
+function mapServerStatus(status: McpServerStatus): McpServerPayload['status'] {
+  if (status === 'active') return 'active';
+  if (status === 'archived') return 'archived';
+  return 'disabled';
+}
+
+function buildServerPayload(formData: ServerFormData): McpServerPayload {
+  return {
+    name: formData.name.trim(),
+    description: formData.description.trim() || undefined,
+    baseUrl: formData.url.trim() || undefined,
+    status: mapServerStatus(formData.status),
+    serverType: 'remote',
+    trustLevel: formData.riskLevel === 'low' ? 'trusted' : formData.riskLevel === 'medium' ? 'restricted' : 'experimental',
+    riskLevel: formData.riskLevel,
+    authType: mapAuthType(formData.authType),
+    secretRef: formData.apiKey && !formData.apiKey.includes('•') ? 'vault://placeholder/mcp-secret' : undefined,
+    metadata: {
+      version: formData.version,
+      owner: formData.owner,
+      healthCheckEnabled: formData.healthCheckEnabled,
+      healthCheckInterval: formData.healthCheckInterval,
+      phase: 'catalog_placeholder',
+    },
+  };
+}
+
 export default function McpHubPage() {
   const serversQuery = useMcpServers();
+  const createMcpServerMutation = useCreateMcpServerMutation();
+  const updateMcpServerMutation = useUpdateMcpServerMutation();
+  const archiveMcpServerMutation = useArchiveMcpServerMutation();
   const mockMcpServers = useMemo(() => serversQuery.data ?? [], [serversQuery.data]);
   const { data: mockMcpTools = [] } = useMcpTools();
   const { data: mockMcpBindings = [] } = useMcpBindings();
@@ -103,53 +167,82 @@ export default function McpHubPage() {
     return mockMcpTools.filter(t => t.serverId === selected.id);
   }, [selected, mockMcpTools]);
 
-  const handleCreate = () => {
-    const newServer: McpServer = {
-      id: String(Date.now()), name: formData.name, description: formData.description, status: 'inactive',
-      authType: formData.authType, riskLevel: formData.riskLevel, toolCount: 0, resourceCount: 0, promptCount: 0,
-      bindings: 0, lastSync: '', url: formData.url, owner: formData.owner || 'Usuário Atual',
-      createdAt: new Date().toISOString().split('T')[0], version: formData.version || '1.0.0',
-    };
-    setServers(prev => [newServer, ...prev]);
-    setCreateOpen(false);
-    setFormData(defaultForm);
-    toast({ title: 'Servidor registrado', description: `"${newServer.name}" foi adicionado ao catálogo.` });
+  const handleCreate = async () => {
+    try {
+      const newServer = await createMcpServerMutation.mutateAsync(buildServerPayload(formData));
+      setServers(prev => [newServer, ...prev.filter(server => server.id !== newServer.id)]);
+      setCreateOpen(false);
+      setFormData(defaultForm);
+      toast({ title: 'Servidor registrado', description: `"${newServer.name}" foi adicionado ao catálogo.` });
+    } catch (error) {
+      toast({ title: 'Erro ao registrar servidor', description: error instanceof Error ? error.message : 'Tente novamente em instantes.', variant: 'destructive' });
+    }
   };
 
-  const handleEdit = () => {
+  const handleEdit = async () => {
     if (!selected) return;
-    setServers(prev => prev.map(s => s.id === selected.id ? {
-      ...s, name: formData.name, description: formData.description, url: formData.url,
-      authType: formData.authType, riskLevel: formData.riskLevel, version: formData.version,
-      owner: formData.owner, status: formData.status,
-    } : s));
-    setEditOpen(false);
-    toast({ title: 'Servidor atualizado', description: 'Todas as configurações foram salvas.' });
+    try {
+      const updated = await updateMcpServerMutation.mutateAsync({ id: selected.id, payload: buildServerPayload(formData) });
+      setServers(prev => prev.map(server => server.id === updated.id ? updated : server));
+      setEditOpen(false);
+      toast({ title: 'Servidor atualizado', description: 'Todas as configurações foram salvas.' });
+    } catch (error) {
+      toast({ title: 'Erro ao atualizar servidor', description: error instanceof Error ? error.message : 'Tente novamente em instantes.', variant: 'destructive' });
+    }
   };
 
-  const handleDelete = () => {
+  const handleDelete = async () => {
     if (!selected) return;
-    setServers(prev => prev.filter(s => s.id !== selected.id));
-    setDeleteOpen(false);
-    toast({ title: 'Servidor removido', description: `"${selected.name}" foi removido.`, variant: 'destructive' });
-    setSelected(null);
+    try {
+      await archiveMcpServerMutation.mutateAsync(selected.id);
+      setServers(prev => prev.filter(server => server.id !== selected.id));
+      setDeleteOpen(false);
+      toast({ title: 'Servidor arquivado', description: `"${selected.name}" foi arquivado.` });
+      setSelected(null);
+    } catch (error) {
+      toast({ title: 'Erro ao arquivar servidor', description: error instanceof Error ? error.message : 'Tente novamente em instantes.', variant: 'destructive' });
+    }
   };
 
-  const handleToggleStatus = (server: McpServer) => {
-    const newStatus: McpServerStatus = server.status === 'active' ? 'inactive' : 'active';
-    setServers(prev => prev.map(s => s.id === server.id ? { ...s, status: newStatus } : s));
-    toast({ title: newStatus === 'active' ? 'Servidor ativado' : 'Servidor desativado' });
+  const handleToggleStatus = async (server: McpServer) => {
+    const newStatus: McpServerStatus = server.status === 'active' ? 'disabled' : 'active';
+    try {
+      const updated = await updateMcpServerMutation.mutateAsync({ id: server.id, payload: { status: mapServerStatus(newStatus) } });
+      setServers(prev => prev.map(item => item.id === updated.id ? updated : item));
+      toast({ title: newStatus === 'active' ? 'Servidor ativado' : 'Servidor desativado' });
+    } catch (error) {
+      toast({ title: 'Erro ao alterar status', description: error instanceof Error ? error.message : 'Tente novamente em instantes.', variant: 'destructive' });
+    }
   };
 
   const handleSync = (server: McpServer) => {
     setServers(prev => prev.map(s => s.id === server.id ? { ...s, lastSync: new Date().toISOString() } : s));
-    toast({ title: 'Sincronização iniciada', description: `"${server.name}" está sendo sincronizado.` });
+    toast({ title: 'Sincronização placeholder', description: `"${server.name}" foi marcado para descoberta futura de tools/resources.` });
   };
 
-  const handleDuplicate = (server: McpServer) => {
-    const dup: McpServer = { ...server, id: String(Date.now()), name: `${server.name} (cópia)`, status: 'inactive', bindings: 0, createdAt: new Date().toISOString().split('T')[0] };
-    setServers(prev => [dup, ...prev]);
-    toast({ title: 'Servidor duplicado', description: `"${dup.name}" foi criado.` });
+  const handleDuplicate = async (server: McpServer) => {
+    try {
+      const duplicated = await createMcpServerMutation.mutateAsync({
+        name: `${server.name} (cópia)`,
+        description: server.description,
+        baseUrl: server.url,
+        status: 'disabled',
+        serverType: server.serverType ?? 'remote',
+        trustLevel: server.trustLevel ?? 'restricted',
+        riskLevel: server.riskLevel,
+        authType: mapAuthType(server.authType),
+        metadata: {
+          ...(typeof server.metadata === 'object' && server.metadata ? server.metadata : {}),
+          version: server.version,
+          owner: server.owner,
+          phase: 'catalog_placeholder',
+        },
+      });
+      setServers(prev => [duplicated, ...prev]);
+      toast({ title: 'Servidor duplicado', description: `"${duplicated.name}" foi criado.` });
+    } catch (error) {
+      toast({ title: 'Erro ao duplicar servidor', description: error instanceof Error ? error.message : 'Tente novamente em instantes.', variant: 'destructive' });
+    }
   };
 
   const handleRotateCredentials = () => {
@@ -157,7 +250,7 @@ export default function McpHubPage() {
   };
 
   const handleHealthCheck = () => {
-    toast({ title: 'Health check executado', description: `"${selected?.name}" respondeu com sucesso (200 OK, 45ms).` });
+    toast({ title: 'Health check placeholder', description: `"${selected?.name}" foi validado apenas na interface.` });
   };
 
   const openEdit = (s: McpServer) => {
@@ -165,8 +258,8 @@ export default function McpHubPage() {
     const sBindings = mockMcpBindings.filter(b => b.serverId === s.id);
     setSelected(s);
     setFormData({
-      name: s.name, description: s.description, url: s.url, authType: s.authType,
-      riskLevel: s.riskLevel, version: s.version, owner: s.owner, status: s.status,
+      name: s.name, description: s.description, url: s.url, authType: authTypeForForm(s.authType),
+      riskLevel: s.riskLevel, version: s.version, owner: s.owner, status: statusForForm(s.status),
       apiKey: '••••••••••••••••', rotateCredentials: false,
       healthCheckEnabled: true, healthCheckInterval: '60',
       toolApprovals: Object.fromEntries(sTools.map(t => [t.id, t.requiresApproval])),
@@ -238,8 +331,8 @@ export default function McpHubPage() {
             <SelectTrigger><SelectValue /></SelectTrigger>
             <SelectContent>
               <SelectItem value="active">Ativo</SelectItem>
-              <SelectItem value="inactive">Inativo</SelectItem>
-              <SelectItem value="error">Erro</SelectItem>
+              <SelectItem value="disabled">Desabilitado</SelectItem>
+              <SelectItem value="archived">Arquivado</SelectItem>
             </SelectContent>
           </Select>
         </div>
@@ -412,12 +505,12 @@ export default function McpHubPage() {
         <DropdownMenuItem onClick={() => navigate(`/app/mcp/${server.id}`)}><Eye className="h-4 w-4 mr-2" />Detalhes</DropdownMenuItem>
         <DropdownMenuItem onClick={() => openEdit(server)}><Pencil className="h-4 w-4 mr-2" />Editar</DropdownMenuItem>
         <DropdownMenuItem onClick={() => handleSync(server)}><RefreshCw className="h-4 w-4 mr-2" />Sincronizar</DropdownMenuItem>
-        <DropdownMenuItem onClick={() => handleToggleStatus(server)}>
+        <DropdownMenuItem onClick={() => { void handleToggleStatus(server); }}>
           {server.status === 'active' ? <><PowerOff className="h-4 w-4 mr-2" />Desativar</> : <><Power className="h-4 w-4 mr-2" />Ativar</>}
         </DropdownMenuItem>
-        <DropdownMenuItem onClick={() => handleDuplicate(server)}><Copy className="h-4 w-4 mr-2" />Duplicar</DropdownMenuItem>
+        <DropdownMenuItem onClick={() => { void handleDuplicate(server); }}><Copy className="h-4 w-4 mr-2" />Duplicar</DropdownMenuItem>
         <DropdownMenuSeparator />
-        <DropdownMenuItem onClick={() => openDelete(server)} className="text-destructive"><Trash2 className="h-4 w-4 mr-2" />Excluir</DropdownMenuItem>
+        <DropdownMenuItem onClick={() => openDelete(server)} className="text-destructive"><Trash2 className="h-4 w-4 mr-2" />Arquivar</DropdownMenuItem>
       </DropdownMenuContent>
     </DropdownMenu>
   );
@@ -469,7 +562,7 @@ export default function McpHubPage() {
           <div className="flex gap-3 p-3 rounded-lg border bg-muted/30">
             <div className="space-y-1"><Label className="text-xs">Status</Label>
               <Select value={filterStatus} onValueChange={setFilterStatus}><SelectTrigger className="h-8 w-[130px] text-xs"><SelectValue /></SelectTrigger>
-                <SelectContent><SelectItem value="all">Todos</SelectItem><SelectItem value="active">Ativo</SelectItem><SelectItem value="inactive">Inativo</SelectItem><SelectItem value="error">Erro</SelectItem></SelectContent>
+                <SelectContent><SelectItem value="all">Todos</SelectItem><SelectItem value="active">Ativo</SelectItem><SelectItem value="disabled">Desabilitado</SelectItem><SelectItem value="archived">Arquivado</SelectItem></SelectContent>
               </Select>
             </div>
             <div className="space-y-1"><Label className="text-xs">Risco</Label>
@@ -577,7 +670,7 @@ export default function McpHubPage() {
         <DialogContent className="max-w-lg">
           <DialogHeader><DialogTitle>Registrar Servidor MCP</DialogTitle><DialogDescription>Configure um novo servidor MCP para integração com assistentes.</DialogDescription></DialogHeader>
           <CreateFormFields />
-          <DialogFooter><Button variant="outline" onClick={() => setCreateOpen(false)}>Cancelar</Button><Button onClick={handleCreate} disabled={!formData.name || !formData.url}>Registrar</Button></DialogFooter>
+          <DialogFooter><Button variant="outline" onClick={() => setCreateOpen(false)}>Cancelar</Button><Button onClick={() => { void handleCreate(); }} disabled={!formData.name || createMcpServerMutation.isPending}>Registrar</Button></DialogFooter>
         </DialogContent>
       </Dialog>
 
@@ -593,7 +686,7 @@ export default function McpHubPage() {
           <EditFormFields />
           <DialogFooter>
             <Button variant="outline" onClick={() => setEditOpen(false)}>Cancelar</Button>
-            <Button onClick={handleEdit} disabled={!formData.name}>Salvar Alterações</Button>
+            <Button onClick={() => { void handleEdit(); }} disabled={!formData.name || updateMcpServerMutation.isPending}>Salvar Alterações</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
@@ -601,10 +694,10 @@ export default function McpHubPage() {
       {/* Delete Dialog */}
       <Dialog open={deleteOpen} onOpenChange={setDeleteOpen}>
         <DialogContent>
-          <DialogHeader><DialogTitle>Excluir Servidor MCP</DialogTitle>
-            <DialogDescription>Tem certeza que deseja excluir "{selected?.name}"? Todos os bindings e permissões associados serão removidos.</DialogDescription>
+          <DialogHeader><DialogTitle>Arquivar Servidor MCP</DialogTitle>
+            <DialogDescription>Tem certeza que deseja arquivar "{selected?.name}"? Bindings e políticas ficam preservados para auditoria.</DialogDescription>
           </DialogHeader>
-          <DialogFooter><Button variant="outline" onClick={() => setDeleteOpen(false)}>Cancelar</Button><Button variant="destructive" onClick={handleDelete}>Excluir</Button></DialogFooter>
+          <DialogFooter><Button variant="outline" onClick={() => setDeleteOpen(false)}>Cancelar</Button><Button variant="destructive" onClick={() => { void handleDelete(); }} disabled={archiveMcpServerMutation.isPending}>Arquivar</Button></DialogFooter>
         </DialogContent>
       </Dialog>
     </AppShell>

@@ -33,6 +33,9 @@ export const queryKeys = {
     list: () => [...queryKeys.knowledge.all, 'list'] as const,
     detail: (id: string) => [...queryKeys.knowledge.all, 'detail', id] as const,
     documents: (id?: string) => [...queryKeys.knowledge.all, 'documents', id ?? 'all'] as const,
+    dataSources: (id?: string) => [...queryKeys.knowledge.all, 'data-sources', id ?? 'all'] as const,
+    ingestion: (documentId: string) => [...queryKeys.knowledge.all, 'ingestion', documentId] as const,
+    assistantBindings: (assistantId: string) => [...queryKeys.knowledge.all, 'assistant-bindings', assistantId] as const,
   },
   mcp: {
     all: ['mcp'] as const,
@@ -42,6 +45,7 @@ export const queryKeys = {
     resources: (serverId?: string) => [...queryKeys.mcp.all, 'resources', serverId ?? 'all'] as const,
     prompts: (serverId?: string) => [...queryKeys.mcp.all, 'prompts', serverId ?? 'all'] as const,
     bindings: () => [...queryKeys.mcp.all, 'bindings'] as const,
+    assistantBindings: (assistantId: string) => [...queryKeys.mcp.all, 'assistant-bindings', assistantId] as const,
     executions: () => [...queryKeys.mcp.all, 'executions'] as const,
   },
   chat: {
