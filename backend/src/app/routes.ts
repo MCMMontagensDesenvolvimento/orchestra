@@ -16,6 +16,7 @@ import {
   createKnowledgeDocumentsRouter,
   createKnowledgeIngestionJobsRouter,
   createKnowledgeRouter,
+  createRagQueriesRouter,
 } from '../modules/knowledge/knowledge.routes';
 import { createMcpRouter } from '../modules/mcp/mcp.routes';
 
@@ -38,6 +39,7 @@ export function registerRoutes(app: express.Express, dependencies: AppDependenci
   api.use('/knowledge-ingestion-jobs', createKnowledgeIngestionJobsRouter());
   api.use('/knowledge-chunks', createKnowledgeChunksRouter());
   api.use('/knowledge-data-sources', createKnowledgeDataSourcesRouter());
+  api.use('/rag/queries', createRagQueriesRouter());
   api.use('/mcp', createMcpRouter());
   api.use('/audit-logs', createAuditRouter());
   api.use('/settings', createSettingsRouter());

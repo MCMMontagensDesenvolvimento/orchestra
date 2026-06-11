@@ -39,6 +39,8 @@ export const queryKeys = {
     sourceReferences: (documentId: string) => [...queryKeys.knowledge.all, 'source-references', documentId] as const,
     assistantBindings: (assistantId: string) => [...queryKeys.knowledge.all, 'assistant-bindings', assistantId] as const,
     ragReadiness: (assistantId: string) => [...queryKeys.knowledge.all, 'rag-readiness', assistantId] as const,
+    ragQueries: (assistantId: string) => [...queryKeys.knowledge.all, 'rag-queries', assistantId] as const,
+    ragQuery: (queryId: string) => [...queryKeys.knowledge.all, 'rag-query', queryId] as const,
   },
   mcp: {
     all: ['mcp'] as const,

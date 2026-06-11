@@ -1,6 +1,6 @@
 # API
 
-Status: operacional para a fundacao da Fase 04, contratos de core domain da Fase 05, governanca de assistants/agent runs das Fases 05B/05C/05E, catalogo Knowledge/MCP da Fase 06 e readiness local da Fase 06B.
+Status: operacional para a fundacao da Fase 04, contratos de core domain da Fase 05, governanca de assistants/agent runs das Fases 05B/05C/05E, catalogo Knowledge/MCP da Fase 06, readiness local da Fase 06B e RAG query local da Fase 06C.
 
 Esta pasta concentra contratos HTTP e convencoes de integracao do backend.
 
@@ -12,6 +12,7 @@ Esta pasta concentra contratos HTTP e convencoes de integracao do backend.
 - `ORCHESTRA_RUNTIME_EXECUTION_CONTRACTS.md`: contratos REST de AgentRun, eventos, precheck bloqueante e cancelamento.
 - `ORCHESTRA_KNOWLEDGE_MCP_CATALOG_API.md`: contratos REST de Knowledge Bases, documentos, ingestion placeholder, MCP catalog e assistant bindings.
 - `ORCHESTRA_RAG_READINESS_API_CONTRACTS.md`: contratos de chunks, source references, ingestion jobs, readiness e busca textual local.
+- `ORCHESTRA_RAG_QUERY_API_CONTRACTS.md`: contratos de query RAG local, citations, historico, detalhe e sources.
 
 ## Convencoes Atuais
 
@@ -26,5 +27,6 @@ Esta pasta concentra contratos HTTP e convencoes de integracao do backend.
 - Approval, execution policy e precheck ficam sob `/assistants/:id`.
 - Agent runs usam `/assistants/:id/runs` e `/agent-runs/:runId`.
 - Knowledge usa `/knowledge-bases`, `/knowledge-documents` e `/knowledge-data-sources`.
-- Chunks usam `/knowledge-chunks` e readiness usa `/assistants/:id/rag-readiness`.
+- Chunks usam `/knowledge-chunks`; readiness usa `/assistants/:id/rag/readiness` e a rota legada `/assistants/:id/rag-readiness`.
+- RAG query local usa `/assistants/:id/rag/query`, historico usa `/assistants/:id/rag/queries` e detalhes usam `/rag/queries/:queryId`.
 - MCP usa `/mcp/servers`, `/mcp/tools` e bindings sob `/assistants/:id`.

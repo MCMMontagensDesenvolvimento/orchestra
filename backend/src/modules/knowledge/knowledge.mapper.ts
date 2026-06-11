@@ -8,6 +8,8 @@ import type {
   KnowledgeIngestionJob,
   KnowledgePolicy,
   KnowledgeSourceReference,
+  RagQuery,
+  RagQueryResult,
 } from '@prisma/client';
 
 export function mapKnowledgePolicy(policy: KnowledgePolicy | null | undefined) {
@@ -204,5 +206,67 @@ export function mapAssistantKnowledgeBinding(
     knowledgeBase: binding.knowledgeBase ? mapKnowledgeBase(binding.knowledgeBase) : undefined,
     createdAt: binding.createdAt.toISOString(),
     updatedAt: binding.updatedAt.toISOString(),
+  };
+}
+
+export function mapRagQuerySource(
+  result: RagQueryResult & {
+    document?: Pick<KnowledgeDocument, 'id' | 'title' | 'sourceUri' | 'sourceType'>;
+    sourceReference?: Pick<KnowledgeSourceReference, 'id' | 'label' | 'sourceUri' | 'sectionTitle' | 'pageNumber'> | null;
+  },
+) {
+  return {
+    id: result.id,
+    rank: result.rank,
+    score: result.score,
+    knowledgeBaseId: result.knowledgeBaseId,
+    documentId: result.documentId,
+    chunkId: result.chunkId,
+    sourceReferenceId: result.sourceReferenceId,
+    citationLabel: result.citationLabel,
+    documentTitle: result.document?.title ?? null,
+    excerpt: result.excerpt,
+    sourceUri: result.sourceReference?.sourceUri ?? result.document?.sourceUri ?? null,
+    sourceType: result.document?.sourceType ?? null,
+    sectionTitle: result.sourceReference?.sectionTitle ?? null,
+    pageNumber: result.sourceReference?.pageNumber ?? null,
+    matchType: result.matchType,
+    metadata: result.metadata,
+    createdAt: result.createdAt.toISOString(),
+  };
+}
+
+export function mapRagQuery(
+  query: RagQuery & {
+    results?: Array<RagQueryResult & {
+      document?: Pick<KnowledgeDocument, 'id' | 'title' | 'sourceUri' | 'sourceType'>;
+      sourceReference?: Pick<KnowledgeSourceReference, 'id' | 'label' | 'sourceUri' | 'sectionTitle' | 'pageNumber'> | null;
+    }>;
+  },
+) {
+  return {
+    id: query.id,
+    queryId: query.id,
+    tenantId: query.tenantId,
+    workspaceId: query.workspaceId,
+    assistantId: query.assistantId,
+    assistantVersionId: query.assistantVersionId,
+    agentRunId: query.agentRunId,
+    query: query.queryText,
+    queryText: query.queryText,
+    normalizedQuery: query.normalizedQuery,
+    mode: query.mode,
+    status: query.status,
+    limit: query.limit,
+    resultCount: query.resultCount,
+    blockedReason: query.blockedReason,
+    errorCode: query.errorCode,
+    errorMessage: query.errorMessage,
+    requestId: query.requestId,
+    traceId: query.traceId,
+    createdById: query.createdById,
+    metadata: query.metadata,
+    sources: query.results?.map(mapRagQuerySource) ?? [],
+    createdAt: query.createdAt.toISOString(),
   };
 }

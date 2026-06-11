@@ -22,6 +22,9 @@ import {
   knowledgeIngestionJobParamsSchema,
   knowledgeIngestionRequestSchema,
   ragLocalSearchSchema,
+  ragQueriesQuerySchema,
+  ragQueryParamsSchema,
+  ragQueryRequestSchema,
 } from './knowledge.schema';
 
 export function createKnowledgeRouter() {
@@ -221,6 +224,25 @@ export function createKnowledgeDataSourcesRouter() {
   return router;
 }
 
+export function createRagQueriesRouter() {
+  const router = Router();
+
+  router.get('/:queryId', requireAuth, requirePermission('knowledge.read'), validateParams(ragQueryParamsSchema), (req, res, next) => {
+    void knowledgeController.getRagQuery(req, res).catch(next);
+  });
+  router.get(
+    '/:queryId/sources',
+    requireAuth,
+    requirePermission('knowledge.read'),
+    validateParams(ragQueryParamsSchema),
+    (req, res, next) => {
+      void knowledgeController.listRagQuerySources(req, res).catch(next);
+    },
+  );
+
+  return router;
+}
+
 export function registerAssistantKnowledgeBindingRoutes(router: Router) {
   router.get('/:id/knowledge-bindings', requireAuth, requirePermission('knowledge.read'), validateParams(idParamsSchema), (req, res, next) => {
     void knowledgeController.listBindings(req, res).catch(next);
@@ -257,6 +279,29 @@ export function registerAssistantKnowledgeBindingRoutes(router: Router) {
 }
 
 export function registerAssistantRagRoutes(router: Router) {
+  router.post(
+    '/:id/rag/query',
+    requireAuth,
+    requirePermission('knowledge.read'),
+    validateParams(idParamsSchema),
+    validateBody(ragQueryRequestSchema),
+    (req, res, next) => {
+      void knowledgeController.queryRag(req, res).catch(next);
+    },
+  );
+  router.get(
+    '/:id/rag/queries',
+    requireAuth,
+    requirePermission('knowledge.read'),
+    validateParams(idParamsSchema),
+    validateQuery(ragQueriesQuerySchema),
+    (req, res, next) => {
+      void knowledgeController.listRagQueries(req, res).catch(next);
+    },
+  );
+  router.get('/:id/rag/readiness', requireAuth, requirePermission('knowledge.read'), validateParams(idParamsSchema), (req, res, next) => {
+    void knowledgeController.getRagReadiness(req, res).catch(next);
+  });
   router.get('/:id/rag-readiness', requireAuth, requirePermission('knowledge.read'), validateParams(idParamsSchema), (req, res, next) => {
     void knowledgeController.getRagReadiness(req, res).catch(next);
   });

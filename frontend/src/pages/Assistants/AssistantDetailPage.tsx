@@ -38,7 +38,8 @@ import { useAssistantRuns, useCancelAgentRunMutation, useCreateAgentRunMutation 
 import { useCurrentSession } from '@/hooks/queries/useAuth';
 import {
   useAssistantKnowledgeBindings,
-  useAssistantRagLocalSearchMutation,
+  useAssistantRagQueries,
+  useAssistantRagQueryMutation,
   useAssistantRagReadiness,
   useCreateAssistantKnowledgeBindingMutation,
   useKnowledgeBases,
@@ -97,6 +98,7 @@ export default function AssistantDetailPage() {
   const { data: assistantRuns = [], isLoading: assistantRunsLoading, refetch: refetchAssistantRuns } = useAssistantRuns(id);
   const { data: assistantKnowledgeBindings = [] } = useAssistantKnowledgeBindings(id);
   const ragReadinessQuery = useAssistantRagReadiness(id);
+  const ragQueriesQuery = useAssistantRagQueries(id);
   const { data: assistantMcpBindings = [] } = useAssistantMcpBindings(id);
   const { data: session } = useCurrentSession();
   const publishMutation = usePublishAssistantMutation();
@@ -116,7 +118,7 @@ export default function AssistantDetailPage() {
   const cancelAgentRunMutation = useCancelAgentRunMutation();
   const createKnowledgeBindingMutation = useCreateAssistantKnowledgeBindingMutation();
   const removeKnowledgeBindingMutation = useRemoveAssistantKnowledgeBindingMutation();
-  const ragLocalSearchMutation = useAssistantRagLocalSearchMutation();
+  const ragQueryMutation = useAssistantRagQueryMutation();
   const createMcpBindingMutation = useCreateAssistantMcpBindingMutation();
   const removeMcpBindingMutation = useRemoveAssistantMcpBindingMutation();
   const navigate = useNavigate();
@@ -195,6 +197,9 @@ export default function AssistantDetailPage() {
   const pendingApprovals = approvals.filter(approval => approval.status === 'pending');
   const hasPermission = (permission: string) => session?.permissions.includes(permission) ?? false;
   const ragReadiness = ragReadinessQuery.data;
+  const ragHistory = ragQueriesQuery.data ?? [];
+  const ragBlockedReasons = ragReadiness?.blockedReasons ?? ragReadiness?.missingRequirements ?? [];
+  const ragReady = ragReadiness?.ready ?? ragReadiness?.canUseKnowledge ?? false;
 
   const handleBindKnowledgeBase = async () => {
     if (!selectedKnowledgeBaseId) return;
@@ -236,9 +241,16 @@ export default function AssistantDetailPage() {
       return;
     }
     try {
-      await ragLocalSearchMutation.mutateAsync({ assistantId: assistant.id, query: ragSearchQuery });
+      await ragQueryMutation.mutateAsync({
+        assistantId: assistant.id,
+        payload: {
+          query: ragSearchQuery,
+          limit: 5,
+          includeArchived: false,
+        },
+      });
     } catch (error) {
-      toast.error('Nao foi possivel executar busca local', {
+      toast.error('Nao foi possivel executar consulta local', {
         description: error instanceof Error ? error.message : 'Tente novamente em instantes.',
       });
     }
@@ -1088,7 +1100,7 @@ ${tools.map(t => `- ${t.name}: ${t.description}${t.requiresApproval ? ' [REQUER 
                   <h3 className="text-sm font-semibold flex items-center gap-2">
                     <BookOpen className="h-4 w-4 text-primary" />RAG Readiness
                   </h3>
-                  <p className="text-xs text-muted-foreground">Modo local_chunks_only. Embeddings e vector store desabilitados.</p>
+                  <p className="text-xs text-muted-foreground">Retrieval local por keyword, com fontes e citações persistidas.</p>
                 </div>
                 <Button variant="outline" size="sm" onClick={() => { void ragReadinessQuery.refetch(); }}>
                   <RefreshCw className="h-3.5 w-3.5 mr-1" />Checar readiness
@@ -1098,16 +1110,27 @@ ${tools.map(t => `- ${t.name}: ${t.description}${t.requiresApproval ? ' [REQUER 
                 <p className="text-sm text-muted-foreground">Carregando readiness...</p>
               ) : ragReadiness ? (
                 <div className="space-y-4">
-                  <div className="grid gap-3 sm:grid-cols-4">
-                    <div className="rounded-md border p-3"><p className="text-[10px] text-muted-foreground">Status</p><p className="text-sm font-semibold">{ragReadiness.canUseKnowledge ? 'ready' : 'not_ready'}</p></div>
-                    <div className="rounded-md border p-3"><p className="text-[10px] text-muted-foreground">Bases</p><p className="text-sm font-semibold">{ragReadiness.knowledgeBasesBound}</p></div>
-                    <div className="rounded-md border p-3"><p className="text-[10px] text-muted-foreground">Documentos</p><p className="text-sm font-semibold">{ragReadiness.documentsIngested}</p></div>
-                    <div className="rounded-md border p-3"><p className="text-[10px] text-muted-foreground">Chunks</p><p className="text-sm font-semibold">{ragReadiness.chunksAvailable}</p></div>
+                  <div className="grid gap-3 sm:grid-cols-5">
+                    <div className="rounded-md border p-3"><p className="text-[10px] text-muted-foreground">Status</p><p className="text-sm font-semibold">{ragReady ? 'ready' : 'blocked'}</p></div>
+                    <div className="rounded-md border p-3"><p className="text-[10px] text-muted-foreground">Bases</p><p className="text-sm font-semibold">{ragReadiness.knowledgeBaseCount ?? ragReadiness.knowledgeBasesBound}</p></div>
+                    <div className="rounded-md border p-3"><p className="text-[10px] text-muted-foreground">Documentos</p><p className="text-sm font-semibold">{ragReadiness.documentCount ?? ragReadiness.documentsIngested}</p></div>
+                    <div className="rounded-md border p-3"><p className="text-[10px] text-muted-foreground">Chunks</p><p className="text-sm font-semibold">{ragReadiness.chunkCount ?? ragReadiness.chunksAvailable}</p></div>
+                    <div className="rounded-md border p-3"><p className="text-[10px] text-muted-foreground">Sources</p><p className="text-sm font-semibold">{ragReadiness.sourceReferenceCount ?? 0}</p></div>
                   </div>
-                  {ragReadiness.missingRequirements.length > 0 && (
+                  {ragBlockedReasons.length > 0 && (
                     <div className="rounded-md border border-warning/30 bg-warning/5 p-3">
                       <p className="text-xs font-medium text-warning">Pendências</p>
-                      <p className="mt-1 text-xs text-muted-foreground">{ragReadiness.missingRequirements.join(', ')}</p>
+                      <p className="mt-1 text-xs text-muted-foreground">{ragBlockedReasons.join(', ')}</p>
+                    </div>
+                  )}
+                  {ragReadiness.warnings && ragReadiness.warnings.length > 0 && (
+                    <div className="rounded-md border p-3">
+                      <p className="text-xs font-medium">Avisos</p>
+                      <div className="mt-2 space-y-1">
+                        {ragReadiness.warnings.map(warning => (
+                          <p key={warning.code} className="text-xs text-muted-foreground">{warning.code}: {warning.message}</p>
+                        ))}
+                      </div>
                     </div>
                   )}
                   <div className="flex flex-col gap-2 sm:flex-row">
@@ -1116,30 +1139,83 @@ ${tools.map(t => `- ${t.name}: ${t.description}${t.requiresApproval ? ' [REQUER 
                       <input
                         value={ragSearchQuery}
                         onChange={event => setRagSearchQuery(event.target.value)}
-                        placeholder="Busca textual local em chunks autorizados"
+                        placeholder="Consulta local em chunks autorizados"
                         className="w-full bg-transparent text-sm outline-none"
                       />
                     </div>
-                    <Button onClick={() => { void handleRagLocalSearch(); }} disabled={!ragSearchQuery.trim() || ragLocalSearchMutation.isPending}>
-                      <Search className="h-3.5 w-3.5 mr-1" />Buscar
+                    <Button onClick={() => { void handleRagLocalSearch(); }} disabled={!ragSearchQuery.trim() || ragQueryMutation.isPending}>
+                      <Search className="h-3.5 w-3.5 mr-1" />Consultar
                     </Button>
                   </div>
-                  {ragLocalSearchMutation.data && (
+                  {ragQueryMutation.data && (
                     <div className="space-y-2">
-                      {ragLocalSearchMutation.data.results.length === 0 ? (
-                        <p className="text-sm text-muted-foreground">Nenhum chunk encontrado por keyword local.</p>
-                      ) : ragLocalSearchMutation.data.results.map(result => (
-                        <div key={result.chunkId} className="rounded-md border p-3">
-                          <div className="mb-1 flex flex-wrap items-center gap-2 text-xs">
-                            <Badge variant="outline">score {result.score}</Badge>
-                            <span className="font-mono text-muted-foreground">{result.chunkId.slice(0, 8)}</span>
-                            {result.source && <span className="text-muted-foreground">{result.source.label}</span>}
+                      <div className={`rounded-md border p-3 ${ragQueryMutation.data.status === 'blocked' ? 'border-warning/30 bg-warning/5' : ''}`}>
+                        <div className="flex flex-wrap items-center justify-between gap-2">
+                          <div className="flex flex-wrap items-center gap-2">
+                            <StatusBadge status={ragQueryMutation.data.status} />
+                            {ragQueryMutation.data.queryId && <span className="font-mono text-[10px] text-muted-foreground">{ragQueryMutation.data.queryId.slice(0, 8)}</span>}
                           </div>
-                          <p className="text-sm text-muted-foreground">{result.snippet}</p>
+                          <Badge variant="outline" className="text-[10px]">local_keyword</Badge>
+                        </div>
+                        {ragQueryMutation.data.message && <p className="mt-2 text-sm text-muted-foreground">{ragQueryMutation.data.message}</p>}
+                        {ragQueryMutation.data.reasons && ragQueryMutation.data.reasons.length > 0 && (
+                          <p className="mt-2 text-xs text-muted-foreground">{ragQueryMutation.data.reasons.join(', ')}</p>
+                        )}
+                        {ragQueryMutation.data.warnings.length > 0 && (
+                          <div className="mt-2 space-y-1">
+                            {ragQueryMutation.data.warnings.map(warning => (
+                              <p key={warning.code} className="text-xs text-muted-foreground">{warning.code}: {warning.message}</p>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                      {ragQueryMutation.data.sources.length === 0 ? (
+                        ragQueryMutation.data.status !== 'blocked' && <p className="text-sm text-muted-foreground">Nenhum chunk encontrado por keyword local.</p>
+                      ) : ragQueryMutation.data.sources.map(source => (
+                        <div key={`${source.chunkId}-${source.rank}`} className="rounded-md border p-3">
+                          <div className="mb-2 flex flex-wrap items-center gap-2 text-xs">
+                            <Badge variant="outline">{source.citationLabel}</Badge>
+                            <Badge variant="secondary">score {source.score}</Badge>
+                            {source.matchType && <span className="text-muted-foreground">{source.matchType}</span>}
+                            <span className="font-mono text-muted-foreground">{source.chunkId.slice(0, 8)}</span>
+                          </div>
+                          <p className="text-sm text-muted-foreground">{source.excerpt}</p>
+                          <div className="mt-2 flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+                            {source.documentTitle && <span>{source.documentTitle}</span>}
+                            {source.sourceUri && <span className="font-mono">{source.sourceUri}</span>}
+                          </div>
                         </div>
                       ))}
                     </div>
                   )}
+                  <div className="rounded-md border p-3">
+                    <div className="mb-2 flex items-center justify-between gap-2">
+                      <p className="text-xs font-medium">Histórico de consultas</p>
+                      <Button variant="ghost" size="sm" className="h-7 px-2 text-xs" onClick={() => { void ragQueriesQuery.refetch(); }}>
+                        <RefreshCw className="h-3 w-3 mr-1" />Atualizar
+                      </Button>
+                    </div>
+                    {ragQueriesQuery.isLoading ? (
+                      <p className="text-xs text-muted-foreground">Carregando histórico...</p>
+                    ) : ragHistory.length > 0 ? (
+                      <div className="space-y-2">
+                        {ragHistory.slice(0, 5).map(query => (
+                          <div key={query.id} className="flex flex-col gap-1 rounded border bg-muted/30 p-2 sm:flex-row sm:items-center sm:justify-between">
+                            <div className="min-w-0">
+                              <p className="truncate text-xs font-medium">{query.query}</p>
+                              <p className="text-[10px] text-muted-foreground">{new Date(query.createdAt).toLocaleString('pt-BR')} · {query.mode}</p>
+                            </div>
+                            <div className="flex items-center gap-2">
+                              <StatusBadge status={query.status} />
+                              <span className="text-[10px] text-muted-foreground">{query.resultCount} fonte(s)</span>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    ) : (
+                      <p className="text-xs text-muted-foreground">Nenhuma consulta registrada.</p>
+                    )}
+                  </div>
                 </div>
               ) : (
                 <p className="text-sm text-muted-foreground">Readiness indisponível.</p>

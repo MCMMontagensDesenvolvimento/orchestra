@@ -377,7 +377,15 @@ export interface KnowledgeSourceReference {
 
 export interface RagReadiness {
   assistantId: string;
+  ready?: boolean;
   canUseKnowledge: boolean;
+  knowledgeBaseCount?: number;
+  documentCount?: number;
+  chunkCount?: number;
+  sourceReferenceCount?: number;
+  enabledBindingCount?: number;
+  blockedReasons?: string[];
+  warnings?: Array<{ code: string; message: string }>;
   knowledgeBasesBound: number;
   documentsIngested: number;
   chunksAvailable: number;
@@ -406,6 +414,71 @@ export interface RagLocalSearchResponse {
   embeddingsEnabled: false;
   vectorStoreEnabled: false;
   results: RagLocalSearchResult[];
+}
+
+export type RagQueryStatus = 'completed' | 'no_results' | 'blocked' | 'failed';
+
+export interface RagQueryWarning {
+  code: string;
+  message: string;
+}
+
+export interface RagQuerySource {
+  id?: string;
+  rank: number;
+  score: number;
+  knowledgeBaseId: string;
+  documentId: string;
+  chunkId: string;
+  sourceReferenceId?: string | null;
+  citationLabel: string;
+  documentTitle?: string | null;
+  excerpt: string;
+  sourceUri?: string | null;
+  sourceType?: string | null;
+  sectionTitle?: string | null;
+  pageNumber?: number | null;
+  matchType?: string;
+  metadata?: unknown;
+  createdAt?: string;
+}
+
+export interface RagQueryRecord {
+  id: string;
+  queryId: string;
+  assistantId: string;
+  assistantVersionId?: string | null;
+  agentRunId?: string | null;
+  query: string;
+  queryText?: string;
+  normalizedQuery?: string;
+  mode: 'local_keyword' | 'local_readiness' | 'future_vector' | string;
+  status: RagQueryStatus;
+  limit: number;
+  resultCount: number;
+  blockedReason?: string | null;
+  errorCode?: string | null;
+  errorMessage?: string | null;
+  requestId?: string | null;
+  traceId?: string | null;
+  createdById?: string;
+  metadata?: unknown;
+  sources?: RagQuerySource[];
+  createdAt: string;
+}
+
+export interface RagQueryResponse {
+  queryId?: string;
+  assistantId: string;
+  status: RagQueryStatus;
+  query?: string;
+  code?: string;
+  message?: string;
+  reasons?: string[];
+  readiness?: RagReadiness;
+  resultCount: number;
+  sources: RagQuerySource[];
+  warnings: RagQueryWarning[];
 }
 
 export interface AssistantKnowledgeBinding {

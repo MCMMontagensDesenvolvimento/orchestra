@@ -12,6 +12,7 @@ import type {
   KnowledgeDataSourceUpdateInput,
   KnowledgeDocumentCreateInput,
   KnowledgeDocumentUpdateInput,
+  RagQueriesQuery,
 } from './knowledge.schema';
 
 const knowledgeBaseInclude = {
@@ -58,18 +59,27 @@ async function getRagReadinessInternal(assistantId: string, tenantId: string, wo
       assistantId,
       tenantId,
       workspaceId: { in: workspaceIds },
-      isEnabled: true,
-      retrievalMode: { not: 'disabled' },
     },
     include: {
       knowledgeBase: true,
     },
+    orderBy: [{ priority: 'asc' }, { createdAt: 'asc' }],
   });
-  const activeKnowledgeBaseIds = bindings
-    .filter((binding) => binding.knowledgeBase.status === 'active' && !binding.knowledgeBase.deletedAt)
+  const enabledBindings = bindings.filter((binding) => binding.isEnabled && binding.retrievalMode !== 'disabled');
+  const archivedKnowledgeBaseCount = enabledBindings.filter(
+    (binding) => binding.knowledgeBase.status === 'archived' || Boolean(binding.knowledgeBase.deletedAt),
+  ).length;
+  const workspaceScopeMismatchCount = enabledBindings.filter((binding) => binding.knowledgeBase.workspaceId !== assistant.workspaceId).length;
+  const activeBindings = enabledBindings.filter(
+    (binding) =>
+      binding.knowledgeBase.status === 'active' &&
+      !binding.knowledgeBase.deletedAt &&
+      binding.knowledgeBase.workspaceId === assistant.workspaceId,
+  );
+  const activeKnowledgeBaseIds = activeBindings
     .map((binding) => binding.knowledgeBaseId);
 
-  const [documentsIngested, chunksAvailable] = activeKnowledgeBaseIds.length > 0
+  const [documentsIngested, chunksAvailable, sourceReferencesAvailable] = activeKnowledgeBaseIds.length > 0
     ? await Promise.all([
         prisma.knowledgeDocument.count({
           where: {
@@ -79,6 +89,7 @@ async function getRagReadinessInternal(assistantId: string, tenantId: string, wo
             deletedAt: null,
             ingestionStatus: 'completed',
             chunkCount: { gt: 0 },
+            status: { not: 'archived' },
           },
         }),
         prisma.knowledgeChunk.count({
@@ -87,17 +98,71 @@ async function getRagReadinessInternal(assistantId: string, tenantId: string, wo
             workspaceId: { in: workspaceIds },
             knowledgeBaseId: { in: activeKnowledgeBaseIds },
             status: 'active',
+            document: {
+              deletedAt: null,
+              ingestionStatus: 'completed',
+              status: { not: 'archived' },
+            },
+          },
+        }),
+        prisma.knowledgeSourceReference.count({
+          where: {
+            tenantId,
+            workspaceId: { in: workspaceIds },
+            knowledgeBaseId: { in: activeKnowledgeBaseIds },
+            document: {
+              deletedAt: null,
+              ingestionStatus: 'completed',
+              status: { not: 'archived' },
+            },
           },
         }),
       ])
-    : [0, 0];
+    : [0, 0, 0];
+
+  const blockedReasons = [];
+  const warnings = [];
+  if (bindings.length === 0) blockedReasons.push('NO_KNOWLEDGE_BINDINGS');
+  if (bindings.length > 0 && enabledBindings.length === 0) blockedReasons.push('NO_ENABLED_KNOWLEDGE_BINDINGS');
+  if (archivedKnowledgeBaseCount > 0 && activeKnowledgeBaseIds.length === 0) blockedReasons.push('KNOWLEDGE_BASE_ARCHIVED');
+  if (workspaceScopeMismatchCount > 0 && activeKnowledgeBaseIds.length === 0) blockedReasons.push('WORKSPACE_SCOPE_MISMATCH');
+  if (activeKnowledgeBaseIds.length > 0 && documentsIngested === 0) blockedReasons.push('NO_INGESTED_DOCUMENTS');
+  if (activeKnowledgeBaseIds.length > 0 && documentsIngested > 0 && chunksAvailable === 0) blockedReasons.push('NO_CHUNKS_AVAILABLE');
+  if (archivedKnowledgeBaseCount > 0 && activeKnowledgeBaseIds.length > 0) {
+    warnings.push({
+      code: 'KNOWLEDGE_BASE_ARCHIVED',
+      message: 'Uma ou mais bases vinculadas estao arquivadas e foram excluidas da consulta.',
+    });
+  }
+  if (workspaceScopeMismatchCount > 0 && activeKnowledgeBaseIds.length > 0) {
+    warnings.push({
+      code: 'WORKSPACE_SCOPE_MISMATCH',
+      message: 'Uma ou mais bases vinculadas estao fora do workspace do assistente e foram excluidas da consulta.',
+    });
+  }
+  if (chunksAvailable > 0 && sourceReferencesAvailable === 0) {
+    warnings.push({
+      code: 'NO_SOURCE_REFERENCES_AVAILABLE',
+      message: 'Chunks locais existem, mas ainda nao possuem source references rastreaveis.',
+    });
+  }
 
   return {
     assistant,
     bindings,
+    enabledBindings,
+    activeBindings,
+    activeKnowledgeBaseIds,
     knowledgeBasesBound: activeKnowledgeBaseIds.length,
+    knowledgeBaseCount: activeKnowledgeBaseIds.length,
     documentsIngested,
+    documentCount: documentsIngested,
     chunksAvailable,
+    chunkCount: chunksAvailable,
+    sourceReferenceCount: sourceReferencesAvailable,
+    enabledBindingCount: enabledBindings.length,
+    blockedReasons,
+    warnings,
   };
 }
 
@@ -121,6 +186,41 @@ interface SourceReferencePersistenceInput {
   startOffset?: number | null;
   endOffset?: number | null;
   metadata?: Prisma.InputJsonValue;
+}
+
+interface RagQueryPersistenceResultInput {
+  knowledgeBaseId: string;
+  documentId: string;
+  chunkId: string;
+  sourceReferenceId?: string | null;
+  rank: number;
+  score: number;
+  matchType: string;
+  excerpt: string;
+  citationLabel: string;
+  metadata?: Prisma.InputJsonValue;
+}
+
+interface RagQueryPersistenceInput {
+  tenantId: string;
+  workspaceId: string;
+  assistantId: string;
+  assistantVersionId?: string | null;
+  agentRunId?: string | null;
+  queryText: string;
+  normalizedQuery: string;
+  mode: string;
+  status: string;
+  limit: number;
+  resultCount: number;
+  blockedReason?: string | null;
+  errorCode?: string | null;
+  errorMessage?: string | null;
+  createdById: string;
+  requestId?: string | null;
+  traceId?: string | null;
+  metadata?: Prisma.InputJsonValue;
+  results?: RagQueryPersistenceResultInput[];
 }
 
 export const knowledgeRepository = {
@@ -718,6 +818,229 @@ export const knowledgeRepository = {
     });
 
     return { readiness, chunks };
+  },
+
+  async findRagRetrievalCandidates(input: {
+    assistantId: string;
+    tenantId: string;
+    workspaceIds: string[];
+    queryText: string;
+    terms: string[];
+    take: number;
+  }) {
+    const readiness = await getRagReadinessInternal(input.assistantId, input.tenantId, input.workspaceIds);
+    if (!readiness) return null;
+    if (readiness.activeKnowledgeBaseIds.length === 0 || readiness.blockedReasons.length > 0) {
+      return { readiness, chunks: [] };
+    }
+
+    const searchTerms = Array.from(new Set([input.queryText, ...input.terms].map((term) => term.trim()).filter(Boolean)));
+    const baseWhere = {
+      tenantId: input.tenantId,
+      workspaceId: { in: input.workspaceIds },
+      knowledgeBaseId: { in: readiness.activeKnowledgeBaseIds },
+      status: 'active',
+      document: {
+        deletedAt: null,
+        ingestionStatus: 'completed',
+        status: { not: 'archived' },
+      },
+    } satisfies Prisma.KnowledgeChunkWhereInput;
+    const chunks = await prisma.knowledgeChunk.findMany({
+      where: {
+        ...baseWhere,
+        OR: searchTerms.flatMap((term) => [
+          { content: { contains: term, mode: 'insensitive' as const } },
+          { document: { title: { contains: term, mode: 'insensitive' as const } } },
+        ]),
+      },
+      include: {
+        document: {
+          select: {
+            id: true,
+            title: true,
+            sourceType: true,
+            sourceUri: true,
+            status: true,
+            ingestionStatus: true,
+            deletedAt: true,
+          },
+        },
+        knowledgeBase: {
+          select: {
+            id: true,
+            name: true,
+            status: true,
+            deletedAt: true,
+            workspaceId: true,
+          },
+        },
+        sourceReferences: { take: 1, orderBy: { createdAt: 'asc' } },
+      },
+      orderBy: [{ updatedAt: 'desc' }, { chunkIndex: 'asc' }, { id: 'asc' }],
+      take: input.take,
+    });
+
+    if (chunks.length > 0) {
+      return { readiness, chunks };
+    }
+
+    const fallbackChunks = await prisma.knowledgeChunk.findMany({
+      where: baseWhere,
+      include: {
+        document: {
+          select: {
+            id: true,
+            title: true,
+            sourceType: true,
+            sourceUri: true,
+            status: true,
+            ingestionStatus: true,
+            deletedAt: true,
+          },
+        },
+        knowledgeBase: {
+          select: {
+            id: true,
+            name: true,
+            status: true,
+            deletedAt: true,
+            workspaceId: true,
+          },
+        },
+        sourceReferences: { take: 1, orderBy: { createdAt: 'asc' } },
+      },
+      orderBy: [{ updatedAt: 'desc' }, { chunkIndex: 'asc' }, { id: 'asc' }],
+      take: input.take,
+    });
+
+    return { readiness, chunks: fallbackChunks };
+  },
+
+  async createRagQueryWithResults(input: RagQueryPersistenceInput) {
+    return prisma.$transaction(async (tx) => {
+      const query = await tx.ragQuery.create({
+        data: {
+          tenantId: input.tenantId,
+          workspaceId: input.workspaceId,
+          assistantId: input.assistantId,
+          assistantVersionId: input.assistantVersionId,
+          agentRunId: input.agentRunId,
+          queryText: input.queryText,
+          normalizedQuery: input.normalizedQuery,
+          mode: input.mode,
+          status: input.status,
+          limit: input.limit,
+          resultCount: input.resultCount,
+          blockedReason: input.blockedReason,
+          errorCode: input.errorCode,
+          errorMessage: input.errorMessage,
+          createdById: input.createdById,
+          requestId: input.requestId,
+          traceId: input.traceId,
+          metadata: input.metadata,
+        },
+      });
+
+      if (input.results?.length) {
+        await tx.ragQueryResult.createMany({
+          data: input.results.map((result) => ({
+            tenantId: input.tenantId,
+            workspaceId: input.workspaceId,
+            ragQueryId: query.id,
+            knowledgeBaseId: result.knowledgeBaseId,
+            documentId: result.documentId,
+            chunkId: result.chunkId,
+            sourceReferenceId: result.sourceReferenceId,
+            rank: result.rank,
+            score: result.score,
+            matchType: result.matchType,
+            excerpt: result.excerpt,
+            citationLabel: result.citationLabel,
+            metadata: result.metadata,
+          })),
+        });
+      }
+
+      return tx.ragQuery.findUniqueOrThrow({
+        where: { id: query.id },
+        include: {
+          results: {
+            orderBy: { rank: 'asc' },
+            include: {
+              document: { select: { id: true, title: true, sourceUri: true, sourceType: true } },
+              sourceReference: { select: { id: true, label: true, sourceUri: true, sectionTitle: true, pageNumber: true } },
+            },
+          },
+        },
+      });
+    });
+  },
+
+  async listRagQueries(assistantId: string, tenantId: string, workspaceIds: string[], query: RagQueriesQuery) {
+    const where: Prisma.RagQueryWhereInput = {
+      assistantId,
+      tenantId,
+      workspaceId: { in: workspaceIds },
+      ...(query.status ? { status: query.status } : {}),
+      ...(query.search
+        ? {
+            queryText: { contains: query.search, mode: 'insensitive' },
+          }
+        : {}),
+    };
+    const [data, total] = await Promise.all([
+      prisma.ragQuery.findMany({
+        where,
+        orderBy: { [query.sortBy]: query.sortDirection },
+        ...paginationOffset(query),
+      }),
+      prisma.ragQuery.count({ where }),
+    ]);
+    return { data, total };
+  },
+
+  findRagQuery(queryId: string, tenantId: string, workspaceIds: string[]) {
+    return prisma.ragQuery.findFirst({
+      where: {
+        id: queryId,
+        tenantId,
+        workspaceId: { in: workspaceIds },
+      },
+      include: {
+        results: {
+          orderBy: { rank: 'asc' },
+          include: {
+            document: { select: { id: true, title: true, sourceUri: true, sourceType: true } },
+            sourceReference: { select: { id: true, label: true, sourceUri: true, sectionTitle: true, pageNumber: true } },
+          },
+        },
+      },
+    });
+  },
+
+  async listRagQueryResults(queryId: string, tenantId: string, workspaceIds: string[]) {
+    const query = await prisma.ragQuery.findFirst({
+      where: {
+        id: queryId,
+        tenantId,
+        workspaceId: { in: workspaceIds },
+      },
+      select: { id: true },
+    });
+    if (!query) return null;
+    return prisma.ragQueryResult.findMany({
+      where: {
+        ragQueryId: query.id,
+        tenantId,
+        workspaceId: { in: workspaceIds },
+      },
+      orderBy: { rank: 'asc' },
+      include: {
+        document: { select: { id: true, title: true, sourceUri: true, sourceType: true } },
+        sourceReference: { select: { id: true, label: true, sourceUri: true, sectionTitle: true, pageNumber: true } },
+      },
+    });
   },
 
   listDataSources(knowledgeBaseId: string, tenantId: string, workspaceIds: string[]) {

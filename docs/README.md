@@ -2,7 +2,7 @@
 
 Esta pasta concentra a documentacao operacional atual e o arquivo historico do projeto Orchestra.
 
-O frontend ja passou pela higienizacao tecnica inicial e preserva mocks controlados por `VITE_USE_MOCKS`. A fundacao real de backend, API, banco e infraestrutura local foi criada na Fase 04. A Fase 05 iniciou o core domain real e a integracao progressiva do frontend com a API. A Fase 05B consolidou governanca inicial de assistants com publicacao versionada, rollback, feedback e test results manuais/simulados. A Fase 05C adicionou approval workflow, execution policy, sandbox policy e precheck sem runtime real. A Fase 05D containerizou o frontend e validou o stack local `frontend` + `backend` + `db` em modo API real. A Fase 05E adicionou AgentRun, eventos persistidos, runtime boundary fake, cancelamento e contratos observaveis. A Fase 05F reduziu debt tecnico do frontend, removeu o alerta de bundle acima de 500 kB e documentou hygiene de dependencias. A Fase 06 adicionou catalogo governado de Knowledge/RAG/MCP, ingestion placeholder, bindings com assistants e frontend em API mode. A Fase 06B adicionou ingestao local controlada, chunking textual, source references, jobs com eventos e readiness de RAG local. Runtime real de IA, RAG semantico, MCP, providers reais, embeddings, vector store e SSO real continuam fora do escopo atual.
+O frontend ja passou pela higienizacao tecnica inicial e preserva mocks controlados por `VITE_USE_MOCKS`. A fundacao real de backend, API, banco e infraestrutura local foi criada na Fase 04. A Fase 05 iniciou o core domain real e a integracao progressiva do frontend com a API. A Fase 05B consolidou governanca inicial de assistants com publicacao versionada, rollback, feedback e test results manuais/simulados. A Fase 05C adicionou approval workflow, execution policy, sandbox policy e precheck sem runtime real. A Fase 05D containerizou o frontend e validou o stack local `frontend` + `backend` + `db` em modo API real. A Fase 05E adicionou AgentRun, eventos persistidos, runtime boundary fake, cancelamento e contratos observaveis. A Fase 05F reduziu debt tecnico do frontend, removeu o alerta de bundle acima de 500 kB e documentou hygiene de dependencias. A Fase 06 adicionou catalogo governado de Knowledge/RAG/MCP, ingestion placeholder, bindings com assistants e frontend em API mode. A Fase 06B adicionou ingestao local controlada, chunking textual, source references, jobs com eventos e readiness de RAG local. A Fase 06C adicionou query RAG local deterministica, citations, historico de query/resultados e readiness refinado por assistant. Runtime real de IA, RAG semantico, MCP, providers reais, embeddings, vector store e SSO real continuam fora do escopo atual.
 
 ## Estrutura
 
@@ -52,33 +52,38 @@ docs/
 24. `database/ORCHESTRA_KNOWLEDGE_CHUNKS_DATA_MODEL.md`
 25. `security/ORCHESTRA_KNOWLEDGE_CONTENT_SECURITY.md`
 26. `ai-orchestration/ORCHESTRA_RAG_READINESS_HANDOFF.md`
-27. `database/ORCHESTRA_DATABASE_FOUNDATION.md`
-28. `database/ORCHESTRA_CORE_DOMAIN_DATABASE.md`
-29. `engineering/ORCHESTRA_FRONTEND_API_INTEGRATION.md`
-30. `frontend/ORCHESTRA_FRONTEND_TECHNICAL_DEBT_AND_BUNDLE_HEALTH.md`
-31. `frontend/ORCHESTRA_FRONTEND_DEPENDENCY_HYGIENE.md`
-32. `infrastructure/ORCHESTRA_LOCAL_DEV_INFRASTRUCTURE.md`
-33. `infrastructure/ORCHESTRA_FULLSTACK_LOCAL_DEVELOPMENT.md`
-34. `product/ORCHESTRA_CONTEXTO_INICIAL_DO_PROJETO.md`
-35. `product/ORCHESTRA_BRIEF_MESTRE.md`
-36. `product/ORCHESTRA_DISCOVERY_TECNICA_E_ESTRATEGICA.md`
-37. `product/ORCHESTRA_REQUISITOS_DO_SISTEMA.md`
-38. `product/ORCHESTRA_ESPECIFICACAO_FUNCIONAL.md`
-39. `engineering/ORCHESTRA_FRONTEND.md`
-40. `engineering/ORCHESTRA_INVENTARIO_ENTIDADES_FRONTEND.md`
-41. `engineering/ORCHESTRA_HANDOFF_FRONTEND_LOVABLE.md`
-42. READMEs de `security/` e `ai-orchestration/`.
+27. `backend/ORCHESTRA_RAG_QUERY_LOCAL.md`
+28. `api/ORCHESTRA_RAG_QUERY_API_CONTRACTS.md`
+29. `database/ORCHESTRA_RAG_QUERY_DATA_MODEL.md`
+30. `security/ORCHESTRA_RAG_QUERY_SECURITY.md`
+31. `ai-orchestration/ORCHESTRA_RAG_RETRIEVAL_CONTRACT_HANDOFF.md`
+32. `database/ORCHESTRA_DATABASE_FOUNDATION.md`
+33. `database/ORCHESTRA_CORE_DOMAIN_DATABASE.md`
+34. `engineering/ORCHESTRA_FRONTEND_API_INTEGRATION.md`
+35. `frontend/ORCHESTRA_FRONTEND_TECHNICAL_DEBT_AND_BUNDLE_HEALTH.md`
+36. `frontend/ORCHESTRA_FRONTEND_DEPENDENCY_HYGIENE.md`
+37. `infrastructure/ORCHESTRA_LOCAL_DEV_INFRASTRUCTURE.md`
+38. `infrastructure/ORCHESTRA_FULLSTACK_LOCAL_DEVELOPMENT.md`
+39. `product/ORCHESTRA_CONTEXTO_INICIAL_DO_PROJETO.md`
+40. `product/ORCHESTRA_BRIEF_MESTRE.md`
+41. `product/ORCHESTRA_DISCOVERY_TECNICA_E_ESTRATEGICA.md`
+42. `product/ORCHESTRA_REQUISITOS_DO_SISTEMA.md`
+43. `product/ORCHESTRA_ESPECIFICACAO_FUNCIONAL.md`
+44. `engineering/ORCHESTRA_FRONTEND.md`
+45. `engineering/ORCHESTRA_INVENTARIO_ENTIDADES_FRONTEND.md`
+46. `engineering/ORCHESTRA_HANDOFF_FRONTEND_LOVABLE.md`
+47. READMEs de `security/` e `ai-orchestration/`.
 
 ## Status Dos Documentos
 
-- `decisions/decision-log.md`: operacional, atualizado ate a Fase 06B.
+- `decisions/decision-log.md`: operacional, atualizado ate a Fase 06C.
 - `product/`: baseline operacional de produto para orientar arquitetura e backend.
 - `engineering/`: estado tecnico historico do frontend e handoffs uteis.
 - `frontend/`: debt tecnico, bundle health, hygiene de dependencias e integracao Knowledge/MCP da Fase 06.
 - `architecture/`: arquitetura consolidada de software.
-- `backend/`: fundacao backend real, core domain, governanca de assistants, approval/execution governance, AgentRun, catalogo Knowledge/MCP, ingestao local/chunking e validacao operacional local.
-- `api/`: contratos HTTP implementados na fundacao, no core domain, nas acoes de governanca de assistants, em AgentRun, no catalogo Knowledge/MCP e em RAG readiness local.
-- `database/`: Prisma schema, migrations, seed, modelo de runtime execution, modelo Knowledge/MCP e modelo de chunks/source references.
+- `backend/`: fundacao backend real, core domain, governanca de assistants, approval/execution governance, AgentRun, catalogo Knowledge/MCP, ingestao local/chunking, query RAG local e validacao operacional local.
+- `api/`: contratos HTTP implementados na fundacao, no core domain, nas acoes de governanca de assistants, em AgentRun, no catalogo Knowledge/MCP, em RAG readiness local e em RAG query local.
+- `database/`: Prisma schema, migrations, seed, modelo de runtime execution, modelo Knowledge/MCP, modelo de chunks/source references e modelo de RAG query.
 - `infrastructure/`: Dockerfiles, Docker Compose local e guia fullstack local.
 - `security/`: preparacao de hardening, Microsoft SSO e governanca de execucao de assistants/agent runs.
 - `ai-orchestration/`: area preparada para runtime, RAG, MCP e providers reais.

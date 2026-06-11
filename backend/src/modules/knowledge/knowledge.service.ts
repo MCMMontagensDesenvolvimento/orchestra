@@ -12,6 +12,8 @@ import {
   mapKnowledgeIngestionEvent,
   mapKnowledgeIngestionJob,
   mapKnowledgeSourceReference,
+  mapRagQuery,
+  mapRagQuerySource,
 } from './knowledge.mapper';
 import { knowledgeRepository } from './knowledge.repository';
 import { chunkContentText, hashText, localChunkingDefaults, normalizeContentText } from './knowledge.chunking';
@@ -27,6 +29,8 @@ import type {
   KnowledgeDocumentCreateInput,
   KnowledgeDocumentUpdateInput,
   KnowledgeIngestionRequestInput,
+  RagQueriesQuery,
+  RagQueryRequestInput,
   RagLocalSearchInput,
 } from './knowledge.schema';
 
@@ -139,6 +143,114 @@ function localSearchSnippet(content: string, query: string) {
   const start = Math.max(0, index - 90);
   const end = Math.min(content.length, index + query.length + 150);
   return `${start > 0 ? '...' : ''}${content.slice(start, end)}${end < content.length ? '...' : ''}`;
+}
+
+function normalizeRagQuery(value: string) {
+  return value
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+    .replace(/[^a-z0-9\s]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function ragTerms(value: string) {
+  const normalized = normalizeRagQuery(value);
+  const terms = normalized.split(' ').filter((term) => term.length >= 2);
+  return Array.from(new Set([normalized, ...terms].filter(Boolean))).slice(0, 12);
+}
+
+function originalSearchTerms(value: string) {
+  const trimmed = value.trim();
+  const terms = trimmed
+    .toLowerCase()
+    .replace(/[^\p{L}\p{N}\s]/gu, ' ')
+    .replace(/\s+/g, ' ')
+    .split(' ')
+    .filter((term) => term.length >= 2);
+  return Array.from(new Set([trimmed, ...terms].filter(Boolean))).slice(0, 12);
+}
+
+function countOccurrences(content: string, term: string) {
+  if (!term) return 0;
+  let count = 0;
+  let index = content.indexOf(term);
+  while (index >= 0) {
+    count += 1;
+    index = content.indexOf(term, index + term.length);
+  }
+  return count;
+}
+
+function safeExcerpt(content: string, terms: string[], maxLength = 600) {
+  const normalizedContent = normalizeRagQuery(content);
+  const firstTerm = terms.find((term) => normalizedContent.includes(term));
+  const normalizedIndex = firstTerm ? normalizedContent.indexOf(firstTerm) : -1;
+  const start = normalizedIndex >= 0 ? Math.max(0, normalizedIndex - 140) : 0;
+  const end = Math.min(content.length, start + maxLength);
+  const excerpt = `${start > 0 ? '...' : ''}${content.slice(start, end)}${end < content.length ? '...' : ''}`;
+  return excerpt.replace(/\s+/g, ' ').trim().slice(0, maxLength);
+}
+
+function scoreRagCandidate(candidate: {
+  content: string;
+  document: { title: string };
+  sourceReferences: Array<{ label: string; sectionTitle: string | null }>;
+}, terms: string[]) {
+  const content = normalizeRagQuery(candidate.content);
+  const title = normalizeRagQuery(candidate.document.title);
+  const referenceText = normalizeRagQuery(
+    candidate.sourceReferences.map((reference) => `${reference.label} ${reference.sectionTitle ?? ''}`).join(' '),
+  );
+
+  let contentScore = 0;
+  let titleScore = 0;
+  let metadataScore = 0;
+  for (const term of terms) {
+    contentScore += countOccurrences(content, term);
+    titleScore += countOccurrences(title, term) * 2;
+    metadataScore += countOccurrences(referenceText, term);
+  }
+
+  const rawScore = contentScore + titleScore + metadataScore;
+  if (rawScore <= 0) return null;
+  const matchSections = [
+    titleScore > 0 ? 'title' : null,
+    contentScore > 0 ? 'content' : null,
+    metadataScore > 0 ? 'metadata' : null,
+  ].filter(Boolean);
+  const matchType = matchSections.length > 1 ? 'mixed' : (matchSections[0] ?? 'content');
+
+  return {
+    score: Number(Math.min(0.99, rawScore / (rawScore + 4)).toFixed(4)),
+    rawScore,
+    matchType,
+  };
+}
+
+function mapReadiness(readiness: Awaited<ReturnType<typeof knowledgeRepository.getRagReadiness>>) {
+  if (!readiness) return null;
+  const ready = readiness.blockedReasons.length === 0;
+  return {
+    assistantId: readiness.assistant.id,
+    ready,
+    canUseKnowledge: ready,
+    knowledgeBaseCount: readiness.knowledgeBaseCount,
+    documentCount: readiness.documentCount,
+    chunkCount: readiness.chunkCount,
+    sourceReferenceCount: readiness.sourceReferenceCount,
+    enabledBindingCount: readiness.enabledBindingCount,
+    blockedReasons: readiness.blockedReasons,
+    warnings: readiness.warnings,
+    knowledgeBasesBound: readiness.knowledgeBasesBound,
+    documentsIngested: readiness.documentsIngested,
+    chunksAvailable: readiness.chunksAvailable,
+    missingRequirements: readiness.blockedReasons,
+    retrievalMode: 'local_chunks_only',
+    embeddingsEnabled: false,
+    vectorStoreEnabled: false,
+  };
 }
 
 async function recordFailedIngestionJob(input: {
@@ -666,11 +778,7 @@ export const knowledgeService = {
     if (!readiness) {
       throw new AppError(404, 'ASSISTANT_NOT_FOUND', 'Assistente nao encontrado.');
     }
-
-    const missingRequirements = [];
-    if (readiness.knowledgeBasesBound === 0) missingRequirements.push('NO_KNOWLEDGE_BASES_BOUND');
-    if (readiness.documentsIngested === 0) missingRequirements.push('NO_INGESTED_DOCUMENTS');
-    if (readiness.chunksAvailable === 0) missingRequirements.push('NO_ACTIVE_CHUNKS');
+    const response = mapReadiness(readiness)!;
 
     await audit({
       user,
@@ -683,22 +791,15 @@ export const knowledgeService = {
         knowledgeBasesBound: readiness.knowledgeBasesBound,
         documentsIngested: readiness.documentsIngested,
         chunksAvailable: readiness.chunksAvailable,
+        sourceReferenceCount: readiness.sourceReferenceCount,
+        ready: response.ready,
+        blockedReasons: readiness.blockedReasons,
         embeddingsEnabled: false,
         vectorStoreEnabled: false,
       },
     });
 
-    return {
-      assistantId: readiness.assistant.id,
-      canUseKnowledge: missingRequirements.length === 0,
-      knowledgeBasesBound: readiness.knowledgeBasesBound,
-      documentsIngested: readiness.documentsIngested,
-      chunksAvailable: readiness.chunksAvailable,
-      missingRequirements,
-      retrievalMode: 'local_chunks_only',
-      embeddingsEnabled: false,
-      vectorStoreEnabled: false,
-    };
+    return response;
   },
 
   async localSearch(assistantId: string, input: RagLocalSearchInput, user: AuthenticatedUser, context: RequestContext) {
@@ -744,6 +845,285 @@ export const knowledgeService = {
         };
       }),
     };
+  },
+
+  async queryRag(assistantId: string, input: RagQueryRequestInput, user: AuthenticatedUser, context: RequestContext) {
+    const normalizedQuery = normalizeRagQuery(input.query);
+    const normalizedTerms = ragTerms(input.query);
+
+    try {
+      const result = await knowledgeRepository.findRagRetrievalCandidates({
+        assistantId,
+        tenantId: user.tenant.id,
+        workspaceIds: userWorkspaceIds(user),
+        queryText: input.query,
+        terms: originalSearchTerms(input.query),
+        take: Math.max(40, input.limit * 20),
+      });
+      if (!result) {
+        throw new AppError(404, 'ASSISTANT_NOT_FOUND', 'Assistente nao encontrado.');
+      }
+
+      const readiness = mapReadiness(result.readiness)!;
+      const warnings = [...readiness.warnings];
+      if (input.includeArchived) {
+        warnings.push({
+          code: 'ARCHIVED_CONTENT_EXCLUDED',
+          message: 'Conteudo arquivado permanece fora do escopo da consulta local.',
+        });
+      }
+
+      await audit({
+        user,
+        context,
+        action: 'rag_query_requested',
+        entity: 'assistant',
+        entityId: result.readiness.assistant.id,
+        workspaceId: result.readiness.assistant.workspaceId,
+        metadata: {
+          assistantId: result.readiness.assistant.id,
+          queryLength: input.query.length,
+          limit: input.limit,
+          mode: 'local_keyword',
+          requestId: context.requestId,
+        },
+      });
+
+      if (!readiness.ready) {
+        const blockedReason = readiness.blockedReasons[0] ?? 'RAG_NOT_READY';
+        const persisted = await knowledgeRepository.createRagQueryWithResults({
+          tenantId: user.tenant.id,
+          workspaceId: result.readiness.assistant.workspaceId,
+          assistantId: result.readiness.assistant.id,
+          assistantVersionId: input.assistantVersionId,
+          agentRunId: input.agentRunId,
+          queryText: input.query,
+          normalizedQuery,
+          mode: 'local_readiness',
+          status: 'blocked',
+          limit: input.limit,
+          resultCount: 0,
+          blockedReason,
+          errorCode: 'RAG_NOT_READY',
+          errorMessage: 'O assistente nao possui fontes de conhecimento prontas para consulta.',
+          createdById: user.id,
+          requestId: context.requestId,
+          traceId: input.traceId,
+          metadata: sanitizeMetadata({
+            readiness,
+            queryLength: input.query.length,
+            includeArchived: input.includeArchived,
+          }) as Prisma.InputJsonValue,
+          results: [],
+        });
+
+        await audit({
+          user,
+          context,
+          action: 'rag_query_blocked',
+          entity: 'rag_query',
+          entityId: persisted.id,
+          workspaceId: result.readiness.assistant.workspaceId,
+          metadata: {
+            queryId: persisted.id,
+            assistantId: result.readiness.assistant.id,
+            status: 'blocked',
+            blockedReason,
+            requestId: context.requestId,
+          },
+        });
+
+        return {
+          queryId: persisted.id,
+          assistantId: result.readiness.assistant.id,
+          status: 'blocked',
+          code: 'RAG_NOT_READY',
+          message: 'O assistente nao possui fontes de conhecimento prontas para consulta.',
+          reasons: readiness.blockedReasons,
+          readiness,
+          resultCount: 0,
+          sources: [],
+          warnings,
+        };
+      }
+
+      const priorityByKnowledgeBaseId = new Map(
+        result.readiness.activeBindings.map((binding) => [binding.knowledgeBaseId, binding.priority]),
+      );
+      const scoredResults: Array<{
+        chunk: (typeof result.chunks)[number];
+        score: number;
+        rawScore: number;
+        matchType: string;
+        priority: number;
+      }> = [];
+
+      for (const chunk of result.chunks) {
+        const score = scoreRagCandidate(chunk, normalizedTerms);
+        if (!score) continue;
+        scoredResults.push({
+          chunk,
+          score: score.score,
+          rawScore: score.rawScore,
+          matchType: score.matchType,
+          priority: priorityByKnowledgeBaseId.get(chunk.knowledgeBaseId) ?? 1000,
+        });
+      }
+
+      const selectedResults = scoredResults
+        .sort((left, right) =>
+          right.score - left.score ||
+          left.priority - right.priority ||
+          left.chunk.document.title.localeCompare(right.chunk.document.title) ||
+          left.chunk.chunkIndex - right.chunk.chunkIndex ||
+          left.chunk.id.localeCompare(right.chunk.id),
+        )
+        .slice(0, input.limit)
+        .map((item, index) => {
+          const sourceReference = item.chunk.sourceReferences[0];
+          return {
+            knowledgeBaseId: item.chunk.knowledgeBaseId,
+            documentId: item.chunk.documentId,
+            chunkId: item.chunk.id,
+            sourceReferenceId: sourceReference?.id,
+            rank: index + 1,
+            score: item.score,
+            matchType: item.matchType,
+            excerpt: safeExcerpt(item.chunk.content, normalizedTerms),
+            citationLabel: `Fonte ${index + 1}`,
+            metadata: sanitizeMetadata({
+              rawScore: item.rawScore,
+              chunkIndex: item.chunk.chunkIndex,
+              tokenEstimate: item.chunk.tokenEstimate,
+              charCount: item.chunk.charCount,
+              documentTitle: item.chunk.document.title,
+              sourceReferenceLabel: sourceReference?.label,
+            }) as Prisma.InputJsonValue,
+          };
+        });
+
+      const status = selectedResults.length > 0 ? 'completed' : 'no_results';
+      if (status === 'no_results') {
+        warnings.push({
+          code: 'NO_RELEVANT_CHUNKS_FOUND',
+          message: 'Nenhum trecho local foi encontrado para esta consulta.',
+        });
+      }
+
+      const persisted = await knowledgeRepository.createRagQueryWithResults({
+        tenantId: user.tenant.id,
+        workspaceId: result.readiness.assistant.workspaceId,
+        assistantId: result.readiness.assistant.id,
+        assistantVersionId: input.assistantVersionId,
+        agentRunId: input.agentRunId,
+        queryText: input.query,
+        normalizedQuery,
+        mode: 'local_keyword',
+        status,
+        limit: input.limit,
+        resultCount: selectedResults.length,
+        createdById: user.id,
+        requestId: context.requestId,
+        traceId: input.traceId,
+        metadata: sanitizeMetadata({
+          queryLength: input.query.length,
+          includeArchived: input.includeArchived,
+          terms: normalizedTerms,
+          retrievalMode: 'local_chunks_only',
+          embeddingsEnabled: false,
+          vectorStoreEnabled: false,
+        }) as Prisma.InputJsonValue,
+        results: selectedResults,
+      });
+
+      const mapped = mapRagQuery(persisted);
+      await audit({
+        user,
+        context,
+        action: status === 'completed' ? 'rag_query_completed' : 'rag_query_no_results',
+        entity: 'rag_query',
+        entityId: persisted.id,
+        workspaceId: result.readiness.assistant.workspaceId,
+        metadata: {
+          queryId: persisted.id,
+          assistantId: result.readiness.assistant.id,
+          knowledgeBaseIds: Array.from(new Set(selectedResults.map((item) => item.knowledgeBaseId))),
+          documentIds: Array.from(new Set(selectedResults.map((item) => item.documentId))),
+          resultCount: selectedResults.length,
+          status,
+          requestId: context.requestId,
+        },
+      });
+
+      if (selectedResults.length > 0) {
+        await audit({
+          user,
+          context,
+          action: 'rag_source_returned',
+          entity: 'rag_query',
+          entityId: persisted.id,
+          workspaceId: result.readiness.assistant.workspaceId,
+          metadata: {
+            queryId: persisted.id,
+            assistantId: result.readiness.assistant.id,
+            resultCount: selectedResults.length,
+            documentIds: Array.from(new Set(selectedResults.map((item) => item.documentId))),
+          },
+        });
+      }
+
+      return {
+        queryId: mapped.queryId,
+        assistantId: mapped.assistantId,
+        status: mapped.status,
+        query: mapped.query,
+        resultCount: mapped.resultCount,
+        sources: mapped.sources,
+        warnings,
+      };
+    } catch (error) {
+      if (!(error instanceof AppError)) {
+        await audit({
+          user,
+          context,
+          action: 'rag_query_failed',
+          entity: 'assistant',
+          entityId: assistantId,
+          metadata: {
+            assistantId,
+            queryLength: input.query.length,
+            errorCode: 'RAG_QUERY_FAILED',
+            requestId: context.requestId,
+          },
+        });
+      }
+      throw error;
+    }
+  },
+
+  async listRagQueries(assistantId: string, query: RagQueriesQuery, user: AuthenticatedUser) {
+    const assistant = await getAssistantOrThrow(assistantId, user);
+    const result = await knowledgeRepository.listRagQueries(assistant.id, user.tenant.id, userWorkspaceIds(user), query);
+    return {
+      data: result.data.map(mapRagQuery),
+      pagination: paginationMeta(query, result.total),
+    };
+  },
+
+  async getRagQuery(queryId: string, user: AuthenticatedUser) {
+    const query = await knowledgeRepository.findRagQuery(queryId, user.tenant.id, userWorkspaceIds(user));
+    if (!query) {
+      throw new AppError(404, 'RAG_QUERY_NOT_FOUND', 'Consulta RAG nao encontrada.');
+    }
+    return mapRagQuery(query);
+  },
+
+  async listRagQuerySources(queryId: string, user: AuthenticatedUser) {
+    const results = await knowledgeRepository.listRagQueryResults(queryId, user.tenant.id, userWorkspaceIds(user));
+    if (!results) {
+      throw new AppError(404, 'RAG_QUERY_NOT_FOUND', 'Consulta RAG nao encontrada.');
+    }
+    return results.map(mapRagQuerySource);
   },
 
   async listDataSources(knowledgeBaseId: string, user: AuthenticatedUser) {

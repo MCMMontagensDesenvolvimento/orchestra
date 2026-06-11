@@ -132,6 +132,25 @@ export const ragLocalSearchSchema = z.object({
   query: z.string().trim().min(1).max(200),
 });
 
+export const ragQueryRequestSchema = z.object({
+  query: z.string().trim().min(2).max(500),
+  limit: z.coerce.number().int().min(1).max(20).default(5),
+  includeArchived: z.boolean().default(false),
+  assistantVersionId: z.string().uuid().optional(),
+  agentRunId: z.string().uuid().optional(),
+  traceId: z.string().trim().max(160).optional(),
+});
+
+export const ragQueriesQuerySchema = paginationQuerySchema.extend({
+  sortBy: z.enum(['createdAt', 'status', 'resultCount']).default('createdAt'),
+  sortDirection: z.enum(['asc', 'desc']).default('desc'),
+  status: z.enum(['completed', 'no_results', 'blocked', 'failed']).optional(),
+});
+
+export const ragQueryParamsSchema = z.object({
+  queryId: z.string().uuid(),
+});
+
 export const knowledgeDataSourceCreateSchema = z.object({
   name: z.string().trim().min(2).max(160),
   type: z.enum(knowledgeDataSourceTypeValues).default('manual'),
@@ -180,6 +199,8 @@ export type KnowledgeDocumentUpdateInput = z.infer<typeof knowledgeDocumentUpdat
 export type KnowledgeIngestionRequestInput = z.infer<typeof knowledgeIngestionRequestSchema>;
 export type KnowledgeChunksQuery = z.infer<typeof knowledgeChunksQuerySchema>;
 export type RagLocalSearchInput = z.infer<typeof ragLocalSearchSchema>;
+export type RagQueryRequestInput = z.infer<typeof ragQueryRequestSchema>;
+export type RagQueriesQuery = z.infer<typeof ragQueriesQuerySchema>;
 export type KnowledgeDataSourceCreateInput = z.infer<typeof knowledgeDataSourceCreateSchema>;
 export type KnowledgeDataSourceUpdateInput = z.infer<typeof knowledgeDataSourceUpdateSchema>;
 export type AssistantKnowledgeBindingCreateInput = z.infer<typeof assistantKnowledgeBindingCreateSchema>;

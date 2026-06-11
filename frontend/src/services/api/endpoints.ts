@@ -44,6 +44,9 @@ export const endpoints = {
     cancelApproval: (id: string, approvalId: string) => `/assistants/${id}/approvals/${approvalId}/cancel`,
     executionPolicy: (id: string) => `/assistants/${id}/execution-policy`,
     executionPrecheck: (id: string) => `/assistants/${id}/execution-precheck`,
+    ragReadinessV2: (id: string) => `/assistants/${id}/rag/readiness`,
+    ragQuery: (id: string) => `/assistants/${id}/rag/query`,
+    ragQueries: (id: string) => `/assistants/${id}/rag/queries`,
     ragReadiness: (id: string) => `/assistants/${id}/rag-readiness`,
     ragLocalSearch: (id: string) => `/assistants/${id}/rag-local-search`,
     runs: (id: string) => `/assistants/${id}/runs`,
@@ -64,6 +67,10 @@ export const endpoints = {
     detail: (runId: string) => `/agent-runs/${runId}`,
     events: (runId: string) => `/agent-runs/${runId}/events`,
     cancel: (runId: string) => `/agent-runs/${runId}/cancel`,
+  },
+  rag: {
+    query: (queryId: string) => `/rag/queries/${queryId}`,
+    sources: (queryId: string) => `/rag/queries/${queryId}/sources`,
   },
   settings: {
     list: '/settings',

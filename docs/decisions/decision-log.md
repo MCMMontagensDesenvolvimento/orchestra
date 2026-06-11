@@ -272,6 +272,36 @@ O endpoint de readiness retorna bases vinculadas, documentos ingeridos e chunks 
 
 Status: decidida.
 
+## DEC-RAG-002 - RAG query local antes de embeddings e vector store
+
+A Fase 06C implementa `POST /api/v1/assistants/:id/rag/query` com retrieval local deterministico por keyword antes de embeddings, vector store ou retrieval semantico. O objetivo e validar escopo, permissoes, readiness, citations e auditoria dentro do control plane.
+
+Status: decidida.
+
+## DEC-RAG-003 - Citations baseadas em KnowledgeChunk e SourceReference
+
+As fontes retornadas por RAG query usam `KnowledgeChunk` como evidencia textual e `KnowledgeSourceReference` como referencia rastreavel. O response expoe `citationLabel`, ids, excerpt limitado, titulo do documento e URI de fonte quando disponivel.
+
+Status: decidida.
+
+## DEC-RAG-004 - Query e resultados persistidos para rastreabilidade
+
+Toda tentativa de query RAG local cria `RagQuery`, inclusive bloqueios e no results. Fontes retornadas criam `RagQueryResult` com rank, score, match type, excerpt limitado e ids de fonte para auditoria posterior.
+
+Status: decidida.
+
+## DEC-RAG-005 - Retrieval local limitado e nao semantico nesta fase
+
+O score atual e deterministico e baseado em matches de titulo, conteudo e metadata de fonte. Ele nao deve ser interpretado como relevancia semantica e nao substitui embeddings, reranking ou vector search.
+
+Status: decidida.
+
+## DEC-RUNTIME-002 - Contrato RAG preparado para runtime futuro
+
+`RagQuery` possui correlacao opcional com `AgentRun`, request id e trace id. Um runtime futuro podera usar `ragQueryId` em eventos e respostas, preservando o backend como autoridade de fontes, escopo e auditoria.
+
+Status: decidida.
+
 ## DEC-SEC-KNOW-001 - Conteudo bruto fora dos audit logs
 
 `contentText` e conteudo de chunks nao devem ser gravados em audit logs. Auditoria registra ids, contadores, status, estrategia e erros sanitizados.

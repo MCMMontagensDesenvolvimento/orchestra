@@ -5,6 +5,7 @@ import {
   type KnowledgeBasePayload,
   type KnowledgeDataSourcePayload,
   type KnowledgeDocumentPayload,
+  type RagQueryPayload,
 } from '@/services/knowledge.service';
 import { queryKeys } from './queryKeys';
 
@@ -66,10 +67,37 @@ export const useAssistantRagReadiness = (assistantId?: string) =>
     enabled: !!assistantId,
   });
 
+export const useAssistantRagQueries = (assistantId?: string) =>
+  useQuery({
+    queryKey: queryKeys.knowledge.ragQueries(assistantId ?? ''),
+    queryFn: () => knowledgeService.ragQueries(assistantId!),
+    enabled: !!assistantId,
+  });
+
+export const useRagQueryDetail = (queryId?: string) =>
+  useQuery({
+    queryKey: queryKeys.knowledge.ragQuery(queryId ?? ''),
+    queryFn: () => knowledgeService.ragQueryDetail(queryId!),
+    enabled: !!queryId,
+  });
+
 export const useAssistantRagLocalSearchMutation = () =>
   useMutation({
     mutationFn: ({ assistantId, query }: { assistantId: string; query: string }) => knowledgeService.ragLocalSearch(assistantId, query),
   });
+
+export const useAssistantRagQueryMutation = () => {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ assistantId, payload }: { assistantId: string; payload: RagQueryPayload }) =>
+      knowledgeService.ragQuery(assistantId, payload),
+    onSuccess: (_result, variables) => {
+      void queryClient.invalidateQueries({ queryKey: queryKeys.knowledge.ragQueries(variables.assistantId) });
+      void queryClient.invalidateQueries({ queryKey: queryKeys.knowledge.ragReadiness(variables.assistantId) });
+      void queryClient.invalidateQueries({ queryKey: queryKeys.audit.logs });
+    },
+  });
+};
 
 export const useCreateKnowledgeBaseMutation = () => {
   const queryClient = useQueryClient();

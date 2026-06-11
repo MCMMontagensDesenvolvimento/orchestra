@@ -309,6 +309,79 @@ expect_status 200 "assistant-rag-local-search" \
 
 python3 -c 'import json,sys; data=json.load(open(sys.argv[1]))["data"]; assert data["mode"] == "keyword_local_placeholder"; assert len(data["results"]) > 0' "$response_file"
 
+expect_status 200 "assistant-rag-readiness-v2" \
+  -b "$cookie_file" \
+  "$BASE_URL/api/v1/assistants/$assistant_id/rag/readiness"
+
+python3 -c 'import json,sys; data=json.load(open(sys.argv[1]))["data"]; assert data["ready"] is True; assert data["chunkCount"] > 0; assert data["sourceReferenceCount"] > 0; assert data["embeddingsEnabled"] is False; assert data["vectorStoreEnabled"] is False' "$response_file"
+
+cat > "$payload_file" <<'JSON'
+{
+  "query": "Smoke ingestion",
+  "limit": 5,
+  "includeArchived": false
+}
+JSON
+
+expect_status 201 "assistant-rag-query-local" \
+  -b "$cookie_file" \
+  -H 'Content-Type: application/json' \
+  --data-binary "@$payload_file" \
+  "$BASE_URL/api/v1/assistants/$assistant_id/rag/query"
+
+python3 -c 'import json,sys; data=json.load(open(sys.argv[1]))["data"]; assert data["status"] == "completed"; assert data["resultCount"] > 0; assert len(data["sources"]) > 0; assert data["sources"][0]["citationLabel"].startswith("Fonte")' "$response_file"
+rag_query_id="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["data"]["queryId"])' "$response_file")"
+
+cat > "$payload_file" <<'JSON'
+{
+  "query": "zzzz termo inexistente",
+  "limit": 5
+}
+JSON
+
+expect_status 201 "assistant-rag-query-no-results" \
+  -b "$cookie_file" \
+  -H 'Content-Type: application/json' \
+  --data-binary "@$payload_file" \
+  "$BASE_URL/api/v1/assistants/$assistant_id/rag/query"
+
+python3 -c 'import json,sys; data=json.load(open(sys.argv[1]))["data"]; assert data["status"] == "no_results"; assert data["resultCount"] == 0; assert len(data["sources"]) == 0; assert data["warnings"][0]["code"] == "NO_RELEVANT_CHUNKS_FOUND"' "$response_file"
+
+expect_status 200 "assistant-rag-query-history" \
+  -b "$cookie_file" \
+  "$BASE_URL/api/v1/assistants/$assistant_id/rag/queries"
+
+python3 -c 'import json,sys; data=json.load(open(sys.argv[1])); assert data["pagination"]["total"] >= 2' "$response_file"
+
+expect_status 200 "rag-query-detail" \
+  -b "$cookie_file" \
+  "$BASE_URL/api/v1/rag/queries/$rag_query_id"
+
+python3 -c 'import json,sys; data=json.load(open(sys.argv[1]))["data"]; assert data["queryId"]; assert len(data["sources"]) > 0' "$response_file"
+
+expect_status 200 "rag-query-sources" \
+  -b "$cookie_file" \
+  "$BASE_URL/api/v1/rag/queries/$rag_query_id/sources"
+
+python3 -c 'import json,sys; data=json.load(open(sys.argv[1]))["data"]; assert len(data) > 0; assert data[0]["sourceReferenceId"]' "$response_file"
+
+cat > "$payload_file" <<'JSON'
+{
+  "query": "a",
+  "limit": 99
+}
+JSON
+
+expect_status 422 "assistant-rag-query-structured-422" \
+  -b "$cookie_file" \
+  -H 'Content-Type: application/json' \
+  --data-binary "@$payload_file" \
+  "$BASE_URL/api/v1/assistants/$assistant_id/rag/query"
+
+expect_status 404 "rag-query-structured-404" \
+  -b "$cookie_file" \
+  "$BASE_URL/api/v1/rag/queries/00000000-0000-0000-0000-000000000999"
+
 cat > "$payload_file" <<'JSON'
 {
   "name": "Smoke MCP Server",

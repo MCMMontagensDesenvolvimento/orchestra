@@ -1,17 +1,28 @@
 # Orchestra RAG Readiness API Contracts
 
-Status: implementado na Fase 06B como readiness local. Nao executa retrieval semantico real.
+Status: implementado na Fase 06B como readiness local e refinado na Fase 06C. Nao executa retrieval semantico real.
 
 ## Readiness
 
-`GET /api/v1/assistants/:id/rag-readiness`
+Rotas:
+
+- `GET /api/v1/assistants/:id/rag/readiness`
+- `GET /api/v1/assistants/:id/rag-readiness` (compatibilidade)
 
 Resposta:
 
 ```json
 {
   "assistantId": "...",
+  "ready": true,
   "canUseKnowledge": true,
+  "knowledgeBaseCount": 1,
+  "documentCount": 1,
+  "chunkCount": 4,
+  "sourceReferenceCount": 4,
+  "enabledBindingCount": 1,
+  "blockedReasons": [],
+  "warnings": [],
   "knowledgeBasesBound": 1,
   "documentsIngested": 1,
   "chunksAvailable": 4,

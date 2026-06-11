@@ -115,6 +115,26 @@ export const knowledgeController = {
     return res.status(200).json({ data, requestId: req.requestId });
   },
 
+  async queryRag(req: Request, res: Response) {
+    const data = await knowledgeService.queryRag(req.params.id, req.body, req.user!, requestContext(req));
+    return res.status(201).json({ data, requestId: req.requestId });
+  },
+
+  async listRagQueries(req: Request, res: Response) {
+    const result = await knowledgeService.listRagQueries(req.params.id, req.query as any, req.user!);
+    return res.status(200).json({ ...result, requestId: req.requestId });
+  },
+
+  async getRagQuery(req: Request, res: Response) {
+    const data = await knowledgeService.getRagQuery(req.params.queryId, req.user!);
+    return res.status(200).json({ data, requestId: req.requestId });
+  },
+
+  async listRagQuerySources(req: Request, res: Response) {
+    const data = await knowledgeService.listRagQuerySources(req.params.queryId, req.user!);
+    return res.status(200).json({ data, requestId: req.requestId });
+  },
+
   async listDataSources(req: Request, res: Response) {
     const data = await knowledgeService.listDataSources(req.params.id, req.user!);
     return res.status(200).json({ data, requestId: req.requestId });

@@ -10,6 +10,9 @@ import type {
   KnowledgeIngestionJob,
   KnowledgeSourceReference,
   RagLocalSearchResponse,
+  RagQueryRecord,
+  RagQueryResponse,
+  RagQuerySource,
   RagReadiness,
   RetentionPeriod,
 } from '@/types';
@@ -167,6 +170,9 @@ interface ApiKnowledgeSourceReference {
 
 type ApiRagReadiness = RagReadiness;
 type ApiRagLocalSearchResponse = RagLocalSearchResponse;
+type ApiRagQueryRecord = RagQueryRecord;
+type ApiRagQueryResponse = RagQueryResponse;
+type ApiRagQuerySource = RagQuerySource;
 
 interface ApiAssistantKnowledgeBinding {
   id: string;
@@ -214,6 +220,12 @@ export interface AssistantKnowledgeBindingPayload {
   isEnabled?: boolean;
   retrievalMode?: 'disabled' | 'citation_only' | 'retrieval_placeholder';
   priority?: number;
+}
+
+export interface RagQueryPayload {
+  query: string;
+  limit?: number;
+  includeArchived?: boolean;
 }
 
 const connectorValues = new Set(['upload', 'sharepoint', 'confluence', 'google_drive', 's3', 'api']);
@@ -412,6 +424,30 @@ function mockSourceReferencesForDocument(documentId: string): KnowledgeSourceRef
   ];
 }
 
+function mockRagSourceForDocument(documentId: string, rank = 1): RagQuerySource {
+  const document = mockDocuments.find((item) => item.id === documentId) ?? mockDocuments[0];
+  const chunk = mockChunksForDocument(document.id)[0];
+  const reference = mockSourceReferencesForDocument(document.id)[0];
+  return {
+    id: `mock-rag-source-${document.id}-${rank}`,
+    rank,
+    score: rank === 1 ? 0.87 : 0.72,
+    knowledgeBaseId: document.knowledgeBaseId,
+    documentId: document.id,
+    chunkId: chunk.id,
+    sourceReferenceId: reference.id,
+    citationLabel: `Fonte ${rank}`,
+    documentTitle: document.name,
+    excerpt: chunk.content.slice(0, 360),
+    sourceUri: reference.sourceUri,
+    sourceType: document.sourceType ?? 'manual',
+    sectionTitle: reference.sectionTitle,
+    pageNumber: reference.pageNumber,
+    matchType: 'mixed',
+    createdAt: new Date().toISOString(),
+  };
+}
+
 function mapBinding(binding: ApiAssistantKnowledgeBinding): AssistantKnowledgeBinding {
   return {
     id: binding.id,
@@ -594,19 +630,28 @@ export const knowledgeService = {
     if (env.useMocks) {
       const boundBases = mockKnowledgeBases.filter((kb) => mockAssistants.find((assistant) => assistant.id === assistantId)?.knowledgeBases.includes(kb.id));
       const chunksAvailable = boundBases.reduce((total, kb) => total + kb.totalChunks, 0);
+      const ready = boundBases.length > 0 && chunksAvailable > 0;
       return mockResponse({
         assistantId,
-        canUseKnowledge: boundBases.length > 0 && chunksAvailable > 0,
+        ready,
+        canUseKnowledge: ready,
+        knowledgeBaseCount: boundBases.length,
+        documentCount: boundBases.reduce((total, kb) => total + kb.documentCount, 0),
+        chunkCount: chunksAvailable,
+        sourceReferenceCount: chunksAvailable > 0 ? boundBases.reduce((total, kb) => total + kb.documentCount, 0) : 0,
+        enabledBindingCount: boundBases.length,
+        blockedReasons: ready ? [] : ['NO_KNOWLEDGE_BINDINGS'],
+        warnings: [],
         knowledgeBasesBound: boundBases.length,
         documentsIngested: boundBases.reduce((total, kb) => total + kb.documentCount, 0),
         chunksAvailable,
-        missingRequirements: boundBases.length === 0 ? ['NO_KNOWLEDGE_BASES_BOUND'] : [],
+        missingRequirements: ready ? [] : ['NO_KNOWLEDGE_BINDINGS'],
         retrievalMode: 'local_chunks_only',
         embeddingsEnabled: false,
         vectorStoreEnabled: false,
       });
     }
-    const response = await apiClient.get<ApiEnvelope<ApiRagReadiness>>(endpoints.assistants.ragReadiness(assistantId));
+    const response = await apiClient.get<ApiEnvelope<ApiRagReadiness>>(endpoints.assistants.ragReadinessV2(assistantId));
     return response.data.data;
   },
 
@@ -637,6 +682,103 @@ export const knowledgeService = {
       });
     }
     const response = await apiClient.post<ApiEnvelope<ApiRagLocalSearchResponse>>(endpoints.assistants.ragLocalSearch(assistantId), { query });
+    return response.data.data;
+  },
+
+  async ragQuery(assistantId: string, payload: RagQueryPayload): Promise<RagQueryResponse> {
+    if (env.useMocks) {
+      const assistant = mockAssistants.find((item) => item.id === assistantId);
+      const boundDocument = mockDocuments.find((document) => assistant?.knowledgeBases.includes(document.knowledgeBaseId)) ?? mockDocuments[0];
+      const query = payload.query.trim();
+      if (!assistant?.knowledgeBases.length || query.toLowerCase().includes('bloque')) {
+        return mockResponse({
+          queryId: `mock-rag-query-${Date.now()}`,
+          assistantId,
+          status: 'blocked',
+          code: 'RAG_NOT_READY',
+          message: 'O assistente nao possui fontes de conhecimento prontas para consulta.',
+          reasons: ['NO_KNOWLEDGE_BINDINGS'],
+          resultCount: 0,
+          sources: [],
+          warnings: [],
+        });
+      }
+      if (query.toLowerCase().includes('sem resultado') || query.toLowerCase().includes('zzzz')) {
+        return mockResponse({
+          queryId: `mock-rag-query-${Date.now()}`,
+          assistantId,
+          status: 'no_results',
+          query,
+          resultCount: 0,
+          sources: [],
+          warnings: [{ code: 'NO_RELEVANT_CHUNKS_FOUND', message: 'Nenhum trecho local foi encontrado para esta consulta.' }],
+        });
+      }
+      const source = mockRagSourceForDocument(boundDocument.id);
+      return mockResponse({
+        queryId: `mock-rag-query-${Date.now()}`,
+        assistantId,
+        status: 'completed',
+        query,
+        resultCount: 1,
+        sources: [source],
+        warnings: [],
+      });
+    }
+    const response = await apiClient.post<ApiEnvelope<ApiRagQueryResponse>>(endpoints.assistants.ragQuery(assistantId), {
+      query: payload.query,
+      limit: payload.limit ?? 5,
+      includeArchived: payload.includeArchived ?? false,
+    });
+    return response.data.data;
+  },
+
+  async ragQueries(assistantId: string): Promise<RagQueryRecord[]> {
+    if (env.useMocks) {
+      const assistant = mockAssistants.find((item) => item.id === assistantId);
+      const document = mockDocuments.find((item) => assistant?.knowledgeBases.includes(item.knowledgeBaseId)) ?? mockDocuments[0];
+      return mockResponse([
+        {
+          id: `mock-rag-query-history-${assistantId}`,
+          queryId: `mock-rag-query-history-${assistantId}`,
+          assistantId,
+          query: 'Como funciona a politica de aprovacao?',
+          mode: 'local_keyword',
+          status: 'completed',
+          limit: 5,
+          resultCount: 1,
+          sources: [mockRagSourceForDocument(document.id)],
+          createdAt: new Date().toISOString(),
+        },
+      ]);
+    }
+    const response = await apiClient.get<PaginatedApiEnvelope<ApiRagQueryRecord>>(endpoints.assistants.ragQueries(assistantId));
+    return response.data.data;
+  },
+
+  async ragQueryDetail(queryId: string): Promise<RagQueryRecord> {
+    if (env.useMocks) {
+      const source = mockRagSourceForDocument(mockDocuments[0].id);
+      return mockResponse({
+        id: queryId,
+        queryId,
+        assistantId: mockAssistants[0].id,
+        query: 'Consulta local',
+        mode: 'local_keyword',
+        status: 'completed',
+        limit: 5,
+        resultCount: 1,
+        sources: [source],
+        createdAt: new Date().toISOString(),
+      });
+    }
+    const response = await apiClient.get<ApiEnvelope<ApiRagQueryRecord>>(endpoints.rag.query(queryId));
+    return response.data.data;
+  },
+
+  async ragQuerySources(queryId: string): Promise<RagQuerySource[]> {
+    if (env.useMocks) return mockResponse([mockRagSourceForDocument(mockDocuments[0].id)]);
+    const response = await apiClient.get<ApiEnvelope<ApiRagQuerySource[]>>(endpoints.rag.sources(queryId));
     return response.data.data;
   },
 
