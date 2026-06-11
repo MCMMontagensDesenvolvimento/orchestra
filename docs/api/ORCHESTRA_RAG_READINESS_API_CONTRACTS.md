@@ -58,6 +58,24 @@ Resposta:
 }
 ```
 
+
+## Ingestao Local
+
+`POST /api/v1/knowledge-documents/:documentId/request-ingestion`
+
+Resposta de sucesso (`201`):
+
+```json
+{
+  "document": { "id": "...", "ingestionStatus": "completed", "chunkCount": 1 },
+  "job": { "id": "...", "status": "completed", "chunksCreated": 1, "sourceReferencesCreated": 1 },
+  "chunksCreated": 1,
+  "sourceReferencesCreated": 1
+}
+```
+
+Falhas controladas, como documento sem `contentText`, retornam `422` e persistem job `failed` consultavel em `GET /api/v1/knowledge-documents/:documentId/ingestion`.
+
 ## Knowledge Endpoints Adicionados
 
 - `GET /api/v1/knowledge-documents/:documentId/chunks`

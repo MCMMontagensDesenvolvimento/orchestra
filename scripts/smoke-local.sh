@@ -204,6 +204,53 @@ python3 -c 'import json,sys; assert len(json.load(open(sys.argv[1]))["data"]) > 
 
 cat > "$payload_file" <<'JSON'
 {
+  "title": "Smoke Empty Ingestion Document",
+  "description": "Document intentionally left without content to validate local ingestion failure status.",
+  "sourceType": "manual",
+  "mimeType": "text/plain",
+  "dataClassification": "internal",
+  "metadata": {
+    "phase": "smoke-local",
+    "expectedIngestionFailure": true
+  }
+}
+JSON
+
+expect_status 201 "knowledge-empty-document-create" \
+  -b "$cookie_file" \
+  -H 'Content-Type: application/json' \
+  --data-binary "@$payload_file" \
+  "$BASE_URL/api/v1/knowledge-bases/$knowledge_base_id/documents"
+
+empty_knowledge_document_id="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["data"]["id"])' "$response_file")"
+
+cat > "$payload_file" <<'JSON'
+{
+  "metadata": {
+    "source": "smoke-local",
+    "expectedFailure": "KNOWLEDGE_DOCUMENT_NO_CONTENT"
+  }
+}
+JSON
+
+expect_status 422 "knowledge-ingestion-no-content-422" \
+  -b "$cookie_file" \
+  -H 'Content-Type: application/json' \
+  --data-binary "@$payload_file" \
+  "$BASE_URL/api/v1/knowledge-documents/$empty_knowledge_document_id/request-ingestion"
+
+expect_status 200 "knowledge-failed-ingestion-list" \
+  -b "$cookie_file" \
+  "$BASE_URL/api/v1/knowledge-documents/$empty_knowledge_document_id/ingestion"
+
+python3 -c 'import json,sys; data=json.load(open(sys.argv[1]))["data"]; assert data[0]["status"] == "failed"; assert data[0]["errorCode"] == "KNOWLEDGE_DOCUMENT_NO_CONTENT"' "$response_file"
+
+expect_status 404 "knowledge-chunk-structured-404" \
+  -b "$cookie_file" \
+  "$BASE_URL/api/v1/knowledge-chunks/00000000-0000-0000-0000-000000000999"
+
+cat > "$payload_file" <<'JSON'
+{
   "name": "Smoke Data Source",
   "type": "manual",
   "config": {

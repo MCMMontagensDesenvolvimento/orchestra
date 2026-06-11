@@ -250,7 +250,7 @@ Status: decidida.
 
 ## DEC-KNOW-ING-001 - Ingestao local sincrona antes de workers reais
 
-A Fase 06B usa ingestao local sincrona e controlada para `contentText`, com `KnowledgeIngestionJob` e eventos estruturados. Workers, filas e conectores reais ficam para fase posterior.
+A Fase 06B usa ingestao local sincrona e controlada para `contentText`, com `KnowledgeIngestionJob` e eventos estruturados. Falhas validaveis, como ausencia de texto simples, tambem geram job `failed` e erro persistido no documento antes de retornar `422`. Workers, filas e conectores reais ficam para fase posterior.
 
 Status: decidida.
 

@@ -18,6 +18,7 @@ const mocks = vi.hoisted(() => {
     createDocument: vi.fn(),
     updateDocument: vi.fn(),
     archiveDocument: vi.fn(),
+    recordFailedIngestion: vi.fn(),
     requestIngestion: vi.fn(),
     listIngestionJobs: vi.fn(),
     findIngestionJob: vi.fn(),
@@ -250,7 +251,7 @@ function ingestionJobFixture(overrides: Record<string, unknown> = {}) {
   };
 }
 
-function ingestionEventFixture() {
+function ingestionEventFixture(overrides: Record<string, unknown> = {}) {
   return {
     id: '00000000-0000-0000-0000-000000000613',
     jobId: ingestionJobId,
@@ -263,6 +264,7 @@ function ingestionEventFixture() {
     message: 'Local text ingestion completed.',
     metadata: { chunksCreated: 1 },
     createdAt: now,
+    ...overrides,
   };
 }
 
@@ -431,6 +433,11 @@ describe('knowledge and MCP catalog endpoints', () => {
     mocks.knowledgeRepository.listDocuments.mockResolvedValue([documentFixture()]);
     mocks.knowledgeRepository.createDocument.mockResolvedValue(documentFixture());
     mocks.knowledgeRepository.findDocument.mockResolvedValue(documentFixture());
+    mocks.knowledgeRepository.recordFailedIngestion.mockResolvedValue({
+      document: documentFixture({ status: 'failed', ingestionStatus: 'failed', ingestionErrorCode: 'KNOWLEDGE_DOCUMENT_NO_CONTENT', ingestionErrorMessage: 'Documento nao possui conteudo textual simples para ingestao local.' }),
+      job: ingestionJobFixture({ status: 'failed', errorCode: 'KNOWLEDGE_DOCUMENT_NO_CONTENT', errorMessage: 'Documento nao possui conteudo textual simples para ingestao local.', chunksCreated: 0, sourceReferencesCreated: 0 }),
+      events: [ingestionEventFixture({ eventType: 'knowledge_ingestion_failed', level: 'error' })],
+    });
     mocks.knowledgeRepository.requestIngestion.mockResolvedValue({
       document: documentFixture({ status: 'indexed', ingestionStatus: 'completed', chunkCount: 1, contentHash: 'document-hash', ingestedAt: now }),
       job: ingestionJobFixture(),
@@ -520,6 +527,25 @@ describe('knowledge and MCP catalog endpoints', () => {
     expect(mocks.recordAuditEvent).toHaveBeenCalledWith(expect.objectContaining({ action: 'knowledge_document_created' }));
     expect(mocks.recordAuditEvent).toHaveBeenCalledWith(expect.objectContaining({ action: 'knowledge_ingestion_requested' }));
     expect(mocks.recordAuditEvent).toHaveBeenCalledWith(expect.objectContaining({ action: 'knowledge_data_source_created' }));
+  });
+
+  it('persists failed local ingestion job before returning 422 for documents without text', async () => {
+    mocks.knowledgeRepository.findDocument.mockResolvedValueOnce(documentFixture({ contentText: null }));
+
+    const response = await request(createApp())
+      .post(`/api/v1/knowledge-documents/${documentId}/request-ingestion`)
+      .set('Cookie', [sessionCookie()])
+      .send({ metadata: { scenario: 'no-content' } })
+      .expect(422);
+
+    expect(response.body.code).toBe('KNOWLEDGE_DOCUMENT_NO_CONTENT');
+    expect(mocks.knowledgeRepository.recordFailedIngestion).toHaveBeenCalledWith(expect.objectContaining({
+      documentId,
+      errorCode: 'KNOWLEDGE_DOCUMENT_NO_CONTENT',
+      createdById: userId,
+    }));
+    expect(mocks.knowledgeRepository.requestIngestion).not.toHaveBeenCalled();
+    expect(mocks.recordAuditEvent).toHaveBeenCalledWith(expect.objectContaining({ action: 'knowledge_ingestion_failed' }));
   });
 
   it('lists chunks, source references, job events and RAG readiness', async () => {

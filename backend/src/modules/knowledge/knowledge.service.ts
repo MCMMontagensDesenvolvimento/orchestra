@@ -141,6 +141,28 @@ function localSearchSnippet(content: string, query: string) {
   return `${start > 0 ? '...' : ''}${content.slice(start, end)}${end < content.length ? '...' : ''}`;
 }
 
+async function recordFailedIngestionJob(input: {
+  documentId: string;
+  errorCode: string;
+  errorMessage: string;
+  user: AuthenticatedUser;
+  metadata?: Record<string, unknown>;
+}) {
+  return knowledgeRepository.recordFailedIngestion({
+    documentId: input.documentId,
+    tenantId: input.user.tenant.id,
+    workspaceIds: userWorkspaceIds(input.user),
+    createdById: input.user.id,
+    errorCode: input.errorCode,
+    errorMessage: input.errorMessage,
+    metadata: sanitizeMetadata({
+      ...(input.metadata ?? {}),
+      strategy: 'local_text_chunking',
+      requestedById: input.user.id,
+    }) as Prisma.InputJsonValue,
+  });
+}
+
 export const knowledgeService = {
   async listKnowledgeBases(user: AuthenticatedUser, query: KnowledgeBasesQuery, context: RequestContext) {
     if (query.workspaceId) {
@@ -368,19 +390,31 @@ export const knowledgeService = {
 
     const normalizedText = normalizeContentText(current.contentText ?? '');
     if (!normalizedText) {
+      const errorCode = 'KNOWLEDGE_DOCUMENT_NO_CONTENT';
+      const errorMessage = 'Documento nao possui conteudo textual simples para ingestao local.';
+      const failed = await recordFailedIngestionJob({
+        documentId: current.id,
+        errorCode,
+        errorMessage,
+        user,
+        metadata: { knowledgeBaseId: current.knowledgeBaseId, reason: 'empty_text' },
+      });
       await audit({
         user,
         context,
         action: 'knowledge_ingestion_failed',
-        entity: 'knowledge_document',
-        entityId: current.id,
+        entity: failed?.job ? 'knowledge_ingestion_job' : 'knowledge_document',
+        entityId: failed?.job.id ?? current.id,
         workspaceId: current.workspaceId,
         metadata: {
           knowledgeBaseId: current.knowledgeBaseId,
-          errorCode: 'KNOWLEDGE_DOCUMENT_NO_CONTENT',
+          documentId: current.id,
+          errorCode,
+          jobId: failed?.job.id,
+          status: failed?.job.status ?? 'failed',
         },
       });
-      throw new AppError(422, 'KNOWLEDGE_DOCUMENT_NO_CONTENT', 'Documento nao possui conteudo textual simples para ingestao local.');
+      throw new AppError(422, errorCode, errorMessage);
     }
 
     let chunks;
@@ -389,24 +423,62 @@ export const knowledgeService = {
     } catch (error) {
       const message = error instanceof Error ? error.message : '';
       const maxDocumentChars = localChunkingDefaults.maxDocumentChars;
+      const errorCode = message.startsWith('DOCUMENT_TEXT_TOO_LARGE') ? 'DOCUMENT_TEXT_TOO_LARGE' : 'LOCAL_CHUNKING_FAILED';
+      const errorMessage = errorCode === 'DOCUMENT_TEXT_TOO_LARGE'
+        ? `Conteudo textual excede o limite de ${maxDocumentChars} caracteres.`
+        : 'Falha no chunking textual local.';
+      const failed = await recordFailedIngestionJob({
+        documentId: current.id,
+        errorCode,
+        errorMessage,
+        user,
+        metadata: { knowledgeBaseId: current.knowledgeBaseId, maxDocumentChars },
+      });
       await audit({
         user,
         context,
         action: 'knowledge_ingestion_failed',
-        entity: 'knowledge_document',
-        entityId: current.id,
+        entity: failed?.job ? 'knowledge_ingestion_job' : 'knowledge_document',
+        entityId: failed?.job.id ?? current.id,
         workspaceId: current.workspaceId,
         metadata: {
           knowledgeBaseId: current.knowledgeBaseId,
-          errorCode: message.startsWith('DOCUMENT_TEXT_TOO_LARGE') ? 'DOCUMENT_TEXT_TOO_LARGE' : 'LOCAL_CHUNKING_FAILED',
+          documentId: current.id,
+          errorCode,
+          jobId: failed?.job.id,
+          status: failed?.job.status ?? 'failed',
           maxDocumentChars,
         },
       });
-      throw new AppError(422, 'DOCUMENT_TEXT_TOO_LARGE', `Conteudo textual excede o limite de ${maxDocumentChars} caracteres.`);
+      throw new AppError(422, errorCode, errorMessage);
     }
 
     if (chunks.length === 0) {
-      throw new AppError(422, 'KNOWLEDGE_DOCUMENT_NO_CHUNKS', 'Conteudo textual nao gerou chunks validos.');
+      const errorCode = 'KNOWLEDGE_DOCUMENT_NO_CHUNKS';
+      const errorMessage = 'Conteudo textual nao gerou chunks validos.';
+      const failed = await recordFailedIngestionJob({
+        documentId: current.id,
+        errorCode,
+        errorMessage,
+        user,
+        metadata: { knowledgeBaseId: current.knowledgeBaseId, reason: 'no_chunks' },
+      });
+      await audit({
+        user,
+        context,
+        action: 'knowledge_ingestion_failed',
+        entity: failed?.job ? 'knowledge_ingestion_job' : 'knowledge_document',
+        entityId: failed?.job.id ?? current.id,
+        workspaceId: current.workspaceId,
+        metadata: {
+          knowledgeBaseId: current.knowledgeBaseId,
+          documentId: current.id,
+          errorCode,
+          jobId: failed?.job.id,
+          status: failed?.job.status ?? 'failed',
+        },
+      });
+      throw new AppError(422, errorCode, errorMessage);
     }
 
     const sourceReferences = chunks.map((chunk) => ({
