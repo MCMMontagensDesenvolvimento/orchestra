@@ -1,6 +1,6 @@
 # API
 
-Status: operacional para a fundacao da Fase 04, contratos de core domain da Fase 05, governanca de assistants/agent runs das Fases 05B/05C/05E e catalogo Knowledge/MCP da Fase 06.
+Status: operacional para a fundacao da Fase 04, contratos de core domain da Fase 05, governanca de assistants/agent runs das Fases 05B/05C/05E, catalogo Knowledge/MCP da Fase 06 e readiness local da Fase 06B.
 
 Esta pasta concentra contratos HTTP e convencoes de integracao do backend.
 
@@ -11,6 +11,7 @@ Esta pasta concentra contratos HTTP e convencoes de integracao do backend.
 - `ORCHESTRA_ASSISTANT_GOVERNANCE_API.md`: approval workflow, execution policy e execution precheck.
 - `ORCHESTRA_RUNTIME_EXECUTION_CONTRACTS.md`: contratos REST de AgentRun, eventos, precheck bloqueante e cancelamento.
 - `ORCHESTRA_KNOWLEDGE_MCP_CATALOG_API.md`: contratos REST de Knowledge Bases, documentos, ingestion placeholder, MCP catalog e assistant bindings.
+- `ORCHESTRA_RAG_READINESS_API_CONTRACTS.md`: contratos de chunks, source references, ingestion jobs, readiness e busca textual local.
 
 ## Convencoes Atuais
 
@@ -25,4 +26,5 @@ Esta pasta concentra contratos HTTP e convencoes de integracao do backend.
 - Approval, execution policy e precheck ficam sob `/assistants/:id`.
 - Agent runs usam `/assistants/:id/runs` e `/agent-runs/:runId`.
 - Knowledge usa `/knowledge-bases`, `/knowledge-documents` e `/knowledge-data-sources`.
+- Chunks usam `/knowledge-chunks` e readiness usa `/assistants/:id/rag-readiness`.
 - MCP usa `/mcp/servers`, `/mcp/tools` e bindings sob `/assistants/:id`.

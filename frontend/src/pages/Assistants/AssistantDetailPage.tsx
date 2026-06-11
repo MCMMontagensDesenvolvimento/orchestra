@@ -38,6 +38,8 @@ import { useAssistantRuns, useCancelAgentRunMutation, useCreateAgentRunMutation 
 import { useCurrentSession } from '@/hooks/queries/useAuth';
 import {
   useAssistantKnowledgeBindings,
+  useAssistantRagLocalSearchMutation,
+  useAssistantRagReadiness,
   useCreateAssistantKnowledgeBindingMutation,
   useKnowledgeBases,
   useRemoveAssistantKnowledgeBindingMutation,
@@ -57,7 +59,7 @@ import {
   GitBranch, CheckCircle, XCircle, FileCode, Wrench, BarChart3, Shield,
   AlertTriangle, ChevronRight, ExternalLink, Zap, Download, RefreshCw,
   Hash, Eye, EyeOff, Pencil, Save, X, ChevronDown, ChevronUp, Clipboard, Diff, Undo2,
-  Activity, StopCircle
+  Activity, StopCircle, Search
 } from 'lucide-react';
 import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, BarChart, Bar } from 'recharts';
 import { toast } from 'sonner';
@@ -94,6 +96,7 @@ export default function AssistantDetailPage() {
   const { data: assistantExecutionPolicy } = useAssistantExecutionPolicy(id);
   const { data: assistantRuns = [], isLoading: assistantRunsLoading, refetch: refetchAssistantRuns } = useAssistantRuns(id);
   const { data: assistantKnowledgeBindings = [] } = useAssistantKnowledgeBindings(id);
+  const ragReadinessQuery = useAssistantRagReadiness(id);
   const { data: assistantMcpBindings = [] } = useAssistantMcpBindings(id);
   const { data: session } = useCurrentSession();
   const publishMutation = usePublishAssistantMutation();
@@ -113,6 +116,7 @@ export default function AssistantDetailPage() {
   const cancelAgentRunMutation = useCancelAgentRunMutation();
   const createKnowledgeBindingMutation = useCreateAssistantKnowledgeBindingMutation();
   const removeKnowledgeBindingMutation = useRemoveAssistantKnowledgeBindingMutation();
+  const ragLocalSearchMutation = useAssistantRagLocalSearchMutation();
   const createMcpBindingMutation = useCreateAssistantMcpBindingMutation();
   const removeMcpBindingMutation = useRemoveAssistantMcpBindingMutation();
   const navigate = useNavigate();
@@ -149,6 +153,7 @@ export default function AssistantDetailPage() {
   const [runInput, setRunInput] = useState('');
   const [knowledgeBindingDialogOpen, setKnowledgeBindingDialogOpen] = useState(false);
   const [selectedKnowledgeBaseId, setSelectedKnowledgeBaseId] = useState('');
+  const [ragSearchQuery, setRagSearchQuery] = useState('');
   const [mcpBindingDialogOpen, setMcpBindingDialogOpen] = useState(false);
   const [selectedMcpToolId, setSelectedMcpToolId] = useState('');
 
@@ -189,6 +194,7 @@ export default function AssistantDetailPage() {
   const rollbackCandidates = versions.filter(v => v.id !== assistant.activePublication?.assistantVersionId);
   const pendingApprovals = approvals.filter(approval => approval.status === 'pending');
   const hasPermission = (permission: string) => session?.permissions.includes(permission) ?? false;
+  const ragReadiness = ragReadinessQuery.data;
 
   const handleBindKnowledgeBase = async () => {
     if (!selectedKnowledgeBaseId) return;
@@ -219,6 +225,20 @@ export default function AssistantDetailPage() {
       toast.success('Vinculo de conhecimento removido');
     } catch (error) {
       toast.error('Nao foi possivel remover o vinculo', {
+        description: error instanceof Error ? error.message : 'Tente novamente em instantes.',
+      });
+    }
+  };
+
+  const handleRagLocalSearch = async () => {
+    if (!ragSearchQuery.trim()) {
+      toast.error('Informe um termo para busca local');
+      return;
+    }
+    try {
+      await ragLocalSearchMutation.mutateAsync({ assistantId: assistant.id, query: ragSearchQuery });
+    } catch (error) {
+      toast.error('Nao foi possivel executar busca local', {
         description: error instanceof Error ? error.message : 'Tente novamente em instantes.',
       });
     }
@@ -1062,6 +1082,70 @@ ${tools.map(t => `- ${t.name}: ${t.description}${t.requiresApproval ? ' [REQUER 
 
         {activeTab === 'knowledge' && (
           <div className="space-y-4">
+            <div className="rounded-lg border bg-card p-5">
+              <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                <div>
+                  <h3 className="text-sm font-semibold flex items-center gap-2">
+                    <BookOpen className="h-4 w-4 text-primary" />RAG Readiness
+                  </h3>
+                  <p className="text-xs text-muted-foreground">Modo local_chunks_only. Embeddings e vector store desabilitados.</p>
+                </div>
+                <Button variant="outline" size="sm" onClick={() => { void ragReadinessQuery.refetch(); }}>
+                  <RefreshCw className="h-3.5 w-3.5 mr-1" />Checar readiness
+                </Button>
+              </div>
+              {ragReadinessQuery.isLoading ? (
+                <p className="text-sm text-muted-foreground">Carregando readiness...</p>
+              ) : ragReadiness ? (
+                <div className="space-y-4">
+                  <div className="grid gap-3 sm:grid-cols-4">
+                    <div className="rounded-md border p-3"><p className="text-[10px] text-muted-foreground">Status</p><p className="text-sm font-semibold">{ragReadiness.canUseKnowledge ? 'ready' : 'not_ready'}</p></div>
+                    <div className="rounded-md border p-3"><p className="text-[10px] text-muted-foreground">Bases</p><p className="text-sm font-semibold">{ragReadiness.knowledgeBasesBound}</p></div>
+                    <div className="rounded-md border p-3"><p className="text-[10px] text-muted-foreground">Documentos</p><p className="text-sm font-semibold">{ragReadiness.documentsIngested}</p></div>
+                    <div className="rounded-md border p-3"><p className="text-[10px] text-muted-foreground">Chunks</p><p className="text-sm font-semibold">{ragReadiness.chunksAvailable}</p></div>
+                  </div>
+                  {ragReadiness.missingRequirements.length > 0 && (
+                    <div className="rounded-md border border-warning/30 bg-warning/5 p-3">
+                      <p className="text-xs font-medium text-warning">Pendências</p>
+                      <p className="mt-1 text-xs text-muted-foreground">{ragReadiness.missingRequirements.join(', ')}</p>
+                    </div>
+                  )}
+                  <div className="flex flex-col gap-2 sm:flex-row">
+                    <div className="flex flex-1 items-center gap-2 rounded-md border bg-muted/40 px-3 py-1.5">
+                      <Search className="h-3.5 w-3.5 text-muted-foreground" />
+                      <input
+                        value={ragSearchQuery}
+                        onChange={event => setRagSearchQuery(event.target.value)}
+                        placeholder="Busca textual local em chunks autorizados"
+                        className="w-full bg-transparent text-sm outline-none"
+                      />
+                    </div>
+                    <Button onClick={() => { void handleRagLocalSearch(); }} disabled={!ragSearchQuery.trim() || ragLocalSearchMutation.isPending}>
+                      <Search className="h-3.5 w-3.5 mr-1" />Buscar
+                    </Button>
+                  </div>
+                  {ragLocalSearchMutation.data && (
+                    <div className="space-y-2">
+                      {ragLocalSearchMutation.data.results.length === 0 ? (
+                        <p className="text-sm text-muted-foreground">Nenhum chunk encontrado por keyword local.</p>
+                      ) : ragLocalSearchMutation.data.results.map(result => (
+                        <div key={result.chunkId} className="rounded-md border p-3">
+                          <div className="mb-1 flex flex-wrap items-center gap-2 text-xs">
+                            <Badge variant="outline">score {result.score}</Badge>
+                            <span className="font-mono text-muted-foreground">{result.chunkId.slice(0, 8)}</span>
+                            {result.source && <span className="text-muted-foreground">{result.source.label}</span>}
+                          </div>
+                          <p className="text-sm text-muted-foreground">{result.snippet}</p>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              ) : (
+                <p className="text-sm text-muted-foreground">Readiness indisponível.</p>
+              )}
+            </div>
+
             <div className="flex items-center justify-between">
               <h3 className="text-sm font-semibold">Bases de Conhecimento Vinculadas ({kbs.length})</h3>
               <Button variant="outline" size="sm" onClick={() => setKnowledgeBindingDialogOpen(true)}><BookOpen className="h-3.5 w-3.5 mr-1" />Vincular Base</Button>

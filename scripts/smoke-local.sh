@@ -126,11 +126,12 @@ expect_status 200 "knowledge-base-detail" \
 cat > "$payload_file" <<'JSON'
 {
   "title": "Smoke Catalog Document",
-  "description": "Document metadata only; no binary upload.",
+  "description": "Document with simple text for local ingestion; no binary upload.",
   "sourceType": "manual",
-  "sourceUri": "catalog://smoke/document",
+  "sourceUri": "manual://smoke/document",
   "mimeType": "text/plain",
   "dataClassification": "internal",
+  "contentText": "Smoke ingestion document. This text is processed locally by Orchestra. It creates deterministic chunks and source references without embeddings, vector stores, providers, LLM calls, Agno execution or MCP runtime execution.\n\nThe second paragraph gives the chunker enough material to validate offsets, token estimates and source reference metadata during the local smoke test.",
   "metadata": {
     "phase": "smoke-local",
     "binaryUpload": false
@@ -154,20 +155,99 @@ cat > "$payload_file" <<'JSON'
 {
   "metadata": {
     "source": "smoke-local",
-    "placeholderOnly": true
+    "strategy": "local_text_chunking"
   }
 }
 JSON
 
-expect_status 201 "knowledge-ingestion-placeholder" \
+expect_status 201 "knowledge-ingestion-local" \
   -b "$cookie_file" \
   -H 'Content-Type: application/json' \
   --data-binary "@$payload_file" \
   "$BASE_URL/api/v1/knowledge-documents/$knowledge_document_id/request-ingestion"
 
+python3 -c 'import json,sys; data=json.load(open(sys.argv[1]))["data"]; assert data["job"]["status"] == "completed"; assert data["job"]["chunksCreated"] > 0; assert data["job"]["sourceReferencesCreated"] > 0' "$response_file"
+knowledge_ingestion_job_id="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["data"]["job"]["id"])' "$response_file")"
+
 expect_status 200 "knowledge-ingestion-list" \
   -b "$cookie_file" \
   "$BASE_URL/api/v1/knowledge-documents/$knowledge_document_id/ingestion"
+
+expect_status 200 "knowledge-ingestion-job-detail" \
+  -b "$cookie_file" \
+  "$BASE_URL/api/v1/knowledge-ingestion-jobs/$knowledge_ingestion_job_id"
+
+expect_status 200 "knowledge-document-chunks" \
+  -b "$cookie_file" \
+  "$BASE_URL/api/v1/knowledge-documents/$knowledge_document_id/chunks"
+
+python3 -c 'import json,sys; data=json.load(open(sys.argv[1])); assert data["pagination"]["total"] > 0' "$response_file"
+knowledge_chunk_id="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["data"][0]["id"])' "$response_file")"
+
+expect_status 200 "knowledge-base-chunks" \
+  -b "$cookie_file" \
+  "$BASE_URL/api/v1/knowledge-bases/$knowledge_base_id/chunks"
+
+python3 -c 'import json,sys; assert json.load(open(sys.argv[1]))["pagination"]["total"] > 0' "$response_file"
+
+expect_status 200 "knowledge-document-source-references" \
+  -b "$cookie_file" \
+  "$BASE_URL/api/v1/knowledge-documents/$knowledge_document_id/source-references"
+
+python3 -c 'import json,sys; assert len(json.load(open(sys.argv[1]))["data"]) > 0' "$response_file"
+
+expect_status 200 "knowledge-chunk-source-references" \
+  -b "$cookie_file" \
+  "$BASE_URL/api/v1/knowledge-chunks/$knowledge_chunk_id/source-references"
+
+python3 -c 'import json,sys; assert len(json.load(open(sys.argv[1]))["data"]) > 0' "$response_file"
+
+cat > "$payload_file" <<'JSON'
+{
+  "title": "Smoke Empty Ingestion Document",
+  "description": "Document intentionally left without content to validate local ingestion failure status.",
+  "sourceType": "manual",
+  "mimeType": "text/plain",
+  "dataClassification": "internal",
+  "metadata": {
+    "phase": "smoke-local",
+    "expectedIngestionFailure": true
+  }
+}
+JSON
+
+expect_status 201 "knowledge-empty-document-create" \
+  -b "$cookie_file" \
+  -H 'Content-Type: application/json' \
+  --data-binary "@$payload_file" \
+  "$BASE_URL/api/v1/knowledge-bases/$knowledge_base_id/documents"
+
+empty_knowledge_document_id="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["data"]["id"])' "$response_file")"
+
+cat > "$payload_file" <<'JSON'
+{
+  "metadata": {
+    "source": "smoke-local",
+    "expectedFailure": "KNOWLEDGE_DOCUMENT_NO_CONTENT"
+  }
+}
+JSON
+
+expect_status 422 "knowledge-ingestion-no-content-422" \
+  -b "$cookie_file" \
+  -H 'Content-Type: application/json' \
+  --data-binary "@$payload_file" \
+  "$BASE_URL/api/v1/knowledge-documents/$empty_knowledge_document_id/request-ingestion"
+
+expect_status 200 "knowledge-failed-ingestion-list" \
+  -b "$cookie_file" \
+  "$BASE_URL/api/v1/knowledge-documents/$empty_knowledge_document_id/ingestion"
+
+python3 -c 'import json,sys; data=json.load(open(sys.argv[1]))["data"]; assert data[0]["status"] == "failed"; assert data[0]["errorCode"] == "KNOWLEDGE_DOCUMENT_NO_CONTENT"' "$response_file"
+
+expect_status 404 "knowledge-chunk-structured-404" \
+  -b "$cookie_file" \
+  "$BASE_URL/api/v1/knowledge-chunks/00000000-0000-0000-0000-000000000999"
 
 cat > "$payload_file" <<'JSON'
 {
@@ -208,6 +288,26 @@ expect_status 201 "assistant-knowledge-binding-create" \
 expect_status 200 "assistant-knowledge-bindings-list" \
   -b "$cookie_file" \
   "$BASE_URL/api/v1/assistants/$assistant_id/knowledge-bindings"
+
+expect_status 200 "assistant-rag-readiness" \
+  -b "$cookie_file" \
+  "$BASE_URL/api/v1/assistants/$assistant_id/rag-readiness"
+
+python3 -c 'import json,sys; data=json.load(open(sys.argv[1]))["data"]; assert data["retrievalMode"] == "local_chunks_only"; assert data["chunksAvailable"] > 0; assert data["embeddingsEnabled"] is False; assert data["vectorStoreEnabled"] is False' "$response_file"
+
+cat > "$payload_file" <<'JSON'
+{
+  "query": "Smoke ingestion"
+}
+JSON
+
+expect_status 200 "assistant-rag-local-search" \
+  -b "$cookie_file" \
+  -H 'Content-Type: application/json' \
+  --data-binary "@$payload_file" \
+  "$BASE_URL/api/v1/assistants/$assistant_id/rag-local-search"
+
+python3 -c 'import json,sys; data=json.load(open(sys.argv[1]))["data"]; assert data["mode"] == "keyword_local_placeholder"; assert len(data["results"]) > 0' "$response_file"
 
 cat > "$payload_file" <<'JSON'
 {

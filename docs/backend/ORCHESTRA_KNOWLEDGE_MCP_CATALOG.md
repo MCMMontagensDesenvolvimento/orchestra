@@ -1,6 +1,6 @@
 # Orchestra Knowledge/RAG/MCP Catalog Backend
 
-Status: implementado na Fase 06 como catalogo governado e auditavel. Esta fase nao implementa RAG real, embeddings, vector store, MCP execution, Agno, providers reais, upload binario, SSO, webhooks ou workers.
+Status: implementado na Fase 06 como catalogo governado e auditavel. A Fase 06B adicionou ingestao local textual, chunks e source references. RAG semantico real, embeddings, vector store, MCP execution, Agno, providers reais, upload binario, SSO, webhooks e workers continuam fora do escopo.
 
 ## Modulos
 
@@ -11,7 +11,7 @@ Responsavel por:
 - CRUD governado de Knowledge Bases.
 - Documentos como metadados catalogados.
 - Data sources como referencias estruturais.
-- Ingestion jobs placeholder.
+- Ingestion jobs com processamento local textual desde a Fase 06B.
 - Bindings entre assistants e Knowledge Bases.
 - Policies estruturais de Knowledge.
 
@@ -19,7 +19,7 @@ Arquivos principais:
 
 - `knowledge.schema.ts`: validacao Zod, enums e guard contra secrets em JSON.
 - `knowledge.repository.ts`: acesso Prisma.
-- `knowledge.service.ts`: regras de tenancy, workspace, archive/restore, placeholder ingestion e auditoria.
+- `knowledge.service.ts`: regras de tenancy, workspace, archive/restore, ingestao local textual, readiness e auditoria.
 - `knowledge.controller.ts`: envelope HTTP.
 - `knowledge.routes.ts`: rotas, permissao e validacao.
 
@@ -69,15 +69,17 @@ Eventos sensiveis registram audit log com payload sanitizado:
 
 Os audit logs nao registram secrets nem credenciais.
 
-## Ingestion Placeholder
+## Ingestao Local Desde A Fase 06B
 
 `POST /knowledge-documents/:documentId/request-ingestion`:
 
+- valida `contentText`;
 - cria `KnowledgeIngestionJob`;
-- marca o job como `completed_placeholder`;
-- marca o documento como `indexed_placeholder`;
-- preserva metadados auditaveis;
-- nao executa parser, chunker, embedding, vector store ou retrieval.
+- executa chunking local sincrono;
+- cria `KnowledgeChunk` e `KnowledgeSourceReference`;
+- marca o job como `completed`;
+- marca o documento como `indexed` e `ingestionStatus=completed`;
+- nao executa parser robusto, embedding, vector store ou retrieval semantico.
 
 ## MCP Placeholder
 
@@ -100,4 +102,3 @@ Cobertura adicionada em `backend/tests/api/knowledge-mcp-catalog.test.ts`:
 - CRUD/listagem de MCP server/tool.
 - Binding MCP e bloqueio de override inseguro.
 - Erros estruturados `403`, `404` e `422`.
-

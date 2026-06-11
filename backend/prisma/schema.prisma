@@ -29,7 +29,10 @@ model Tenant {
   knowledgeBases             KnowledgeBase[]
   knowledgeDocuments         KnowledgeDocument[]
   knowledgeDataSources       KnowledgeDataSource[]
+  knowledgeChunks            KnowledgeChunk[]
+  knowledgeSourceReferences  KnowledgeSourceReference[]
   knowledgeIngestionJobs     KnowledgeIngestionJob[]
+  knowledgeIngestionEvents   KnowledgeIngestionEvent[]
   knowledgePolicies          KnowledgePolicy[]
   assistantKnowledgeBindings AssistantKnowledgeBinding[]
   mcpServers                 McpServer[]
@@ -69,7 +72,10 @@ model Workspace {
   knowledgeBases             KnowledgeBase[]
   knowledgeDocuments         KnowledgeDocument[]
   knowledgeDataSources       KnowledgeDataSource[]
+  knowledgeChunks            KnowledgeChunk[]
+  knowledgeSourceReferences  KnowledgeSourceReference[]
   knowledgeIngestionJobs     KnowledgeIngestionJob[]
+  knowledgeIngestionEvents   KnowledgeIngestionEvent[]
   knowledgePolicies          KnowledgePolicy[]
   assistantKnowledgeBindings AssistantKnowledgeBinding[]
   mcpServers                 McpServer[]
@@ -119,6 +125,7 @@ model User {
   ownedKnowledgeBases               KnowledgeBase[]             @relation("KnowledgeBaseOwner")
   createdKnowledgeDocuments         KnowledgeDocument[]         @relation("KnowledgeDocumentCreator")
   createdKnowledgeDataSources       KnowledgeDataSource[]       @relation("KnowledgeDataSourceCreator")
+  createdKnowledgeIngestionJobs     KnowledgeIngestionJob[]     @relation("KnowledgeIngestionJobCreator")
   createdAssistantKnowledgeBindings AssistantKnowledgeBinding[] @relation("AssistantKnowledgeBindingCreator")
   createdMcpServers                 McpServer[]                 @relation("McpServerCreator")
   createdAssistantMcpBindings       AssistantMcpBinding[]       @relation("AssistantMcpBindingCreator")
@@ -526,7 +533,10 @@ model KnowledgeBase {
   owner              User?                       @relation("KnowledgeBaseOwner", fields: [ownerUserId], references: [id], onDelete: SetNull)
   documents          KnowledgeDocument[]
   dataSources        KnowledgeDataSource[]
+  chunks             KnowledgeChunk[]
+  sourceReferences   KnowledgeSourceReference[]
   ingestionJobs      KnowledgeIngestionJob[]
+  ingestionEvents    KnowledgeIngestionEvent[]
   bindings           AssistantKnowledgeBinding[]
   policies           KnowledgePolicy[]
 
@@ -553,6 +563,10 @@ model KnowledgeDocument {
   ingestionErrorCode    String?                 @map("ingestion_error_code")
   ingestionErrorMessage String?                 @map("ingestion_error_message")
   dataClassification    String                  @default("internal") @map("data_classification")
+  contentText           String?                 @map("content_text")
+  contentHash           String?                 @map("content_hash")
+  ingestedAt            DateTime?               @map("ingested_at")
+  chunkCount            Int                     @default(0) @map("chunk_count")
   metadata              Json?
   createdById           String?                 @map("created_by_id") @db.Uuid
   createdAt             DateTime                @default(now()) @map("created_at")
@@ -563,14 +577,82 @@ model KnowledgeDocument {
   knowledgeBase         KnowledgeBase           @relation(fields: [knowledgeBaseId], references: [id], onDelete: Cascade)
   createdBy             User?                   @relation("KnowledgeDocumentCreator", fields: [createdById], references: [id], onDelete: SetNull)
   ingestionJobs         KnowledgeIngestionJob[]
+  chunks                KnowledgeChunk[]
+  sourceReferences      KnowledgeSourceReference[]
+  ingestionEvents       KnowledgeIngestionEvent[]
 
   @@index([tenantId])
   @@index([workspaceId])
   @@index([knowledgeBaseId])
   @@index([status])
   @@index([ingestionStatus])
+  @@index([contentHash])
   @@index([createdAt])
   @@map("knowledge_documents")
+}
+
+model KnowledgeChunk {
+  id               String                     @id @default(uuid()) @db.Uuid
+  tenantId         String                     @map("tenant_id") @db.Uuid
+  workspaceId      String                     @map("workspace_id") @db.Uuid
+  knowledgeBaseId  String                     @map("knowledge_base_id") @db.Uuid
+  documentId       String                     @map("document_id") @db.Uuid
+  chunkIndex       Int                        @map("chunk_index")
+  content          String
+  contentHash      String                     @map("content_hash")
+  tokenEstimate    Int                        @default(0) @map("token_estimate")
+  charCount        Int                        @default(0) @map("char_count")
+  status           String                     @default("active")
+  metadata         Json?
+  createdAt        DateTime                   @default(now()) @map("created_at")
+  updatedAt        DateTime                   @updatedAt @map("updated_at")
+  tenant           Tenant                     @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  workspace        Workspace                  @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  knowledgeBase    KnowledgeBase              @relation(fields: [knowledgeBaseId], references: [id], onDelete: Cascade)
+  document         KnowledgeDocument          @relation(fields: [documentId], references: [id], onDelete: Cascade)
+  sourceReferences KnowledgeSourceReference[]
+
+  @@index([tenantId])
+  @@index([workspaceId])
+  @@index([knowledgeBaseId])
+  @@index([documentId])
+  @@index([chunkIndex])
+  @@index([contentHash])
+  @@index([status])
+  @@index([createdAt])
+  @@map("knowledge_chunks")
+}
+
+model KnowledgeSourceReference {
+  id              String             @id @default(uuid()) @db.Uuid
+  tenantId        String             @map("tenant_id") @db.Uuid
+  workspaceId     String             @map("workspace_id") @db.Uuid
+  knowledgeBaseId String             @map("knowledge_base_id") @db.Uuid
+  documentId      String             @map("document_id") @db.Uuid
+  chunkId         String?            @map("chunk_id") @db.Uuid
+  label           String
+  sourceType      String             @default("manual") @map("source_type")
+  sourceUri       String?            @map("source_uri")
+  sectionTitle    String?            @map("section_title")
+  pageNumber      Int?               @map("page_number")
+  startOffset     Int?               @map("start_offset")
+  endOffset       Int?               @map("end_offset")
+  metadata        Json?
+  createdAt       DateTime           @default(now()) @map("created_at")
+  updatedAt       DateTime           @updatedAt @map("updated_at")
+  tenant          Tenant             @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  workspace       Workspace          @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  knowledgeBase   KnowledgeBase      @relation(fields: [knowledgeBaseId], references: [id], onDelete: Cascade)
+  document        KnowledgeDocument  @relation(fields: [documentId], references: [id], onDelete: Cascade)
+  chunk           KnowledgeChunk?    @relation(fields: [chunkId], references: [id], onDelete: SetNull)
+
+  @@index([tenantId])
+  @@index([workspaceId])
+  @@index([knowledgeBaseId])
+  @@index([documentId])
+  @@index([chunkId])
+  @@index([sourceType])
+  @@map("knowledge_source_references")
 }
 
 model KnowledgeDataSource {
@@ -605,25 +687,62 @@ model KnowledgeIngestionJob {
   knowledgeBaseId String             @map("knowledge_base_id") @db.Uuid
   documentId      String?            @map("document_id") @db.Uuid
   status          String             @default("queued")
+  strategy        String             @default("local_text_chunking")
   startedAt       DateTime?          @map("started_at")
   completedAt     DateTime?          @map("completed_at")
   errorCode       String?            @map("error_code")
   errorMessage    String?            @map("error_message")
+  chunksCreated   Int                @default(0) @map("chunks_created")
+  sourceReferencesCreated Int         @default(0) @map("source_references_created")
   metadata        Json?
+  createdById     String?            @map("created_by_id") @db.Uuid
   createdAt       DateTime           @default(now()) @map("created_at")
   updatedAt       DateTime           @updatedAt @map("updated_at")
   tenant          Tenant             @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   workspace       Workspace          @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
   knowledgeBase   KnowledgeBase      @relation(fields: [knowledgeBaseId], references: [id], onDelete: Cascade)
   document        KnowledgeDocument? @relation(fields: [documentId], references: [id], onDelete: SetNull)
+  createdBy       User?              @relation("KnowledgeIngestionJobCreator", fields: [createdById], references: [id], onDelete: SetNull)
+  events          KnowledgeIngestionEvent[]
 
   @@index([tenantId])
   @@index([workspaceId])
   @@index([knowledgeBaseId])
   @@index([documentId])
   @@index([status])
+  @@index([strategy])
+  @@index([createdById])
   @@index([createdAt])
   @@map("knowledge_ingestion_jobs")
+}
+
+model KnowledgeIngestionEvent {
+  id              String                 @id @default(uuid()) @db.Uuid
+  jobId           String                 @map("job_id") @db.Uuid
+  tenantId        String                 @map("tenant_id") @db.Uuid
+  workspaceId     String                 @map("workspace_id") @db.Uuid
+  knowledgeBaseId String                 @map("knowledge_base_id") @db.Uuid
+  documentId      String?                @map("document_id") @db.Uuid
+  eventType       String                 @map("event_type")
+  level           String                 @default("info")
+  message         String?
+  metadata        Json?
+  createdAt       DateTime               @default(now()) @map("created_at")
+  job             KnowledgeIngestionJob  @relation(fields: [jobId], references: [id], onDelete: Cascade)
+  tenant          Tenant                 @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  workspace       Workspace              @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  knowledgeBase   KnowledgeBase          @relation(fields: [knowledgeBaseId], references: [id], onDelete: Cascade)
+  document        KnowledgeDocument?     @relation(fields: [documentId], references: [id], onDelete: SetNull)
+
+  @@index([jobId])
+  @@index([tenantId])
+  @@index([workspaceId])
+  @@index([knowledgeBaseId])
+  @@index([documentId])
+  @@index([eventType])
+  @@index([level])
+  @@index([createdAt])
+  @@map("knowledge_ingestion_events")
 }
 
 model AssistantKnowledgeBinding {

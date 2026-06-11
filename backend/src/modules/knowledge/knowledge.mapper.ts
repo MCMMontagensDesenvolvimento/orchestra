@@ -1,10 +1,13 @@
 import type {
   AssistantKnowledgeBinding,
   KnowledgeBase,
+  KnowledgeChunk,
   KnowledgeDataSource,
   KnowledgeDocument,
+  KnowledgeIngestionEvent,
   KnowledgeIngestionJob,
   KnowledgePolicy,
+  KnowledgeSourceReference,
 } from '@prisma/client';
 
 export function mapKnowledgePolicy(policy: KnowledgePolicy | null | undefined) {
@@ -31,6 +34,7 @@ export function mapKnowledgeBase(
       dataSources?: number;
       bindings?: number;
       ingestionJobs?: number;
+      chunks?: number;
     };
     owner?: { id: string; name: string; email: string } | null;
   },
@@ -48,6 +52,7 @@ export function mapKnowledgeBase(
     owner: knowledgeBase.owner,
     metadata: knowledgeBase.metadata,
     documentCount: knowledgeBase._count?.documents ?? 0,
+    chunkCount: knowledgeBase._count?.chunks ?? 0,
     dataSourceCount: knowledgeBase._count?.dataSources ?? 0,
     bindingCount: knowledgeBase._count?.bindings ?? 0,
     ingestionJobCount: knowledgeBase._count?.ingestionJobs ?? 0,
@@ -74,6 +79,10 @@ export function mapKnowledgeDocument(document: KnowledgeDocument) {
     ingestionErrorCode: document.ingestionErrorCode,
     ingestionErrorMessage: document.ingestionErrorMessage,
     dataClassification: document.dataClassification,
+    contentText: document.contentText,
+    contentHash: document.contentHash,
+    ingestedAt: document.ingestedAt?.toISOString() ?? null,
+    chunkCount: document.chunkCount,
     metadata: document.metadata,
     createdById: document.createdById,
     createdAt: document.createdAt.toISOString(),
@@ -107,13 +116,73 @@ export function mapKnowledgeIngestionJob(job: KnowledgeIngestionJob) {
     knowledgeBaseId: job.knowledgeBaseId,
     documentId: job.documentId,
     status: job.status,
+    strategy: job.strategy,
     startedAt: job.startedAt?.toISOString() ?? null,
     completedAt: job.completedAt?.toISOString() ?? null,
     errorCode: job.errorCode,
     errorMessage: job.errorMessage,
+    chunksCreated: job.chunksCreated,
+    sourceReferencesCreated: job.sourceReferencesCreated,
     metadata: job.metadata,
+    createdById: job.createdById,
     createdAt: job.createdAt.toISOString(),
     updatedAt: job.updatedAt.toISOString(),
+  };
+}
+
+export function mapKnowledgeIngestionEvent(event: KnowledgeIngestionEvent) {
+  return {
+    id: event.id,
+    jobId: event.jobId,
+    tenantId: event.tenantId,
+    workspaceId: event.workspaceId,
+    knowledgeBaseId: event.knowledgeBaseId,
+    documentId: event.documentId,
+    eventType: event.eventType,
+    level: event.level,
+    message: event.message,
+    metadata: event.metadata,
+    createdAt: event.createdAt.toISOString(),
+  };
+}
+
+export function mapKnowledgeChunk(chunk: KnowledgeChunk) {
+  return {
+    id: chunk.id,
+    tenantId: chunk.tenantId,
+    workspaceId: chunk.workspaceId,
+    knowledgeBaseId: chunk.knowledgeBaseId,
+    documentId: chunk.documentId,
+    chunkIndex: chunk.chunkIndex,
+    content: chunk.content,
+    contentHash: chunk.contentHash,
+    tokenEstimate: chunk.tokenEstimate,
+    charCount: chunk.charCount,
+    status: chunk.status,
+    metadata: chunk.metadata,
+    createdAt: chunk.createdAt.toISOString(),
+    updatedAt: chunk.updatedAt.toISOString(),
+  };
+}
+
+export function mapKnowledgeSourceReference(reference: KnowledgeSourceReference) {
+  return {
+    id: reference.id,
+    tenantId: reference.tenantId,
+    workspaceId: reference.workspaceId,
+    knowledgeBaseId: reference.knowledgeBaseId,
+    documentId: reference.documentId,
+    chunkId: reference.chunkId,
+    label: reference.label,
+    sourceType: reference.sourceType,
+    sourceUri: reference.sourceUri,
+    sectionTitle: reference.sectionTitle,
+    pageNumber: reference.pageNumber,
+    startOffset: reference.startOffset,
+    endOffset: reference.endOffset,
+    metadata: reference.metadata,
+    createdAt: reference.createdAt.toISOString(),
+    updatedAt: reference.updatedAt.toISOString(),
   };
 }
 

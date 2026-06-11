@@ -1,12 +1,14 @@
 import { z } from 'zod';
 import { paginationQuerySchema } from '../../shared/validation/pagination';
+import { localChunkingDefaults } from './knowledge.chunking';
 
 export const knowledgeBaseStatusValues = ['active', 'archived'] as const;
 export const knowledgeVisibilityValues = ['private', 'workspace', 'tenant'] as const;
 export const dataClassificationValues = ['public', 'internal', 'sensitive', 'pii', 'confidential'] as const;
 export const knowledgeDocumentSourceTypeValues = ['manual', 'url', 'file', 'connector', 'api', 'other'] as const;
-export const knowledgeDocumentStatusValues = ['draft', 'pending_ingestion', 'indexed_placeholder', 'failed', 'archived'] as const;
-export const knowledgeIngestionStatusValues = ['pending', 'queued', 'running', 'completed_placeholder', 'failed', 'cancelled'] as const;
+export const knowledgeDocumentStatusValues = ['draft', 'pending_ingestion', 'indexed', 'indexed_placeholder', 'failed', 'archived'] as const;
+export const knowledgeIngestionStatusValues = ['pending', 'queued', 'running', 'completed', 'completed_placeholder', 'failed', 'cancelled'] as const;
+export const knowledgeChunkStatusValues = ['active', 'stale', 'archived'] as const;
 export const knowledgeDataSourceTypeValues = ['manual', 'url', 'connector', 'api', 'storage', 'other'] as const;
 export const knowledgeDataSourceStatusValues = ['active', 'disabled', 'archived'] as const;
 export const assistantKnowledgeRetrievalModeValues = ['disabled', 'citation_only', 'retrieval_placeholder'] as const;
@@ -79,6 +81,7 @@ export const knowledgeDocumentCreateSchema = z.object({
   status: z.enum(knowledgeDocumentStatusValues).default('draft'),
   ingestionStatus: z.enum(knowledgeIngestionStatusValues).default('pending'),
   dataClassification: z.enum(dataClassificationValues).default('internal'),
+  contentText: z.string().max(localChunkingDefaults.maxDocumentChars).optional(),
   metadata: safeJsonRecord.optional(),
 });
 
@@ -93,6 +96,7 @@ export const knowledgeDocumentUpdateSchema = z.object({
   ingestionErrorCode: z.string().trim().max(120).nullable().optional(),
   ingestionErrorMessage: z.string().trim().max(1000).nullable().optional(),
   dataClassification: z.enum(dataClassificationValues).optional(),
+  contentText: z.string().max(localChunkingDefaults.maxDocumentChars).nullable().optional(),
   metadata: safeJsonRecord.nullable().optional(),
 }).refine((input) => Object.keys(input).length > 0, {
   message: 'Informe ao menos uma propriedade para atualizar.',
@@ -109,6 +113,24 @@ export const knowledgeBaseChildParamsSchema = z.object({
 export const knowledgeIngestionRequestSchema = z.object({
   metadata: safeJsonRecord.optional(),
 }).default({});
+
+export const knowledgeChunksQuerySchema = paginationQuerySchema.extend({
+  sortBy: z.enum(['chunkIndex', 'createdAt', 'updatedAt']).default('chunkIndex'),
+  sortDirection: z.enum(['asc', 'desc']).default('asc'),
+  status: z.enum(knowledgeChunkStatusValues).default('active'),
+});
+
+export const knowledgeChunkParamsSchema = z.object({
+  chunkId: z.string().uuid(),
+});
+
+export const knowledgeIngestionJobParamsSchema = z.object({
+  jobId: z.string().uuid(),
+});
+
+export const ragLocalSearchSchema = z.object({
+  query: z.string().trim().min(1).max(200),
+});
 
 export const knowledgeDataSourceCreateSchema = z.object({
   name: z.string().trim().min(2).max(160),
@@ -156,6 +178,8 @@ export type KnowledgeBaseUpdateInput = z.infer<typeof knowledgeBaseUpdateSchema>
 export type KnowledgeDocumentCreateInput = z.infer<typeof knowledgeDocumentCreateSchema>;
 export type KnowledgeDocumentUpdateInput = z.infer<typeof knowledgeDocumentUpdateSchema>;
 export type KnowledgeIngestionRequestInput = z.infer<typeof knowledgeIngestionRequestSchema>;
+export type KnowledgeChunksQuery = z.infer<typeof knowledgeChunksQuerySchema>;
+export type RagLocalSearchInput = z.infer<typeof ragLocalSearchSchema>;
 export type KnowledgeDataSourceCreateInput = z.infer<typeof knowledgeDataSourceCreateSchema>;
 export type KnowledgeDataSourceUpdateInput = z.infer<typeof knowledgeDataSourceUpdateSchema>;
 export type AssistantKnowledgeBindingCreateInput = z.infer<typeof assistantKnowledgeBindingCreateSchema>;

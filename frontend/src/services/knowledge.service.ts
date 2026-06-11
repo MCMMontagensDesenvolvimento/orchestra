@@ -5,11 +5,15 @@ import type {
   IngestionStatus,
   KnowledgeBase,
   KnowledgeDataSource,
+  KnowledgeChunk,
   KnowledgeDocument,
   KnowledgeIngestionJob,
+  KnowledgeSourceReference,
+  RagLocalSearchResponse,
+  RagReadiness,
   RetentionPeriod,
 } from '@/types';
-import { mockKnowledgeBases, mockDocuments } from '@/services/mocks';
+import { mockAssistants, mockKnowledgeBases, mockDocuments } from '@/services/mocks';
 import { mockResponse, mockFind } from '@/services/mocks/mock-utils';
 import { env } from '@/lib/env';
 import { apiClient, type ApiEnvelope, type PaginatedApiEnvelope } from './api/api-client';
@@ -39,6 +43,7 @@ interface ApiKnowledgeBase {
   owner?: { id: string; name: string; email: string } | null;
   metadata?: Record<string, unknown> | null;
   documentCount: number;
+  chunkCount?: number;
   dataSourceCount: number;
   bindingCount: number;
   ingestionJobCount: number;
@@ -63,6 +68,10 @@ interface ApiKnowledgeDocument {
   ingestionErrorCode: string | null;
   ingestionErrorMessage: string | null;
   dataClassification: string;
+  contentText?: string | null;
+  contentHash?: string | null;
+  ingestedAt?: string | null;
+  chunkCount?: number;
   metadata?: Record<string, unknown> | null;
   createdById: string | null;
   createdAt: string;
@@ -92,14 +101,72 @@ interface ApiKnowledgeIngestionJob {
   knowledgeBaseId: string;
   documentId: string | null;
   status: string;
+  strategy?: string;
   startedAt: string | null;
   completedAt: string | null;
   errorCode: string | null;
   errorMessage: string | null;
+  chunksCreated?: number;
+  sourceReferencesCreated?: number;
+  metadata?: unknown;
+  createdById?: string | null;
+  createdAt: string;
+  updatedAt: string;
+  events?: ApiKnowledgeIngestionEvent[];
+}
+
+interface ApiKnowledgeIngestionEvent {
+  id: string;
+  jobId: string;
+  tenantId: string;
+  workspaceId: string;
+  knowledgeBaseId: string;
+  documentId: string | null;
+  eventType: string;
+  level: string;
+  message: string | null;
+  metadata?: unknown;
+  createdAt: string;
+}
+
+interface ApiKnowledgeChunk {
+  id: string;
+  tenantId: string;
+  workspaceId: string;
+  knowledgeBaseId: string;
+  documentId: string;
+  chunkIndex: number;
+  content: string;
+  contentHash: string;
+  tokenEstimate: number;
+  charCount: number;
+  status: 'active' | 'stale' | 'archived';
   metadata?: unknown;
   createdAt: string;
   updatedAt: string;
 }
+
+interface ApiKnowledgeSourceReference {
+  id: string;
+  tenantId: string;
+  workspaceId: string;
+  knowledgeBaseId: string;
+  documentId: string;
+  chunkId: string | null;
+  label: string;
+  sourceType: string;
+  sourceUri: string | null;
+  sectionTitle: string | null;
+  pageNumber: number | null;
+  startOffset: number | null;
+  endOffset: number | null;
+  metadata?: unknown;
+  createdAt: string;
+  updatedAt: string;
+}
+
+type ApiRagReadiness = RagReadiness;
+type ApiRagLocalSearchResponse = RagLocalSearchResponse;
 
 interface ApiAssistantKnowledgeBinding {
   id: string;
@@ -131,6 +198,7 @@ export interface KnowledgeDocumentPayload {
   sourceUri?: string;
   mimeType?: string;
   dataClassification?: 'public' | 'internal' | 'sensitive' | 'pii' | 'confidential';
+  contentText?: string;
   metadata?: Record<string, unknown>;
 }
 
@@ -169,7 +237,7 @@ function statusFromDocument(document: ApiKnowledgeDocument): IngestionStatus {
   if (document.status === 'archived') return 'archived';
   if (document.status === 'failed' || document.ingestionStatus === 'failed') return 'failed';
   if (document.ingestionStatus === 'queued' || document.ingestionStatus === 'running' || document.status === 'pending_ingestion') return 'processing';
-  if (document.ingestionStatus === 'completed_placeholder' || document.status === 'indexed_placeholder') return 'completed';
+  if (document.ingestionStatus === 'completed' || document.ingestionStatus === 'completed_placeholder' || document.status === 'indexed' || document.status === 'indexed_placeholder') return 'completed';
   return 'pending';
 }
 
@@ -192,7 +260,8 @@ function mapKnowledgeBase(base: ApiKnowledgeBase): KnowledgeBase {
     name: base.name,
     description: base.description ?? '',
     documentCount: base.documentCount,
-    totalChunks: Number(metadata.totalChunks ?? 0),
+    totalChunks: Number(base.chunkCount ?? metadata.totalChunks ?? 0),
+    chunkCount: Number(base.chunkCount ?? metadata.totalChunks ?? 0),
     status: statusFromBase(base.status),
     lastUpdated: formatDate(base.updatedAt),
     size: metadataString(metadata, 'size', '0 MB'),
@@ -237,12 +306,16 @@ function mapDocument(document: ApiKnowledgeDocument): KnowledgeDocument {
     ingestionErrorCode: document.ingestionErrorCode,
     ingestionErrorMessage: document.ingestionErrorMessage,
     dataClassification: document.dataClassification,
+    contentText: document.contentText,
+    contentHash: document.contentHash,
+    ingestedAt: document.ingestedAt,
     metadata: document.metadata,
-    chunks: Number(document.metadata?.chunks ?? 0),
+    chunks: Number(document.chunkCount ?? document.metadata?.chunks ?? 0),
+    chunkCount: Number(document.chunkCount ?? document.metadata?.chunks ?? 0),
     version: metadataString(document.metadata, 'version', '1.0'),
     uploadedBy: document.createdById ?? 'Orchestra',
     uploadedAt: formatDate(document.createdAt),
-    lastProcessed: document.ingestionStatus === 'completed_placeholder' ? document.updatedAt : '',
+    lastProcessed: document.ingestedAt ?? (document.ingestionStatus === 'completed' || document.ingestionStatus === 'completed_placeholder' ? document.updatedAt : ''),
     updatedAt: document.updatedAt,
     deletedAt: document.deletedAt,
   };
@@ -273,14 +346,70 @@ function mapIngestionJob(job: ApiKnowledgeIngestionJob): KnowledgeIngestionJob {
     knowledgeBaseId: job.knowledgeBaseId,
     documentId: job.documentId,
     status: job.status,
+    strategy: job.strategy,
     startedAt: job.startedAt,
     completedAt: job.completedAt,
     errorCode: job.errorCode,
     errorMessage: job.errorMessage,
+    chunksCreated: job.chunksCreated,
+    sourceReferencesCreated: job.sourceReferencesCreated,
     metadata: job.metadata,
+    createdById: job.createdById,
     createdAt: job.createdAt,
     updatedAt: job.updatedAt,
+    events: job.events,
   };
+}
+
+function mapChunk(chunk: ApiKnowledgeChunk): KnowledgeChunk {
+  return chunk;
+}
+
+function mapSourceReference(reference: ApiKnowledgeSourceReference): KnowledgeSourceReference {
+  return reference;
+}
+
+function mockChunksForDocument(documentId: string): KnowledgeChunk[] {
+  const document = mockDocuments.find((item) => item.id === documentId) ?? mockDocuments[0];
+  const content = document.contentText ?? `Conteudo local simulado para ${document.name}. Este chunk demonstra readiness sem embeddings ou vector store.`;
+  return [
+    {
+      id: `mock-chunk-${documentId}-1`,
+      knowledgeBaseId: document.knowledgeBaseId,
+      documentId,
+      chunkIndex: 0,
+      content,
+      contentHash: `mock-hash-${documentId}`,
+      tokenEstimate: Math.ceil(content.length / 4),
+      charCount: content.length,
+      status: 'active',
+      metadata: { source: 'mock' },
+      createdAt: document.lastProcessed || new Date().toISOString(),
+      updatedAt: document.lastProcessed || new Date().toISOString(),
+    },
+  ];
+}
+
+function mockSourceReferencesForDocument(documentId: string): KnowledgeSourceReference[] {
+  const document = mockDocuments.find((item) => item.id === documentId) ?? mockDocuments[0];
+  return [
+    {
+      id: `mock-source-${documentId}-1`,
+      knowledgeBaseId: document.knowledgeBaseId,
+      documentId,
+      chunkId: `mock-chunk-${documentId}-1`,
+      label: `${document.name} #1`,
+      sourceType: document.sourceType ?? 'manual',
+      sourceUri: document.sourceUri ?? `mock://knowledge/${documentId}`,
+      sectionTitle: document.name,
+      pageNumber: null,
+      startOffset: 0,
+      endOffset: Math.max(1, document.name.length),
+      metadata: { source: 'mock' },
+      createdAt: document.lastProcessed || new Date().toISOString(),
+      updatedAt: document.lastProcessed || new Date().toISOString(),
+    },
+  ];
 }
 
 function mapBinding(binding: ApiAssistantKnowledgeBinding): AssistantKnowledgeBinding {
@@ -368,6 +497,8 @@ export const knowledgeService = {
         id: `mock-doc-${Date.now()}`,
         knowledgeBaseId,
         name: payload.title,
+        title: payload.title,
+        contentText: payload.contentText,
         status: 'pending',
       });
     }
@@ -390,7 +521,10 @@ export const knowledgeService = {
           id: `mock-ingestion-${Date.now()}`,
           knowledgeBaseId: document.knowledgeBaseId,
           documentId,
-          status: 'completed_placeholder',
+          status: 'completed',
+          strategy: 'local_text_chunking',
+          chunksCreated: 1,
+          sourceReferencesCreated: 1,
           createdAt: new Date().toISOString(),
           updatedAt: new Date().toISOString(),
         } as KnowledgeIngestionJob,
@@ -403,6 +537,107 @@ export const knowledgeService = {
       document: mapDocument(response.data.data.document),
       job: mapIngestionJob(response.data.data.job),
     };
+  },
+
+  async ingestionJobs(documentId: string): Promise<KnowledgeIngestionJob[]> {
+    if (env.useMocks) {
+      return mockResponse([
+        {
+          id: `mock-ingestion-${documentId}`,
+          knowledgeBaseId: mockDocuments.find((item) => item.id === documentId)?.knowledgeBaseId ?? '1',
+          documentId,
+          status: 'completed',
+          strategy: 'local_text_chunking',
+          chunksCreated: 1,
+          sourceReferencesCreated: 1,
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
+        } as KnowledgeIngestionJob,
+      ]);
+    }
+    const response = await apiClient.get<ApiEnvelope<ApiKnowledgeIngestionJob[]>>(endpoints.knowledge.documentIngestion(documentId));
+    return response.data.data.map(mapIngestionJob);
+  },
+
+  async ingestionJob(jobId: string): Promise<KnowledgeIngestionJob> {
+    if (env.useMocks) {
+      return mockResponse({
+        id: jobId,
+        knowledgeBaseId: '1',
+        documentId: 'd1',
+        status: 'completed',
+        strategy: 'local_text_chunking',
+        chunksCreated: 1,
+        sourceReferencesCreated: 1,
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+        events: [],
+      } as KnowledgeIngestionJob);
+    }
+    const response = await apiClient.get<ApiEnvelope<ApiKnowledgeIngestionJob>>(endpoints.knowledge.ingestionJob(jobId));
+    return mapIngestionJob(response.data.data);
+  },
+
+  async chunksByDocument(documentId: string): Promise<KnowledgeChunk[]> {
+    if (env.useMocks) return mockResponse(mockChunksForDocument(documentId));
+    const response = await apiClient.get<PaginatedApiEnvelope<ApiKnowledgeChunk>>(endpoints.knowledge.documentChunks(documentId));
+    return response.data.data.map(mapChunk);
+  },
+
+  async sourceReferencesByDocument(documentId: string): Promise<KnowledgeSourceReference[]> {
+    if (env.useMocks) return mockResponse(mockSourceReferencesForDocument(documentId));
+    const response = await apiClient.get<ApiEnvelope<ApiKnowledgeSourceReference[]>>(endpoints.knowledge.documentSourceReferences(documentId));
+    return response.data.data.map(mapSourceReference);
+  },
+
+  async ragReadiness(assistantId: string): Promise<RagReadiness> {
+    if (env.useMocks) {
+      const boundBases = mockKnowledgeBases.filter((kb) => mockAssistants.find((assistant) => assistant.id === assistantId)?.knowledgeBases.includes(kb.id));
+      const chunksAvailable = boundBases.reduce((total, kb) => total + kb.totalChunks, 0);
+      return mockResponse({
+        assistantId,
+        canUseKnowledge: boundBases.length > 0 && chunksAvailable > 0,
+        knowledgeBasesBound: boundBases.length,
+        documentsIngested: boundBases.reduce((total, kb) => total + kb.documentCount, 0),
+        chunksAvailable,
+        missingRequirements: boundBases.length === 0 ? ['NO_KNOWLEDGE_BASES_BOUND'] : [],
+        retrievalMode: 'local_chunks_only',
+        embeddingsEnabled: false,
+        vectorStoreEnabled: false,
+      });
+    }
+    const response = await apiClient.get<ApiEnvelope<ApiRagReadiness>>(endpoints.assistants.ragReadiness(assistantId));
+    return response.data.data;
+  },
+
+  async ragLocalSearch(assistantId: string, query: string): Promise<RagLocalSearchResponse> {
+    if (env.useMocks) {
+      const assistant = mockAssistants.find((item) => item.id === assistantId);
+      const boundDocument = mockDocuments.find((document) => assistant?.knowledgeBases.includes(document.knowledgeBaseId)) ?? mockDocuments[0];
+      const chunks = mockChunksForDocument(boundDocument.id);
+      return mockResponse({
+        mode: 'keyword_local_placeholder',
+        retrievalMode: 'local_chunks_only',
+        embeddingsEnabled: false,
+        vectorStoreEnabled: false,
+        results: chunks
+          .filter((chunk) => chunk.content.toLowerCase().includes(query.toLowerCase()))
+          .map((chunk) => ({
+            chunkId: chunk.id,
+            documentId: chunk.documentId,
+            knowledgeBaseId: chunk.knowledgeBaseId,
+            score: 1,
+            snippet: chunk.content.slice(0, 240),
+            source: {
+              label: `${boundDocument.name} #1`,
+              sourceUri: boundDocument.sourceUri ?? `mock://knowledge/${boundDocument.id}`,
+              sectionTitle: boundDocument.name,
+            },
+          })),
+      });
+    }
+    const response = await apiClient.post<ApiEnvelope<ApiRagLocalSearchResponse>>(endpoints.assistants.ragLocalSearch(assistantId), { query });
+    return response.data.data;
   },
 
   async dataSources(knowledgeBaseId: string): Promise<KnowledgeDataSource[]> {

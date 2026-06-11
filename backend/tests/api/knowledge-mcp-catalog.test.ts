@@ -18,8 +18,17 @@ const mocks = vi.hoisted(() => {
     createDocument: vi.fn(),
     updateDocument: vi.fn(),
     archiveDocument: vi.fn(),
+    recordFailedIngestion: vi.fn(),
     requestIngestion: vi.fn(),
     listIngestionJobs: vi.fn(),
+    findIngestionJob: vi.fn(),
+    listDocumentChunks: vi.fn(),
+    listKnowledgeBaseChunks: vi.fn(),
+    findChunk: vi.fn(),
+    listDocumentSourceReferences: vi.fn(),
+    listChunkSourceReferences: vi.fn(),
+    getRagReadiness: vi.fn(),
+    localSearch: vi.fn(),
     listDataSources: vi.fn(),
     createDataSource: vi.fn(),
     updateDataSource: vi.fn(),
@@ -81,6 +90,8 @@ const documentId = '00000000-0000-0000-0000-000000000301';
 const dataSourceId = '00000000-0000-0000-0000-000000000401';
 const ingestionJobId = '00000000-0000-0000-0000-000000000501';
 const knowledgeBindingId = '00000000-0000-0000-0000-000000000601';
+const chunkId = '00000000-0000-0000-0000-000000000611';
+const sourceReferenceId = '00000000-0000-0000-0000-000000000612';
 const mcpServerId = '00000000-0000-0000-0000-000000000701';
 const mcpToolId = '00000000-0000-0000-0000-000000000801';
 const mcpBindingId = '00000000-0000-0000-0000-000000000901';
@@ -186,6 +197,10 @@ function documentFixture(overrides: Record<string, unknown> = {}) {
     ingestionErrorCode: null,
     ingestionErrorMessage: null,
     dataClassification: 'internal',
+    contentText: 'Politica operacional de teste para ingestao local. Este texto gera chunks locais.',
+    contentHash: null,
+    ingestedAt: null,
+    chunkCount: 0,
     metadata: null,
     createdById: userId,
     createdAt: now,
@@ -213,21 +228,85 @@ function dataSourceFixture(overrides: Record<string, unknown> = {}) {
   };
 }
 
-function ingestionJobFixture() {
+function ingestionJobFixture(overrides: Record<string, unknown> = {}) {
   return {
     id: ingestionJobId,
     tenantId,
     workspaceId,
     knowledgeBaseId,
     documentId,
-    status: 'completed_placeholder',
+    status: 'completed',
+    strategy: 'local_text_chunking',
     startedAt: now,
     completedAt: now,
     errorCode: null,
     errorMessage: null,
-    metadata: { placeholderOnly: true },
+    chunksCreated: 1,
+    sourceReferencesCreated: 1,
+    metadata: { strategy: 'local_text_chunking' },
+    createdById: userId,
     createdAt: now,
     updatedAt: now,
+    ...overrides,
+  };
+}
+
+function ingestionEventFixture(overrides: Record<string, unknown> = {}) {
+  return {
+    id: '00000000-0000-0000-0000-000000000613',
+    jobId: ingestionJobId,
+    tenantId,
+    workspaceId,
+    knowledgeBaseId,
+    documentId,
+    eventType: 'knowledge_ingestion_completed',
+    level: 'info',
+    message: 'Local text ingestion completed.',
+    metadata: { chunksCreated: 1 },
+    createdAt: now,
+    ...overrides,
+  };
+}
+
+function chunkFixture(overrides: Record<string, unknown> = {}) {
+  return {
+    id: chunkId,
+    tenantId,
+    workspaceId,
+    knowledgeBaseId,
+    documentId,
+    chunkIndex: 0,
+    content: 'Politica operacional de teste para ingestao local.',
+    contentHash: 'chunk-hash',
+    tokenEstimate: 12,
+    charCount: 52,
+    status: 'active',
+    metadata: { startOffset: 0, endOffset: 52 },
+    createdAt: now,
+    updatedAt: now,
+    ...overrides,
+  };
+}
+
+function sourceReferenceFixture(overrides: Record<string, unknown> = {}) {
+  return {
+    id: sourceReferenceId,
+    tenantId,
+    workspaceId,
+    knowledgeBaseId,
+    documentId,
+    chunkId,
+    label: 'Governance document #1',
+    sourceType: 'manual',
+    sourceUri: `knowledge-document://${documentId}`,
+    sectionTitle: 'Governance document',
+    pageNumber: null,
+    startOffset: 0,
+    endOffset: 52,
+    metadata: { strategy: 'local_text_chunking' },
+    createdAt: now,
+    updatedAt: now,
+    ...overrides,
   };
 }
 
@@ -354,11 +433,42 @@ describe('knowledge and MCP catalog endpoints', () => {
     mocks.knowledgeRepository.listDocuments.mockResolvedValue([documentFixture()]);
     mocks.knowledgeRepository.createDocument.mockResolvedValue(documentFixture());
     mocks.knowledgeRepository.findDocument.mockResolvedValue(documentFixture());
+    mocks.knowledgeRepository.recordFailedIngestion.mockResolvedValue({
+      document: documentFixture({ status: 'failed', ingestionStatus: 'failed', ingestionErrorCode: 'KNOWLEDGE_DOCUMENT_NO_CONTENT', ingestionErrorMessage: 'Documento nao possui conteudo textual simples para ingestao local.' }),
+      job: ingestionJobFixture({ status: 'failed', errorCode: 'KNOWLEDGE_DOCUMENT_NO_CONTENT', errorMessage: 'Documento nao possui conteudo textual simples para ingestao local.', chunksCreated: 0, sourceReferencesCreated: 0 }),
+      events: [ingestionEventFixture({ eventType: 'knowledge_ingestion_failed', level: 'error' })],
+    });
     mocks.knowledgeRepository.requestIngestion.mockResolvedValue({
-      document: documentFixture({ status: 'indexed_placeholder', ingestionStatus: 'completed_placeholder' }),
+      document: documentFixture({ status: 'indexed', ingestionStatus: 'completed', chunkCount: 1, contentHash: 'document-hash', ingestedAt: now }),
       job: ingestionJobFixture(),
+      chunks: [chunkFixture()],
+      sourceReferences: [sourceReferenceFixture()],
+      events: [ingestionEventFixture()],
     });
     mocks.knowledgeRepository.listIngestionJobs.mockResolvedValue([ingestionJobFixture()]);
+    mocks.knowledgeRepository.findIngestionJob.mockResolvedValue({ ...ingestionJobFixture(), events: [ingestionEventFixture()] });
+    mocks.knowledgeRepository.listDocumentChunks.mockResolvedValue({ data: [chunkFixture()], total: 1 });
+    mocks.knowledgeRepository.listKnowledgeBaseChunks.mockResolvedValue({ data: [chunkFixture()], total: 1 });
+    mocks.knowledgeRepository.findChunk.mockResolvedValue(chunkFixture());
+    mocks.knowledgeRepository.listDocumentSourceReferences.mockResolvedValue([sourceReferenceFixture()]);
+    mocks.knowledgeRepository.listChunkSourceReferences.mockResolvedValue([sourceReferenceFixture()]);
+    mocks.knowledgeRepository.getRagReadiness.mockResolvedValue({
+      assistant: { id: assistantId, workspaceId },
+      bindings: [knowledgeBindingFixture()],
+      knowledgeBasesBound: 1,
+      documentsIngested: 1,
+      chunksAvailable: 1,
+    });
+    mocks.knowledgeRepository.localSearch.mockResolvedValue({
+      readiness: {
+        assistant: { id: assistantId, workspaceId },
+        bindings: [knowledgeBindingFixture()],
+        knowledgeBasesBound: 1,
+        documentsIngested: 1,
+        chunksAvailable: 1,
+      },
+      chunks: [chunkFixture({ sourceReferences: [sourceReferenceFixture()] })],
+    });
     mocks.knowledgeRepository.listDataSources.mockResolvedValue([dataSourceFixture()]);
     mocks.knowledgeRepository.createDataSource.mockResolvedValue(dataSourceFixture());
     mocks.knowledgeRepository.findAssistant.mockResolvedValue(assistantFixture());
@@ -393,11 +503,11 @@ describe('knowledge and MCP catalog endpoints', () => {
     expect(mocks.recordAuditEvent).toHaveBeenCalledWith(expect.objectContaining({ action: 'knowledge_base_created' }));
   });
 
-  it('creates document, data source and ingestion placeholder', async () => {
+  it('creates document, data source and local ingestion', async () => {
     await request(createApp())
       .post(`/api/v1/knowledge-bases/${knowledgeBaseId}/documents`)
       .set('Cookie', [sessionCookie()])
-      .send({ title: 'Governance document', sourceType: 'manual', mimeType: 'text/plain' })
+      .send({ title: 'Governance document', sourceType: 'manual', mimeType: 'text/plain', contentText: 'Politica operacional de teste para ingestao local.' })
       .expect(201);
 
     const ingestionResponse = await request(createApp())
@@ -412,10 +522,84 @@ describe('knowledge and MCP catalog endpoints', () => {
       .send({ name: 'Manual source', type: 'manual', config: { note: 'placeholder only' } })
       .expect(201);
 
-    expect(ingestionResponse.body.data.job.status).toBe('completed_placeholder');
+    expect(ingestionResponse.body.data.job.status).toBe('completed');
+    expect(ingestionResponse.body.data.chunksCreated).toBe(1);
     expect(mocks.recordAuditEvent).toHaveBeenCalledWith(expect.objectContaining({ action: 'knowledge_document_created' }));
     expect(mocks.recordAuditEvent).toHaveBeenCalledWith(expect.objectContaining({ action: 'knowledge_ingestion_requested' }));
     expect(mocks.recordAuditEvent).toHaveBeenCalledWith(expect.objectContaining({ action: 'knowledge_data_source_created' }));
+  });
+
+  it('persists failed local ingestion job before returning 422 for documents without text', async () => {
+    mocks.knowledgeRepository.findDocument.mockResolvedValueOnce(documentFixture({ contentText: null }));
+
+    const response = await request(createApp())
+      .post(`/api/v1/knowledge-documents/${documentId}/request-ingestion`)
+      .set('Cookie', [sessionCookie()])
+      .send({ metadata: { scenario: 'no-content' } })
+      .expect(422);
+
+    expect(response.body.code).toBe('KNOWLEDGE_DOCUMENT_NO_CONTENT');
+    expect(mocks.knowledgeRepository.recordFailedIngestion).toHaveBeenCalledWith(expect.objectContaining({
+      documentId,
+      errorCode: 'KNOWLEDGE_DOCUMENT_NO_CONTENT',
+      createdById: userId,
+    }));
+    expect(mocks.knowledgeRepository.requestIngestion).not.toHaveBeenCalled();
+    expect(mocks.recordAuditEvent).toHaveBeenCalledWith(expect.objectContaining({ action: 'knowledge_ingestion_failed' }));
+  });
+
+  it('lists chunks, source references, job events and RAG readiness', async () => {
+    const chunksResponse = await request(createApp())
+      .get(`/api/v1/knowledge-documents/${documentId}/chunks`)
+      .set('Cookie', [sessionCookie()])
+      .expect(200);
+
+    const baseChunksResponse = await request(createApp())
+      .get(`/api/v1/knowledge-bases/${knowledgeBaseId}/chunks`)
+      .set('Cookie', [sessionCookie()])
+      .expect(200);
+
+    const sourceReferencesResponse = await request(createApp())
+      .get(`/api/v1/knowledge-documents/${documentId}/source-references`)
+      .set('Cookie', [sessionCookie()])
+      .expect(200);
+
+    const chunkResponse = await request(createApp())
+      .get(`/api/v1/knowledge-chunks/${chunkId}`)
+      .set('Cookie', [sessionCookie()])
+      .expect(200);
+
+    const chunkSourcesResponse = await request(createApp())
+      .get(`/api/v1/knowledge-chunks/${chunkId}/source-references`)
+      .set('Cookie', [sessionCookie()])
+      .expect(200);
+
+    const jobResponse = await request(createApp())
+      .get(`/api/v1/knowledge-ingestion-jobs/${ingestionJobId}`)
+      .set('Cookie', [sessionCookie()])
+      .expect(200);
+
+    const readinessResponse = await request(createApp())
+      .get(`/api/v1/assistants/${assistantId}/rag-readiness`)
+      .set('Cookie', [sessionCookie()])
+      .expect(200);
+
+    const searchResponse = await request(createApp())
+      .post(`/api/v1/assistants/${assistantId}/rag-local-search`)
+      .set('Cookie', [sessionCookie()])
+      .send({ query: 'operacional' })
+      .expect(200);
+
+    expect(chunksResponse.body.data[0].id).toBe(chunkId);
+    expect(baseChunksResponse.body.pagination.total).toBe(1);
+    expect(sourceReferencesResponse.body.data[0].id).toBe(sourceReferenceId);
+    expect(chunkResponse.body.data.content).toContain('Politica operacional');
+    expect(chunkSourcesResponse.body.data[0].chunkId).toBe(chunkId);
+    expect(jobResponse.body.data.events[0].eventType).toBe('knowledge_ingestion_completed');
+    expect(readinessResponse.body.data.retrievalMode).toBe('local_chunks_only');
+    expect(searchResponse.body.data.mode).toBe('keyword_local_placeholder');
+    expect(mocks.recordAuditEvent).toHaveBeenCalledWith(expect.objectContaining({ action: 'rag_readiness_checked' }));
+    expect(mocks.recordAuditEvent).toHaveBeenCalledWith(expect.objectContaining({ action: 'rag_local_search_executed' }));
   });
 
   it('creates and lists assistant knowledge bindings', async () => {

@@ -1,6 +1,6 @@
 # Orchestra Knowledge/RAG/MCP Catalog Security
 
-Status: implementado na Fase 06 para catalogo governado. Runtime real continua fora do escopo.
+Status: implementado na Fase 06 para catalogo governado. A Fase 06B adicionou ingestao local textual com chunks e source references. Runtime real continua fora do escopo.
 
 ## Principios
 
@@ -80,7 +80,7 @@ Bindings MCP usam `sandbox_only` por padrao. Override para remover approval e bl
 
 ## Auditoria
 
-Mutacoes de Knowledge/MCP e bindings registram eventos de auditoria sanitizados. A auditoria registra recurso, acao e metadados seguros, sem credenciais.
+Mutacoes de Knowledge/MCP, bindings e ingestao local registram eventos de auditoria sanitizados. A auditoria registra recurso, acao e metadados seguros, sem credenciais ou conteudo bruto.
 
 ## Fora Do Escopo
 
@@ -91,4 +91,3 @@ Mutacoes de Knowledge/MCP e bindings registram eventos de auditoria sanitizados.
 - Ingestao com arquivos binarios.
 - Webhooks.
 - Runtime de IA.
-

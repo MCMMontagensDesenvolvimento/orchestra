@@ -222,6 +222,7 @@ export interface KnowledgeBase {
   description: string;
   documentCount: number;
   totalChunks: number;
+  chunkCount?: number;
   status: IngestionStatus;
   lastUpdated: string;
   size: string;
@@ -263,6 +264,10 @@ export interface KnowledgeDocument {
   ingestionErrorCode?: string | null;
   ingestionErrorMessage?: string | null;
   dataClassification?: string;
+  contentText?: string | null;
+  contentHash?: string | null;
+  ingestedAt?: string | null;
+  chunkCount?: number;
   metadata?: unknown;
   chunks: number;
   version: string;
@@ -306,13 +311,101 @@ export interface KnowledgeIngestionJob {
   knowledgeBaseId: string;
   documentId?: string | null;
   status: IngestionStatus | string;
+  strategy?: string;
   startedAt?: string | null;
   completedAt?: string | null;
   errorCode?: string | null;
   errorMessage?: string | null;
+  chunksCreated?: number;
+  sourceReferencesCreated?: number;
+  metadata?: unknown;
+  createdById?: string | null;
+  createdAt: string;
+  updatedAt: string;
+  events?: KnowledgeIngestionEvent[];
+}
+
+export interface KnowledgeIngestionEvent {
+  id: string;
+  jobId: string;
+  tenantId?: string;
+  workspaceId?: string;
+  knowledgeBaseId: string;
+  documentId?: string | null;
+  eventType: string;
+  level: string;
+  message?: string | null;
+  metadata?: unknown;
+  createdAt: string;
+}
+
+export interface KnowledgeChunk {
+  id: string;
+  tenantId?: string;
+  workspaceId?: string;
+  knowledgeBaseId: string;
+  documentId: string;
+  chunkIndex: number;
+  content: string;
+  contentHash: string;
+  tokenEstimate: number;
+  charCount: number;
+  status: 'active' | 'stale' | 'archived';
   metadata?: unknown;
   createdAt: string;
   updatedAt: string;
+}
+
+export interface KnowledgeSourceReference {
+  id: string;
+  tenantId?: string;
+  workspaceId?: string;
+  knowledgeBaseId: string;
+  documentId: string;
+  chunkId?: string | null;
+  label: string;
+  sourceType: string;
+  sourceUri?: string | null;
+  sectionTitle?: string | null;
+  pageNumber?: number | null;
+  startOffset?: number | null;
+  endOffset?: number | null;
+  metadata?: unknown;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface RagReadiness {
+  assistantId: string;
+  canUseKnowledge: boolean;
+  knowledgeBasesBound: number;
+  documentsIngested: number;
+  chunksAvailable: number;
+  missingRequirements: string[];
+  retrievalMode: 'local_chunks_only';
+  embeddingsEnabled: false;
+  vectorStoreEnabled: false;
+}
+
+export interface RagLocalSearchResult {
+  chunkId: string;
+  documentId: string;
+  knowledgeBaseId: string;
+  score: number;
+  snippet: string;
+  source: {
+    label: string;
+    sourceUri?: string | null;
+    sectionTitle?: string | null;
+  } | null;
+}
+
+export interface RagLocalSearchResponse {
+  mode: 'keyword_local_placeholder';
+  retrievalMode: 'local_chunks_only';
+  embeddingsEnabled: false;
+  vectorStoreEnabled: false;
+  results: RagLocalSearchResult[];
 }
 
 export interface AssistantKnowledgeBinding {

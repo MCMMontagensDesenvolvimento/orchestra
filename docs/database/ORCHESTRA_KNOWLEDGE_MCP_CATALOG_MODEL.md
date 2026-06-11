@@ -1,6 +1,6 @@
 # Orchestra Knowledge/RAG/MCP Catalog Database Model
 
-Status: implementado na Fase 06 por Prisma schema e migration `20260611160000_phase06_knowledge_mcp_catalog`.
+Status: implementado na Fase 06 por Prisma schema e migration `20260611160000_phase06_knowledge_mcp_catalog`. A Fase 06B adicionou chunks, source references e eventos de ingestao pela migration `20260611190000_phase06b_knowledge_ingestion`.
 
 ## Objetivo
 
@@ -24,7 +24,7 @@ Caracteristicas:
 - `data_classification` em bases e documentos.
 - `visibility` em bases.
 - `metadata` como JSON governado, com validacao de secrets no backend.
-- Jobs de ingestao como historico placeholder.
+- Jobs de ingestao como historico operacional local desde a Fase 06B.
 
 ## MCP
 
@@ -72,11 +72,9 @@ A migration da Fase 06:
 Nao foram criadas tabelas de:
 
 - embeddings;
-- chunks reais;
 - vector indexes;
 - retrieval traces reais;
 - MCP execution sessions;
 - provider credentials;
 - webhook deliveries;
 - filas/workers.
-
