@@ -1,6 +1,6 @@
 # Security
 
-Status: preparado para seguranca, SSO, RBAC/ABAC, governanca de execucao de assistants/agent runs e catalogo Knowledge/MCP.
+Status: preparado para seguranca, SSO, RBAC/ABAC, governanca de execucao de assistants/agent runs, catalogo Knowledge/MCP e conteudo textual local.
 
 Esta pasta deve concentrar seguranca, compliance, autenticacao, autorizacao e auditoria.
 
@@ -19,6 +19,7 @@ Topicos esperados:
 - `ORCHESTRA_ASSISTANT_EXECUTION_GOVERNANCE.md`: approval workflow, execution policy, sandbox policy, auditoria e limites de execucao futura.
 - `ORCHESTRA_EXECUTION_GOVERNANCE_SECURITY.md`: controles de AgentRun, sanitizacao, auditoria, cancelamento e observabilidade segura.
 - `ORCHESTRA_KNOWLEDGE_MCP_CATALOG_SECURITY.md`: RBAC/ABAC, guard contra secrets, MCP sandbox policy e auditoria do catalogo Knowledge/MCP.
+- `ORCHESTRA_KNOWLEDGE_CONTENT_SECURITY.md`: controles para contentText, chunks, source references, auditoria e limites de retencao.
 
 ## Estado Atual
 
@@ -30,4 +31,5 @@ Topicos esperados:
 - Execution precheck nao chama runtime real de IA.
 - AgentRun usa runtime boundary fake, eventos persistidos e metadata sanitizada.
 - Knowledge/MCP usa catalogo governado, bindings com workspace scope e guard contra secrets em JSON/templates.
+- Ingestao Knowledge local nao grava conteudo bruto em audit logs e filtra chunks por tenant/workspace.
 - SSO corporativo real segue reservado para fase posterior.

@@ -1,6 +1,6 @@
 # AI Orchestration
 
-Status: preparado. A Fase 06 criou catalogo governado de Knowledge/RAG/MCP, mas nao implementou runtime de IA, RAG real, MCP real, providers ou tool calls.
+Status: preparado. A Fase 06 criou catalogo governado de Knowledge/RAG/MCP e a Fase 06B adicionou readiness local com chunks textuais. Runtime de IA, RAG semantico real, MCP real, providers, embeddings, vector store e tool calls reais continuam fora do escopo.
 
 Esta pasta deve concentrar a estrategia de IA do Orchestra.
 
@@ -13,3 +13,7 @@ Topicos esperados:
 - Tool calls.
 - Guardrails.
 - Avaliacao e auditoria de respostas.
+
+## Documentos
+
+- `ORCHESTRA_RAG_READINESS_HANDOFF.md`: readiness local, busca textual em chunks autorizados e handoff para RAG semantico futuro.

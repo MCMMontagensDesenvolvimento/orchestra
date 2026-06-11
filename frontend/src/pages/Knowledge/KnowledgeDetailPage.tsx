@@ -19,8 +19,11 @@ import {
   useCreateKnowledgeDataSourceMutation,
   useCreateKnowledgeDocumentMutation,
   useKnowledgeBases,
+  useKnowledgeChunks,
   useKnowledgeDataSources,
   useKnowledgeDocuments,
+  useKnowledgeIngestionJobs,
+  useKnowledgeSourceReferences,
   useRequestKnowledgeIngestionMutation,
 } from '@/hooks/queries/useKnowledge';
 import { useAssistants } from '@/hooks/queries/useAssistants';
@@ -86,9 +89,18 @@ export default function KnowledgeDetailPage() {
   const [deleteDocOpen, setDeleteDocOpen] = useState(false);
   const [selectedDoc, setSelectedDoc] = useState<KnowledgeDocument | null>(null);
   const [dataSourceForm, setDataSourceForm] = useState(defaultDataSourceForm);
+  const [previewDocId, setPreviewDocId] = useState<string | undefined>();
 
-  // Documento catalog form. Esta fase registra metadados, não arquivos binários.
+  // Documento textual local. Esta fase nao envia arquivos binarios.
   const [uploadFileName, setUploadFileName] = useState('');
+  const [documentText, setDocumentText] = useState('');
+  const previewDoc = documents.find(doc => doc.id === previewDocId);
+  const ingestionJobsQuery = useKnowledgeIngestionJobs(previewDoc?.id);
+  const chunksQuery = useKnowledgeChunks(previewDoc?.id);
+  const sourceReferencesQuery = useKnowledgeSourceReferences(previewDoc?.id);
+  const ingestionJobs = ingestionJobsQuery.data ?? [];
+  const chunks = chunksQuery.data ?? [];
+  const sourceReferences = sourceReferencesQuery.data ?? [];
 
   const linkedAssistants = useMemo(() => {
     if (!kb) return [];
@@ -107,6 +119,7 @@ export default function KnowledgeDetailPage() {
     const failed = documents.filter(d => d.status === 'failed').length;
     return { total, completed, processing, pending, failed, progress: total > 0 ? Math.round((completed / total) * 100) : 0 };
   }, [documents]);
+  const totalChunks = useMemo(() => documents.reduce((total, doc) => total + (doc.chunkCount ?? doc.chunks ?? 0), 0), [documents]);
 
   if (knowledgeQuery.isLoading) {
     return <AppShell><div className="flex items-center justify-center py-16 text-sm text-muted-foreground">Carregando base de conhecimento…</div></AppShell>;
@@ -127,24 +140,25 @@ export default function KnowledgeDetailPage() {
     const payload: KnowledgeDocumentPayload = {
       title,
       sourceType: 'manual',
-      sourceUri: `catalog://${kb.id}/${encodeURIComponent(title)}`,
+      sourceUri: `manual://${kb.id}/${encodeURIComponent(title)}`,
       mimeType: mimeTypeFromName(title),
       dataClassification: kb.dataClassification ?? 'internal',
+      contentText: documentText,
       metadata: {
-        size: '0 MB',
+        size: `${Math.max(1, Math.ceil(documentText.length / 1024))} KB`,
         version: '1.0',
-        phase: 'catalog_placeholder',
+        phase: 'local_text_ingestion',
       },
     };
 
     try {
       const newDoc = await createDocumentMutation.mutateAsync({ knowledgeBaseId: kb.id, payload });
       setDocuments(prev => [newDoc, ...prev.filter(doc => doc.id !== newDoc.id)]);
-      const ingestion = await requestIngestionMutation.mutateAsync({ documentId: newDoc.id, knowledgeBaseId: kb.id });
-      setDocuments(prev => prev.map(doc => doc.id === newDoc.id ? ingestion.document : doc));
+      setPreviewDocId(newDoc.id);
       setUploadOpen(false);
       setUploadFileName('');
-      toast({ title: 'Documento catalogado', description: `"${newDoc.name}" recebeu ingestão placeholder.` });
+      setDocumentText('');
+      toast({ title: 'Documento registrado', description: `"${newDoc.name}" está pronto para ingestão local.` });
     } catch (error) {
       toast({ title: 'Erro ao catalogar documento', description: error instanceof Error ? error.message : 'Tente novamente em instantes.', variant: 'destructive' });
     }
@@ -167,7 +181,8 @@ export default function KnowledgeDetailPage() {
     try {
       const ingestion = await requestIngestionMutation.mutateAsync({ documentId: doc.id, knowledgeBaseId: kb.id });
       setDocuments(prev => prev.map(item => item.id === doc.id ? ingestion.document : item));
-      toast({ title: 'Ingestão placeholder registrada', description: `"${doc.name}" foi marcado como processado nesta fase.` });
+      setPreviewDocId(doc.id);
+      toast({ title: 'Ingestão local concluída', description: `${ingestion.job.chunksCreated ?? ingestion.document.chunks} chunk(s) preparados para retrieval futuro.` });
     } catch (error) {
       toast({ title: 'Erro ao solicitar ingestão', description: error instanceof Error ? error.message : 'Tente novamente em instantes.', variant: 'destructive' });
     }
@@ -227,7 +242,7 @@ export default function KnowledgeDetailPage() {
             </div>
             <div className="flex gap-2">
               <Button variant="outline" size="sm" onClick={() => {
-                toast({ title: 'Ingestão placeholder', description: `Solicite o placeholder em cada documento de "${kb.name}".` });
+                toast({ title: 'Ingestão local', description: `Solicite ingestão por documento em "${kb.name}".` });
               }}>
                 <RefreshCw className="h-4 w-4 mr-1" />Ingestão
               </Button>
@@ -242,7 +257,7 @@ export default function KnowledgeDetailPage() {
         <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-6 gap-3">
           {[
             { icon: FileText, label: 'Documentos', value: docStats.total },
-            { icon: Layers, label: 'Chunks', value: kb.totalChunks.toLocaleString() },
+            { icon: Layers, label: 'Chunks', value: (totalChunks || kb.totalChunks).toLocaleString() },
             { icon: HardDrive, label: 'Tamanho', value: kb.size },
             { icon: Users, label: 'Assistentes', value: linkedAssistants.length },
             { icon: Clock, label: 'Atualização', value: kb.lastUpdated },
@@ -269,6 +284,10 @@ export default function KnowledgeDetailPage() {
             <p className="text-xs text-muted-foreground mt-1">{docStats.progress}% dos documentos com ingestão placeholder</p>
           </div>
         )}
+
+        <div className="rounded-lg border bg-info/5 p-4 text-sm text-info">
+          Ingestão local ativa para texto simples. Embeddings, vector store e retrieval semântico seguem desabilitados nesta fase.
+        </div>
 
         {/* Tabs */}
         <Tabs defaultValue="documents" className="space-y-4">
@@ -327,7 +346,7 @@ export default function KnowledgeDetailPage() {
                             <StatusBadge status={doc.status} />
                           </div>
                         </TableCell>
-                        <TableCell className="text-center">{doc.chunks > 0 ? doc.chunks : '—'}</TableCell>
+                        <TableCell className="text-center">{(doc.chunkCount ?? doc.chunks) > 0 ? (doc.chunkCount ?? doc.chunks) : '—'}</TableCell>
                         <TableCell className="text-xs">{doc.version}</TableCell>
                         <TableCell className="text-xs">{doc.uploadedBy}</TableCell>
                         <TableCell className="text-xs">{doc.uploadedAt}</TableCell>
@@ -337,8 +356,8 @@ export default function KnowledgeDetailPage() {
                               <Button variant="ghost" size="icon" className="h-7 w-7"><MoreHorizontal className="h-4 w-4" /></Button>
                             </DropdownMenuTrigger>
                             <DropdownMenuContent align="end">
-                              <DropdownMenuItem><Download className="h-4 w-4 mr-2" />Download</DropdownMenuItem>
-                              <DropdownMenuItem onClick={() => { void handleReprocessDoc(doc); }}><RefreshCw className="h-4 w-4 mr-2" />Ingestão placeholder</DropdownMenuItem>
+                              <DropdownMenuItem onClick={() => setPreviewDocId(doc.id)}><Eye className="h-4 w-4 mr-2" />Ver ingestão</DropdownMenuItem>
+                              <DropdownMenuItem onClick={() => { void handleReprocessDoc(doc); }}><RefreshCw className="h-4 w-4 mr-2" />Solicitar ingestão</DropdownMenuItem>
                               <DropdownMenuSeparator />
                               <DropdownMenuItem onClick={() => { setSelectedDoc(doc); setDeleteDocOpen(true); }} className="text-destructive">
                                 <Trash2 className="h-4 w-4 mr-2" />Arquivar
@@ -350,6 +369,69 @@ export default function KnowledgeDetailPage() {
                     ))}
                   </TableBody>
                 </Table>
+              </div>
+            )}
+
+            {previewDoc && (
+              <div className="grid gap-4 lg:grid-cols-[0.85fr_1.15fr]">
+                <div className="rounded-lg border bg-card p-4">
+                  <div className="mb-3 flex items-center justify-between gap-2">
+                    <div>
+                      <h3 className="text-sm font-semibold">{previewDoc.name}</h3>
+                      <p className="text-xs text-muted-foreground">{previewDoc.ingestionStatus ?? previewDoc.status}</p>
+                    </div>
+                    <StatusBadge status={previewDoc.status} />
+                  </div>
+                  <div className="grid grid-cols-3 gap-2 border-t pt-3 text-center">
+                    <div><p className="text-lg font-bold">{previewDoc.chunkCount ?? previewDoc.chunks}</p><p className="text-[10px] text-muted-foreground">Chunks</p></div>
+                    <div><p className="text-lg font-bold">{ingestionJobs.length}</p><p className="text-[10px] text-muted-foreground">Jobs</p></div>
+                    <div><p className="text-lg font-bold">{sourceReferences.length}</p><p className="text-[10px] text-muted-foreground">Fontes</p></div>
+                  </div>
+                  <div className="mt-4 space-y-2">
+                    {ingestionJobs.length === 0 ? (
+                      <p className="text-xs text-muted-foreground">Nenhum job registrado para este documento.</p>
+                    ) : ingestionJobs.slice(0, 4).map(job => (
+                      <div key={job.id} className="rounded-md border p-2 text-xs">
+                        <div className="flex items-center justify-between gap-2">
+                          <span className="font-mono">{job.strategy ?? 'local_text_chunking'}</span>
+                          <StatusBadge status={job.status as IngestionStatus} />
+                        </div>
+                        <p className="mt-1 text-muted-foreground">{job.chunksCreated ?? 0} chunk(s), {job.sourceReferencesCreated ?? 0} referência(s)</p>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+
+                <div className="rounded-lg border bg-card p-4">
+                  <div className="mb-3 flex items-center justify-between gap-2">
+                    <h3 className="text-sm font-semibold">Chunks e source references</h3>
+                    <Button variant="outline" size="sm" onClick={() => { void chunksQuery.refetch(); void sourceReferencesQuery.refetch(); }}>
+                      <RefreshCw className="h-3.5 w-3.5 mr-1" />Atualizar
+                    </Button>
+                  </div>
+                  {chunksQuery.isLoading ? (
+                    <p className="text-sm text-muted-foreground">Carregando chunks...</p>
+                  ) : chunks.length === 0 ? (
+                    <p className="text-sm text-muted-foreground">Nenhum chunk ativo. Solicite ingestão após preencher conteúdo textual.</p>
+                  ) : (
+                    <div className="space-y-3">
+                      {chunks.slice(0, 5).map(chunk => {
+                        const reference = sourceReferences.find(item => item.chunkId === chunk.id);
+                        return (
+                          <div key={chunk.id} className="rounded-md border p-3">
+                            <div className="mb-2 flex flex-wrap items-center gap-2 text-xs">
+                              <Badge variant="outline">#{chunk.chunkIndex + 1}</Badge>
+                              <span>{chunk.charCount} chars</span>
+                              <span>~{chunk.tokenEstimate} tokens</span>
+                              {reference && <span className="text-muted-foreground">{reference.label}</span>}
+                            </div>
+                            <p className="line-clamp-3 text-sm text-muted-foreground">{chunk.content}</p>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
               </div>
             )}
           </TabsContent>
@@ -498,10 +580,15 @@ export default function KnowledgeDetailPage() {
               <Label>Nome do documento (opcional)</Label>
               <Input value={uploadFileName} onChange={e => setUploadFileName(e.target.value)} placeholder="Ex: manual-operacional.pdf" />
             </div>
+            <div className="space-y-2">
+              <Label>Conteúdo textual simples</Label>
+              <Textarea value={documentText} onChange={e => setDocumentText(e.target.value)} rows={8} maxLength={100000} placeholder="Cole aqui o texto que será preparado pelo chunking local." />
+              <p className="text-[10px] text-muted-foreground">{documentText.length}/100000 caracteres. Conteúdo bruto não entra em audit logs.</p>
+            </div>
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setUploadOpen(false)}>Cancelar</Button>
-            <Button onClick={() => { void handleUpload(); }} disabled={!uploadFileName || createDocumentMutation.isPending || requestIngestionMutation.isPending}><Upload className="h-4 w-4 mr-1" />Registrar</Button>
+            <Button onClick={() => { void handleUpload(); }} disabled={!uploadFileName || !documentText.trim() || createDocumentMutation.isPending}><Upload className="h-4 w-4 mr-1" />Registrar</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>

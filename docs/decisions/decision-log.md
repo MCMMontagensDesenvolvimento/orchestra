@@ -248,6 +248,36 @@ O frontend da Fase 06 integra Knowledge/MCP em API mode por services e TanStack 
 
 Status: decidida.
 
+## DEC-KNOW-ING-001 - Ingestao local sincrona antes de workers reais
+
+A Fase 06B usa ingestao local sincrona e controlada para `contentText`, com `KnowledgeIngestionJob` e eventos estruturados. Workers, filas e conectores reais ficam para fase posterior.
+
+Status: decidida.
+
+## DEC-KNOW-ING-002 - Chunking textual local antes de embeddings e vector store
+
+O backend cria `KnowledgeChunk` por algoritmo deterministico baseado em caracteres e paragrafos. Nao ha embeddings, vetores, pgvector ou vector database nesta fase.
+
+Status: decidida.
+
+## DEC-KNOW-ING-003 - Source references antes de citacoes reais em runtime
+
+Cada chunk recebe `KnowledgeSourceReference` com label, URI e offsets simples para preparar citacoes futuras sem depender de parser robusto ou runtime de IA.
+
+Status: decidida.
+
+## DEC-RAG-READY-001 - RAG readiness sem retrieval semantico real
+
+O endpoint de readiness retorna bases vinculadas, documentos ingeridos e chunks ativos em modo `local_chunks_only`. A busca local opcional e keyword-based e nao representa retrieval semantico.
+
+Status: decidida.
+
+## DEC-SEC-KNOW-001 - Conteudo bruto fora dos audit logs
+
+`contentText` e conteudo de chunks nao devem ser gravados em audit logs. Auditoria registra ids, contadores, status, estrategia e erros sanitizados.
+
+Status: decidida.
+
 ## DEC-SSO-001 - Microsoft SSO preparado como integracao backend-side futura
 
 As variaveis e a documentacao de Microsoft SSO foram preparadas para uma fase posterior. O client secret deve permanecer somente no backend ou em secret manager.

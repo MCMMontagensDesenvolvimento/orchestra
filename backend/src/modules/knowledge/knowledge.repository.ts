@@ -7,6 +7,7 @@ import type {
   KnowledgeBaseCreateInput,
   KnowledgeBasesQuery,
   KnowledgeBaseUpdateInput,
+  KnowledgeChunksQuery,
   KnowledgeDataSourceCreateInput,
   KnowledgeDataSourceUpdateInput,
   KnowledgeDocumentCreateInput,
@@ -22,6 +23,7 @@ const knowledgeBaseInclude = {
       dataSources: true,
       bindings: true,
       ingestionJobs: true,
+      chunks: true,
     },
   },
 } satisfies Prisma.KnowledgeBaseInclude;
@@ -42,6 +44,83 @@ function scopedKnowledgeBaseWhere(id: string, tenantId: string, workspaceIds: st
 
 function jsonInput(value: unknown) {
   return value as Prisma.InputJsonValue | undefined;
+}
+
+async function getRagReadinessInternal(assistantId: string, tenantId: string, workspaceIds: string[]) {
+  const assistant = await prisma.assistant.findFirst({
+    where: { id: assistantId, tenantId, workspaceId: { in: workspaceIds }, deletedAt: null },
+    select: { id: true, workspaceId: true },
+  });
+  if (!assistant) return null;
+
+  const bindings = await prisma.assistantKnowledgeBinding.findMany({
+    where: {
+      assistantId,
+      tenantId,
+      workspaceId: { in: workspaceIds },
+      isEnabled: true,
+      retrievalMode: { not: 'disabled' },
+    },
+    include: {
+      knowledgeBase: true,
+    },
+  });
+  const activeKnowledgeBaseIds = bindings
+    .filter((binding) => binding.knowledgeBase.status === 'active' && !binding.knowledgeBase.deletedAt)
+    .map((binding) => binding.knowledgeBaseId);
+
+  const [documentsIngested, chunksAvailable] = activeKnowledgeBaseIds.length > 0
+    ? await Promise.all([
+        prisma.knowledgeDocument.count({
+          where: {
+            tenantId,
+            workspaceId: { in: workspaceIds },
+            knowledgeBaseId: { in: activeKnowledgeBaseIds },
+            deletedAt: null,
+            ingestionStatus: 'completed',
+            chunkCount: { gt: 0 },
+          },
+        }),
+        prisma.knowledgeChunk.count({
+          where: {
+            tenantId,
+            workspaceId: { in: workspaceIds },
+            knowledgeBaseId: { in: activeKnowledgeBaseIds },
+            status: 'active',
+          },
+        }),
+      ])
+    : [0, 0];
+
+  return {
+    assistant,
+    bindings,
+    knowledgeBasesBound: activeKnowledgeBaseIds.length,
+    documentsIngested,
+    chunksAvailable,
+  };
+}
+
+interface LocalChunkPersistenceInput {
+  chunkIndex: number;
+  content: string;
+  contentHash: string;
+  tokenEstimate: number;
+  charCount: number;
+  startOffset: number;
+  endOffset: number;
+  sectionTitle: string | null;
+}
+
+interface SourceReferencePersistenceInput {
+  chunkIndex: number;
+  label: string;
+  sourceType: string;
+  sourceUri?: string | null;
+  sectionTitle?: string | null;
+  startOffset?: number | null;
+  endOffset?: number | null;
+  metadata?: Prisma.InputJsonValue;
 }
 
 export const knowledgeRepository = {
@@ -192,6 +271,7 @@ export const knowledgeRepository = {
         status: input.status,
         ingestionStatus: input.ingestionStatus,
         dataClassification: input.dataClassification,
+        contentText: input.contentText,
         metadata: jsonInput(input.metadata),
         createdById: input.createdById,
       },
@@ -217,6 +297,18 @@ export const knowledgeRepository = {
         ingestionErrorCode: input.ingestionErrorCode,
         ingestionErrorMessage: input.ingestionErrorMessage,
         dataClassification: input.dataClassification,
+        contentText: input.contentText,
+        ...(input.contentText !== undefined
+          ? {
+              contentHash: null,
+              ingestedAt: null,
+              chunkCount: 0,
+              status: input.status ?? 'draft',
+              ingestionStatus: input.ingestionStatus ?? 'pending',
+              ingestionErrorCode: null,
+              ingestionErrorMessage: null,
+            }
+          : {}),
         metadata: input.metadata === null ? Prisma.JsonNull : jsonInput(input.metadata),
       },
     });
@@ -238,6 +330,10 @@ export const knowledgeRepository = {
     documentId: string;
     tenantId: string;
     workspaceIds: string[];
+    createdById: string;
+    contentHash: string;
+    chunks: LocalChunkPersistenceInput[];
+    sourceReferences: SourceReferencePersistenceInput[];
     metadata?: Prisma.InputJsonValue;
   }) {
     return prisma.$transaction(async (tx) => {
@@ -252,28 +348,176 @@ export const knowledgeRepository = {
       if (!document) return null;
 
       const now = new Date();
-      const updatedDocument = await tx.knowledgeDocument.update({
-        where: { id: document.id },
-        data: {
-          status: 'indexed_placeholder',
-          ingestionStatus: 'completed_placeholder',
-          ingestionErrorCode: null,
-          ingestionErrorMessage: null,
-        },
-      });
       const job = await tx.knowledgeIngestionJob.create({
         data: {
           tenantId: document.tenantId,
           workspaceId: document.workspaceId,
           knowledgeBaseId: document.knowledgeBaseId,
           documentId: document.id,
-          status: 'completed_placeholder',
+          status: 'running',
+          strategy: 'local_text_chunking',
           startedAt: now,
-          completedAt: now,
+          createdById: input.createdById,
           metadata: input.metadata,
         },
       });
-      return { document: updatedDocument, job };
+
+      const startedEvent = await tx.knowledgeIngestionEvent.create({
+        data: {
+          jobId: job.id,
+          tenantId: document.tenantId,
+          workspaceId: document.workspaceId,
+          knowledgeBaseId: document.knowledgeBaseId,
+          documentId: document.id,
+          eventType: 'knowledge_ingestion_started',
+          message: 'Local text ingestion started.',
+          metadata: input.metadata,
+        },
+      });
+
+      await tx.knowledgeChunk.updateMany({
+        where: {
+          documentId: document.id,
+          tenantId: document.tenantId,
+          workspaceId: document.workspaceId,
+          status: 'active',
+        },
+        data: { status: 'stale' },
+      });
+
+      await tx.knowledgeSourceReference.deleteMany({
+        where: {
+          documentId: document.id,
+          tenantId: document.tenantId,
+          workspaceId: document.workspaceId,
+        },
+      });
+
+      const createdChunks = [];
+      for (const chunk of input.chunks) {
+        createdChunks.push(
+          await tx.knowledgeChunk.create({
+            data: {
+              tenantId: document.tenantId,
+              workspaceId: document.workspaceId,
+              knowledgeBaseId: document.knowledgeBaseId,
+              documentId: document.id,
+              chunkIndex: chunk.chunkIndex,
+              content: chunk.content,
+              contentHash: chunk.contentHash,
+              tokenEstimate: chunk.tokenEstimate,
+              charCount: chunk.charCount,
+              status: 'active',
+              metadata: {
+                startOffset: chunk.startOffset,
+                endOffset: chunk.endOffset,
+                sectionTitle: chunk.sectionTitle,
+              },
+            },
+          }),
+        );
+      }
+
+      const chunksByIndex = new Map(createdChunks.map((chunk) => [chunk.chunkIndex, chunk]));
+      const createdSourceReferences = [];
+      for (const reference of input.sourceReferences) {
+        const chunk = chunksByIndex.get(reference.chunkIndex);
+        createdSourceReferences.push(
+          await tx.knowledgeSourceReference.create({
+            data: {
+              tenantId: document.tenantId,
+              workspaceId: document.workspaceId,
+              knowledgeBaseId: document.knowledgeBaseId,
+              documentId: document.id,
+              chunkId: chunk?.id,
+              label: reference.label,
+              sourceType: reference.sourceType,
+              sourceUri: reference.sourceUri,
+              sectionTitle: reference.sectionTitle,
+              startOffset: reference.startOffset,
+              endOffset: reference.endOffset,
+              metadata: reference.metadata,
+            },
+          }),
+        );
+      }
+
+      const chunkEvent = await tx.knowledgeIngestionEvent.create({
+        data: {
+          jobId: job.id,
+          tenantId: document.tenantId,
+          workspaceId: document.workspaceId,
+          knowledgeBaseId: document.knowledgeBaseId,
+          documentId: document.id,
+          eventType: 'knowledge_chunks_created',
+          message: 'Local text chunks created.',
+          metadata: {
+            chunksCreated: createdChunks.length,
+          },
+        },
+      });
+
+      const referenceEvent = await tx.knowledgeIngestionEvent.create({
+        data: {
+          jobId: job.id,
+          tenantId: document.tenantId,
+          workspaceId: document.workspaceId,
+          knowledgeBaseId: document.knowledgeBaseId,
+          documentId: document.id,
+          eventType: 'knowledge_source_references_created',
+          message: 'Source references created for local chunks.',
+          metadata: {
+            sourceReferencesCreated: createdSourceReferences.length,
+          },
+        },
+      });
+
+      const updatedDocument = await tx.knowledgeDocument.update({
+        where: { id: document.id },
+        data: {
+          status: 'indexed',
+          ingestionStatus: 'completed',
+          ingestionErrorCode: null,
+          ingestionErrorMessage: null,
+          contentHash: input.contentHash,
+          ingestedAt: now,
+          chunkCount: createdChunks.length,
+        },
+      });
+
+      const completedJob = await tx.knowledgeIngestionJob.update({
+        where: { id: job.id },
+        data: {
+          status: 'completed',
+          completedAt: now,
+          chunksCreated: createdChunks.length,
+          sourceReferencesCreated: createdSourceReferences.length,
+        },
+      });
+
+      const completedEvent = await tx.knowledgeIngestionEvent.create({
+        data: {
+          jobId: job.id,
+          tenantId: document.tenantId,
+          workspaceId: document.workspaceId,
+          knowledgeBaseId: document.knowledgeBaseId,
+          documentId: document.id,
+          eventType: 'knowledge_ingestion_completed',
+          message: 'Local text ingestion completed.',
+          metadata: {
+            chunksCreated: createdChunks.length,
+            sourceReferencesCreated: createdSourceReferences.length,
+          },
+        },
+      });
+
+      return {
+        document: updatedDocument,
+        job: completedJob,
+        chunks: createdChunks,
+        sourceReferences: createdSourceReferences,
+        events: [startedEvent, chunkEvent, referenceEvent, completedEvent],
+      };
     });
   },
 
@@ -286,6 +530,121 @@ export const knowledgeRepository = {
       },
       orderBy: { createdAt: 'desc' },
     });
+  },
+
+  findIngestionJob(jobId: string, tenantId: string, workspaceIds: string[]) {
+    return prisma.knowledgeIngestionJob.findFirst({
+      where: {
+        id: jobId,
+        tenantId,
+        workspaceId: { in: workspaceIds },
+      },
+      include: {
+        events: { orderBy: { createdAt: 'asc' } },
+      },
+    });
+  },
+
+  async listDocumentChunks(documentId: string, tenantId: string, workspaceIds: string[], query: KnowledgeChunksQuery) {
+    const where: Prisma.KnowledgeChunkWhereInput = {
+      documentId,
+      tenantId,
+      workspaceId: { in: workspaceIds },
+      status: query.status,
+      ...(query.search ? { content: { contains: query.search, mode: 'insensitive' } } : {}),
+    };
+    const [data, total] = await Promise.all([
+      prisma.knowledgeChunk.findMany({
+        where,
+        orderBy: { [query.sortBy]: query.sortDirection },
+        ...paginationOffset(query),
+      }),
+      prisma.knowledgeChunk.count({ where }),
+    ]);
+    return { data, total };
+  },
+
+  async listKnowledgeBaseChunks(knowledgeBaseId: string, tenantId: string, workspaceIds: string[], query: KnowledgeChunksQuery) {
+    const where: Prisma.KnowledgeChunkWhereInput = {
+      knowledgeBaseId,
+      tenantId,
+      workspaceId: { in: workspaceIds },
+      status: query.status,
+      ...(query.search ? { content: { contains: query.search, mode: 'insensitive' } } : {}),
+    };
+    const [data, total] = await Promise.all([
+      prisma.knowledgeChunk.findMany({
+        where,
+        orderBy: [{ documentId: 'asc' }, { [query.sortBy]: query.sortDirection }],
+        ...paginationOffset(query),
+      }),
+      prisma.knowledgeChunk.count({ where }),
+    ]);
+    return { data, total };
+  },
+
+  findChunk(chunkId: string, tenantId: string, workspaceIds: string[]) {
+    return prisma.knowledgeChunk.findFirst({
+      where: {
+        id: chunkId,
+        tenantId,
+        workspaceId: { in: workspaceIds },
+      },
+    });
+  },
+
+  listDocumentSourceReferences(documentId: string, tenantId: string, workspaceIds: string[]) {
+    return prisma.knowledgeSourceReference.findMany({
+      where: {
+        documentId,
+        tenantId,
+        workspaceId: { in: workspaceIds },
+      },
+      orderBy: [{ chunkId: 'asc' }, { createdAt: 'asc' }],
+    });
+  },
+
+  listChunkSourceReferences(chunkId: string, tenantId: string, workspaceIds: string[]) {
+    return prisma.knowledgeSourceReference.findMany({
+      where: {
+        chunkId,
+        tenantId,
+        workspaceId: { in: workspaceIds },
+      },
+      orderBy: { createdAt: 'asc' },
+    });
+  },
+
+  async getRagReadiness(assistantId: string, tenantId: string, workspaceIds: string[]) {
+    return getRagReadinessInternal(assistantId, tenantId, workspaceIds);
+  },
+
+  async localSearch(assistantId: string, tenantId: string, workspaceIds: string[], query: string) {
+    const readiness = await getRagReadinessInternal(assistantId, tenantId, workspaceIds);
+    if (!readiness) return null;
+    const knowledgeBaseIds = readiness.bindings
+      .filter((binding) => binding.isEnabled && binding.knowledgeBase.status === 'active' && !binding.knowledgeBase.deletedAt)
+      .map((binding) => binding.knowledgeBaseId);
+    if (knowledgeBaseIds.length === 0) {
+      return { readiness, chunks: [] };
+    }
+
+    const chunks = await prisma.knowledgeChunk.findMany({
+      where: {
+        tenantId,
+        workspaceId: { in: workspaceIds },
+        knowledgeBaseId: { in: knowledgeBaseIds },
+        status: 'active',
+        content: { contains: query, mode: 'insensitive' },
+      },
+      include: {
+        sourceReferences: { take: 1, orderBy: { createdAt: 'asc' } },
+      },
+      orderBy: [{ updatedAt: 'desc' }, { chunkIndex: 'asc' }],
+      take: 10,
+    });
+
+    return { readiness, chunks };
   },
 
   listDataSources(knowledgeBaseId: string, tenantId: string, workspaceIds: string[]) {

@@ -11,13 +11,17 @@ import {
   knowledgeBaseCreateSchema,
   knowledgeBasesQuerySchema,
   knowledgeBaseUpdateSchema,
+  knowledgeChunkParamsSchema,
+  knowledgeChunksQuerySchema,
   knowledgeDataSourceCreateSchema,
   knowledgeDataSourceParamsSchema,
   knowledgeDataSourceUpdateSchema,
   knowledgeDocumentCreateSchema,
   knowledgeDocumentParamsSchema,
   knowledgeDocumentUpdateSchema,
+  knowledgeIngestionJobParamsSchema,
   knowledgeIngestionRequestSchema,
+  ragLocalSearchSchema,
 } from './knowledge.schema';
 
 export function createKnowledgeRouter() {
@@ -52,6 +56,16 @@ export function createKnowledgeRouter() {
   router.get('/:id/documents', requireAuth, requirePermission('knowledge.read'), validateParams(knowledgeBaseChildParamsSchema), (req, res, next) => {
     void knowledgeController.listDocuments(req, res).catch(next);
   });
+  router.get(
+    '/:id/chunks',
+    requireAuth,
+    requirePermission('knowledge.read'),
+    validateParams(knowledgeBaseChildParamsSchema),
+    validateQuery(knowledgeChunksQuerySchema),
+    (req, res, next) => {
+      void knowledgeController.listKnowledgeBaseChunks(req, res).catch(next);
+    },
+  );
   router.post(
     '/:id/documents',
     requireAuth,
@@ -129,6 +143,54 @@ export function createKnowledgeDocumentsRouter() {
       void knowledgeController.listIngestionJobs(req, res).catch(next);
     },
   );
+  router.get(
+    '/:documentId/chunks',
+    requireAuth,
+    requirePermission('knowledge.read'),
+    validateParams(knowledgeDocumentParamsSchema),
+    validateQuery(knowledgeChunksQuerySchema),
+    (req, res, next) => {
+      void knowledgeController.listDocumentChunks(req, res).catch(next);
+    },
+  );
+  router.get(
+    '/:documentId/source-references',
+    requireAuth,
+    requirePermission('knowledge.read'),
+    validateParams(knowledgeDocumentParamsSchema),
+    (req, res, next) => {
+      void knowledgeController.listDocumentSourceReferences(req, res).catch(next);
+    },
+  );
+
+  return router;
+}
+
+export function createKnowledgeIngestionJobsRouter() {
+  const router = Router();
+
+  router.get('/:jobId', requireAuth, requirePermission('knowledge.ingestion.read'), validateParams(knowledgeIngestionJobParamsSchema), (req, res, next) => {
+    void knowledgeController.getIngestionJob(req, res).catch(next);
+  });
+
+  return router;
+}
+
+export function createKnowledgeChunksRouter() {
+  const router = Router();
+
+  router.get('/:chunkId', requireAuth, requirePermission('knowledge.read'), validateParams(knowledgeChunkParamsSchema), (req, res, next) => {
+    void knowledgeController.getChunk(req, res).catch(next);
+  });
+  router.get(
+    '/:chunkId/source-references',
+    requireAuth,
+    requirePermission('knowledge.read'),
+    validateParams(knowledgeChunkParamsSchema),
+    (req, res, next) => {
+      void knowledgeController.listChunkSourceReferences(req, res).catch(next);
+    },
+  );
 
   return router;
 }
@@ -190,6 +252,22 @@ export function registerAssistantKnowledgeBindingRoutes(router: Router) {
     validateParams(assistantKnowledgeBindingParamsSchema),
     (req, res, next) => {
       void knowledgeController.removeBinding(req, res).catch(next);
+    },
+  );
+}
+
+export function registerAssistantRagRoutes(router: Router) {
+  router.get('/:id/rag-readiness', requireAuth, requirePermission('knowledge.read'), validateParams(idParamsSchema), (req, res, next) => {
+    void knowledgeController.getRagReadiness(req, res).catch(next);
+  });
+  router.post(
+    '/:id/rag-local-search',
+    requireAuth,
+    requirePermission('knowledge.read'),
+    validateParams(idParamsSchema),
+    validateBody(ragLocalSearchSchema),
+    (req, res, next) => {
+      void knowledgeController.localSearch(req, res).catch(next);
     },
   );
 }

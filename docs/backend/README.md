@@ -1,6 +1,6 @@
 # Backend
 
-Status: operacional para a fundacao da Fase 04, core domain inicial da Fase 05, governanca de assistants e agent runs das Fases 05B/05C/05E e catalogo Knowledge/MCP da Fase 06.
+Status: operacional para a fundacao da Fase 04, core domain inicial da Fase 05, governanca de assistants e agent runs das Fases 05B/05C/05E, catalogo Knowledge/MCP da Fase 06 e ingestao local da Fase 06B.
 
 Esta pasta concentra a documentacao do backend real do Orchestra.
 
@@ -14,6 +14,8 @@ Esta pasta concentra a documentacao do backend real do Orchestra.
 - `ORCHESTRA_PHASE_05C_APPROVAL_EXECUTION_GOVERNANCE.md`: approval workflow, execution policy, sandbox policy e precheck.
 - `ORCHESTRA_AGENT_RUN_GOVERNANCE.md`: runtime boundary fake, AgentRun, eventos, precheck obrigatorio, cancelamento e auditoria.
 - `ORCHESTRA_KNOWLEDGE_MCP_CATALOG.md`: catalogo governado de Knowledge/RAG/MCP, ingestion placeholder, policies, bindings e auditoria.
+- `ORCHESTRA_KNOWLEDGE_INGESTION_PIPELINE.md`: ingestao local controlada, jobs, eventos, status e auditoria.
+- `ORCHESTRA_KNOWLEDGE_CHUNKING_LOCAL.md`: chunking textual local, limites, hashes, offsets e source references.
 
 ## Escopo Atual
 
@@ -29,7 +31,8 @@ Esta pasta concentra a documentacao do backend real do Orchestra.
 - Governanca de assistants com publicacoes versionadas, rollback, feedback e test results manuais/simulados.
 - Approval workflow, execution policy, sandbox policy e execution precheck sem runtime real.
 - Agent runs com runtime boundary fake, eventos persistidos e contratos de cancelamento.
-- Catalogo Knowledge/RAG/MCP com ingestion placeholder, policies e bindings governados.
+- Catalogo Knowledge/RAG/MCP com policies e bindings governados.
+- Knowledge ingestion local com contentText, chunking textual, source references, jobs e readiness para RAG futuro.
 - Smoke local em `scripts/smoke-local.sh`.
 
 ## Fora Do Escopo Atual
@@ -37,5 +40,5 @@ Esta pasta concentra a documentacao do backend real do Orchestra.
 - SSO corporativo.
 - Runtime real de IA.
 - Providers reais.
-- RAG real, MCP execution, vector store e streaming.
+- RAG semantico real, MCP execution, embeddings, vector store e streaming.
 - Workers e filas.

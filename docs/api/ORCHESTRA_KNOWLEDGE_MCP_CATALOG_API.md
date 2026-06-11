@@ -1,6 +1,6 @@
 # Orchestra Knowledge/RAG/MCP Catalog API
 
-Status: implementado na Fase 06 como catalogo governado. Nao executa RAG real, embeddings, vector store, MCP real, providers externos ou upload binario.
+Status: implementado na Fase 06 como catalogo governado. A Fase 06B adicionou ingestao local textual, chunks, source references e readiness. Nao executa RAG semantico real, embeddings, vector store, MCP real, providers externos ou upload binario.
 
 ## Escopo
 
@@ -36,7 +36,16 @@ Campos principais: `tenantId`, `workspaceId`, `name`, `description`, `status`, `
 - `POST /api/v1/knowledge-documents/:documentId/request-ingestion`
 - `GET /api/v1/knowledge-documents/:documentId/ingestion`
 
-`request-ingestion` cria somente um job `completed_placeholder` e marca o documento como `indexed_placeholder`. Nao ha parsing de arquivo, embeddings, chunking real ou escrita em vector store.
+`request-ingestion` cria um job `completed`, executa chunking textual local, cria source references e marca o documento como `indexed`. Nao ha parsing robusto de arquivo, embeddings ou escrita em vector store.
+
+Endpoints complementares da Fase 06B:
+
+- `GET /api/v1/knowledge-documents/:documentId/chunks`
+- `GET /api/v1/knowledge-bases/:id/chunks`
+- `GET /api/v1/knowledge-chunks/:chunkId`
+- `GET /api/v1/knowledge-documents/:documentId/source-references`
+- `GET /api/v1/knowledge-chunks/:chunkId/source-references`
+- `GET /api/v1/knowledge-ingestion-jobs/:jobId`
 
 ### Data Sources
 
@@ -126,4 +135,3 @@ Mantem o envelope padrao:
 - `403` sem permissao ou fora do workspace.
 - `404` recurso inexistente ou fora do escopo acessivel.
 - `422` payload invalido, incluindo JSON de catalogo com chaves sensiveis como `secret`, `token`, `password`, `api_key` ou `authorization`.
-

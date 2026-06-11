@@ -75,6 +75,46 @@ export const knowledgeController = {
     return res.status(200).json({ data, requestId: req.requestId });
   },
 
+  async getIngestionJob(req: Request, res: Response) {
+    const data = await knowledgeService.getIngestionJob(req.params.jobId, req.user!);
+    return res.status(200).json({ data, requestId: req.requestId });
+  },
+
+  async listDocumentChunks(req: Request, res: Response) {
+    const result = await knowledgeService.listDocumentChunks(req.params.documentId, req.query as any, req.user!);
+    return res.status(200).json({ ...result, requestId: req.requestId });
+  },
+
+  async listKnowledgeBaseChunks(req: Request, res: Response) {
+    const result = await knowledgeService.listKnowledgeBaseChunks(req.params.id, req.query as any, req.user!);
+    return res.status(200).json({ ...result, requestId: req.requestId });
+  },
+
+  async getChunk(req: Request, res: Response) {
+    const data = await knowledgeService.getChunk(req.params.chunkId, req.user!);
+    return res.status(200).json({ data, requestId: req.requestId });
+  },
+
+  async listDocumentSourceReferences(req: Request, res: Response) {
+    const data = await knowledgeService.listDocumentSourceReferences(req.params.documentId, req.user!);
+    return res.status(200).json({ data, requestId: req.requestId });
+  },
+
+  async listChunkSourceReferences(req: Request, res: Response) {
+    const data = await knowledgeService.listChunkSourceReferences(req.params.chunkId, req.user!);
+    return res.status(200).json({ data, requestId: req.requestId });
+  },
+
+  async getRagReadiness(req: Request, res: Response) {
+    const data = await knowledgeService.getRagReadiness(req.params.id, req.user!, requestContext(req));
+    return res.status(200).json({ data, requestId: req.requestId });
+  },
+
+  async localSearch(req: Request, res: Response) {
+    const data = await knowledgeService.localSearch(req.params.id, req.body, req.user!, requestContext(req));
+    return res.status(200).json({ data, requestId: req.requestId });
+  },
+
   async listDataSources(req: Request, res: Response) {
     const data = await knowledgeService.listDataSources(req.params.id, req.user!);
     return res.status(200).json({ data, requestId: req.requestId });

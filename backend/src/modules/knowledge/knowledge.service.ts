@@ -6,22 +6,28 @@ import { recordAuditEvent } from '../audit/audit.service';
 import {
   mapAssistantKnowledgeBinding,
   mapKnowledgeBase,
+  mapKnowledgeChunk,
   mapKnowledgeDataSource,
   mapKnowledgeDocument,
+  mapKnowledgeIngestionEvent,
   mapKnowledgeIngestionJob,
+  mapKnowledgeSourceReference,
 } from './knowledge.mapper';
 import { knowledgeRepository } from './knowledge.repository';
+import { chunkContentText, hashText, localChunkingDefaults, normalizeContentText } from './knowledge.chunking';
 import type {
   AssistantKnowledgeBindingCreateInput,
   AssistantKnowledgeBindingUpdateInput,
   KnowledgeBaseCreateInput,
   KnowledgeBasesQuery,
   KnowledgeBaseUpdateInput,
+  KnowledgeChunksQuery,
   KnowledgeDataSourceCreateInput,
   KnowledgeDataSourceUpdateInput,
   KnowledgeDocumentCreateInput,
   KnowledgeDocumentUpdateInput,
   KnowledgeIngestionRequestInput,
+  RagLocalSearchInput,
 } from './knowledge.schema';
 
 interface RequestContext {
@@ -109,6 +115,30 @@ async function getAssistantOrThrow(id: string, user: AuthenticatedUser) {
     throw new AppError(404, 'ASSISTANT_NOT_FOUND', 'Assistente nao encontrado.');
   }
   return assistant;
+}
+
+function sourceUriForDocument(document: { id: string; sourceUri: string | null; sourceType: string }) {
+  return document.sourceUri ?? `knowledge-document://${document.id}`;
+}
+
+function localSearchScore(content: string, query: string) {
+  const normalizedContent = content.toLowerCase();
+  const normalizedQuery = query.toLowerCase();
+  let score = 0;
+  let index = normalizedContent.indexOf(normalizedQuery);
+  while (index >= 0) {
+    score += 1;
+    index = normalizedContent.indexOf(normalizedQuery, index + normalizedQuery.length);
+  }
+  return Math.max(score, 1);
+}
+
+function localSearchSnippet(content: string, query: string) {
+  const index = content.toLowerCase().indexOf(query.toLowerCase());
+  if (index < 0) return content.slice(0, 240);
+  const start = Math.max(0, index - 90);
+  const end = Math.min(content.length, index + query.length + 150);
+  return `${start > 0 ? '...' : ''}${content.slice(start, end)}${end < content.length ? '...' : ''}`;
 }
 
 export const knowledgeService = {
@@ -314,13 +344,97 @@ export const knowledgeService = {
   },
 
   async requestIngestion(documentId: string, input: KnowledgeIngestionRequestInput, user: AuthenticatedUser, context: RequestContext) {
+    const current = await knowledgeRepository.findDocument(documentId, user.tenant.id, userWorkspaceIds(user));
+    if (!current) {
+      throw new AppError(404, 'KNOWLEDGE_DOCUMENT_NOT_FOUND', 'Documento de conhecimento nao encontrado.');
+    }
+    if (current.status === 'archived' || current.deletedAt) {
+      throw new AppError(409, 'KNOWLEDGE_DOCUMENT_ARCHIVED', 'Documento arquivado nao pode ser ingerido.');
+    }
+
+    await audit({
+      user,
+      context,
+      action: 'knowledge_document_ingestion_requested',
+      entity: 'knowledge_document',
+      entityId: current.id,
+      workspaceId: current.workspaceId,
+      metadata: {
+        knowledgeBaseId: current.knowledgeBaseId,
+        sourceType: current.sourceType,
+        strategy: 'local_text_chunking',
+      },
+    });
+
+    const normalizedText = normalizeContentText(current.contentText ?? '');
+    if (!normalizedText) {
+      await audit({
+        user,
+        context,
+        action: 'knowledge_ingestion_failed',
+        entity: 'knowledge_document',
+        entityId: current.id,
+        workspaceId: current.workspaceId,
+        metadata: {
+          knowledgeBaseId: current.knowledgeBaseId,
+          errorCode: 'KNOWLEDGE_DOCUMENT_NO_CONTENT',
+        },
+      });
+      throw new AppError(422, 'KNOWLEDGE_DOCUMENT_NO_CONTENT', 'Documento nao possui conteudo textual simples para ingestao local.');
+    }
+
+    let chunks;
+    try {
+      chunks = chunkContentText(normalizedText);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : '';
+      const maxDocumentChars = localChunkingDefaults.maxDocumentChars;
+      await audit({
+        user,
+        context,
+        action: 'knowledge_ingestion_failed',
+        entity: 'knowledge_document',
+        entityId: current.id,
+        workspaceId: current.workspaceId,
+        metadata: {
+          knowledgeBaseId: current.knowledgeBaseId,
+          errorCode: message.startsWith('DOCUMENT_TEXT_TOO_LARGE') ? 'DOCUMENT_TEXT_TOO_LARGE' : 'LOCAL_CHUNKING_FAILED',
+          maxDocumentChars,
+        },
+      });
+      throw new AppError(422, 'DOCUMENT_TEXT_TOO_LARGE', `Conteudo textual excede o limite de ${maxDocumentChars} caracteres.`);
+    }
+
+    if (chunks.length === 0) {
+      throw new AppError(422, 'KNOWLEDGE_DOCUMENT_NO_CHUNKS', 'Conteudo textual nao gerou chunks validos.');
+    }
+
+    const sourceReferences = chunks.map((chunk) => ({
+      chunkIndex: chunk.chunkIndex,
+      label: `${current.title} #${chunk.chunkIndex + 1}`,
+      sourceType: current.sourceType,
+      sourceUri: sourceUriForDocument(current),
+      sectionTitle: chunk.sectionTitle,
+      startOffset: chunk.startOffset,
+      endOffset: chunk.endOffset,
+      metadata: {
+        strategy: 'local_text_chunking',
+      } as Prisma.InputJsonValue,
+    }));
+
     const result = await knowledgeRepository.requestIngestion({
       documentId,
       tenantId: user.tenant.id,
       workspaceIds: userWorkspaceIds(user),
+      createdById: user.id,
+      contentHash: hashText(normalizedText),
+      chunks,
+      sourceReferences,
       metadata: sanitizeMetadata({
         ...(input.metadata ?? {}),
-        placeholderOnly: true,
+        strategy: 'local_text_chunking',
+        chunkSizeChars: localChunkingDefaults.chunkSizeChars,
+        chunkOverlapChars: localChunkingDefaults.chunkOverlapChars,
         requestedById: user.id,
       }) as Prisma.InputJsonValue,
     });
@@ -339,13 +453,72 @@ export const knowledgeService = {
         knowledgeBaseId: result.job.knowledgeBaseId,
         documentId: result.job.documentId,
         status: result.job.status,
-        placeholderOnly: true,
+        strategy: result.job.strategy,
+      },
+    });
+
+    await audit({
+      user,
+      context,
+      action: 'knowledge_ingestion_started',
+      entity: 'knowledge_ingestion_job',
+      entityId: result.job.id,
+      workspaceId: result.job.workspaceId,
+      metadata: {
+        knowledgeBaseId: result.job.knowledgeBaseId,
+        documentId: result.job.documentId,
+        strategy: result.job.strategy,
+      },
+    });
+
+    await audit({
+      user,
+      context,
+      action: 'knowledge_chunks_created',
+      entity: 'knowledge_chunk',
+      entityId: result.job.id,
+      workspaceId: result.job.workspaceId,
+      metadata: {
+        knowledgeBaseId: result.job.knowledgeBaseId,
+        documentId: result.job.documentId,
+        chunksCreated: result.chunks.length,
+      },
+    });
+
+    await audit({
+      user,
+      context,
+      action: 'knowledge_source_references_created',
+      entity: 'knowledge_source_reference',
+      entityId: result.job.id,
+      workspaceId: result.job.workspaceId,
+      metadata: {
+        knowledgeBaseId: result.job.knowledgeBaseId,
+        documentId: result.job.documentId,
+        sourceReferencesCreated: result.sourceReferences.length,
+      },
+    });
+
+    await audit({
+      user,
+      context,
+      action: 'knowledge_ingestion_completed',
+      entity: 'knowledge_ingestion_job',
+      entityId: result.job.id,
+      workspaceId: result.job.workspaceId,
+      metadata: {
+        knowledgeBaseId: result.job.knowledgeBaseId,
+        documentId: result.job.documentId,
+        chunksCreated: result.chunks.length,
+        sourceReferencesCreated: result.sourceReferences.length,
       },
     });
 
     return {
       document: mapKnowledgeDocument(result.document),
       job: mapKnowledgeIngestionJob(result.job),
+      chunksCreated: result.chunks.length,
+      sourceReferencesCreated: result.sourceReferences.length,
     };
   },
 
@@ -356,6 +529,149 @@ export const knowledgeService = {
     }
     const jobs = await knowledgeRepository.listIngestionJobs(document.id, user.tenant.id, userWorkspaceIds(user));
     return jobs.map(mapKnowledgeIngestionJob);
+  },
+
+  async getIngestionJob(jobId: string, user: AuthenticatedUser) {
+    const job = await knowledgeRepository.findIngestionJob(jobId, user.tenant.id, userWorkspaceIds(user));
+    if (!job) {
+      throw new AppError(404, 'KNOWLEDGE_INGESTION_JOB_NOT_FOUND', 'Job de ingestao nao encontrado.');
+    }
+    return {
+      ...mapKnowledgeIngestionJob(job),
+      events: job.events.map(mapKnowledgeIngestionEvent),
+    };
+  },
+
+  async listDocumentChunks(documentId: string, query: KnowledgeChunksQuery, user: AuthenticatedUser) {
+    const document = await knowledgeRepository.findDocument(documentId, user.tenant.id, userWorkspaceIds(user));
+    if (!document) {
+      throw new AppError(404, 'KNOWLEDGE_DOCUMENT_NOT_FOUND', 'Documento de conhecimento nao encontrado.');
+    }
+    const result = await knowledgeRepository.listDocumentChunks(document.id, user.tenant.id, userWorkspaceIds(user), query);
+    return {
+      data: result.data.map(mapKnowledgeChunk),
+      pagination: paginationMeta(query, result.total),
+    };
+  },
+
+  async listKnowledgeBaseChunks(knowledgeBaseId: string, query: KnowledgeChunksQuery, user: AuthenticatedUser) {
+    const base = await getKnowledgeBaseOrThrow(knowledgeBaseId, user);
+    const result = await knowledgeRepository.listKnowledgeBaseChunks(base.id, user.tenant.id, userWorkspaceIds(user), query);
+    return {
+      data: result.data.map(mapKnowledgeChunk),
+      pagination: paginationMeta(query, result.total),
+    };
+  },
+
+  async getChunk(chunkId: string, user: AuthenticatedUser) {
+    const chunk = await knowledgeRepository.findChunk(chunkId, user.tenant.id, userWorkspaceIds(user));
+    if (!chunk) {
+      throw new AppError(404, 'KNOWLEDGE_CHUNK_NOT_FOUND', 'Chunk de conhecimento nao encontrado.');
+    }
+    return mapKnowledgeChunk(chunk);
+  },
+
+  async listDocumentSourceReferences(documentId: string, user: AuthenticatedUser) {
+    const document = await knowledgeRepository.findDocument(documentId, user.tenant.id, userWorkspaceIds(user));
+    if (!document) {
+      throw new AppError(404, 'KNOWLEDGE_DOCUMENT_NOT_FOUND', 'Documento de conhecimento nao encontrado.');
+    }
+    const references = await knowledgeRepository.listDocumentSourceReferences(document.id, user.tenant.id, userWorkspaceIds(user));
+    return references.map(mapKnowledgeSourceReference);
+  },
+
+  async listChunkSourceReferences(chunkId: string, user: AuthenticatedUser) {
+    const chunk = await knowledgeRepository.findChunk(chunkId, user.tenant.id, userWorkspaceIds(user));
+    if (!chunk) {
+      throw new AppError(404, 'KNOWLEDGE_CHUNK_NOT_FOUND', 'Chunk de conhecimento nao encontrado.');
+    }
+    const references = await knowledgeRepository.listChunkSourceReferences(chunk.id, user.tenant.id, userWorkspaceIds(user));
+    return references.map(mapKnowledgeSourceReference);
+  },
+
+  async getRagReadiness(assistantId: string, user: AuthenticatedUser, context: RequestContext) {
+    const readiness = await knowledgeRepository.getRagReadiness(assistantId, user.tenant.id, userWorkspaceIds(user));
+    if (!readiness) {
+      throw new AppError(404, 'ASSISTANT_NOT_FOUND', 'Assistente nao encontrado.');
+    }
+
+    const missingRequirements = [];
+    if (readiness.knowledgeBasesBound === 0) missingRequirements.push('NO_KNOWLEDGE_BASES_BOUND');
+    if (readiness.documentsIngested === 0) missingRequirements.push('NO_INGESTED_DOCUMENTS');
+    if (readiness.chunksAvailable === 0) missingRequirements.push('NO_ACTIVE_CHUNKS');
+
+    await audit({
+      user,
+      context,
+      action: 'rag_readiness_checked',
+      entity: 'assistant',
+      entityId: readiness.assistant.id,
+      workspaceId: readiness.assistant.workspaceId,
+      metadata: {
+        knowledgeBasesBound: readiness.knowledgeBasesBound,
+        documentsIngested: readiness.documentsIngested,
+        chunksAvailable: readiness.chunksAvailable,
+        embeddingsEnabled: false,
+        vectorStoreEnabled: false,
+      },
+    });
+
+    return {
+      assistantId: readiness.assistant.id,
+      canUseKnowledge: missingRequirements.length === 0,
+      knowledgeBasesBound: readiness.knowledgeBasesBound,
+      documentsIngested: readiness.documentsIngested,
+      chunksAvailable: readiness.chunksAvailable,
+      missingRequirements,
+      retrievalMode: 'local_chunks_only',
+      embeddingsEnabled: false,
+      vectorStoreEnabled: false,
+    };
+  },
+
+  async localSearch(assistantId: string, input: RagLocalSearchInput, user: AuthenticatedUser, context: RequestContext) {
+    const result = await knowledgeRepository.localSearch(assistantId, user.tenant.id, userWorkspaceIds(user), input.query);
+    if (!result) {
+      throw new AppError(404, 'ASSISTANT_NOT_FOUND', 'Assistente nao encontrado.');
+    }
+
+    await audit({
+      user,
+      context,
+      action: 'rag_local_search_executed',
+      entity: 'assistant',
+      entityId: result.readiness.assistant.id,
+      workspaceId: result.readiness.assistant.workspaceId,
+      metadata: {
+        mode: 'keyword_local_placeholder',
+        queryLength: input.query.length,
+        results: result.chunks.length,
+      },
+    });
+
+    return {
+      mode: 'keyword_local_placeholder',
+      retrievalMode: 'local_chunks_only',
+      embeddingsEnabled: false,
+      vectorStoreEnabled: false,
+      results: result.chunks.map((chunk) => {
+        const reference = chunk.sourceReferences[0];
+        return {
+          chunkId: chunk.id,
+          documentId: chunk.documentId,
+          knowledgeBaseId: chunk.knowledgeBaseId,
+          score: localSearchScore(chunk.content, input.query),
+          snippet: localSearchSnippet(chunk.content, input.query),
+          source: reference
+            ? {
+                label: reference.label,
+                sourceUri: reference.sourceUri,
+                sectionTitle: reference.sectionTitle,
+              }
+            : null,
+        };
+      }),
+    };
   },
 
   async listDataSources(knowledgeBaseId: string, user: AuthenticatedUser) {

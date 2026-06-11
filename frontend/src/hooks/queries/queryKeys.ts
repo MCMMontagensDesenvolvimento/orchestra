@@ -35,7 +35,10 @@ export const queryKeys = {
     documents: (id?: string) => [...queryKeys.knowledge.all, 'documents', id ?? 'all'] as const,
     dataSources: (id?: string) => [...queryKeys.knowledge.all, 'data-sources', id ?? 'all'] as const,
     ingestion: (documentId: string) => [...queryKeys.knowledge.all, 'ingestion', documentId] as const,
+    chunks: (documentId: string) => [...queryKeys.knowledge.all, 'chunks', documentId] as const,
+    sourceReferences: (documentId: string) => [...queryKeys.knowledge.all, 'source-references', documentId] as const,
     assistantBindings: (assistantId: string) => [...queryKeys.knowledge.all, 'assistant-bindings', assistantId] as const,
+    ragReadiness: (assistantId: string) => [...queryKeys.knowledge.all, 'rag-readiness', assistantId] as const,
   },
   mcp: {
     all: ['mcp'] as const,

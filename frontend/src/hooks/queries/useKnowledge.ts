@@ -31,11 +31,44 @@ export const useKnowledgeDataSources = (knowledgeBaseId?: string) =>
     enabled: !!knowledgeBaseId,
   });
 
+export const useKnowledgeIngestionJobs = (documentId?: string) =>
+  useQuery({
+    queryKey: queryKeys.knowledge.ingestion(documentId ?? ''),
+    queryFn: () => knowledgeService.ingestionJobs(documentId!),
+    enabled: !!documentId,
+  });
+
+export const useKnowledgeChunks = (documentId?: string) =>
+  useQuery({
+    queryKey: queryKeys.knowledge.chunks(documentId ?? ''),
+    queryFn: () => knowledgeService.chunksByDocument(documentId!),
+    enabled: !!documentId,
+  });
+
+export const useKnowledgeSourceReferences = (documentId?: string) =>
+  useQuery({
+    queryKey: queryKeys.knowledge.sourceReferences(documentId ?? ''),
+    queryFn: () => knowledgeService.sourceReferencesByDocument(documentId!),
+    enabled: !!documentId,
+  });
+
 export const useAssistantKnowledgeBindings = (assistantId?: string) =>
   useQuery({
     queryKey: queryKeys.knowledge.assistantBindings(assistantId ?? ''),
     queryFn: () => knowledgeService.assistantBindings(assistantId!),
     enabled: !!assistantId,
+  });
+
+export const useAssistantRagReadiness = (assistantId?: string) =>
+  useQuery({
+    queryKey: queryKeys.knowledge.ragReadiness(assistantId ?? ''),
+    queryFn: () => knowledgeService.ragReadiness(assistantId!),
+    enabled: !!assistantId,
+  });
+
+export const useAssistantRagLocalSearchMutation = () =>
+  useMutation({
+    mutationFn: ({ assistantId, query }: { assistantId: string; query: string }) => knowledgeService.ragLocalSearch(assistantId, query),
   });
 
 export const useCreateKnowledgeBaseMutation = () => {
@@ -106,6 +139,10 @@ export const useRequestKnowledgeIngestionMutation = () => {
     onSuccess: (result) => {
       void queryClient.invalidateQueries({ queryKey: queryKeys.knowledge.documents(result.knowledgeBaseId) });
       void queryClient.invalidateQueries({ queryKey: queryKeys.knowledge.ingestion(result.documentId) });
+      void queryClient.invalidateQueries({ queryKey: queryKeys.knowledge.chunks(result.documentId) });
+      void queryClient.invalidateQueries({ queryKey: queryKeys.knowledge.sourceReferences(result.documentId) });
+      void queryClient.invalidateQueries({ queryKey: queryKeys.knowledge.detail(result.knowledgeBaseId) });
+      void queryClient.invalidateQueries({ queryKey: queryKeys.knowledge.all });
       void queryClient.invalidateQueries({ queryKey: queryKeys.audit.logs });
     },
   });
