@@ -61,6 +61,15 @@ const mocks = vi.hoisted(() => {
     listPrompts: vi.fn(),
     createPrompt: vi.fn(),
     findAssistant: vi.fn(),
+    findAssistantForExecution: vi.fn(),
+    getExecutionPolicy: vi.fn(),
+    listMatchingBindings: vi.fn(),
+    findToolForExecution: vi.fn(),
+    findAgentRunForMcp: vi.fn(),
+    createMcpToolCallWithEvents: vi.fn(),
+    listMcpToolCalls: vi.fn(),
+    findMcpToolCall: vi.fn(),
+    listMcpToolCallEvents: vi.fn(),
     listBindings: vi.fn(),
     createBinding: vi.fn(),
     updateBinding: vi.fn(),
@@ -102,6 +111,9 @@ const ragQueryResultId = '00000000-0000-0000-0000-000000000622';
 const mcpServerId = '00000000-0000-0000-0000-000000000701';
 const mcpToolId = '00000000-0000-0000-0000-000000000801';
 const mcpBindingId = '00000000-0000-0000-0000-000000000901';
+const mcpToolCallId = '00000000-0000-0000-0000-000000000911';
+const mcpToolCallEventId = '00000000-0000-0000-0000-000000000912';
+const agentRunId = '00000000-0000-0000-0000-000000000921';
 const now = new Date('2026-06-11T12:00:00.000Z');
 
 const catalogPermissions = [
@@ -123,6 +135,8 @@ const catalogPermissions = [
   'mcp.tools.read',
   'mcp.tools.manage',
   'mcp.policies.manage',
+  'execution.precheck',
+  'execution.run_sandbox',
 ];
 
 const testUser: AuthenticatedUser = {
@@ -525,6 +539,143 @@ function mcpBindingFixture() {
   };
 }
 
+function assistantExecutionPolicyFixture(overrides: Record<string, unknown> = {}) {
+  return {
+    id: '00000000-0000-0000-0000-000000000922',
+    tenantId,
+    workspaceId,
+    assistantId,
+    executionMode: 'sandbox',
+    requiresApprovalToPublish: false,
+    sandboxEnabled: true,
+    sandboxRequiresAuth: true,
+    sandboxAllowedForRoles: null,
+    sandboxBlocksExternalTools: true,
+    sandboxBlocksRealProviders: true,
+    sandboxLogsRequired: true,
+    sandboxCostLimitPlaceholder: null,
+    allowDraftTesting: true,
+    allowPublishedExecution: false,
+    isExecutionEnabled: false,
+    createdAt: now,
+    updatedAt: now,
+    updatedById: null,
+    ...overrides,
+  };
+}
+
+function assistantForMcpExecutionFixture(overrides: Record<string, unknown> = {}) {
+  return {
+    ...assistantFixture(),
+    versions: [{ id: '00000000-0000-0000-0000-000000000923', createdAt: now }],
+    executionPolicy: assistantExecutionPolicyFixture(),
+    ...overrides,
+  };
+}
+
+function agentRunFixture(overrides: Record<string, unknown> = {}) {
+  return {
+    id: agentRunId,
+    tenantId,
+    workspaceId,
+    assistantId,
+    assistantVersionId: '00000000-0000-0000-0000-000000000923',
+    assistantPublicationId: null,
+    conversationId: null,
+    requestedById: userId,
+    status: 'running',
+    mode: 'sandbox',
+    source: 'api-test',
+    inputSummary: 'sandbox run',
+    requestId: 'req-run',
+    traceId: 'trace-test-run',
+    startedAt: now,
+    completedAt: null,
+    failedAt: null,
+    cancelledAt: null,
+    blockedAt: null,
+    errorCode: null,
+    errorMessage: null,
+    precheckSnapshot: null,
+    metadata: null,
+    createdAt: now,
+    updatedAt: now,
+    ...overrides,
+  };
+}
+
+function lowRiskMcpToolFixture(overrides: Record<string, unknown> = {}) {
+  return mcpToolFixture({
+    riskLevel: 'low',
+    requiresApproval: false,
+    policies: [mcpPolicyFixture(mcpToolId)],
+    ...overrides,
+  });
+}
+
+function lowRiskMcpBindingFixture(overrides: Record<string, unknown> = {}) {
+  const tool = lowRiskMcpToolFixture();
+  return {
+    ...mcpBindingFixture(),
+    tool,
+    requiresApprovalOverride: null,
+    ...overrides,
+  };
+}
+
+function mcpToolCallEventFixture(overrides: Record<string, unknown> = {}) {
+  return {
+    id: mcpToolCallEventId,
+    tenantId,
+    workspaceId,
+    toolCallId: mcpToolCallId,
+    agentRunId: null,
+    type: 'execution_completed',
+    message: 'Execucao sandbox local concluida sem chamada MCP externa.',
+    metadata: { sandbox: true },
+    createdAt: now,
+    ...overrides,
+  };
+}
+
+function mcpToolCallFixture(overrides: Record<string, unknown> = {}) {
+  return {
+    id: mcpToolCallId,
+    tenantId,
+    workspaceId,
+    assistantId,
+    assistantVersionId: '00000000-0000-0000-0000-000000000923',
+    agentRunId: null,
+    mcpServerId,
+    mcpToolId,
+    assistantMcpBindingId: mcpBindingId,
+    requestedByUserId: userId,
+    mode: 'sandbox',
+    status: 'completed',
+    riskLevelSnapshot: 'low',
+    approvalRequiredSnapshot: false,
+    requestId: 'req-test',
+    traceId: 'trace-test',
+    inputHash: 'hash-test',
+    inputPreview: '{"query":"teste"}',
+    outputPreview: 'Sandbox execution completed for tool "search_records". No external MCP server was called.',
+    errorCode: null,
+    errorMessage: null,
+    policySnapshot: { status: 'allowed', reasons: [] },
+    metadata: { sandbox: true, externalMcpCall: false },
+    startedAt: now,
+    completedAt: now,
+    durationMs: 1,
+    createdAt: now,
+    updatedAt: now,
+    server: mcpServerFixture(),
+    tool: lowRiskMcpToolFixture(),
+    assistantMcpBinding: lowRiskMcpBindingFixture(),
+    events: [mcpToolCallEventFixture()],
+    ...overrides,
+  };
+}
+
 describe('knowledge and MCP catalog endpoints', () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -610,6 +761,45 @@ describe('knowledge and MCP catalog endpoints', () => {
     mocks.mcpRepository.findTool.mockResolvedValue(mcpToolFixture());
     mocks.mcpRepository.createTool.mockResolvedValue(mcpToolFixture());
     mocks.mcpRepository.findAssistant.mockResolvedValue(assistantFixture());
+    mocks.mcpRepository.findAssistantForExecution.mockResolvedValue(assistantForMcpExecutionFixture());
+    mocks.mcpRepository.getExecutionPolicy.mockResolvedValue(assistantExecutionPolicyFixture());
+    mocks.mcpRepository.listMatchingBindings.mockResolvedValue([lowRiskMcpBindingFixture()]);
+    mocks.mcpRepository.findToolForExecution.mockResolvedValue(lowRiskMcpToolFixture());
+    mocks.mcpRepository.findAgentRunForMcp.mockResolvedValue(agentRunFixture());
+    mocks.mcpRepository.createMcpToolCallWithEvents.mockImplementation(async (input: {
+      status: string;
+      agentRunId?: string | null;
+      events?: Array<{ type: string; message?: string; metadata?: unknown }>;
+      outputPreview?: string | null;
+      errorCode?: string | null;
+      errorMessage?: string | null;
+      riskLevelSnapshot?: string;
+      approvalRequiredSnapshot?: boolean;
+      assistantMcpBindingId?: string | null;
+      policySnapshot?: unknown;
+      durationMs?: number | null;
+    }) => mcpToolCallFixture({
+      status: input.status,
+      agentRunId: input.agentRunId ?? null,
+      outputPreview: input.outputPreview ?? null,
+      errorCode: input.errorCode ?? null,
+      errorMessage: input.errorMessage ?? null,
+      riskLevelSnapshot: input.riskLevelSnapshot ?? 'low',
+      approvalRequiredSnapshot: input.approvalRequiredSnapshot ?? false,
+      assistantMcpBindingId: input.assistantMcpBindingId ?? mcpBindingId,
+      policySnapshot: input.policySnapshot ?? { status: input.status },
+      durationMs: input.durationMs ?? 1,
+      events: (input.events ?? []).map((event, index) => mcpToolCallEventFixture({
+        id: `00000000-0000-0000-0000-0000000009${30 + index}`,
+        type: event.type,
+        message: event.message ?? null,
+        metadata: event.metadata ?? null,
+        agentRunId: input.agentRunId ?? null,
+      })),
+    }));
+    mocks.mcpRepository.listMcpToolCalls.mockResolvedValue({ data: [mcpToolCallFixture()], total: 1 });
+    mocks.mcpRepository.findMcpToolCall.mockResolvedValue(mcpToolCallFixture());
+    mocks.mcpRepository.listMcpToolCallEvents.mockResolvedValue([mcpToolCallEventFixture()]);
     mocks.mcpRepository.createBinding.mockResolvedValue(mcpBindingFixture());
     mocks.mcpRepository.listBindings.mockResolvedValue([mcpBindingFixture()]);
   });
@@ -889,6 +1079,140 @@ describe('knowledge and MCP catalog endpoints', () => {
       .expect(422);
 
     expect(blockedResponse.body.code).toBe('MCP_APPROVAL_REQUIRED');
+  });
+
+  it('prechecks MCP sandbox execution as allowed for bound low risk tools', async () => {
+    const response = await request(createApp())
+      .post(`/api/v1/assistants/${assistantId}/mcp/precheck`)
+      .set('Cookie', [sessionCookie()])
+      .send({ mcpToolId, mode: 'sandbox', input: { query: 'teste' } })
+      .expect(200);
+
+    expect(response.body.data.canExecute).toBe(true);
+    expect(response.body.data.status).toBe('allowed');
+    expect(response.body.data.policy.riskLevel).toBe('low');
+    expect(response.body.data.policy.requiresApproval).toBe(false);
+    expect(mocks.mcpRepository.listMatchingBindings).toHaveBeenCalledWith(assistantId, mcpServerId, mcpToolId, tenantId, [workspaceId]);
+    expect(mocks.recordAuditEvent).toHaveBeenCalledWith(expect.objectContaining({ action: 'mcp_execution_precheck_allowed' }));
+  });
+
+  it('executes deterministic MCP sandbox tool calls and exposes history detail and events', async () => {
+    const callResponse = await request(createApp())
+      .post(`/api/v1/assistants/${assistantId}/mcp/tool-calls`)
+      .set('Cookie', [sessionCookie()])
+      .send({ mcpToolId, mode: 'sandbox', input: { query: 'teste' }, agentRunId })
+      .expect(201);
+
+    const historyResponse = await request(createApp())
+      .get(`/api/v1/assistants/${assistantId}/mcp/tool-calls`)
+      .set('Cookie', [sessionCookie()])
+      .expect(200);
+
+    const detailResponse = await request(createApp())
+      .get(`/api/v1/mcp/tool-calls/${mcpToolCallId}`)
+      .set('Cookie', [sessionCookie()])
+      .expect(200);
+
+    const eventsResponse = await request(createApp())
+      .get(`/api/v1/mcp/tool-calls/${mcpToolCallId}/events`)
+      .set('Cookie', [sessionCookie()])
+      .expect(200);
+
+    expect(callResponse.body.data.status).toBe('completed');
+    expect(callResponse.body.data.mode).toBe('sandbox');
+    expect(callResponse.body.data.outputPreview).toContain('No external MCP server was called');
+    expect(callResponse.body.data.inputPreview).toContain('teste');
+    expect(callResponse.body.data.events.map((event: { type: string }) => event.type)).toEqual([
+      'precheck_started',
+      'precheck_passed',
+      'execution_started',
+      'execution_completed',
+    ]);
+    expect(historyResponse.body.pagination.total).toBe(1);
+    expect(detailResponse.body.data.id).toBe(mcpToolCallId);
+    expect(eventsResponse.body.data[0].type).toBe('execution_completed');
+    expect(mocks.mcpRepository.createMcpToolCallWithEvents).toHaveBeenCalledWith(expect.objectContaining({
+      status: 'completed',
+      agentRunId,
+      inputPreview: expect.stringContaining('teste'),
+      policySnapshot: expect.objectContaining({ status: 'allowed' }),
+    }));
+    expect(mocks.recordAuditEvent).toHaveBeenCalledWith(expect.objectContaining({ action: 'mcp_tool_call_completed' }));
+  });
+
+  it('persists blocked MCP sandbox tool calls without assistant binding', async () => {
+    mocks.mcpRepository.listMatchingBindings.mockResolvedValueOnce([]);
+
+    const response = await request(createApp())
+      .post(`/api/v1/assistants/${assistantId}/mcp/tool-calls`)
+      .set('Cookie', [sessionCookie()])
+      .send({ mcpToolId, mode: 'sandbox', input: { query: 'teste' } })
+      .expect(201);
+
+    expect(response.body.data.status).toBe('blocked');
+    expect(response.body.data.reasons).toContain('tool_not_bound_to_assistant');
+    expect(mocks.mcpRepository.createMcpToolCallWithEvents).toHaveBeenCalledWith(expect.objectContaining({
+      status: 'blocked',
+      assistantMcpBindingId: null,
+      errorCode: 'tool_not_bound_to_assistant',
+    }));
+    expect(mocks.recordAuditEvent).toHaveBeenCalledWith(expect.objectContaining({ action: 'mcp_tool_call_blocked' }));
+  });
+
+  it('returns approval_required for high risk MCP sandbox tool calls', async () => {
+    mocks.mcpRepository.findToolForExecution.mockResolvedValueOnce(mcpToolFixture());
+    mocks.mcpRepository.listMatchingBindings.mockResolvedValueOnce([mcpBindingFixture()]);
+
+    const response = await request(createApp())
+      .post(`/api/v1/assistants/${assistantId}/mcp/tool-calls`)
+      .set('Cookie', [sessionCookie()])
+      .send({ mcpToolId, mode: 'sandbox', input: { query: 'teste' } })
+      .expect(201);
+
+    expect(response.body.data.status).toBe('approval_required');
+    expect(response.body.data.reasons).toContain('tool_requires_approval');
+    expect(mocks.mcpRepository.createMcpToolCallWithEvents).toHaveBeenCalledWith(expect.objectContaining({
+      status: 'approval_required',
+      errorCode: 'tool_requires_approval',
+      riskLevelSnapshot: 'high',
+      approvalRequiredSnapshot: true,
+    }));
+    expect(mocks.recordAuditEvent).toHaveBeenCalledWith(expect.objectContaining({ action: 'mcp_tool_call_approval_required' }));
+  });
+
+  it('blocks disabled MCP tools during sandbox execution', async () => {
+    mocks.mcpRepository.findToolForExecution.mockResolvedValueOnce(lowRiskMcpToolFixture({ isEnabled: false }));
+    mocks.mcpRepository.listMatchingBindings.mockResolvedValueOnce([lowRiskMcpBindingFixture()]);
+
+    const response = await request(createApp())
+      .post(`/api/v1/assistants/${assistantId}/mcp/tool-calls`)
+      .set('Cookie', [sessionCookie()])
+      .send({ mcpToolId, mode: 'sandbox', input: { query: 'teste' } })
+      .expect(201);
+
+    expect(response.body.data.status).toBe('blocked');
+    expect(response.body.data.reasons).toContain('tool_disabled');
+    expect(mocks.mcpRepository.createMcpToolCallWithEvents).toHaveBeenCalledWith(expect.objectContaining({
+      status: 'blocked',
+      errorCode: 'tool_disabled',
+    }));
+  });
+
+  it('returns structured MCP execution errors for missing records and invalid payloads', async () => {
+    mocks.mcpRepository.findMcpToolCall.mockResolvedValueOnce(null);
+    const notFoundResponse = await request(createApp())
+      .get(`/api/v1/mcp/tool-calls/${mcpToolCallId}`)
+      .set('Cookie', [sessionCookie()])
+      .expect(404);
+
+    const invalidResponse = await request(createApp())
+      .post(`/api/v1/assistants/${assistantId}/mcp/tool-calls`)
+      .set('Cookie', [sessionCookie()])
+      .send({ mcpToolId: 'not-a-uuid', input: { query: 'teste' } })
+      .expect(422);
+
+    expect(notFoundResponse.body.code).toBe('MCP_TOOL_CALL_NOT_FOUND');
+    expect(invalidResponse.body.code).toBe('VALIDATION_ERROR');
   });
 
   it('returns structured errors for missing permissions, missing records and invalid payloads', async () => {

@@ -4,6 +4,7 @@ import { paginationOffset } from '../../shared/validation/pagination';
 import type {
   AssistantMcpBindingCreateInput,
   AssistantMcpBindingUpdateInput,
+  McpToolCallsQuery,
   McpPromptCreateInput,
   McpResourceCreateInput,
   McpServerCreateInput,
@@ -41,6 +42,19 @@ const bindingInclude = {
     },
   },
 } satisfies Prisma.AssistantMcpBindingInclude;
+
+const mcpToolCallInclude = {
+  server: true,
+  tool: {
+    include: {
+      policies: { take: 1 },
+    },
+  },
+  assistantMcpBinding: true,
+  events: {
+    orderBy: { createdAt: 'asc' },
+  },
+} satisfies Prisma.McpToolCallInclude;
 
 function scopedServerWhere(id: string, tenantId: string, workspaceIds: string[]) {
   return {
@@ -334,6 +348,31 @@ export const mcpRepository = {
     });
   },
 
+  findAssistantForExecution(id: string, tenantId: string, workspaceIds: string[]) {
+    return prisma.assistant.findFirst({
+      where: { id, tenantId, workspaceId: { in: workspaceIds }, deletedAt: null },
+      include: {
+        versions: {
+          orderBy: { createdAt: 'desc' },
+          take: 1,
+        },
+        executionPolicy: true,
+      },
+    });
+  },
+
+  getExecutionPolicy(assistant: { id: string; tenantId: string; workspaceId: string }) {
+    return prisma.assistantExecutionPolicy.upsert({
+      where: { assistantId: assistant.id },
+      update: {},
+      create: {
+        tenantId: assistant.tenantId,
+        workspaceId: assistant.workspaceId,
+        assistantId: assistant.id,
+      },
+    });
+  },
+
   listBindings(assistantId: string, tenantId: string, workspaceIds: string[]) {
     return prisma.assistantMcpBinding.findMany({
       where: {
@@ -343,6 +382,46 @@ export const mcpRepository = {
       },
       include: bindingInclude,
       orderBy: [{ createdAt: 'desc' }],
+    });
+  },
+
+  listMatchingBindings(assistantId: string, mcpServerId: string, mcpToolId: string, tenantId: string, workspaceIds: string[]) {
+    return prisma.assistantMcpBinding.findMany({
+      where: {
+        assistantId,
+        mcpServerId,
+        tenantId,
+        workspaceId: { in: workspaceIds },
+        OR: [{ mcpToolId }, { mcpToolId: null }],
+      },
+      include: bindingInclude,
+      orderBy: [{ createdAt: 'desc' }],
+    });
+  },
+
+  findToolForExecution(toolId: string, tenantId: string, workspaceIds: string[]) {
+    return prisma.mcpTool.findFirst({
+      where: {
+        id: toolId,
+        tenantId,
+        workspaceId: { in: workspaceIds },
+      },
+      include: {
+        server: {
+          include: mcpServerInclude,
+        },
+        policies: { take: 1 },
+      },
+    });
+  },
+
+  findAgentRunForMcp(agentRunId: string, tenantId: string, workspaceIds: string[]) {
+    return prisma.agentRun.findFirst({
+      where: {
+        id: agentRunId,
+        tenantId,
+        workspaceId: { in: workspaceIds },
+      },
     });
   },
 
@@ -425,6 +504,156 @@ export const mcpRepository = {
       where: { id: existing.id },
       data: { isEnabled: false, mode: 'disabled' },
       include: bindingInclude,
+    });
+  },
+
+  async createMcpToolCallWithEvents(input: {
+    tenantId: string;
+    workspaceId: string;
+    assistantId: string;
+    assistantVersionId?: string | null;
+    agentRunId?: string | null;
+    mcpServerId: string;
+    mcpToolId: string;
+    assistantMcpBindingId?: string | null;
+    requestedByUserId: string;
+    mode: string;
+    status: string;
+    riskLevelSnapshot: string;
+    approvalRequiredSnapshot: boolean;
+    requestId?: string | null;
+    traceId?: string | null;
+    inputHash?: string | null;
+    inputPreview?: string | null;
+    outputPreview?: string | null;
+    errorCode?: string | null;
+    errorMessage?: string | null;
+    policySnapshot?: Prisma.InputJsonValue;
+    metadata?: Prisma.InputJsonValue;
+    startedAt?: Date | null;
+    completedAt?: Date | null;
+    durationMs?: number | null;
+    events: Array<{ type: string; message?: string; metadata?: Prisma.InputJsonValue }>;
+    agentRunEvents?: Array<{ type: string; status?: string; message?: string; metadata?: Prisma.InputJsonValue }>;
+  }) {
+    return prisma.$transaction(async (tx) => {
+      const call = await tx.mcpToolCall.create({
+        data: {
+          tenantId: input.tenantId,
+          workspaceId: input.workspaceId,
+          assistantId: input.assistantId,
+          assistantVersionId: input.assistantVersionId,
+          agentRunId: input.agentRunId,
+          mcpServerId: input.mcpServerId,
+          mcpToolId: input.mcpToolId,
+          assistantMcpBindingId: input.assistantMcpBindingId,
+          requestedByUserId: input.requestedByUserId,
+          mode: input.mode,
+          status: input.status,
+          riskLevelSnapshot: input.riskLevelSnapshot,
+          approvalRequiredSnapshot: input.approvalRequiredSnapshot,
+          requestId: input.requestId,
+          traceId: input.traceId,
+          inputHash: input.inputHash,
+          inputPreview: input.inputPreview,
+          outputPreview: input.outputPreview,
+          errorCode: input.errorCode,
+          errorMessage: input.errorMessage,
+          policySnapshot: input.policySnapshot,
+          metadata: input.metadata,
+          startedAt: input.startedAt,
+          completedAt: input.completedAt,
+          durationMs: input.durationMs,
+        },
+      });
+
+      if (input.events.length > 0) {
+        await tx.mcpToolCallEvent.createMany({
+          data: input.events.map((event) => ({
+            tenantId: input.tenantId,
+            workspaceId: input.workspaceId,
+            toolCallId: call.id,
+            agentRunId: input.agentRunId,
+            type: event.type,
+            message: event.message,
+            metadata: event.metadata,
+          })),
+        });
+      }
+
+      if (input.agentRunId && input.agentRunEvents && input.agentRunEvents.length > 0) {
+        const lastEvent = await tx.agentRunEvent.findFirst({
+          where: { agentRunId: input.agentRunId },
+          orderBy: { sequence: 'desc' },
+        });
+        const start = lastEvent?.sequence ?? 0;
+        await tx.agentRunEvent.createMany({
+          data: input.agentRunEvents.map((event, index) => ({
+            agentRunId: input.agentRunId!,
+            tenantId: input.tenantId,
+            workspaceId: input.workspaceId,
+            type: event.type,
+            sequence: start + index + 1,
+            status: event.status,
+            message: event.message,
+            metadata: event.metadata,
+          })),
+        });
+      }
+
+      return tx.mcpToolCall.findUniqueOrThrow({ where: { id: call.id }, include: mcpToolCallInclude });
+    });
+  },
+
+  async listMcpToolCalls(tenantId: string, workspaceIds: string[], query: McpToolCallsQuery, assistantId?: string) {
+    const where: Prisma.McpToolCallWhereInput = {
+      tenantId,
+      workspaceId: { in: workspaceIds },
+      ...(assistantId ? { assistantId } : {}),
+      ...(query.status ? { status: query.status } : {}),
+      ...(query.mcpToolId ? { mcpToolId: query.mcpToolId } : {}),
+      ...(query.agentRunId ? { agentRunId: query.agentRunId } : {}),
+      ...(query.search
+        ? {
+            OR: [
+              { tool: { name: { contains: query.search, mode: 'insensitive' } } },
+              { outputPreview: { contains: query.search, mode: 'insensitive' } },
+              { errorCode: { contains: query.search, mode: 'insensitive' } },
+            ],
+          }
+        : {}),
+    };
+    const [data, total] = await Promise.all([
+      prisma.mcpToolCall.findMany({
+        where,
+        include: mcpToolCallInclude,
+        orderBy: { [query.sortBy]: query.sortDirection },
+        ...paginationOffset(query),
+      }),
+      prisma.mcpToolCall.count({ where }),
+    ]);
+    return { data, total };
+  },
+
+  findMcpToolCall(toolCallId: string, tenantId: string, workspaceIds: string[]) {
+    return prisma.mcpToolCall.findFirst({
+      where: {
+        id: toolCallId,
+        tenantId,
+        workspaceId: { in: workspaceIds },
+      },
+      include: mcpToolCallInclude,
+    });
+  },
+
+  listMcpToolCallEvents(toolCallId: string, tenantId: string, workspaceIds: string[]) {
+    return prisma.mcpToolCallEvent.findMany({
+      where: {
+        toolCallId,
+        tenantId,
+        workspaceId: { in: workspaceIds },
+      },
+      orderBy: { createdAt: 'asc' },
     });
   },
 };

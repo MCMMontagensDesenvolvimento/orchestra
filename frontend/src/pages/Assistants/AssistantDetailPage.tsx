@@ -11,7 +11,20 @@ import { Switch } from '@/components/ui/switch';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Badge } from '@/components/ui/badge';
-import type { AgentRun, AgentRunStatus, Assistant, AssistantApprovalAction, AssistantExecutionMode, AssistantExecutionPolicy, AssistantTestStatus, FeedbackType, KnowledgeBase, McpTool } from '@/types';
+import type {
+  AgentRun,
+  AgentRunStatus,
+  Assistant,
+  AssistantApprovalAction,
+  AssistantExecutionMode,
+  AssistantExecutionPolicy,
+  AssistantTestStatus,
+  FeedbackType,
+  KnowledgeBase,
+  McpExecutionPrecheck,
+  McpTool,
+  McpToolCallRecord,
+} from '@/types';
 import {
   useApproveAssistantApprovalMutation,
   useArchiveAssistantMutation,
@@ -47,7 +60,10 @@ import {
 } from '@/hooks/queries/useKnowledge';
 import {
   useAssistantMcpBindings,
+  useAssistantMcpToolCalls,
   useCreateAssistantMcpBindingMutation,
+  useMcpSandboxPrecheckMutation,
+  useMcpSandboxToolCallMutation,
   useMcpTools,
   useRemoveAssistantMcpBindingMutation,
 } from '@/hooks/queries/useMcp';
@@ -100,6 +116,7 @@ export default function AssistantDetailPage() {
   const ragReadinessQuery = useAssistantRagReadiness(id);
   const ragQueriesQuery = useAssistantRagQueries(id);
   const { data: assistantMcpBindings = [] } = useAssistantMcpBindings(id);
+  const { data: assistantMcpToolCalls = [], isLoading: assistantMcpToolCallsLoading, refetch: refetchAssistantMcpToolCalls } = useAssistantMcpToolCalls(id);
   const { data: session } = useCurrentSession();
   const publishMutation = usePublishAssistantMutation();
   const unpublishMutation = useUnpublishAssistantMutation();
@@ -121,6 +138,8 @@ export default function AssistantDetailPage() {
   const ragQueryMutation = useAssistantRagQueryMutation();
   const createMcpBindingMutation = useCreateAssistantMcpBindingMutation();
   const removeMcpBindingMutation = useRemoveAssistantMcpBindingMutation();
+  const mcpSandboxPrecheckMutation = useMcpSandboxPrecheckMutation();
+  const mcpSandboxToolCallMutation = useMcpSandboxToolCallMutation();
   const navigate = useNavigate();
   const [activeTab, setActiveTab] = useState<TabId>('overview');
   const [feedbackDialogOpen, setFeedbackDialogOpen] = useState(false);
@@ -158,6 +177,9 @@ export default function AssistantDetailPage() {
   const [ragSearchQuery, setRagSearchQuery] = useState('');
   const [mcpBindingDialogOpen, setMcpBindingDialogOpen] = useState(false);
   const [selectedMcpToolId, setSelectedMcpToolId] = useState('');
+  const [selectedSandboxToolId, setSelectedSandboxToolId] = useState('');
+  const [mcpSandboxInput, setMcpSandboxInput] = useState('{\n  "query": "teste sandbox"\n}');
+  const [selectedMcpToolCallId, setSelectedMcpToolCallId] = useState<string | null>(null);
 
   const assistant = assistantQuery.data ?? mockAssistants.find(a => a.id === id) ?? mockAssistants[0];
 
@@ -200,6 +222,23 @@ export default function AssistantDetailPage() {
   const ragHistory = ragQueriesQuery.data ?? [];
   const ragBlockedReasons = ragReadiness?.blockedReasons ?? ragReadiness?.missingRequirements ?? [];
   const ragReady = ragReadiness?.ready ?? ragReadiness?.canUseKnowledge ?? false;
+  const activeSandboxToolId = selectedSandboxToolId || tools[0]?.id || '';
+  const selectedSandboxTool = tools.find(tool => tool.id === activeSandboxToolId);
+  const selectedMcpToolCall = (
+    selectedMcpToolCallId
+      ? assistantMcpToolCalls.find(call => call.id === selectedMcpToolCallId)
+      : undefined
+  ) ?? mcpSandboxToolCallMutation.data ?? assistantMcpToolCalls[0];
+
+  const parseMcpSandboxInput = () => {
+    const value = mcpSandboxInput.trim();
+    if (!value) return {};
+    try {
+      return JSON.parse(value) as unknown;
+    } catch {
+      return { input: value };
+    }
+  };
 
   const handleBindKnowledgeBase = async () => {
     if (!selectedKnowledgeBaseId) return;
@@ -287,6 +326,51 @@ export default function AssistantDetailPage() {
       toast.success('Vinculo MCP removido');
     } catch (error) {
       toast.error('Nao foi possivel remover o vinculo MCP', {
+        description: error instanceof Error ? error.message : 'Tente novamente em instantes.',
+      });
+    }
+  };
+
+  const handleMcpSandboxPrecheck = async (toolId = activeSandboxToolId) => {
+    if (!toolId) {
+      toast.error('Selecione uma tool MCP');
+      return;
+    }
+    try {
+      await mcpSandboxPrecheckMutation.mutateAsync({
+        assistantId: assistant.id,
+        payload: {
+          mcpToolId: toolId,
+          mode: 'sandbox',
+          input: parseMcpSandboxInput(),
+        },
+      });
+      toast.success('Precheck sandbox executado');
+    } catch (error) {
+      toast.error('Nao foi possivel executar precheck MCP', {
+        description: error instanceof Error ? error.message : 'Tente novamente em instantes.',
+      });
+    }
+  };
+
+  const handleMcpSandboxRun = async (toolId = activeSandboxToolId) => {
+    if (!toolId) {
+      toast.error('Selecione uma tool MCP');
+      return;
+    }
+    try {
+      const call = await mcpSandboxToolCallMutation.mutateAsync({
+        assistantId: assistant.id,
+        payload: {
+          mcpToolId: toolId,
+          mode: 'sandbox',
+          input: parseMcpSandboxInput(),
+        },
+      });
+      setSelectedMcpToolCallId(call.id);
+      toast.success(call.status === 'completed' ? 'Sandbox MCP concluido' : `Sandbox MCP: ${call.status}`);
+    } catch (error) {
+      toast.error('Nao foi possivel executar sandbox MCP', {
         description: error instanceof Error ? error.message : 'Tente novamente em instantes.',
       });
     }
@@ -1269,10 +1353,83 @@ ${tools.map(t => `- ${t.name}: ${t.description}${t.requiresApproval ? ' [REQUER 
 
         {activeTab === 'tools' && (
           <div className="space-y-4">
-            <div className="flex items-center justify-between">
-              <h3 className="text-sm font-semibold">Ferramentas MCP Habilitadas ({tools.length})</h3>
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+              <div>
+                <h3 className="text-sm font-semibold">Ferramentas MCP Habilitadas ({tools.length})</h3>
+                <p className="text-xs text-muted-foreground">Precheck e execução sandbox local com policies do backend.</p>
+              </div>
               <Button variant="outline" size="sm" onClick={() => setMcpBindingDialogOpen(true)}><Server className="h-3.5 w-3.5 mr-1" />Vincular Ferramenta</Button>
             </div>
+
+            <div className="grid gap-4 lg:grid-cols-[minmax(0,0.95fr)_minmax(0,1.05fr)]">
+              <div className="rounded-lg border bg-card p-5">
+                <div className="mb-4 flex items-start justify-between gap-2">
+                  <div>
+                    <h4 className="text-sm font-semibold flex items-center gap-2"><Shield className="h-4 w-4 text-primary" />MCP Sandbox</h4>
+                    <p className="text-xs text-muted-foreground">Execução determinística sem chamada MCP externa.</p>
+                  </div>
+                  <Badge variant="outline" className="text-[10px]">sandbox</Badge>
+                </div>
+                <div className="space-y-4">
+                  <div className="space-y-2">
+                    <Label>Tool</Label>
+                    <Select value={activeSandboxToolId || 'none'} onValueChange={value => setSelectedSandboxToolId(value === 'none' ? '' : value)}>
+                      <SelectTrigger><SelectValue /></SelectTrigger>
+                      <SelectContent>
+                        {tools.length === 0 && <SelectItem value="none">Nenhuma tool vinculada</SelectItem>}
+                        {tools.map(tool => (
+                          <SelectItem key={tool.id} value={tool.id}>{tool.name} · {tool.riskLevel}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  {selectedSandboxTool && (
+                    <div className="grid grid-cols-3 gap-2 text-xs">
+                      <div className="rounded-md border p-2"><p className="text-[10px] text-muted-foreground">Risco</p><StatusBadge status={selectedSandboxTool.riskLevel} /></div>
+                      <div className="rounded-md border p-2"><p className="text-[10px] text-muted-foreground">Approval</p><p className="font-medium">{selectedSandboxTool.requiresApproval ? 'Obrigatorio' : 'Nao'}</p></div>
+                      <div className="rounded-md border p-2"><p className="text-[10px] text-muted-foreground">Modo</p><p className="font-medium">sandbox_only</p></div>
+                    </div>
+                  )}
+                  <div className="space-y-2">
+                    <Label>Input</Label>
+                    <Textarea value={mcpSandboxInput} onChange={event => setMcpSandboxInput(event.target.value)} rows={6} maxLength={4000} className="font-mono text-xs" />
+                    <p className="text-[10px] text-muted-foreground">{mcpSandboxInput.length}/4000</p>
+                  </div>
+                  <div className="flex flex-col gap-2 sm:flex-row">
+                    <Button variant="outline" onClick={() => { void handleMcpSandboxPrecheck(); }} disabled={!activeSandboxToolId || mcpSandboxPrecheckMutation.isPending}>
+                      <Shield className="h-3.5 w-3.5 mr-1" />Precheck sandbox
+                    </Button>
+                    <Button onClick={() => { void handleMcpSandboxRun(); }} disabled={!activeSandboxToolId || mcpSandboxToolCallMutation.isPending}>
+                      <Play className="h-3.5 w-3.5 mr-1" />Run sandbox test
+                    </Button>
+                  </div>
+                </div>
+              </div>
+
+              <div className="rounded-lg border bg-card p-5">
+                <div className="mb-4 flex items-center justify-between gap-2">
+                  <h4 className="text-sm font-semibold flex items-center gap-2"><Activity className="h-4 w-4 text-primary" />Resultado</h4>
+                  <Button variant="ghost" size="sm" className="h-7 px-2 text-xs" onClick={() => { void refetchAssistantMcpToolCalls(); }}>
+                    <RefreshCw className="h-3 w-3 mr-1" />Atualizar
+                  </Button>
+                </div>
+                {mcpSandboxPrecheckMutation.data && (
+                  <McpPrecheckCard precheck={mcpSandboxPrecheckMutation.data} />
+                )}
+                {mcpSandboxToolCallMutation.data && (
+                  <div className="mt-3">
+                    <McpToolCallCard call={mcpSandboxToolCallMutation.data} onSelect={() => setSelectedMcpToolCallId(mcpSandboxToolCallMutation.data.id)} selected={selectedMcpToolCall?.id === mcpSandboxToolCallMutation.data.id} />
+                  </div>
+                )}
+                {!mcpSandboxPrecheckMutation.data && !mcpSandboxToolCallMutation.data && (
+                  <div className="py-10 text-center">
+                    <Wrench className="h-10 w-10 mx-auto text-muted-foreground mb-3" />
+                    <p className="text-sm text-muted-foreground">Nenhum teste sandbox executado nesta sessão.</p>
+                  </div>
+                )}
+              </div>
+            </div>
+
             {tools.length > 0 ? (
               <div className="rounded-lg border bg-card overflow-hidden">
                 <table className="w-full text-sm">
@@ -1283,7 +1440,7 @@ ${tools.map(t => `- ${t.name}: ${t.description}${t.requiresApproval ? ' [REQUER 
                       <th className="px-4 py-3 text-left font-medium text-muted-foreground">Risco</th>
                       <th className="px-4 py-3 text-left font-medium text-muted-foreground">Aprovação</th>
                       <th className="px-4 py-3 text-right font-medium text-muted-foreground">Execuções</th>
-                      <th className="px-4 py-3 text-right font-medium text-muted-foreground">Vínculo</th>
+                      <th className="px-4 py-3 text-right font-medium text-muted-foreground">Ações</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -1300,14 +1457,22 @@ ${tools.map(t => `- ${t.name}: ${t.description}${t.requiresApproval ? ' [REQUER 
                           )}
                         </td>
                         <td className="px-4 py-3 text-right text-xs">{t.executionCount.toLocaleString()}</td>
-                        <td className="px-4 py-3 text-right">
-                          {mcpBindingByToolId.has(t.id) ? (
-                            <Button variant="ghost" size="sm" className="h-7 px-2 text-xs" onClick={() => { void handleRemoveMcpBinding(t.id); }} disabled={removeMcpBindingMutation.isPending}>
-                              <X className="h-3.5 w-3.5" />
+                        <td className="px-4 py-3">
+                          <div className="flex justify-end gap-1">
+                            <Button variant="ghost" size="sm" className="h-7 px-2 text-xs" onClick={() => { setSelectedSandboxToolId(t.id); void handleMcpSandboxPrecheck(t.id); }} disabled={mcpSandboxPrecheckMutation.isPending}>
+                              <Shield className="h-3.5 w-3.5" />
                             </Button>
-                          ) : (
-                            <span className="text-xs text-muted-foreground">legado</span>
-                          )}
+                            <Button variant="ghost" size="sm" className="h-7 px-2 text-xs" onClick={() => { setSelectedSandboxToolId(t.id); void handleMcpSandboxRun(t.id); }} disabled={mcpSandboxToolCallMutation.isPending}>
+                              <Play className="h-3.5 w-3.5" />
+                            </Button>
+                            {mcpBindingByToolId.has(t.id) ? (
+                              <Button variant="ghost" size="sm" className="h-7 px-2 text-xs" onClick={() => { void handleRemoveMcpBinding(t.id); }} disabled={removeMcpBindingMutation.isPending}>
+                                <X className="h-3.5 w-3.5" />
+                              </Button>
+                            ) : (
+                              <span className="px-2 text-xs text-muted-foreground">legado</span>
+                            )}
+                          </div>
                         </td>
                       </tr>
                     ))}
@@ -1321,6 +1486,40 @@ ${tools.map(t => `- ${t.name}: ${t.description}${t.requiresApproval ? ' [REQUER 
                 <Button variant="outline" size="sm" className="mt-3" onClick={() => setMcpBindingDialogOpen(true)}><Server className="h-3.5 w-3.5 mr-1" />Vincular Ferramenta</Button>
               </div>
             )}
+
+            <div className="grid gap-4 lg:grid-cols-[minmax(0,0.85fr)_minmax(0,1.15fr)]">
+              <div className="rounded-lg border bg-card p-5">
+                <div className="mb-4 flex items-center justify-between gap-2">
+                  <div>
+                    <h4 className="text-sm font-semibold flex items-center gap-2"><Clock className="h-4 w-4 text-primary" />Tool call history</h4>
+                    <p className="text-xs text-muted-foreground">{assistantMcpToolCalls.length} registro(s)</p>
+                  </div>
+                  <Button variant="outline" size="sm" onClick={() => { void refetchAssistantMcpToolCalls(); }}>
+                    <RefreshCw className="h-3.5 w-3.5 mr-1" />Atualizar
+                  </Button>
+                </div>
+                {assistantMcpToolCallsLoading ? (
+                  <p className="text-sm text-muted-foreground">Carregando histórico MCP...</p>
+                ) : assistantMcpToolCalls.length > 0 ? (
+                  <div className="space-y-2">
+                    {assistantMcpToolCalls.slice(0, 8).map(call => (
+                      <McpToolCallCard key={call.id} call={call} selected={selectedMcpToolCall?.id === call.id} onSelect={() => setSelectedMcpToolCallId(call.id)} />
+                    ))}
+                  </div>
+                ) : (
+                  <p className="text-sm text-muted-foreground">Nenhuma tool call registrada.</p>
+                )}
+              </div>
+
+              <div className="rounded-lg border bg-card p-5">
+                <h4 className="mb-4 text-sm font-semibold flex items-center gap-2"><GitBranch className="h-4 w-4 text-primary" />Timeline</h4>
+                {selectedMcpToolCall ? (
+                  <McpToolCallTimeline call={selectedMcpToolCall} />
+                ) : (
+                  <p className="text-sm text-muted-foreground">Selecione uma tool call para ver eventos.</p>
+                )}
+              </div>
+            </div>
           </div>
         )}
 
@@ -1973,6 +2172,13 @@ function agentRunStatusClass(status: AgentRunStatus | string) {
   return 'border-primary/30 bg-primary/5';
 }
 
+function mcpToolCallStatusClass(status: string) {
+  if (status === 'completed') return 'border-success/30 bg-success/5';
+  if (status === 'approval_required') return 'border-warning/30 bg-warning/5';
+  if (status === 'blocked' || status === 'failed' || status === 'cancelled') return 'border-destructive/30 bg-destructive/5';
+  return 'border-primary/30 bg-primary/5';
+}
+
 function compactId(value?: string | null) {
   if (!value) return '—';
   if (value.length <= 16) return value;
@@ -2027,6 +2233,103 @@ function AgentRunCard({ run, canCancel, isCancelling, onCancel }: {
           ))}
           {events.length > 6 && <p className="text-[10px] text-muted-foreground">+{events.length - 6} evento(s)</p>}
         </div>
+      )}
+    </div>
+  );
+}
+
+function McpPrecheckCard({ precheck }: { precheck: McpExecutionPrecheck }) {
+  return (
+    <div className={`rounded-md border p-3 ${precheck.canExecute ? 'border-success/30 bg-success/5' : precheck.status === 'approval_required' ? 'border-warning/30 bg-warning/5' : 'border-destructive/30 bg-destructive/5'}`}>
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <div className="flex flex-wrap items-center gap-2">
+          <StatusBadge status={precheck.status} />
+          <Badge variant="outline" className="text-[10px]">{precheck.mode}</Badge>
+          <StatusBadge status={precheck.policy.riskLevel} />
+        </div>
+        <span className="text-xs text-muted-foreground">{precheck.policy.requiresApproval ? 'approval required' : 'auto'}</span>
+      </div>
+      {precheck.reasons.length > 0 && (
+        <p className="mt-2 text-xs text-muted-foreground">{precheck.reasons.join(', ')}</p>
+      )}
+      {precheck.warnings.length > 0 && (
+        <div className="mt-2 space-y-1">
+          {precheck.warnings.map(warning => (
+            <p key={warning.code} className="text-xs text-muted-foreground">{warning.code}: {warning.message}</p>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function McpToolCallCard({ call, selected, onSelect }: {
+  call: McpToolCallRecord;
+  selected?: boolean;
+  onSelect: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onSelect}
+      className={`w-full rounded-md border p-3 text-left transition-colors hover:bg-muted/30 ${mcpToolCallStatusClass(call.status)} ${selected ? 'ring-1 ring-primary' : ''}`}
+    >
+      <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+        <div className="min-w-0 space-y-1">
+          <div className="flex flex-wrap items-center gap-2">
+            <StatusBadge status={call.status} />
+            <Badge variant="secondary" className="text-[10px]">{call.mode}</Badge>
+            <span className="font-mono text-[11px] text-muted-foreground">{compactId(call.id)}</span>
+          </div>
+          <p className="truncate text-sm font-medium">{call.tool?.name ?? call.mcpToolId}</p>
+          <div className="flex flex-wrap gap-x-3 gap-y-1 text-[10px] text-muted-foreground">
+            <span>trace {compactId(call.traceId)}</span>
+            <span>{new Date(call.createdAt).toLocaleString('pt-BR')}</span>
+            {typeof call.durationMs === 'number' && <span>{call.durationMs}ms</span>}
+          </div>
+        </div>
+        <StatusBadge status={call.riskLevelSnapshot} />
+      </div>
+      {call.outputPreview && <p className="mt-2 line-clamp-2 text-xs text-muted-foreground">{call.outputPreview}</p>}
+      {call.errorCode && <p className="mt-2 text-xs text-warning">{call.errorCode}: {call.errorMessage}</p>}
+    </button>
+  );
+}
+
+function McpToolCallTimeline({ call }: { call: McpToolCallRecord }) {
+  const events = call.events ?? [];
+  return (
+    <div className="space-y-3">
+      <div className="rounded-md border p-3">
+        <div className="flex flex-wrap items-center gap-2">
+          <StatusBadge status={call.status} />
+          <span className="font-mono text-[11px] text-muted-foreground">{compactId(call.id)}</span>
+          {call.agentRunId && <span className="font-mono text-[11px] text-muted-foreground">run {compactId(call.agentRunId)}</span>}
+        </div>
+        {call.inputPreview && (
+          <div className="mt-3 rounded bg-muted/50 p-2">
+            <p className="mb-1 text-[10px] text-muted-foreground">Input preview</p>
+            <pre className="max-h-28 overflow-auto whitespace-pre-wrap text-xs">{call.inputPreview}</pre>
+          </div>
+        )}
+      </div>
+      {events.length > 0 ? (
+        <div className="space-y-2">
+          {events.map((event, index) => (
+            <div key={event.id} className="grid grid-cols-[2rem_minmax(0,1fr)] gap-2 text-xs">
+              <span className="font-mono text-muted-foreground">#{index + 1}</span>
+              <div className="min-w-0 rounded-md border p-2">
+                <div className="flex flex-wrap items-center gap-2">
+                  <span className="font-mono font-medium">{event.type}</span>
+                  <span className="text-[10px] text-muted-foreground">{new Date(event.createdAt).toLocaleString('pt-BR')}</span>
+                </div>
+                {event.message && <p className="mt-1 text-muted-foreground">{event.message}</p>}
+              </div>
+            </div>
+          ))}
+        </div>
+      ) : (
+        <p className="text-sm text-muted-foreground">Nenhum evento persistido para esta tool call.</p>
       )}
     </div>
   );

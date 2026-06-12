@@ -7,6 +7,17 @@ export const mcpTrustLevelValues = ['trusted', 'restricted', 'experimental'] as 
 export const mcpRiskLevelValues = ['low', 'medium', 'high', 'critical'] as const;
 export const mcpAuthTypeValues = ['none', 'api_key', 'bearer', 'oauth', 'mTLS', 'other'] as const;
 export const assistantMcpModeValues = ['disabled', 'sandbox_only', 'enabled_placeholder'] as const;
+export const mcpToolCallStatusValues = ['queued', 'running', 'completed', 'failed', 'blocked', 'cancelled', 'approval_required'] as const;
+export const mcpToolCallEventTypeValues = [
+  'precheck_started',
+  'precheck_passed',
+  'approval_required',
+  'blocked',
+  'execution_started',
+  'execution_completed',
+  'execution_failed',
+  'cancelled',
+] as const;
 
 const unsafeJsonKeys = new Set([
   'secret',
@@ -31,6 +42,21 @@ function hasUnsafeJsonKey(value: unknown, depth = 0): boolean {
   });
 }
 
+function isJsonSerializable(value: unknown) {
+  if (value === undefined) return true;
+  try {
+    JSON.stringify(value);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function jsonSize(value: unknown) {
+  if (value === undefined) return 0;
+  return Buffer.byteLength(JSON.stringify(value), 'utf8');
+}
+
 function hasUnsafeTemplate(value: string | undefined | null) {
   if (!value) return false;
   return /(secret|token|password|api[_-]?key|authorization)/i.test(value);
@@ -39,6 +65,14 @@ function hasUnsafeTemplate(value: string | undefined | null) {
 const safeJsonRecord = z.record(z.unknown()).refine((value) => !hasUnsafeJsonKey(value), {
   message: 'Nao informe secrets, tokens, passwords, api keys ou authorization em JSON de catalogo.',
 });
+
+const safeExecutionInput = z.unknown()
+  .optional()
+  .refine(isJsonSerializable, { message: 'Input deve ser JSON serializavel.' })
+  .refine((value) => jsonSize(value) <= 8000, { message: 'Input de sandbox deve ter no maximo 8KB.' })
+  .refine((value) => !hasUnsafeJsonKey(value), {
+    message: 'Nao informe secrets, tokens, passwords, api keys ou authorization no input de sandbox.',
+  });
 
 export const mcpServersQuerySchema = paginationQuerySchema.extend({
   sortBy: z.enum(['name', 'status', 'updatedAt', 'createdAt']).default('updatedAt'),
@@ -148,6 +182,25 @@ export const assistantMcpBindingParamsSchema = z.object({
   bindingId: z.string().uuid(),
 });
 
+export const mcpExecutionRequestSchema = z.object({
+  mcpToolId: z.string().uuid(),
+  agentRunId: z.string().uuid().optional(),
+  mode: z.literal('sandbox').default('sandbox'),
+  input: safeExecutionInput,
+});
+
+export const mcpToolCallsQuerySchema = paginationQuerySchema.extend({
+  sortBy: z.enum(['createdAt', 'updatedAt', 'status', 'durationMs']).default('createdAt'),
+  sortDirection: z.enum(['asc', 'desc']).default('desc'),
+  status: z.enum(mcpToolCallStatusValues).optional(),
+  mcpToolId: z.string().uuid().optional(),
+  agentRunId: z.string().uuid().optional(),
+});
+
+export const mcpToolCallParamsSchema = z.object({
+  toolCallId: z.string().uuid(),
+});
+
 export type McpServersQuery = z.infer<typeof mcpServersQuerySchema>;
 export type McpServerCreateInput = z.infer<typeof mcpServerCreateSchema>;
 export type McpServerUpdateInput = z.infer<typeof mcpServerUpdateSchema>;
@@ -157,3 +210,7 @@ export type McpResourceCreateInput = z.infer<typeof mcpResourceCreateSchema>;
 export type McpPromptCreateInput = z.infer<typeof mcpPromptCreateSchema>;
 export type AssistantMcpBindingCreateInput = z.infer<typeof assistantMcpBindingCreateSchema>;
 export type AssistantMcpBindingUpdateInput = z.infer<typeof assistantMcpBindingUpdateSchema>;
+export type McpExecutionRequestInput = z.infer<typeof mcpExecutionRequestSchema>;
+export type McpToolCallsQuery = z.infer<typeof mcpToolCallsQuerySchema>;
+export type McpToolCallStatus = typeof mcpToolCallStatusValues[number];
+export type McpToolCallEventType = typeof mcpToolCallEventTypeValues[number];

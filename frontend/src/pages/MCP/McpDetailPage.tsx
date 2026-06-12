@@ -238,10 +238,13 @@ export default function McpDetailPage() {
                       <TableHead className="text-center">Execuções</TableHead>
                       <TableHead>Input Schema</TableHead>
                       <TableHead>Última Execução</TableHead>
+                      <TableHead className="text-right">Sandbox</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {filteredTools.map(tool => (
+                    {filteredTools.map(tool => {
+                      const boundAssistant = bindings.find(binding => binding.toolsEnabled.includes(tool.name));
+                      return (
                       <TableRow key={tool.id}>
                         <TableCell>
                           <div><p className="font-mono text-xs font-semibold">{tool.name}</p><p className="text-xs text-muted-foreground mt-0.5">{tool.description}</p></div>
@@ -256,8 +259,17 @@ export default function McpDetailPage() {
                         <TableCell className="text-center font-medium">{tool.executionCount.toLocaleString()}</TableCell>
                         <TableCell><code className="text-[10px] bg-muted px-1.5 py-0.5 rounded">{tool.inputSchema || '—'}</code></TableCell>
                         <TableCell className="text-xs text-muted-foreground">{tool.lastExecuted ? new Date(tool.lastExecuted).toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' }) : '—'}</TableCell>
+                        <TableCell className="text-right">
+                          {boundAssistant ? (
+                            <Button variant="ghost" size="sm" className="h-7 px-2 text-xs" onClick={() => navigate(`/app/assistants/${boundAssistant.assistantId}`)}>
+                              <Zap className="h-3.5 w-3.5 mr-1" />Abrir
+                            </Button>
+                          ) : (
+                            <span className="text-xs text-muted-foreground">—</span>
+                          )}
+                        </TableCell>
                       </TableRow>
-                    ))}
+                    );})}
                   </TableBody>
                 </Table>
               </div>

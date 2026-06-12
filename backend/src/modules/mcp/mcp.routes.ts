@@ -9,10 +9,13 @@ import {
   assistantMcpBindingUpdateSchema,
   mcpPromptCreateSchema,
   mcpResourceCreateSchema,
+  mcpExecutionRequestSchema,
   mcpServerChildParamsSchema,
   mcpServerCreateSchema,
   mcpServersQuerySchema,
   mcpServerUpdateSchema,
+  mcpToolCallParamsSchema,
+  mcpToolCallsQuerySchema,
   mcpToolCreateSchema,
   mcpToolParamsSchema,
   mcpToolUpdateSchema,
@@ -74,6 +77,16 @@ export function createMcpRouter() {
     void mcpController.archiveTool(req, res).catch(next);
   });
 
+  router.get('/tool-calls', requireAuth, requirePermission('mcp.tools.read'), validateQuery(mcpToolCallsQuerySchema), (req, res, next) => {
+    void mcpController.listToolCalls(req, res).catch(next);
+  });
+  router.get('/tool-calls/:toolCallId', requireAuth, requirePermission('mcp.tools.read'), validateParams(mcpToolCallParamsSchema), (req, res, next) => {
+    void mcpController.getToolCall(req, res).catch(next);
+  });
+  router.get('/tool-calls/:toolCallId/events', requireAuth, requirePermission('mcp.tools.read'), validateParams(mcpToolCallParamsSchema), (req, res, next) => {
+    void mcpController.listToolCallEvents(req, res).catch(next);
+  });
+
   router.get('/servers/:id/resources', requireAuth, requirePermission('mcp.read'), validateParams(mcpServerChildParamsSchema), (req, res, next) => {
     void mcpController.listResources(req, res).catch(next);
   });
@@ -105,6 +118,37 @@ export function createMcpRouter() {
 }
 
 export function registerAssistantMcpBindingRoutes(router: Router) {
+  router.post(
+    '/:id/mcp/precheck',
+    requireAuth,
+    requirePermission('execution.precheck'),
+    validateParams(idParamsSchema),
+    validateBody(mcpExecutionRequestSchema),
+    (req, res, next) => {
+      void mcpController.precheckSandboxExecution(req, res).catch(next);
+    },
+  );
+  router.post(
+    '/:id/mcp/tool-calls',
+    requireAuth,
+    requirePermission('execution.run_sandbox'),
+    validateParams(idParamsSchema),
+    validateBody(mcpExecutionRequestSchema),
+    (req, res, next) => {
+      void mcpController.runSandboxToolCall(req, res).catch(next);
+    },
+  );
+  router.get(
+    '/:id/mcp/tool-calls',
+    requireAuth,
+    requirePermission('mcp.tools.read'),
+    validateParams(idParamsSchema),
+    validateQuery(mcpToolCallsQuerySchema),
+    (req, res, next) => {
+      void mcpController.listAssistantToolCalls(req, res).catch(next);
+    },
+  );
+
   router.get('/:id/mcp-bindings', requireAuth, requirePermission('mcp.read'), validateParams(idParamsSchema), (req, res, next) => {
     void mcpController.listBindings(req, res).catch(next);
   });

@@ -1,3 +1,4 @@
+import { createHash, randomUUID } from 'node:crypto';
 import { AppError } from '../../shared/errors/app-error';
 import type { Prisma } from '@prisma/client';
 import type { AuthenticatedUser } from '../../shared/types/auth';
@@ -5,6 +6,8 @@ import { paginationMeta } from '../../shared/validation/pagination';
 import { recordAuditEvent } from '../audit/audit.service';
 import {
   mapAssistantMcpBinding,
+  mapMcpToolCall,
+  mapMcpToolCallEvent,
   mapMcpPrompt,
   mapMcpResource,
   mapMcpServer,
@@ -14,6 +17,8 @@ import { mcpRepository } from './mcp.repository';
 import type {
   AssistantMcpBindingCreateInput,
   AssistantMcpBindingUpdateInput,
+  McpExecutionRequestInput,
+  McpToolCallsQuery,
   McpPromptCreateInput,
   McpResourceCreateInput,
   McpServerCreateInput,
@@ -29,8 +34,38 @@ interface RequestContext {
   userAgent?: string;
 }
 
+type AssistantForMcpExecution = NonNullable<Awaited<ReturnType<typeof mcpRepository.findAssistantForExecution>>>;
+type ToolForMcpExecution = NonNullable<Awaited<ReturnType<typeof mcpRepository.findToolForExecution>>>;
+type MatchingMcpBinding = Awaited<ReturnType<typeof mcpRepository.listMatchingBindings>>[number];
+type AgentRunForMcp = NonNullable<Awaited<ReturnType<typeof mcpRepository.findAgentRunForMcp>>>;
+type McpExecutionStatus = 'allowed' | 'blocked' | 'approval_required';
+
+interface McpPrecheckResult {
+  canExecute: boolean;
+  status: McpExecutionStatus;
+  mode: 'sandbox';
+  reasons: string[];
+  warnings: Array<{ code: string; message: string }>;
+  policy: {
+    requiresApproval: boolean;
+    riskLevel: string;
+    bindingMode?: string;
+    sandboxOnly: boolean;
+    allowRuntimeExecution: boolean;
+    blockedByDefault: boolean;
+    executionMode?: string;
+  };
+  assistant: AssistantForMcpExecution;
+  tool: ToolForMcpExecution;
+  binding: MatchingMcpBinding | null;
+  agentRun: AgentRunForMcp | null;
+  traceId: string;
+  requestId: string;
+}
+
 const unsafeMetadataKeys = new Set(['instructions', 'prompt', 'content', 'secret', 'token', 'password', 'apiKey', 'authorization']);
 const userWorkspaceIds = (user: AuthenticatedUser) => user.workspaces.map((workspace) => workspace.id);
+const finalAgentRunStatuses = new Set(['completed', 'failed', 'cancelled', 'blocked']);
 
 function sanitizeMetadata(value: unknown, depth = 0): unknown {
   if (value == null || typeof value === 'boolean' || typeof value === 'number') return value;
@@ -98,6 +133,109 @@ function requiresApprovalForRisk(riskLevel: string) {
   return riskLevel === 'high' || riskLevel === 'critical';
 }
 
+function truncate(value: string, max = 600) {
+  return value.length > max ? `${value.slice(0, max - 15)}...[truncated]` : value;
+}
+
+function stableJson(value: unknown) {
+  if (value === undefined) return '';
+  return JSON.stringify(value);
+}
+
+function previewInput(value: unknown) {
+  const sanitized = sanitizeMetadata(value);
+  if (sanitized === undefined) return undefined;
+  return truncate(typeof sanitized === 'string' ? sanitized : JSON.stringify(sanitized), 600);
+}
+
+function inputHash(value: unknown) {
+  if (value === undefined) return undefined;
+  return createHash('sha256').update(stableJson(value)).digest('hex');
+}
+
+function selectVersionId(assistant: AssistantForMcpExecution, agentRun: AgentRunForMcp | null) {
+  return agentRun?.assistantVersionId ?? assistant.versions[0]?.id ?? null;
+}
+
+function selectBinding(bindings: MatchingMcpBinding[], toolId: string) {
+  const enabled = bindings.filter((binding) => binding.isEnabled && binding.mode !== 'disabled');
+  return (
+    enabled.find((binding) => binding.mcpToolId === toolId) ??
+    enabled.find((binding) => binding.mcpToolId === null) ??
+    null
+  );
+}
+
+function policySnapshot(precheck: McpPrecheckResult) {
+  return {
+    status: precheck.status,
+    canExecute: precheck.canExecute,
+    reasons: precheck.reasons,
+    warnings: precheck.warnings,
+    policy: precheck.policy,
+    mcpServerId: precheck.tool.mcpServerId,
+    mcpToolId: precheck.tool.id,
+    assistantMcpBindingId: precheck.binding?.id ?? null,
+  } satisfies Prisma.InputJsonValue;
+}
+
+function publicPrecheck(precheck: McpPrecheckResult) {
+  return {
+    canExecute: precheck.canExecute,
+    status: precheck.status,
+    mode: precheck.mode,
+    reasons: precheck.reasons,
+    warnings: precheck.warnings,
+    policy: precheck.policy,
+  };
+}
+
+function sandboxOutput(tool: ToolForMcpExecution, inputPreview?: string) {
+  const suffix = inputPreview ? ` Input preview: ${inputPreview}` : '';
+  return truncate(`Sandbox execution completed for tool "${tool.name}". No external MCP server was called.${suffix}`, 1000);
+}
+
+function agentRunEvents(input: {
+  toolCallId?: string;
+  tool: ToolForMcpExecution;
+  traceId: string;
+  status: 'completed' | 'blocked' | 'approval_required' | 'failed';
+  reasons?: string[];
+}) {
+  const baseMetadata: Record<string, unknown> = {
+    mcpToolId: input.tool.id,
+    mcpServerId: input.tool.mcpServerId,
+    traceId: input.traceId,
+  };
+  if (input.toolCallId) baseMetadata.toolCallId = input.toolCallId;
+  const metadata = baseMetadata as Prisma.InputJsonValue;
+  const metadataWithReasons = { ...baseMetadata, reasons: input.reasons ?? [] } as Prisma.InputJsonValue;
+
+  if (input.status === 'approval_required') {
+    return [
+      { type: 'tool.precheck.started', status: 'running', message: 'MCP sandbox precheck iniciado.', metadata },
+      { type: 'tool.approval_required', status: 'blocked', message: 'Tool MCP exige approval.', metadata: metadataWithReasons },
+    ];
+  }
+  if (input.status === 'blocked') {
+    return [
+      { type: 'tool.precheck.started', status: 'running', message: 'MCP sandbox precheck iniciado.', metadata },
+      { type: 'tool.precheck.blocked', status: 'blocked', message: 'Tool MCP bloqueada por policy.', metadata: metadataWithReasons },
+    ];
+  }
+  if (input.status === 'failed') {
+    return [
+      { type: 'tool.precheck.started', status: 'running', message: 'MCP sandbox precheck iniciado.', metadata },
+      { type: 'tool.execution.failed', status: 'failed', message: 'Tool MCP falhou no sandbox.', metadata: metadataWithReasons },
+    ];
+  }
+  return [
+    { type: 'tool.precheck.started', status: 'running', message: 'MCP sandbox precheck iniciado.', metadata },
+    { type: 'tool.execution.started', status: 'running', message: 'Execucao sandbox da tool MCP iniciada.', metadata },
+    { type: 'tool.execution.completed', status: 'completed', message: 'Execucao sandbox da tool MCP concluida.', metadata },
+  ];
+}
+
 async function getServerOrThrow(id: string, user: AuthenticatedUser) {
   const server = await mcpRepository.findServer(id, user.tenant.id, userWorkspaceIds(user));
   if (!server) {
@@ -112,6 +250,109 @@ async function getAssistantOrThrow(id: string, user: AuthenticatedUser) {
     throw new AppError(404, 'ASSISTANT_NOT_FOUND', 'Assistente nao encontrado.');
   }
   return assistant;
+}
+
+async function getAssistantForExecutionOrThrow(id: string, user: AuthenticatedUser) {
+  const assistant = await mcpRepository.findAssistantForExecution(id, user.tenant.id, userWorkspaceIds(user));
+  if (!assistant) {
+    throw new AppError(404, 'ASSISTANT_NOT_FOUND', 'Assistente nao encontrado.');
+  }
+  return assistant;
+}
+
+async function getToolForExecutionOrThrow(id: string, user: AuthenticatedUser) {
+  const tool = await mcpRepository.findToolForExecution(id, user.tenant.id, userWorkspaceIds(user));
+  if (!tool) {
+    throw new AppError(404, 'MCP_TOOL_NOT_FOUND', 'MCP tool nao encontrada.');
+  }
+  return tool;
+}
+
+async function buildMcpExecutionPrecheck(
+  assistantId: string,
+  input: McpExecutionRequestInput,
+  user: AuthenticatedUser,
+  context: RequestContext,
+): Promise<McpPrecheckResult> {
+  const assistant = await getAssistantForExecutionOrThrow(assistantId, user);
+  const tool = await getToolForExecutionOrThrow(input.mcpToolId, user);
+  const policy = assistant.executionPolicy ?? (await mcpRepository.getExecutionPolicy(assistant));
+  const bindings = await mcpRepository.listMatchingBindings(assistant.id, tool.mcpServerId, tool.id, user.tenant.id, userWorkspaceIds(user));
+  const binding = selectBinding(bindings, tool.id);
+  const toolPolicy = tool.policies?.[0] ?? null;
+  const reasons: string[] = [];
+  const warnings: Array<{ code: string; message: string }> = [];
+  let agentRun: AgentRunForMcp | null = null;
+
+  if (assistant.workspaceId !== tool.workspaceId) reasons.push('workspace_scope_denied');
+  if (assistant.status === 'archived') reasons.push('execution_policy_blocks_sandbox');
+  if (tool.server.status === 'archived' || tool.server.deletedAt) reasons.push('server_archived');
+  else if (tool.server.status !== 'active') reasons.push('server_disabled');
+  if (tool.deletedAt) reasons.push('tool_archived');
+  else if (!tool.isEnabled) reasons.push('tool_disabled');
+
+  if (!binding) {
+    reasons.push(bindings.length > 0 ? 'binding_disabled' : 'tool_not_bound_to_assistant');
+  } else if (!['sandbox_only', 'enabled_placeholder'].includes(binding.mode)) {
+    reasons.push('sandbox_not_allowed');
+  }
+
+  if (!policy.sandboxEnabled || policy.executionMode === 'blocked' || policy.executionMode === 'archived') {
+    reasons.push('execution_policy_blocks_sandbox');
+  }
+  if (!policy.sandboxBlocksExternalTools || !policy.sandboxBlocksRealProviders || !policy.sandboxLogsRequired) {
+    reasons.push('execution_policy_blocks_sandbox');
+  }
+
+  if (input.agentRunId) {
+    const foundRun = await mcpRepository.findAgentRunForMcp(input.agentRunId, user.tenant.id, userWorkspaceIds(user));
+    if (!foundRun) {
+      throw new AppError(404, 'AGENT_RUN_NOT_FOUND', 'Run de agente nao encontrado.');
+    }
+    agentRun = foundRun;
+    if (foundRun.assistantId !== assistant.id || foundRun.workspaceId !== assistant.workspaceId) {
+      reasons.push('invalid_input');
+    }
+    if (finalAgentRunStatuses.has(foundRun.status)) {
+      reasons.push('execution_policy_blocks_sandbox');
+    }
+  }
+
+  if (tool.server.trustLevel !== 'trusted') {
+    warnings.push({
+      code: 'server_trust_not_trusted',
+      message: `MCP server esta marcado como ${tool.server.trustLevel}.`,
+    });
+  }
+
+  const riskRequiresApproval = requiresApprovalForRisk(tool.riskLevel);
+  const bindingRequiresApproval = binding?.requiresApprovalOverride;
+  const requiresApproval = riskRequiresApproval || bindingRequiresApproval === true || (bindingRequiresApproval !== false && tool.requiresApproval);
+  const uniqueReasons = [...new Set(reasons)];
+  const status: McpExecutionStatus = uniqueReasons.length > 0 ? 'blocked' : requiresApproval ? 'approval_required' : 'allowed';
+
+  return {
+    canExecute: status === 'allowed',
+    status,
+    mode: 'sandbox',
+    reasons: status === 'approval_required' ? ['tool_requires_approval'] : uniqueReasons,
+    warnings,
+    policy: {
+      requiresApproval,
+      riskLevel: tool.riskLevel,
+      bindingMode: binding?.mode,
+      sandboxOnly: toolPolicy?.sandboxOnly ?? true,
+      allowRuntimeExecution: toolPolicy?.allowRuntimeExecution ?? false,
+      blockedByDefault: toolPolicy?.blockedByDefault ?? true,
+      executionMode: policy.executionMode,
+    },
+    assistant,
+    tool,
+    binding,
+    agentRun,
+    traceId: agentRun?.traceId ?? `trace_${randomUUID()}`,
+    requestId: context.requestId,
+  };
 }
 
 export const mcpService = {
@@ -524,5 +765,258 @@ export const mcpService = {
         removalMode: 'soft_disable',
       },
     });
+  },
+
+  async precheckSandboxExecution(assistantId: string, input: McpExecutionRequestInput, user: AuthenticatedUser, context: RequestContext) {
+    const precheck = await buildMcpExecutionPrecheck(assistantId, input, user, context);
+    await audit({
+      user,
+      context,
+      action: precheck.canExecute ? 'mcp_execution_precheck_allowed' : 'mcp_execution_precheck_blocked',
+      entity: 'mcp_execution_precheck',
+      entityId: precheck.tool.id,
+      workspaceId: precheck.assistant.workspaceId,
+      metadata: {
+        assistantId: precheck.assistant.id,
+        mcpServerId: precheck.tool.mcpServerId,
+        mcpToolId: precheck.tool.id,
+        agentRunId: input.agentRunId,
+        mode: precheck.mode,
+        status: precheck.status,
+        riskLevel: precheck.policy.riskLevel,
+        requiresApproval: precheck.policy.requiresApproval,
+        reasons: precheck.reasons,
+      },
+    });
+    return publicPrecheck(precheck);
+  },
+
+  async runSandboxToolCall(assistantId: string, input: McpExecutionRequestInput, user: AuthenticatedUser, context: RequestContext) {
+    const precheck = await buildMcpExecutionPrecheck(assistantId, input, user, context);
+    await audit({
+      user,
+      context,
+      action: precheck.canExecute ? 'mcp_execution_precheck_allowed' : 'mcp_execution_precheck_blocked',
+      entity: 'mcp_execution_precheck',
+      entityId: precheck.tool.id,
+      workspaceId: precheck.assistant.workspaceId,
+      metadata: {
+        assistantId: precheck.assistant.id,
+        mcpServerId: precheck.tool.mcpServerId,
+        mcpToolId: precheck.tool.id,
+        agentRunId: input.agentRunId,
+        mode: precheck.mode,
+        status: precheck.status,
+        riskLevel: precheck.policy.riskLevel,
+        requiresApproval: precheck.policy.requiresApproval,
+        reasons: precheck.reasons,
+      },
+    });
+
+    const now = new Date();
+    const inputPreview = previewInput(input.input);
+    const baseCallInput = {
+      tenantId: user.tenant.id,
+      workspaceId: precheck.assistant.workspaceId,
+      assistantId: precheck.assistant.id,
+      assistantVersionId: selectVersionId(precheck.assistant, precheck.agentRun),
+      agentRunId: precheck.agentRun?.id ?? input.agentRunId ?? null,
+      mcpServerId: precheck.tool.mcpServerId,
+      mcpToolId: precheck.tool.id,
+      assistantMcpBindingId: precheck.binding?.id ?? null,
+      requestedByUserId: user.id,
+      mode: precheck.mode,
+      riskLevelSnapshot: precheck.tool.riskLevel,
+      approvalRequiredSnapshot: precheck.policy.requiresApproval,
+      requestId: context.requestId,
+      traceId: precheck.traceId,
+      inputHash: inputHash(input.input),
+      inputPreview,
+      policySnapshot: policySnapshot(precheck),
+      metadata: {
+        sandbox: true,
+        externalMcpCall: false,
+        toolName: precheck.tool.name,
+      } as Prisma.InputJsonValue,
+    };
+
+    if (!precheck.canExecute) {
+      const status = precheck.status === 'approval_required' ? 'approval_required' : 'blocked';
+      const call = await mcpRepository.createMcpToolCallWithEvents({
+        ...baseCallInput,
+        status,
+        errorCode: precheck.reasons[0],
+        errorMessage: status === 'approval_required' ? 'Tool MCP exige approval antes da execucao.' : 'Tool MCP bloqueada por policy.',
+        startedAt: now,
+        completedAt: now,
+        durationMs: 0,
+        events: [
+          {
+            type: 'precheck_started',
+            message: 'Precheck MCP sandbox iniciado.',
+            metadata: { mode: precheck.mode, requestId: context.requestId } as Prisma.InputJsonValue,
+          },
+          {
+            type: status,
+            message: status === 'approval_required' ? 'Tool MCP exige approval.' : 'Tool MCP bloqueada por policy.',
+            metadata: { reasons: precheck.reasons, riskLevel: precheck.tool.riskLevel } as Prisma.InputJsonValue,
+          },
+        ],
+        agentRunEvents: precheck.agentRun
+          ? agentRunEvents({
+              tool: precheck.tool,
+              traceId: precheck.traceId,
+              status,
+              reasons: precheck.reasons,
+            })
+          : undefined,
+      });
+
+      await audit({
+        user,
+        context,
+        action: 'mcp_tool_call_created',
+        entity: 'mcp_tool_call',
+        entityId: call.id,
+        workspaceId: precheck.assistant.workspaceId,
+        metadata: {
+          assistantId: precheck.assistant.id,
+          mcpServerId: precheck.tool.mcpServerId,
+          mcpToolId: precheck.tool.id,
+          agentRunId: precheck.agentRun?.id,
+          status,
+          riskLevel: precheck.tool.riskLevel,
+        },
+      });
+      await audit({
+        user,
+        context,
+        action: status === 'approval_required' ? 'mcp_tool_call_approval_required' : 'mcp_tool_call_blocked',
+        entity: 'mcp_tool_call',
+        entityId: call.id,
+        workspaceId: precheck.assistant.workspaceId,
+        metadata: {
+          assistantId: precheck.assistant.id,
+          mcpServerId: precheck.tool.mcpServerId,
+          mcpToolId: precheck.tool.id,
+          agentRunId: precheck.agentRun?.id,
+          status,
+          reasons: precheck.reasons,
+          riskLevel: precheck.tool.riskLevel,
+        },
+      });
+      return mapMcpToolCall(call);
+    }
+
+    const startedAt = new Date();
+    const outputPreview = sandboxOutput(precheck.tool, inputPreview);
+    const completedAt = new Date();
+    const durationMs = Math.max(1, completedAt.getTime() - startedAt.getTime());
+    const call = await mcpRepository.createMcpToolCallWithEvents({
+      ...baseCallInput,
+      status: 'completed',
+      outputPreview,
+      startedAt,
+      completedAt,
+      durationMs,
+      events: [
+        {
+          type: 'precheck_started',
+          message: 'Precheck MCP sandbox iniciado.',
+          metadata: { mode: precheck.mode, requestId: context.requestId } as Prisma.InputJsonValue,
+        },
+        {
+          type: 'precheck_passed',
+          message: 'Precheck MCP sandbox aprovado.',
+          metadata: { riskLevel: precheck.tool.riskLevel } as Prisma.InputJsonValue,
+        },
+        {
+          type: 'execution_started',
+          message: 'Execucao sandbox local iniciada.',
+          metadata: { sandbox: true, externalMcpCall: false } as Prisma.InputJsonValue,
+        },
+        {
+          type: 'execution_completed',
+          message: 'Execucao sandbox local concluida sem chamada MCP externa.',
+          metadata: { durationMs, outputPreview } as Prisma.InputJsonValue,
+        },
+      ],
+      agentRunEvents: precheck.agentRun
+        ? agentRunEvents({
+            tool: precheck.tool,
+            traceId: precheck.traceId,
+            status: 'completed',
+          })
+        : undefined,
+    });
+
+    await audit({
+      user,
+      context,
+      action: 'mcp_tool_call_created',
+      entity: 'mcp_tool_call',
+      entityId: call.id,
+      workspaceId: precheck.assistant.workspaceId,
+      metadata: {
+        assistantId: precheck.assistant.id,
+        mcpServerId: precheck.tool.mcpServerId,
+        mcpToolId: precheck.tool.id,
+        agentRunId: precheck.agentRun?.id,
+        status: 'completed',
+        riskLevel: precheck.tool.riskLevel,
+      },
+    });
+    await audit({
+      user,
+      context,
+      action: 'mcp_tool_call_completed',
+      entity: 'mcp_tool_call',
+      entityId: call.id,
+      workspaceId: precheck.assistant.workspaceId,
+      metadata: {
+        assistantId: precheck.assistant.id,
+        mcpServerId: precheck.tool.mcpServerId,
+        mcpToolId: precheck.tool.id,
+        agentRunId: precheck.agentRun?.id,
+        mode: precheck.mode,
+        durationMs,
+        riskLevel: precheck.tool.riskLevel,
+      },
+    });
+    return mapMcpToolCall(call);
+  },
+
+  async listAssistantToolCalls(assistantId: string, user: AuthenticatedUser, query: McpToolCallsQuery) {
+    const assistant = await getAssistantOrThrow(assistantId, user);
+    const result = await mcpRepository.listMcpToolCalls(user.tenant.id, userWorkspaceIds(user), query, assistant.id);
+    return {
+      data: result.data.map(mapMcpToolCall),
+      pagination: paginationMeta(query, result.total),
+    };
+  },
+
+  async listToolCalls(user: AuthenticatedUser, query: McpToolCallsQuery) {
+    const result = await mcpRepository.listMcpToolCalls(user.tenant.id, userWorkspaceIds(user), query);
+    return {
+      data: result.data.map(mapMcpToolCall),
+      pagination: paginationMeta(query, result.total),
+    };
+  },
+
+  async getToolCall(toolCallId: string, user: AuthenticatedUser) {
+    const call = await mcpRepository.findMcpToolCall(toolCallId, user.tenant.id, userWorkspaceIds(user));
+    if (!call) {
+      throw new AppError(404, 'MCP_TOOL_CALL_NOT_FOUND', 'Tool call MCP nao encontrada.');
+    }
+    return mapMcpToolCall(call);
+  },
+
+  async listToolCallEvents(toolCallId: string, user: AuthenticatedUser) {
+    const call = await mcpRepository.findMcpToolCall(toolCallId, user.tenant.id, userWorkspaceIds(user));
+    if (!call) {
+      throw new AppError(404, 'MCP_TOOL_CALL_NOT_FOUND', 'Tool call MCP nao encontrada.');
+    }
+    const events = await mcpRepository.listMcpToolCallEvents(call.id, user.tenant.id, userWorkspaceIds(user));
+    return events.map(mapMcpToolCallEvent);
   },
 };

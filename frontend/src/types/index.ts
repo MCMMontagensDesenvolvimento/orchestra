@@ -612,6 +612,81 @@ export interface AssistantMcpBindingPayload {
   requiresApprovalOverride?: boolean | null;
 }
 
+export type McpToolCallStatus = 'queued' | 'running' | 'completed' | 'failed' | 'blocked' | 'cancelled' | 'approval_required';
+export type McpExecutionPrecheckStatus = 'allowed' | 'blocked' | 'approval_required';
+
+export interface McpExecutionPrecheck {
+  canExecute: boolean;
+  status: McpExecutionPrecheckStatus;
+  mode: 'sandbox';
+  reasons: string[];
+  warnings: Array<{ code: string; message: string }>;
+  policy: {
+    requiresApproval: boolean;
+    riskLevel: RiskLevel;
+    bindingMode?: 'disabled' | 'sandbox_only' | 'enabled_placeholder' | string;
+    sandboxOnly: boolean;
+    allowRuntimeExecution: boolean;
+    blockedByDefault: boolean;
+    executionMode?: AssistantExecutionMode | string;
+  };
+}
+
+export interface McpToolCallEvent {
+  id: string;
+  tenantId?: string;
+  workspaceId?: string;
+  toolCallId: string;
+  agentRunId?: string | null;
+  type: string;
+  message?: string | null;
+  metadata?: unknown;
+  createdAt: string;
+}
+
+export interface McpToolCallRecord {
+  id: string;
+  tenantId?: string;
+  workspaceId?: string;
+  assistantId: string;
+  assistantVersionId?: string | null;
+  agentRunId?: string | null;
+  mcpServerId: string;
+  mcpToolId: string;
+  assistantMcpBindingId?: string | null;
+  requestedByUserId?: string;
+  mode: 'sandbox';
+  status: McpToolCallStatus;
+  riskLevelSnapshot: RiskLevel;
+  approvalRequiredSnapshot: boolean;
+  requestId?: string | null;
+  traceId?: string | null;
+  inputHash?: string | null;
+  inputPreview?: string | null;
+  outputPreview?: string | null;
+  errorCode?: string | null;
+  errorMessage?: string | null;
+  policySnapshot?: unknown;
+  metadata?: unknown;
+  startedAt?: string | null;
+  completedAt?: string | null;
+  durationMs?: number | null;
+  createdAt: string;
+  updatedAt?: string;
+  server?: McpServer;
+  tool?: McpTool;
+  binding?: McpBinding;
+  events?: McpToolCallEvent[];
+  reasons?: string[];
+}
+
+export interface McpSandboxExecutionPayload {
+  mcpToolId: string;
+  agentRunId?: string;
+  mode?: 'sandbox';
+  input?: unknown;
+}
+
 export interface ToolExecutionLog {
   id: string;
   serverId: string;

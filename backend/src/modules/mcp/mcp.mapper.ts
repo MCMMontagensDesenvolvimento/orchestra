@@ -1,4 +1,13 @@
-import type { AssistantMcpBinding, McpPrompt, McpResource, McpServer, McpTool, McpToolPolicy } from '@prisma/client';
+import type {
+  AssistantMcpBinding,
+  McpPrompt,
+  McpResource,
+  McpServer,
+  McpTool,
+  McpToolCall,
+  McpToolCallEvent,
+  McpToolPolicy,
+} from '@prisma/client';
 
 export function mapMcpToolPolicy(policy: McpToolPolicy | null | undefined) {
   if (!policy) return null;
@@ -133,5 +142,67 @@ export function mapAssistantMcpBinding(
     createdById: binding.createdById,
     createdAt: binding.createdAt.toISOString(),
     updatedAt: binding.updatedAt.toISOString(),
+  };
+}
+
+export function mapMcpToolCallEvent(event: McpToolCallEvent) {
+  return {
+    id: event.id,
+    tenantId: event.tenantId,
+    workspaceId: event.workspaceId,
+    toolCallId: event.toolCallId,
+    agentRunId: event.agentRunId,
+    type: event.type,
+    message: event.message,
+    metadata: event.metadata,
+    createdAt: event.createdAt.toISOString(),
+  };
+}
+
+export function mapMcpToolCall(
+  call: McpToolCall & {
+    server?: McpServer | null;
+    tool?: (McpTool & { policies?: McpToolPolicy[] }) | null;
+    assistantMcpBinding?: AssistantMcpBinding | null;
+    events?: McpToolCallEvent[];
+  },
+) {
+  const reasons = Array.isArray((call.policySnapshot as { reasons?: unknown[] } | null)?.reasons)
+    ? ((call.policySnapshot as { reasons: unknown[] }).reasons as unknown[]).filter((reason): reason is string => typeof reason === 'string')
+    : [];
+  return {
+    id: call.id,
+    tenantId: call.tenantId,
+    workspaceId: call.workspaceId,
+    assistantId: call.assistantId,
+    assistantVersionId: call.assistantVersionId,
+    agentRunId: call.agentRunId,
+    mcpServerId: call.mcpServerId,
+    mcpToolId: call.mcpToolId,
+    assistantMcpBindingId: call.assistantMcpBindingId,
+    requestedByUserId: call.requestedByUserId,
+    mode: call.mode,
+    status: call.status,
+    riskLevelSnapshot: call.riskLevelSnapshot,
+    approvalRequiredSnapshot: call.approvalRequiredSnapshot,
+    requestId: call.requestId,
+    traceId: call.traceId,
+    inputHash: call.inputHash,
+    inputPreview: call.inputPreview,
+    outputPreview: call.outputPreview,
+    errorCode: call.errorCode,
+    errorMessage: call.errorMessage,
+    policySnapshot: call.policySnapshot,
+    metadata: call.metadata,
+    startedAt: call.startedAt?.toISOString() ?? null,
+    completedAt: call.completedAt?.toISOString() ?? null,
+    durationMs: call.durationMs,
+    createdAt: call.createdAt.toISOString(),
+    updatedAt: call.updatedAt.toISOString(),
+    server: call.server ? mapMcpServer(call.server) : undefined,
+    tool: call.tool ? mapMcpTool(call.tool) : undefined,
+    binding: call.assistantMcpBinding ? mapAssistantMcpBinding(call.assistantMcpBinding) : undefined,
+    events: call.events?.map(mapMcpToolCallEvent),
+    reasons,
   };
 }

@@ -99,4 +99,34 @@ export const mcpController = {
     await mcpService.removeBinding(req.params.id, req.params.bindingId, req.user!, requestContext(req));
     return res.status(204).send();
   },
+
+  async precheckSandboxExecution(req: Request, res: Response) {
+    const data = await mcpService.precheckSandboxExecution(req.params.id, req.body, req.user!, requestContext(req));
+    return res.status(200).json({ data, requestId: req.requestId });
+  },
+
+  async runSandboxToolCall(req: Request, res: Response) {
+    const data = await mcpService.runSandboxToolCall(req.params.id, req.body, req.user!, requestContext(req));
+    return res.status(201).json({ data, requestId: req.requestId });
+  },
+
+  async listAssistantToolCalls(req: Request, res: Response) {
+    const result = await mcpService.listAssistantToolCalls(req.params.id, req.user!, req.query as any);
+    return res.status(200).json({ ...result, requestId: req.requestId });
+  },
+
+  async listToolCalls(req: Request, res: Response) {
+    const result = await mcpService.listToolCalls(req.user!, req.query as any);
+    return res.status(200).json({ ...result, requestId: req.requestId });
+  },
+
+  async getToolCall(req: Request, res: Response) {
+    const data = await mcpService.getToolCall(req.params.toolCallId, req.user!);
+    return res.status(200).json({ data, requestId: req.requestId });
+  },
+
+  async listToolCallEvents(req: Request, res: Response) {
+    const data = await mcpService.listToolCallEvents(req.params.toolCallId, req.user!);
+    return res.status(200).json({ data, requestId: req.requestId });
+  },
 };

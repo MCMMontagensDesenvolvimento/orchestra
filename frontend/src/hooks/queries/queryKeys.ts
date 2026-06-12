@@ -52,6 +52,9 @@ export const queryKeys = {
     bindings: () => [...queryKeys.mcp.all, 'bindings'] as const,
     assistantBindings: (assistantId: string) => [...queryKeys.mcp.all, 'assistant-bindings', assistantId] as const,
     executions: () => [...queryKeys.mcp.all, 'executions'] as const,
+    assistantToolCalls: (assistantId: string) => [...queryKeys.mcp.all, 'assistant-tool-calls', assistantId] as const,
+    toolCall: (toolCallId: string) => [...queryKeys.mcp.all, 'tool-call', toolCallId] as const,
+    toolCallEvents: (toolCallId: string) => [...queryKeys.mcp.all, 'tool-call-events', toolCallId] as const,
   },
   chat: {
     conversations: (assistantId?: string) => ['chat', 'conversations', assistantId ?? 'all'] as const,

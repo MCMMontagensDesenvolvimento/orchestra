@@ -439,3 +439,33 @@ Status: decidida.
 Primitives React usados pelo frontend devem exportar componentes a partir dos arquivos de componente. Helpers como variants podem viver em arquivos dedicados quando forem consumidos externamente, reduzindo warnings de Fast Refresh sem refactor visual amplo.
 
 Status: decidida.
+
+## DEC-MCP-EXEC-001 - MCP execution comeca como sandbox local sem chamadas externas
+
+A execucao MCP da Fase 06D e local, deterministica e simulada. O backend nao chama MCP server externo, provider real, runtime real ou servico de IA real nesta fase.
+
+Status: decidida.
+
+## DEC-MCP-EXEC-002 - Tool calls persistem eventos e policy snapshot
+
+As tentativas de execucao MCP usam `McpToolCall` e `McpToolCallEvent` dedicados. Cada registro inclui status, risk snapshot, approval snapshot, request id, trace id, previews limitados e `policySnapshot` sanitizado.
+
+Status: decidida.
+
+## DEC-MCP-EXEC-003 - Tools high e critical exigem approval ou bloqueio controlado
+
+Tools MCP com risk `high` ou `critical`, ou configuradas com `requiresApproval`, nao executam automaticamente no sandbox. O resultado governado e `approval_required`, salvo quando outra policy bloquear primeiro.
+
+Status: decidida.
+
+## DEC-MCP-EXEC-004 - Payload bruto nao e persistido em audit/tool call history
+
+Audit logs e historico de tool calls nao armazenam input ou output bruto completo. O backend persiste apenas hash, previews truncados, IDs, reasons, status, duration e metadados sanitizados.
+
+Status: decidida.
+
+## DEC-MCP-EXEC-005 - AgentRun pode vincular tool calls sem executar runtime real
+
+`agentRunId` e opcional em MCP tool calls. Quando informado e valido, a tool call registra eventos correspondentes em `AgentRunEvent`; isso cria correlacao de controle sem acoplar o Orchestra a runtime real.
+
+Status: decidida.

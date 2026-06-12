@@ -58,6 +58,8 @@ export const endpoints = {
     knowledgeBinding: (id: string, bindingId: string) => `/assistants/${id}/knowledge-bindings/${bindingId}`,
     mcpBindings: (id: string) => `/assistants/${id}/mcp-bindings`,
     mcpBinding: (id: string, bindingId: string) => `/assistants/${id}/mcp-bindings/${bindingId}`,
+    mcpPrecheck: (id: string) => `/assistants/${id}/mcp/precheck`,
+    mcpToolCalls: (id: string) => `/assistants/${id}/mcp/tool-calls`,
   },
   audit: {
     logs: '/audit-logs',
@@ -113,6 +115,9 @@ export const endpoints = {
     prompts: '/mcp/prompts',
     bindings: '/mcp/bindings',
     executions: '/mcp/executions',
+    toolCalls: '/mcp/tool-calls',
+    toolCall: (toolCallId: string) => `/mcp/tool-calls/${toolCallId}`,
+    toolCallEvents: (toolCallId: string) => `/mcp/tool-calls/${toolCallId}/events`,
   },
   chat: {
     conversations: '/chat/conversations',

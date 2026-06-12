@@ -1,6 +1,6 @@
 # Security
 
-Status: preparado para seguranca, SSO, RBAC/ABAC, governanca de execucao de assistants/agent runs, catalogo Knowledge/MCP, conteudo textual local e RAG query local.
+Status: preparado para seguranca, SSO, RBAC/ABAC, governanca de execucao de assistants/agent runs, catalogo Knowledge/MCP, conteudo textual local, RAG query local e MCP execution sandbox.
 
 Esta pasta deve concentrar seguranca, compliance, autenticacao, autorizacao e auditoria.
 
@@ -21,6 +21,7 @@ Topicos esperados:
 - `ORCHESTRA_KNOWLEDGE_MCP_CATALOG_SECURITY.md`: RBAC/ABAC, guard contra secrets, MCP sandbox policy e auditoria do catalogo Knowledge/MCP.
 - `ORCHESTRA_KNOWLEDGE_CONTENT_SECURITY.md`: controles para contentText, chunks, source references, auditoria e limites de retencao.
 - `ORCHESTRA_RAG_QUERY_SECURITY.md`: autorizacao, escopo, auditoria sanitizada e limites da query RAG local.
+- `ORCHESTRA_MCP_EXECUTION_SECURITY.md`: controles de precheck, sandbox MCP, tool calls, approval required e auditoria sanitizada.
 
 ## Estado Atual
 
@@ -34,4 +35,5 @@ Topicos esperados:
 - Knowledge/MCP usa catalogo governado, bindings com workspace scope e guard contra secrets em JSON/templates.
 - Ingestao Knowledge local nao grava conteudo bruto em audit logs e filtra chunks por tenant/workspace.
 - RAG query local filtra bindings habilitados, documentos ingeridos, chunks ativos e persiste apenas excerpts limitados nos resultados.
+- MCP execution sandbox filtra binding/server/tool, exige approval para high/critical e persiste apenas preview/hash.
 - SSO corporativo real segue reservado para fase posterior.

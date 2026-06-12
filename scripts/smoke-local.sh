@@ -417,6 +417,44 @@ expect_status 200 "mcp-server-detail" \
 
 cat > "$payload_file" <<'JSON'
 {
+  "name": "smoke.low_lookup",
+  "description": "Low risk sandbox tool for local smoke execution.",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "query": {
+        "type": "string"
+      }
+    }
+  },
+  "outputSchema": {
+    "type": "object",
+    "properties": {
+      "message": {
+        "type": "string"
+      }
+    }
+  },
+  "riskLevel": "low",
+  "requiresApproval": false,
+  "isEnabled": true,
+  "metadata": {
+    "phase": "smoke-local",
+    "sandboxExpected": true
+  }
+}
+JSON
+
+expect_status 201 "mcp-low-tool-create" \
+  -b "$cookie_file" \
+  -H 'Content-Type: application/json' \
+  --data-binary "@$payload_file" \
+  "$BASE_URL/api/v1/mcp/servers/$mcp_server_id/tools"
+
+mcp_low_tool_id="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["data"]["id"])' "$response_file")"
+
+cat > "$payload_file" <<'JSON'
+{
   "name": "smoke.lookup",
   "description": "Tool catalog entry only; no MCP execution.",
   "inputSchema": {
@@ -452,9 +490,84 @@ expect_status 201 "mcp-tool-create" \
 
 mcp_tool_id="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["data"]["id"])' "$response_file")"
 
+cat > "$payload_file" <<'JSON'
+{
+  "name": "smoke.disabled_lookup",
+  "description": "Disabled tool used to validate sandbox policy blocking.",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "query": {
+        "type": "string"
+      }
+    }
+  },
+  "riskLevel": "low",
+  "requiresApproval": false,
+  "isEnabled": false,
+  "metadata": {
+    "phase": "smoke-local",
+    "expectedBlockedReason": "tool_disabled"
+  }
+}
+JSON
+
+expect_status 201 "mcp-disabled-tool-create" \
+  -b "$cookie_file" \
+  -H 'Content-Type: application/json' \
+  --data-binary "@$payload_file" \
+  "$BASE_URL/api/v1/mcp/servers/$mcp_server_id/tools"
+
+mcp_disabled_tool_id="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["data"]["id"])' "$response_file")"
+
+cat > "$payload_file" <<'JSON'
+{
+  "name": "smoke.unbound_lookup",
+  "description": "Enabled tool intentionally left without assistant binding.",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "query": {
+        "type": "string"
+      }
+    }
+  },
+  "riskLevel": "low",
+  "requiresApproval": false,
+  "isEnabled": true,
+  "metadata": {
+    "phase": "smoke-local",
+    "expectedBlockedReason": "tool_not_bound_to_assistant"
+  }
+}
+JSON
+
+expect_status 201 "mcp-unbound-tool-create" \
+  -b "$cookie_file" \
+  -H 'Content-Type: application/json' \
+  --data-binary "@$payload_file" \
+  "$BASE_URL/api/v1/mcp/servers/$mcp_server_id/tools"
+
+mcp_unbound_tool_id="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["data"]["id"])' "$response_file")"
+
 expect_status 200 "mcp-tools-list" \
   -b "$cookie_file" \
   "$BASE_URL/api/v1/mcp/servers/$mcp_server_id/tools"
+
+cat > "$payload_file" <<JSON
+{
+  "mcpServerId": "$mcp_server_id",
+  "mcpToolId": "$mcp_low_tool_id",
+  "mode": "sandbox_only",
+  "requiresApprovalOverride": null
+}
+JSON
+
+expect_status 201 "assistant-mcp-low-binding-create" \
+  -b "$cookie_file" \
+  -H 'Content-Type: application/json' \
+  --data-binary "@$payload_file" \
+  "$BASE_URL/api/v1/assistants/$assistant_id/mcp-bindings"
 
 cat > "$payload_file" <<JSON
 {
@@ -474,6 +587,139 @@ expect_status 201 "assistant-mcp-binding-create" \
 expect_status 200 "assistant-mcp-bindings-list" \
   -b "$cookie_file" \
   "$BASE_URL/api/v1/assistants/$assistant_id/mcp-bindings"
+
+cat > "$payload_file" <<JSON
+{
+  "mcpToolId": "$mcp_low_tool_id",
+  "mode": "sandbox",
+  "input": {
+    "query": "smoke allowed"
+  }
+}
+JSON
+
+expect_status 200 "mcp-sandbox-precheck-allowed" \
+  -b "$cookie_file" \
+  -H 'Content-Type: application/json' \
+  --data-binary "@$payload_file" \
+  "$BASE_URL/api/v1/assistants/$assistant_id/mcp/precheck"
+
+python3 -c 'import json,sys; data=json.load(open(sys.argv[1]))["data"]; assert data["canExecute"] is True; assert data["status"] == "allowed"; assert data["policy"]["riskLevel"] == "low"' "$response_file"
+
+expect_status 201 "mcp-sandbox-tool-call-completed" \
+  -b "$cookie_file" \
+  -H 'Content-Type: application/json' \
+  --data-binary "@$payload_file" \
+  "$BASE_URL/api/v1/assistants/$assistant_id/mcp/tool-calls"
+
+python3 -c 'import json,sys; data=json.load(open(sys.argv[1]))["data"]; assert data["status"] == "completed"; assert data["mode"] == "sandbox"; assert data["outputPreview"]; assert "No external MCP server was called" in data["outputPreview"]; assert len(data["events"]) >= 3' "$response_file"
+mcp_tool_call_id="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["data"]["id"])' "$response_file")"
+
+expect_status 200 "mcp-sandbox-tool-call-list" \
+  -b "$cookie_file" \
+  "$BASE_URL/api/v1/assistants/$assistant_id/mcp/tool-calls"
+
+python3 -c 'import json,sys; data=json.load(open(sys.argv[1])); assert data["pagination"]["total"] >= 1' "$response_file"
+
+expect_status 200 "mcp-sandbox-tool-call-detail" \
+  -b "$cookie_file" \
+  "$BASE_URL/api/v1/mcp/tool-calls/$mcp_tool_call_id"
+
+python3 -c 'import json,sys; data=json.load(open(sys.argv[1]))["data"]; assert data["id"]; assert data["status"] == "completed"; assert data["policySnapshot"]["status"] == "allowed"' "$response_file"
+
+expect_status 200 "mcp-sandbox-tool-call-events" \
+  -b "$cookie_file" \
+  "$BASE_URL/api/v1/mcp/tool-calls/$mcp_tool_call_id/events"
+
+python3 -c 'import json,sys; data=json.load(open(sys.argv[1]))["data"]; types=[item["type"] for item in data]; assert "execution_completed" in types' "$response_file"
+
+cat > "$payload_file" <<JSON
+{
+  "mcpToolId": "$mcp_tool_id",
+  "mode": "sandbox",
+  "input": {
+    "query": "smoke approval"
+  }
+}
+JSON
+
+expect_status 200 "mcp-sandbox-precheck-approval-required" \
+  -b "$cookie_file" \
+  -H 'Content-Type: application/json' \
+  --data-binary "@$payload_file" \
+  "$BASE_URL/api/v1/assistants/$assistant_id/mcp/precheck"
+
+python3 -c 'import json,sys; data=json.load(open(sys.argv[1]))["data"]; assert data["canExecute"] is False; assert data["status"] == "approval_required"; assert "tool_requires_approval" in data["reasons"]' "$response_file"
+
+expect_status 201 "mcp-sandbox-tool-call-approval-required" \
+  -b "$cookie_file" \
+  -H 'Content-Type: application/json' \
+  --data-binary "@$payload_file" \
+  "$BASE_URL/api/v1/assistants/$assistant_id/mcp/tool-calls"
+
+python3 -c 'import json,sys; data=json.load(open(sys.argv[1]))["data"]; assert data["status"] == "approval_required"; assert "tool_requires_approval" in data["reasons"]' "$response_file"
+
+cat > "$payload_file" <<JSON
+{
+  "mcpToolId": "$mcp_disabled_tool_id",
+  "mode": "sandbox",
+  "input": {
+    "query": "smoke disabled"
+  }
+}
+JSON
+
+expect_status 201 "mcp-sandbox-tool-call-disabled-blocked" \
+  -b "$cookie_file" \
+  -H 'Content-Type: application/json' \
+  --data-binary "@$payload_file" \
+  "$BASE_URL/api/v1/assistants/$assistant_id/mcp/tool-calls"
+
+python3 -c 'import json,sys; data=json.load(open(sys.argv[1]))["data"]; assert data["status"] == "blocked"; assert "tool_disabled" in data["reasons"]' "$response_file"
+
+cat > "$payload_file" <<JSON
+{
+  "mcpToolId": "$mcp_unbound_tool_id",
+  "mode": "sandbox",
+  "input": {
+    "query": "smoke unbound"
+  }
+}
+JSON
+
+expect_status 201 "mcp-sandbox-tool-call-unbound-blocked" \
+  -b "$cookie_file" \
+  -H 'Content-Type: application/json' \
+  --data-binary "@$payload_file" \
+  "$BASE_URL/api/v1/assistants/$assistant_id/mcp/tool-calls"
+
+python3 -c 'import json,sys; data=json.load(open(sys.argv[1]))["data"]; assert data["status"] == "blocked"; assert "tool_not_bound_to_assistant" in data["reasons"]' "$response_file"
+
+cat > "$payload_file" <<'JSON'
+{
+  "mcpToolId": "not-a-uuid",
+  "mode": "sandbox",
+  "input": {
+    "query": "invalid"
+  }
+}
+JSON
+
+expect_status 422 "mcp-sandbox-tool-call-structured-422" \
+  -b "$cookie_file" \
+  -H 'Content-Type: application/json' \
+  --data-binary "@$payload_file" \
+  "$BASE_URL/api/v1/assistants/$assistant_id/mcp/tool-calls"
+
+expect_status 404 "mcp-sandbox-tool-call-structured-404" \
+  -b "$cookie_file" \
+  "$BASE_URL/api/v1/mcp/tool-calls/00000000-0000-0000-0000-000000000999"
+
+expect_status 200 "mcp-sandbox-audit-log" \
+  -b "$cookie_file" \
+  "$BASE_URL/api/v1/audit-logs?action=mcp_tool_call_completed"
+
+python3 -c 'import json,sys; data=json.load(open(sys.argv[1])); assert data["pagination"]["total"] >= 1' "$response_file"
 
 cat > "$payload_file" <<'JSON'
 {

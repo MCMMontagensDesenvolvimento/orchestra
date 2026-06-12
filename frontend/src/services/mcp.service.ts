@@ -1,4 +1,18 @@
-import type { AssistantMcpBindingPayload, McpBinding, McpPrompt, McpResource, McpServer, McpTool, RiskLevel, ToolExecutionLog } from '@/types';
+import type {
+  AssistantMcpBindingPayload,
+  McpBinding,
+  McpExecutionPrecheck,
+  McpPrompt,
+  McpResource,
+  McpSandboxExecutionPayload,
+  McpServer,
+  McpTool,
+  McpToolCallEvent,
+  McpToolCallRecord,
+  McpToolCallStatus,
+  RiskLevel,
+  ToolExecutionLog,
+} from '@/types';
 import {
   mockMcpServers, mockMcpTools, mockMcpResources, mockMcpPrompts, mockMcpBindings, mockToolExecutionLogs,
 } from '@/services/mocks';
@@ -110,6 +124,54 @@ interface ApiAssistantMcpBinding {
   createdById: string | null;
   createdAt: string;
   updatedAt: string;
+}
+
+interface ApiMcpToolCallEvent {
+  id: string;
+  tenantId: string;
+  workspaceId: string;
+  toolCallId: string;
+  agentRunId: string | null;
+  type: string;
+  message: string | null;
+  metadata?: unknown;
+  createdAt: string;
+}
+
+interface ApiMcpToolCall {
+  id: string;
+  tenantId: string;
+  workspaceId: string;
+  assistantId: string;
+  assistantVersionId: string | null;
+  agentRunId: string | null;
+  mcpServerId: string;
+  mcpToolId: string;
+  assistantMcpBindingId: string | null;
+  requestedByUserId: string;
+  mode: 'sandbox';
+  status: McpToolCallStatus;
+  riskLevelSnapshot: RiskLevel;
+  approvalRequiredSnapshot: boolean;
+  requestId: string | null;
+  traceId: string | null;
+  inputHash: string | null;
+  inputPreview: string | null;
+  outputPreview: string | null;
+  errorCode: string | null;
+  errorMessage: string | null;
+  policySnapshot?: unknown;
+  metadata?: unknown;
+  startedAt: string | null;
+  completedAt: string | null;
+  durationMs: number | null;
+  createdAt: string;
+  updatedAt: string;
+  server?: ApiMcpServer;
+  tool?: ApiMcpTool;
+  binding?: ApiAssistantMcpBinding;
+  events?: ApiMcpToolCallEvent[];
+  reasons?: string[];
 }
 
 export interface McpServerPayload {
@@ -256,6 +318,181 @@ function mapBinding(binding: ApiAssistantMcpBinding): McpBinding {
     server,
     tool,
     updatedAt: binding.updatedAt,
+  };
+}
+
+function mapToolCallEvent(event: ApiMcpToolCallEvent): McpToolCallEvent {
+  return {
+    id: event.id,
+    tenantId: event.tenantId,
+    workspaceId: event.workspaceId,
+    toolCallId: event.toolCallId,
+    agentRunId: event.agentRunId,
+    type: event.type,
+    message: event.message,
+    metadata: event.metadata,
+    createdAt: event.createdAt,
+  };
+}
+
+function mapToolCall(call: ApiMcpToolCall): McpToolCallRecord {
+  return {
+    id: call.id,
+    tenantId: call.tenantId,
+    workspaceId: call.workspaceId,
+    assistantId: call.assistantId,
+    assistantVersionId: call.assistantVersionId,
+    agentRunId: call.agentRunId,
+    mcpServerId: call.mcpServerId,
+    mcpToolId: call.mcpToolId,
+    assistantMcpBindingId: call.assistantMcpBindingId,
+    requestedByUserId: call.requestedByUserId,
+    mode: call.mode,
+    status: call.status,
+    riskLevelSnapshot: call.riskLevelSnapshot,
+    approvalRequiredSnapshot: call.approvalRequiredSnapshot,
+    requestId: call.requestId,
+    traceId: call.traceId,
+    inputHash: call.inputHash,
+    inputPreview: call.inputPreview,
+    outputPreview: call.outputPreview,
+    errorCode: call.errorCode,
+    errorMessage: call.errorMessage,
+    policySnapshot: call.policySnapshot,
+    metadata: call.metadata,
+    startedAt: call.startedAt,
+    completedAt: call.completedAt,
+    durationMs: call.durationMs,
+    createdAt: call.createdAt,
+    updatedAt: call.updatedAt,
+    server: call.server ? mapServer(call.server) : undefined,
+    tool: call.tool ? mapTool(call.tool) : undefined,
+    binding: call.binding ? mapBinding(call.binding) : undefined,
+    events: call.events?.map(mapToolCallEvent),
+    reasons: call.reasons,
+  };
+}
+
+function mockInputPreview(input: unknown) {
+  if (input === undefined) return undefined;
+  const serialized = typeof input === 'string' ? input : JSON.stringify(input);
+  return serialized.length > 240 ? `${serialized.slice(0, 225)}...[truncated]` : serialized;
+}
+
+function mockToolBoundToAssistant(assistantId: string, tool: McpTool) {
+  return mockMcpBindings.some(binding => (
+    binding.assistantId === assistantId &&
+    binding.serverId === tool.serverId &&
+    (binding.mcpToolId === tool.id || binding.toolsEnabled.includes(tool.name))
+  ));
+}
+
+function mockPrecheck(assistantId: string, payload: McpSandboxExecutionPayload): McpExecutionPrecheck {
+  const tool = mockMcpTools.find(item => item.id === payload.mcpToolId);
+  if (!tool || !mockToolBoundToAssistant(assistantId, tool)) {
+    return {
+      canExecute: false,
+      status: 'blocked',
+      mode: 'sandbox',
+      reasons: ['tool_not_bound_to_assistant'],
+      warnings: [],
+      policy: {
+        requiresApproval: true,
+        riskLevel: tool?.riskLevel ?? 'medium',
+        sandboxOnly: true,
+        allowRuntimeExecution: false,
+        blockedByDefault: true,
+        executionMode: 'sandbox',
+      },
+    };
+  }
+  const requiresApproval = tool.requiresApproval || tool.riskLevel === 'high' || tool.riskLevel === 'critical';
+  return {
+    canExecute: !requiresApproval,
+    status: requiresApproval ? 'approval_required' : 'allowed',
+    mode: 'sandbox',
+    reasons: requiresApproval ? ['tool_requires_approval'] : [],
+    warnings: [],
+    policy: {
+      requiresApproval,
+      riskLevel: tool.riskLevel,
+      bindingMode: 'sandbox_only',
+      sandboxOnly: true,
+      allowRuntimeExecution: false,
+      blockedByDefault: true,
+      executionMode: 'sandbox',
+    },
+  };
+}
+
+function mockToolCall(assistantId: string, payload: McpSandboxExecutionPayload): McpToolCallRecord {
+  const tool = mockMcpTools.find(item => item.id === payload.mcpToolId) ?? mockMcpTools[0];
+  const precheck = mockPrecheck(assistantId, payload);
+  const now = new Date().toISOString();
+  const status: McpToolCallStatus = precheck.status === 'allowed' ? 'completed' : precheck.status;
+  const inputPreview = mockInputPreview(payload.input);
+  const events: McpToolCallEvent[] = precheck.status === 'allowed'
+    ? [
+        { id: 'mock-event-1', toolCallId: `mock-call-${tool.id}`, type: 'precheck_passed', message: 'Precheck MCP sandbox aprovado.', createdAt: now },
+        { id: 'mock-event-2', toolCallId: `mock-call-${tool.id}`, type: 'execution_started', message: 'Execucao sandbox local iniciada.', createdAt: now },
+        { id: 'mock-event-3', toolCallId: `mock-call-${tool.id}`, type: 'execution_completed', message: 'Execucao sandbox local concluida sem chamada MCP externa.', createdAt: now },
+      ]
+    : [
+        { id: 'mock-event-1', toolCallId: `mock-call-${tool.id}`, type: precheck.status, message: precheck.reasons.join(', '), createdAt: now },
+      ];
+
+  return {
+    id: `mock-call-${Date.now()}`,
+    assistantId,
+    agentRunId: payload.agentRunId ?? null,
+    mcpServerId: tool.mcpServerId ?? tool.serverId,
+    mcpToolId: tool.id,
+    mode: 'sandbox',
+    status,
+    riskLevelSnapshot: tool.riskLevel,
+    approvalRequiredSnapshot: precheck.policy.requiresApproval,
+    requestId: 'mock-request',
+    traceId: payload.agentRunId ? 'mock-trace-run' : 'mock-trace-sandbox',
+    inputHash: 'mock-input-hash',
+    inputPreview,
+    outputPreview: status === 'completed'
+      ? `Sandbox execution completed for tool "${tool.name}". No external MCP server was called.`
+      : null,
+    errorCode: status === 'completed' ? null : precheck.reasons[0],
+    errorMessage: status === 'approval_required' ? 'Tool MCP exige approval antes da execucao.' : status === 'blocked' ? 'Tool MCP bloqueada por policy.' : null,
+    policySnapshot: precheck,
+    durationMs: status === 'completed' ? 12 : 0,
+    createdAt: now,
+    updatedAt: now,
+    tool,
+    server: mockMcpServers.find(server => server.id === tool.serverId),
+    events,
+    reasons: precheck.reasons,
+  };
+}
+
+function mapToolCallToExecutionLog(call: McpToolCallRecord): ToolExecutionLog {
+  const statusMap: Record<McpToolCallStatus, ToolExecutionLog['status']> = {
+    queued: 'pending_approval',
+    running: 'pending_approval',
+    completed: 'success',
+    failed: 'error',
+    blocked: 'rejected',
+    cancelled: 'rejected',
+    approval_required: 'pending_approval',
+  };
+  return {
+    id: call.id,
+    serverId: call.mcpServerId,
+    toolId: call.mcpToolId,
+    toolName: call.tool?.name ?? call.mcpToolId,
+    assistantName: call.assistantId,
+    user: call.requestedByUserId ?? 'Orchestra',
+    status: statusMap[call.status],
+    duration: (call.durationMs ?? 0) / 1000,
+    timestamp: call.createdAt,
+    input: call.inputPreview ?? undefined,
+    output: call.outputPreview ?? call.errorMessage ?? undefined,
   };
 }
 
@@ -411,8 +648,59 @@ export const mcpService = {
     await apiClient.delete(endpoints.assistants.mcpBinding(assistantId, bindingId));
   },
 
-  executions(): Promise<ToolExecutionLog[]> {
+  async precheckSandboxExecution(assistantId: string, payload: McpSandboxExecutionPayload): Promise<McpExecutionPrecheck> {
+    if (env.useMocks) return mockResponse(mockPrecheck(assistantId, payload));
+    const response = await apiClient.post<ApiEnvelope<McpExecutionPrecheck>>(endpoints.assistants.mcpPrecheck(assistantId), {
+      ...payload,
+      mode: 'sandbox',
+    });
+    return response.data.data;
+  },
+
+  async runSandboxToolCall(assistantId: string, payload: McpSandboxExecutionPayload): Promise<McpToolCallRecord> {
+    if (env.useMocks) return mockResponse(mockToolCall(assistantId, payload));
+    const response = await apiClient.post<ApiEnvelope<ApiMcpToolCall>>(endpoints.assistants.mcpToolCalls(assistantId), {
+      ...payload,
+      mode: 'sandbox',
+    });
+    return mapToolCall(response.data.data);
+  },
+
+  async assistantToolCalls(assistantId: string): Promise<McpToolCallRecord[]> {
+    if (env.useMocks) {
+      const firstTool = mockMcpTools.find(tool => mockToolBoundToAssistant(assistantId, tool));
+      return mockResponse(firstTool ? [mockToolCall(assistantId, { mcpToolId: firstTool.id, input: { query: 'mock history' } })] : []);
+    }
+    const response = await apiClient.get<PaginatedApiEnvelope<ApiMcpToolCall>>(endpoints.assistants.mcpToolCalls(assistantId));
+    return response.data.data.map(mapToolCall);
+  },
+
+  async toolCalls(): Promise<McpToolCallRecord[]> {
+    if (env.useMocks) {
+      return mockResponse(mockToolExecutionLogs.map(log => mockToolCall('mock-assistant', { mcpToolId: log.toolId, input: log.input })));
+    }
+    const response = await apiClient.get<PaginatedApiEnvelope<ApiMcpToolCall>>(endpoints.mcp.toolCalls);
+    return response.data.data.map(mapToolCall);
+  },
+
+  async toolCall(toolCallId: string): Promise<McpToolCallRecord> {
+    if (env.useMocks) {
+      const call = mockToolCall('mock-assistant', { mcpToolId: mockMcpTools[0].id, input: { query: 'mock detail' } });
+      return mockResponse({ ...call, id: toolCallId });
+    }
+    const response = await apiClient.get<ApiEnvelope<ApiMcpToolCall>>(endpoints.mcp.toolCall(toolCallId));
+    return mapToolCall(response.data.data);
+  },
+
+  async toolCallEvents(toolCallId: string): Promise<McpToolCallEvent[]> {
+    if (env.useMocks) return mockResponse((await mcpService.toolCall(toolCallId)).events ?? []);
+    const response = await apiClient.get<ApiEnvelope<ApiMcpToolCallEvent[]>>(endpoints.mcp.toolCallEvents(toolCallId));
+    return response.data.data.map(mapToolCallEvent);
+  },
+
+  async executions(): Promise<ToolExecutionLog[]> {
     if (env.useMocks) return mockResponse(mockToolExecutionLogs);
-    return Promise.resolve([]);
+    const calls = await mcpService.toolCalls();
+    return calls.map(mapToolCallToExecutionLog);
   },
 };

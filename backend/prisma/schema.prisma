@@ -47,6 +47,8 @@ model Tenant {
   agentRunEvents             AgentRunEvent[]
   ragQueries                 RagQuery[]
   ragQueryResults            RagQueryResult[]
+  mcpToolCalls               McpToolCall[]
+  mcpToolCallEvents          McpToolCallEvent[]
 
   @@map("tenants")
 }
@@ -90,6 +92,8 @@ model Workspace {
   agentRunEvents             AgentRunEvent[]
   ragQueries                 RagQuery[]
   ragQueryResults            RagQueryResult[]
+  mcpToolCalls               McpToolCall[]
+  mcpToolCallEvents          McpToolCallEvent[]
 
   @@unique([tenantId, slug])
   @@index([tenantId])
@@ -134,6 +138,7 @@ model User {
   createdMcpServers                 McpServer[]                 @relation("McpServerCreator")
   createdAssistantMcpBindings       AssistantMcpBinding[]       @relation("AssistantMcpBindingCreator")
   ragQueries                        RagQuery[]                  @relation("RagQueryCreator")
+  mcpToolCalls                      McpToolCall[]               @relation("McpToolCallRequester")
 
   @@index([tenantId])
   @@map("users")
@@ -294,6 +299,7 @@ model Assistant {
   knowledgeBindings AssistantKnowledgeBinding[]
   mcpBindings       AssistantMcpBinding[]
   ragQueries        RagQuery[]
+  mcpToolCalls      McpToolCall[]
 
   @@index([tenantId])
   @@index([workspaceId])
@@ -325,6 +331,7 @@ model AssistantVersion {
   approvalRequests AssistantApprovalRequest[]
   agentRuns        AgentRun[]
   ragQueries       RagQuery[]
+  mcpToolCalls     McpToolCall[]
 
   @@unique([assistantId, version])
   @@index([assistantId])
@@ -830,6 +837,7 @@ model McpServer {
   prompts     McpPrompt[]
   bindings    AssistantMcpBinding[]
   policies    McpToolPolicy[]
+  toolCalls   McpToolCall[]
 
   @@index([tenantId])
   @@index([workspaceId])
@@ -861,6 +869,7 @@ model McpTool {
   bindings         AssistantMcpBinding[]
   policies         McpToolPolicy[]
   toolCalls        ToolCall[]
+  mcpToolCalls     McpToolCall[]
 
   @@index([tenantId])
   @@index([workspaceId])
@@ -934,6 +943,7 @@ model AssistantMcpBinding {
   server                   McpServer @relation(fields: [mcpServerId], references: [id], onDelete: Cascade)
   tool                     McpTool?  @relation(fields: [mcpToolId], references: [id], onDelete: Cascade)
   createdBy                User?     @relation("AssistantMcpBindingCreator", fields: [createdById], references: [id], onDelete: SetNull)
+  toolCalls                McpToolCall[]
 
   @@unique([assistantId, mcpServerId, mcpToolId])
   @@index([tenantId])
@@ -1038,6 +1048,8 @@ model AgentRun {
   requestedBy            User                  @relation("AgentRunRequester", fields: [requestedById], references: [id], onDelete: Restrict)
   events                 AgentRunEvent[]
   toolCalls              ToolCall[]
+  mcpToolCalls           McpToolCall[]
+  mcpToolCallEvents      McpToolCallEvent[]
   usageRecords           UsageRecord[]
   ragQueries             RagQuery[]
 
@@ -1157,6 +1169,88 @@ model AgentRunEvent {
   @@index([type])
   @@index([createdAt])
   @@map("agent_run_events")
+}
+
+model McpToolCall {
+  id                     String             @id @default(uuid()) @db.Uuid
+  tenantId               String             @map("tenant_id") @db.Uuid
+  workspaceId            String             @map("workspace_id") @db.Uuid
+  assistantId            String             @map("assistant_id") @db.Uuid
+  assistantVersionId     String?            @map("assistant_version_id") @db.Uuid
+  agentRunId             String?            @map("agent_run_id") @db.Uuid
+  mcpServerId            String             @map("mcp_server_id") @db.Uuid
+  mcpToolId              String             @map("mcp_tool_id") @db.Uuid
+  assistantMcpBindingId  String?            @map("assistant_mcp_binding_id") @db.Uuid
+  requestedByUserId      String             @map("requested_by_user_id") @db.Uuid
+  mode                   String             @default("sandbox")
+  status                 String             @default("queued")
+  riskLevelSnapshot      String             @map("risk_level_snapshot")
+  approvalRequiredSnapshot Boolean          @default(false) @map("approval_required_snapshot")
+  requestId              String?            @map("request_id")
+  traceId                String?            @map("trace_id")
+  inputHash              String?            @map("input_hash")
+  inputPreview           String?            @map("input_preview")
+  outputPreview          String?            @map("output_preview")
+  errorCode              String?            @map("error_code")
+  errorMessage           String?            @map("error_message")
+  policySnapshot         Json?              @map("policy_snapshot")
+  metadata               Json?
+  startedAt              DateTime?          @map("started_at")
+  completedAt            DateTime?          @map("completed_at")
+  durationMs             Int?               @map("duration_ms")
+  createdAt              DateTime           @default(now()) @map("created_at")
+  updatedAt              DateTime           @updatedAt @map("updated_at")
+  tenant                 Tenant             @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  workspace              Workspace          @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  assistant              Assistant          @relation(fields: [assistantId], references: [id], onDelete: Cascade)
+  assistantVersion       AssistantVersion?  @relation(fields: [assistantVersionId], references: [id], onDelete: SetNull)
+  agentRun               AgentRun?          @relation(fields: [agentRunId], references: [id], onDelete: SetNull)
+  server                 McpServer          @relation(fields: [mcpServerId], references: [id], onDelete: Cascade)
+  tool                   McpTool            @relation(fields: [mcpToolId], references: [id], onDelete: Cascade)
+  assistantMcpBinding    AssistantMcpBinding? @relation(fields: [assistantMcpBindingId], references: [id], onDelete: SetNull)
+  requestedBy            User               @relation("McpToolCallRequester", fields: [requestedByUserId], references: [id], onDelete: Restrict)
+  events                 McpToolCallEvent[]
+
+  @@index([tenantId])
+  @@index([workspaceId])
+  @@index([assistantId])
+  @@index([assistantVersionId])
+  @@index([agentRunId])
+  @@index([mcpServerId])
+  @@index([mcpToolId])
+  @@index([assistantMcpBindingId])
+  @@index([requestedByUserId])
+  @@index([status])
+  @@index([mode])
+  @@index([riskLevelSnapshot])
+  @@index([requestId])
+  @@index([traceId])
+  @@index([createdAt])
+  @@map("mcp_tool_calls")
+}
+
+model McpToolCallEvent {
+  id          String      @id @default(uuid()) @db.Uuid
+  tenantId    String      @map("tenant_id") @db.Uuid
+  workspaceId String      @map("workspace_id") @db.Uuid
+  toolCallId  String      @map("tool_call_id") @db.Uuid
+  agentRunId  String?     @map("agent_run_id") @db.Uuid
+  type        String
+  message     String?
+  metadata    Json?
+  createdAt   DateTime    @default(now()) @map("created_at")
+  tenant      Tenant      @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  workspace   Workspace   @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  toolCall    McpToolCall @relation(fields: [toolCallId], references: [id], onDelete: Cascade)
+  agentRun    AgentRun?   @relation(fields: [agentRunId], references: [id], onDelete: SetNull)
+
+  @@index([tenantId])
+  @@index([workspaceId])
+  @@index([toolCallId])
+  @@index([agentRunId])
+  @@index([type])
+  @@index([createdAt])
+  @@map("mcp_tool_call_events")
 }
 
 model ToolCall {

@@ -4,7 +4,7 @@ import {
   type McpServerPayload,
   type McpToolPayload,
 } from '@/services/mcp.service';
-import type { AssistantMcpBindingPayload } from '@/types';
+import type { AssistantMcpBindingPayload, McpSandboxExecutionPayload } from '@/types';
 import { queryKeys } from './queryKeys';
 
 export const useMcpServers = () =>
@@ -47,6 +47,27 @@ export const useAssistantMcpBindings = (assistantId?: string) =>
 
 export const useMcpExecutions = () =>
   useQuery({ queryKey: queryKeys.mcp.executions(), queryFn: () => mcpService.executions() });
+
+export const useAssistantMcpToolCalls = (assistantId?: string) =>
+  useQuery({
+    queryKey: queryKeys.mcp.assistantToolCalls(assistantId ?? ''),
+    queryFn: () => mcpService.assistantToolCalls(assistantId!),
+    enabled: !!assistantId,
+  });
+
+export const useMcpToolCall = (toolCallId?: string) =>
+  useQuery({
+    queryKey: queryKeys.mcp.toolCall(toolCallId ?? ''),
+    queryFn: () => mcpService.toolCall(toolCallId!),
+    enabled: !!toolCallId,
+  });
+
+export const useMcpToolCallEvents = (toolCallId?: string) =>
+  useQuery({
+    queryKey: queryKeys.mcp.toolCallEvents(toolCallId ?? ''),
+    queryFn: () => mcpService.toolCallEvents(toolCallId!),
+    enabled: !!toolCallId,
+  });
 
 export const useCreateMcpServerMutation = () => {
   const queryClient = useQueryClient();
@@ -171,6 +192,25 @@ export const useRemoveAssistantMcpBindingMutation = () => {
     onSuccess: (variables) => {
       void queryClient.invalidateQueries({ queryKey: queryKeys.mcp.assistantBindings(variables.assistantId) });
       void queryClient.invalidateQueries({ queryKey: queryKeys.assistants.detail(variables.assistantId) });
+      void queryClient.invalidateQueries({ queryKey: queryKeys.audit.logs });
+    },
+  });
+};
+
+export const useMcpSandboxPrecheckMutation = () =>
+  useMutation({
+    mutationFn: ({ assistantId, payload }: { assistantId: string; payload: McpSandboxExecutionPayload }) =>
+      mcpService.precheckSandboxExecution(assistantId, payload),
+  });
+
+export const useMcpSandboxToolCallMutation = () => {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ assistantId, payload }: { assistantId: string; payload: McpSandboxExecutionPayload }) =>
+      mcpService.runSandboxToolCall(assistantId, payload),
+    onSuccess: (_call, variables) => {
+      void queryClient.invalidateQueries({ queryKey: queryKeys.mcp.assistantToolCalls(variables.assistantId) });
+      void queryClient.invalidateQueries({ queryKey: queryKeys.mcp.executions() });
       void queryClient.invalidateQueries({ queryKey: queryKeys.audit.logs });
     },
   });

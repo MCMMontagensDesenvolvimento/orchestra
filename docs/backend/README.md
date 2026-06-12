@@ -1,6 +1,6 @@
 # Backend
 
-Status: operacional para a fundacao da Fase 04, core domain inicial da Fase 05, governanca de assistants e agent runs das Fases 05B/05C/05E, catalogo Knowledge/MCP da Fase 06, ingestao local da Fase 06B e RAG query local da Fase 06C.
+Status: operacional para a fundacao da Fase 04, core domain inicial da Fase 05, governanca de assistants e agent runs das Fases 05B/05C/05E, catalogo Knowledge/MCP da Fase 06, ingestao local da Fase 06B, RAG query local da Fase 06C e MCP execution sandbox da Fase 06D.
 
 Esta pasta concentra a documentacao do backend real do Orchestra.
 
@@ -17,6 +17,8 @@ Esta pasta concentra a documentacao do backend real do Orchestra.
 - `ORCHESTRA_KNOWLEDGE_INGESTION_PIPELINE.md`: ingestao local controlada, jobs, eventos, status e auditoria.
 - `ORCHESTRA_KNOWLEDGE_CHUNKING_LOCAL.md`: chunking textual local, limites, hashes, offsets e source references.
 - `ORCHESTRA_RAG_QUERY_LOCAL.md`: query RAG local, readiness refinado, retrieval keyword, citations, historico e auditoria.
+- `ORCHESTRA_MCP_EXECUTION_SANDBOX.md`: precheck MCP, execucao sandbox local, policies, bloqueios e limites.
+- `ORCHESTRA_MCP_TOOL_CALLS.md`: persistencia de tool calls MCP, eventos, snapshots e integracao com AgentRun.
 
 ## Escopo Atual
 
@@ -35,6 +37,7 @@ Esta pasta concentra a documentacao do backend real do Orchestra.
 - Catalogo Knowledge/RAG/MCP com policies e bindings governados.
 - Knowledge ingestion local com contentText, chunking textual, source references, jobs e readiness para RAG futuro.
 - RAG query local com persistencia de queries/resultados e citations.
+- MCP execution sandbox com precheck, tool calls persistidas, eventos e output sintetico local.
 - Smoke local em `scripts/smoke-local.sh`.
 
 ## Fora Do Escopo Atual
@@ -42,5 +45,5 @@ Esta pasta concentra a documentacao do backend real do Orchestra.
 - SSO corporativo.
 - Runtime real de IA.
 - Providers reais.
-- RAG semantico real, MCP execution, embeddings, vector store e streaming.
+- RAG semantico real, MCP externo real, embeddings, vector store e streaming.
 - Workers e filas.
