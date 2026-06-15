@@ -83,6 +83,14 @@ export const endpoints = {
     health: '/runtime/health',
     config: '/runtime/config',
   },
+  llm: {
+    providers: '/llm/providers',
+    provider: (provider: string) => `/llm/providers/${provider}`,
+    health: (provider: string) => `/llm/providers/${provider}/health`,
+    capabilities: (provider: string) => `/llm/providers/${provider}/capabilities`,
+    config: '/llm/config',
+    testGeneration: '/llm/test-generation',
+  },
   dashboard: {
     summary: '/dashboard/summary',
   },

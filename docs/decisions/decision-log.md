@@ -541,3 +541,33 @@ Status: decidida.
 A Fase 07B.1 atualiza Vite, Vitest, plugin React SWC e esbuild transitive de forma controlada para remediar advisories altos sem executar `npm audit fix --force`. Backend e frontend devem manter `npm audit --audit-level=high` limpo como gate minimo antes de avancar novas fases de runtime, build ou Docker.
 
 Status: decidida.
+
+## DEC-LLM-001 - Providers externos desabilitados por padrao
+
+OpenAI, Azure OpenAI e Anthropic entram como contratos de provider, mas ficam desabilitados por padrao. O provider operacional padrao e `local_deterministic`.
+
+Status: decidida.
+
+## DEC-LLM-002 - Secrets LLM permanecem backend-only
+
+Chaves, endpoints sensiveis, headers e tokens de providers LLM nao sao retornados ao frontend, logs, audit ou endpoints de config. APIs expostas retornam apenas flags e metadados sanitizados.
+
+Status: decidida.
+
+## DEC-LLM-003 - Sem prompt ou output bruto por padrao
+
+`LLM_STORE_RAW_PROMPTS=false` e `LLM_STORE_RAW_OUTPUTS=false` sao defaults. AgentRun, audit e teste LLM persistem hashes, previews controlados ou tamanhos, nunca payload bruto extenso.
+
+Status: decidida.
+
+## DEC-LLM-004 - AgentRun continua passando por precheck e RuntimeAdapter
+
+Integracao LLM nao cria bypass de assistant lifecycle. A geracao usada por AgentRun passa por precheck, execution policy, RuntimeAdapter e eventos persistidos.
+
+Status: decidida.
+
+## DEC-LLM-005 - Smoke padrao usa provider local deterministico
+
+O smoke local valida catalogo LLM, config sanitizada, health/capabilities do provider local, geracao local deterministica e bloqueio de provider externo sem credencial real.
+
+Status: decidida.

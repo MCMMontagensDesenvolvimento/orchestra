@@ -87,6 +87,60 @@ expect_status 200 "runtime-config" \
 
 python3 -c 'import json,sys; text=open(sys.argv[1]).read(); data=json.loads(text)["data"]; assert data["provider"] == "local"; assert data["adapterEnabled"] is True; assert data["agnoEnabled"] is False; assert data["externalToolsAllowed"] is False; assert "AGNO_API_KEY" not in text; assert "secret" not in text.lower()' "$response_file"
 
+expect_status 200 "llm-providers" \
+  -b "$cookie_file" \
+  "$BASE_URL/api/v1/llm/providers"
+
+python3 -c 'import json,sys; text=open(sys.argv[1]).read(); data=json.loads(text)["data"]; assert any(item["provider"] == "local_deterministic" and item["current"] is True and item["health"]["status"] == "healthy" for item in data); assert any(item["provider"] == "openai" and item["health"]["status"] == "disabled" for item in data); assert "OPENAI_API_KEY" not in text; assert "api_key" not in text.lower(); assert "authorization" not in text.lower()' "$response_file"
+
+expect_status 200 "llm-config" \
+  -b "$cookie_file" \
+  "$BASE_URL/api/v1/llm/config"
+
+python3 -c 'import json,sys; text=open(sys.argv[1]).read(); data=json.loads(text)["data"]; assert data["defaultProvider"] == "local_deterministic"; assert data["providersEnabled"] is False; assert data["executionEnabled"] is False; assert data["storeRawPrompts"] is False; assert data["storeRawOutputs"] is False; assert "OPENAI_API_KEY" not in text; assert "https://api.openai.com" not in text' "$response_file"
+
+expect_status 200 "llm-local-health" \
+  -b "$cookie_file" \
+  "$BASE_URL/api/v1/llm/providers/local_deterministic/health"
+
+python3 -c 'import json,sys; data=json.load(open(sys.argv[1]))["data"]; assert data["provider"] == "local_deterministic"; assert data["status"] == "healthy"; assert data["details"]["externalProviderCalled"] is False' "$response_file"
+
+expect_status 200 "llm-local-capabilities" \
+  -b "$cookie_file" \
+  "$BASE_URL/api/v1/llm/providers/local_deterministic/capabilities"
+
+python3 -c 'import json,sys; data=json.load(open(sys.argv[1]))["data"]; assert data["provider"] == "local_deterministic"; assert data["supportsChatCompletion"] == "simulated"; assert data["supportsToolCalling"] is False; assert data["secretsConfigured"] is False' "$response_file"
+
+cat > "$payload_file" <<'JSON'
+{
+  "provider": "local_deterministic",
+  "input": "Smoke LLM provider local sem credencial externa."
+}
+JSON
+
+expect_status 200 "llm-test-generation-local" \
+  -b "$cookie_file" \
+  -H 'Content-Type: application/json' \
+  --data-binary "@$payload_file" \
+  "$BASE_URL/api/v1/llm/test-generation"
+
+python3 -c 'import json,sys; text=open(sys.argv[1]).read(); data=json.loads(text)["data"]; assert data["provider"] == "local_deterministic"; assert data["status"] == "completed"; assert data["inputHash"]; assert data["outputHash"]; assert "Smoke LLM provider local" not in text' "$response_file"
+
+cat > "$payload_file" <<'JSON'
+{
+  "provider": "openai",
+  "input": "Smoke deve bloquear provider externo."
+}
+JSON
+
+expect_status 409 "llm-test-generation-openai-disabled" \
+  -b "$cookie_file" \
+  -H 'Content-Type: application/json' \
+  --data-binary "@$payload_file" \
+  "$BASE_URL/api/v1/llm/test-generation"
+
+python3 -c 'import json,sys; data=json.load(open(sys.argv[1])); assert data["code"] == "LLM_PROVIDER_EXECUTION_BLOCKED"; assert "disabled" in data["message"]' "$response_file"
+
 expect_status 200 "assistants" \
   -b "$cookie_file" \
   "$BASE_URL/api/v1/assistants"

@@ -11,6 +11,9 @@ export type AgentRunStatus = 'queued' | 'prechecking' | 'blocked' | 'running' | 
 export type RuntimeProvider = 'local' | 'agno_stub' | 'agno';
 export type RuntimeHealthStatus = 'healthy' | 'degraded' | 'disabled' | 'misconfigured' | 'unavailable';
 export type RuntimeCapabilityMode = boolean | 'simulated' | 'planned';
+export type LlmProvider = 'local_deterministic' | 'agno_local' | 'openai' | 'azure_openai' | 'anthropic';
+export type LlmProviderStatus = 'healthy' | 'disabled' | 'misconfigured' | 'configured_but_execution_disabled' | 'unavailable';
+export type LlmCapabilityMode = boolean | 'simulated' | 'planned' | 'planned_but_disabled';
 export type AuditEventType = 'assistant_created' | 'assistant_published' | 'assistant_unpublished' | 'assistant_rollback' | 'assistant_updated' | 'assistant_archived' | 'assistant_restored' | 'assistant_feedback_created' | 'assistant_test_result_created' | 'assistant_approval_requested' | 'assistant_approval_approved' | 'assistant_approval_rejected' | 'assistant_approval_cancelled' | 'assistant_execution_policy_updated' | 'assistant_sandbox_policy_updated' | 'assistant_execution_blocked' | 'assistant_publish_blocked_by_approval' | 'agent_run_requested' | 'agent_run_precheck_passed' | 'agent_run_blocked' | 'agent_run_started' | 'agent_run_completed' | 'agent_run_failed' | 'agent_run_cancelled' | 'runtime_health_checked' | 'runtime_adapter_resolved' | 'runtime_execution_started' | 'runtime_execution_completed' | 'runtime_execution_failed' | 'runtime_execution_blocked' | 'runtime_adapter_misconfigured' | 'agno_adapter_readiness_checked' | 'permission_denied' | 'tool_executed' | 'knowledge_updated' | 'user_login' | 'policy_changed' | 'security_alert' | 'approval_requested' | 'approval_granted';
 
 export interface AssistantPublication {
@@ -172,6 +175,71 @@ export interface RuntimeProviderSummary {
   current: boolean;
   health: RuntimeHealth;
   capabilities: RuntimeCapabilities;
+}
+
+export interface LlmProviderCapabilities {
+  provider: LlmProvider;
+  status: LlmProviderStatus;
+  enabled: boolean;
+  configured: boolean;
+  executionEnabled: boolean;
+  supportsChatCompletion: LlmCapabilityMode;
+  supportsStreaming: LlmCapabilityMode;
+  supportsToolCalling: LlmCapabilityMode;
+  supportsStructuredOutput: LlmCapabilityMode;
+  supportsEmbeddings: LlmCapabilityMode;
+  supportsRagContext: LlmCapabilityMode;
+  supportsMcpContext: LlmCapabilityMode;
+  secretsConfigured: boolean;
+  models: string[];
+  defaultModel?: string | null;
+  maxInputPreviewChars: number;
+  maxOutputPreviewChars: number;
+}
+
+export interface LlmProviderHealth {
+  provider: LlmProvider;
+  status: LlmProviderStatus;
+  message: string;
+  checkedAt: string;
+  details?: Record<string, unknown>;
+}
+
+export interface LlmProviderSummary {
+  provider: LlmProvider;
+  current: boolean;
+  health: LlmProviderHealth;
+  capabilities: LlmProviderCapabilities;
+}
+
+export interface LlmConfig {
+  providersEnabled: boolean;
+  defaultProvider: LlmProvider;
+  executionEnabled: boolean;
+  providerTimeoutMs: number;
+  maxInputPreviewChars: number;
+  maxOutputPreviewChars: number;
+  storeRawPrompts: boolean;
+  storeRawOutputs: boolean;
+  openaiEnabled: boolean;
+  openaiConfigured: boolean;
+  openaiExecutionEnabled: boolean;
+  openaiBaseUrlConfigured: boolean;
+  openaiDefaultModelConfigured: boolean;
+  azureOpenaiEnabled: boolean;
+  azureOpenaiConfigured: boolean;
+  azureOpenaiExecutionEnabled: boolean;
+  azureOpenaiEndpointConfigured: boolean;
+  azureOpenaiDeploymentConfigured: boolean;
+  azureOpenaiApiVersionConfigured: boolean;
+  anthropicEnabled: boolean;
+  anthropicConfigured: boolean;
+  anthropicExecutionEnabled: boolean;
+  anthropicBaseUrlConfigured: boolean;
+  anthropicDefaultModelConfigured: boolean;
+  agnoLocalEnabled: boolean;
+  agnoLocalConfigured: boolean;
+  agnoLocalExecutionEnabled: boolean;
 }
 
 export interface CreateAgentRunInput {

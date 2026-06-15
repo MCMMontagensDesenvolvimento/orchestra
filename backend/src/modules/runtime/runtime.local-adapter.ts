@@ -6,6 +6,7 @@ import type {
   RuntimeHealth,
 } from './runtime.types';
 import { getRuntimeConfig } from './runtime.config';
+import { llmService } from '../llm/llm.service';
 
 const maxInputPreviewChars = 500;
 const maxOutputPreviewChars = 800;
@@ -75,13 +76,65 @@ export class LocalDeterministicRuntimeAdapter implements RuntimeAdapter {
       };
     }
 
-    const outputPreview = `Resposta simulada gerada pelo runtime local do Orchestra para validar o boundary de execucao. Assistant "${context.assistant.name}" executado em modo ${context.executionMode}.`;
+    const llmResult = await llmService.generateForRuntime({
+      requestId: context.requestId,
+      traceId: context.traceId,
+      runId: context.runId,
+      provider: 'local_deterministic',
+      input: context.input,
+      prompt: context.compiledPrompt,
+      context: {
+        assistantName: context.assistant.name,
+        executionMode: context.executionMode,
+        ragReady: context.rag.ragReady,
+        ragSourceCount: context.rag.sourceReferences.length,
+        mcpToolDescriptorCount: context.mcp.allowedSandboxTools.length,
+      },
+    });
+
+    if (llmResult.status !== 'completed') {
+      return {
+        provider: this.provider,
+        status: llmResult.status === 'blocked' ? 'blocked' : 'failed',
+        message: llmResult.errorMessage ?? llmResult.message,
+        errorCode: llmResult.errorCode,
+        errorMessage: llmResult.errorMessage,
+        metadata: llmResult.metadata,
+        events: [
+          {
+            type: 'llm_generation_blocked',
+            status: llmResult.status === 'blocked' ? 'blocked' : 'failed',
+            message: llmResult.errorMessage ?? llmResult.message,
+            metadata: {
+              llmProvider: llmResult.provider,
+              errorCode: llmResult.errorCode,
+              inputHash: llmResult.inputHash,
+            },
+          },
+          {
+            type: 'run_failed',
+            status: 'failed',
+            message: 'Runtime local nao concluiu porque o provider LLM bloqueou a geracao.',
+            metadata: { provider: this.provider, runId: context.runId },
+          },
+        ],
+      };
+    }
+
+    const outputPreview = llmResult.outputPreview ?? '';
 
     return {
       provider: this.provider,
       status: 'completed',
       outputPreview: outputPreview.slice(0, maxOutputPreviewChars),
+      outputHash: llmResult.outputHash,
       message: 'Runtime local deterministico concluiu a execucao sem provider externo.',
+      metadata: {
+        llmProvider: llmResult.provider,
+        llmModel: llmResult.model,
+        llmLatencyMs: llmResult.latencyMs,
+        llm: llmResult.metadata,
+      },
       events: [
         {
           type: 'provider_selected',
@@ -91,6 +144,16 @@ export class LocalDeterministicRuntimeAdapter implements RuntimeAdapter {
             provider: this.provider,
             mode: context.executionMode,
             traceId: context.traceId,
+          },
+        },
+        {
+          type: 'llm_provider_selected',
+          status: 'running',
+          message: 'LLM provider local deterministico selecionado pelo runtime local.',
+          metadata: {
+            llmProvider: llmResult.provider,
+            model: llmResult.model,
+            externalProviderCalled: false,
           },
         },
         {
@@ -134,13 +197,36 @@ export class LocalDeterministicRuntimeAdapter implements RuntimeAdapter {
           },
         },
         {
-          type: 'model_started',
+          type: 'runtime_llm_context_attached',
           status: 'running',
-          message: 'Modelo simulado iniciado no adapter local.',
+          message: 'Contexto LLM sanitizado anexado ao runtime sem prompt bruto.',
+          metadata: {
+            inputHash: context.input.hash,
+            inputPreviewChars: context.input.preview.length,
+            instructionPreviewChars: context.compiledPrompt.instructionsPreview?.length ?? 0,
+            rawPromptStored: false,
+            rawOutputStored: false,
+          },
+        },
+        {
+          type: 'llm_generation_started',
+          status: 'running',
+          message: 'Geracao LLM local iniciada.',
           metadata: {
             simulated: true,
             externalProvidersCalled: false,
             inputHash: context.input.hash,
+          },
+        },
+        {
+          type: 'llm_generation_completed',
+          status: 'completed',
+          message: 'Geracao LLM local concluida.',
+          metadata: {
+            simulated: true,
+            outputHash: llmResult.outputHash,
+            outputPreview: outputPreview.slice(0, 180),
+            latencyMs: llmResult.latencyMs,
           },
         },
         {
@@ -149,7 +235,7 @@ export class LocalDeterministicRuntimeAdapter implements RuntimeAdapter {
           message: 'Modelo simulado concluiu resposta deterministica.',
           metadata: {
             simulated: true,
-            outputPreview: outputPreview.slice(0, 180),
+            outputHash: llmResult.outputHash,
           },
         },
         {

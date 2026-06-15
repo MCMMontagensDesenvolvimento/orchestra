@@ -73,6 +73,13 @@ export const queryKeys = {
     health: () => [...queryKeys.runtime.all, 'health'] as const,
     config: () => [...queryKeys.runtime.all, 'config'] as const,
   },
+  llm: {
+    all: ['llm'] as const,
+    providers: () => [...queryKeys.llm.all, 'providers'] as const,
+    config: () => [...queryKeys.llm.all, 'config'] as const,
+    health: (provider: string) => [...queryKeys.llm.all, 'health', provider] as const,
+    capabilities: (provider: string) => [...queryKeys.llm.all, 'capabilities', provider] as const,
+  },
   admin: {
     users: ['admin', 'users'] as const,
     workspaces: ['admin', 'workspaces'] as const,

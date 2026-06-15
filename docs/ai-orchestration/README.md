@@ -1,6 +1,6 @@
 # AI Orchestration
 
-Status: preparado. A Fase 06 criou catalogo governado de Knowledge/RAG/MCP, a Fase 06B adicionou readiness local com chunks textuais, a Fase 06C adicionou query RAG local com citations, a Fase 06D adicionou MCP execution sandbox, a Fase 07A adicionou Runtime Adapter Boundary e a Fase 07B adicionou Agno local runtime opcional. Runtime produtivo de IA, RAG semantico real, MCP externo real, providers, embeddings, vector store e tool calls produtivos continuam fora do escopo.
+Status: preparado. A Fase 06 criou catalogo governado de Knowledge/RAG/MCP, a Fase 06B adicionou readiness local com chunks textuais, a Fase 06C adicionou query RAG local com citations, a Fase 06D adicionou MCP execution sandbox, a Fase 07A adicionou Runtime Adapter Boundary, a Fase 07B adicionou Agno local runtime opcional e a Fase 07C adicionou LLM Provider Integration controlada. Runtime produtivo de IA, RAG semantico real, MCP externo real, chamadas HTTP reais a providers externos, embeddings, vector store e tool calls produtivos continuam fora do escopo.
 
 Esta pasta deve concentrar a estrategia de IA do Orchestra.
 
@@ -22,3 +22,4 @@ Topicos esperados:
 - `ORCHESTRA_AGNO_READINESS_HANDOFF.md`: stub/readiness Agno, flags e caminho para integracao futura.
 - `ORCHESTRA_RUNTIME_ADAPTER_HANDOFF.md`: boundary de runtime, resumos RAG/MCP e eventos normalizados.
 - `ORCHESTRA_AGNO_LOCAL_RUNTIME_HANDOFF.md`: handoff da integracao HTTP local Agno-compatible e mock runtime.
+- `ORCHESTRA_LLM_PROVIDER_INTEGRATION.md`: catalogo LLM, provider local deterministico, providers externos fail-closed e eventos LLM em AgentRun.

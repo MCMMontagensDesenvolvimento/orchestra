@@ -1,6 +1,6 @@
 # Backend
 
-Status: operacional para a fundacao da Fase 04, core domain inicial da Fase 05, governanca de assistants e agent runs das Fases 05B/05C/05E, catalogo Knowledge/MCP da Fase 06, ingestao local da Fase 06B, RAG query local da Fase 06C, MCP execution sandbox da Fase 06D, Runtime Adapter Boundary da Fase 07A e Agno local runtime opcional da Fase 07B.
+Status: operacional para a fundacao da Fase 04, core domain inicial da Fase 05, governanca de assistants e agent runs das Fases 05B/05C/05E, catalogo Knowledge/MCP da Fase 06, ingestao local da Fase 06B, RAG query local da Fase 06C, MCP execution sandbox da Fase 06D, Runtime Adapter Boundary da Fase 07A, Agno local runtime opcional da Fase 07B e LLM Provider Integration controlada da Fase 07C.
 
 Esta pasta concentra a documentacao do backend real do Orchestra.
 
@@ -22,6 +22,7 @@ Esta pasta concentra a documentacao do backend real do Orchestra.
 - `ORCHESTRA_RUNTIME_ADAPTER_BOUNDARY.md`: contrato oficial de runtime adapter, registry, contexto governado e auditoria.
 - `ORCHESTRA_RUNTIME_LOCAL_ADAPTER.md`: adapter local deterministico, eventos normalizados e limites.
 - `ORCHESTRA_AGNO_RUNTIME_LOCAL_INTEGRATION.md`: integracao HTTP local Agno-compatible, flags, fail-closed e mock runtime.
+- `ORCHESTRA_LLM_PROVIDER_BACKEND_HANDOFF.md`: modulo LLM, registry de providers, endpoints, permissoes, eventos e limites.
 
 ## Escopo Atual
 
@@ -43,12 +44,13 @@ Esta pasta concentra a documentacao do backend real do Orchestra.
 - MCP execution sandbox com precheck, tool calls persistidas, eventos e output sintetico local.
 - Runtime endpoints de provider, health, capabilities e config sanitizada.
 - Agno local runtime opcional via HTTP, desabilitado por padrao.
+- LLM providers com catalogo sanitizado, provider local deterministico e externos fail-closed.
 - Smoke local em `scripts/smoke-local.sh`.
 
 ## Fora Do Escopo Atual
 
 - SSO corporativo.
 - Runtime real de IA produtivo.
-- Providers reais.
+- Chamadas reais a providers externos.
 - RAG semantico real, MCP externo real, embeddings, vector store e streaming.
 - Workers e filas.

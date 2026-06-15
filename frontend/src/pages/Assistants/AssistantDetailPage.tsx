@@ -21,6 +21,8 @@ import type {
   AssistantTestStatus,
   FeedbackType,
   KnowledgeBase,
+  LlmConfig,
+  LlmProviderSummary,
   McpExecutionPrecheck,
   McpTool,
   McpToolCallRecord,
@@ -72,6 +74,7 @@ import {
   useRemoveAssistantMcpBindingMutation,
 } from '@/hooks/queries/useMcp';
 import { useRuntimeCapabilities, useRuntimeConfig, useRuntimeHealth, useRuntimeProviders } from '@/hooks/queries/useRuntime';
+import { useLlmConfig, useLlmProviders } from '@/hooks/queries/useLlm';
 import { useConversations } from '@/hooks/queries/useChat';
 import { useAuditLogs } from '@/hooks/queries/useAudit';
 import { useAnalytics } from '@/hooks/queries/useAnalytics';
@@ -121,6 +124,8 @@ export default function AssistantDetailPage() {
   const runtimeCapabilitiesQuery = useRuntimeCapabilities();
   const runtimeConfigQuery = useRuntimeConfig();
   const runtimeProvidersQuery = useRuntimeProviders();
+  const llmProvidersQuery = useLlmProviders();
+  const llmConfigQuery = useLlmConfig();
   const { data: assistantKnowledgeBindings = [] } = useAssistantKnowledgeBindings(id);
   const ragReadinessQuery = useAssistantRagReadiness(id);
   const ragQueriesQuery = useAssistantRagQueries(id);
@@ -1108,6 +1113,15 @@ ${tools.map(t => `- ${t.name}: ${t.description}${t.requiresApproval ? ' [REQUER 
                 void runtimeCapabilitiesQuery.refetch();
                 void runtimeConfigQuery.refetch();
                 void runtimeProvidersQuery.refetch();
+              }}
+            />
+            <LlmProviderPanel
+              config={llmConfigQuery.data}
+              providers={llmProvidersQuery.data ?? []}
+              isLoading={llmProvidersQuery.isLoading || llmConfigQuery.isLoading}
+              onRefresh={() => {
+                void llmProvidersQuery.refetch();
+                void llmConfigQuery.refetch();
               }}
             />
             <div className="grid gap-4 lg:grid-cols-[minmax(0,0.85fr)_minmax(0,1.15fr)]">
@@ -2207,11 +2221,12 @@ function compactId(value?: string | null) {
   return `${value.slice(0, 8)}...${value.slice(-6)}`;
 }
 
-function capabilityText(value: RuntimeCapabilities[keyof RuntimeCapabilities]) {
+function capabilityText(value: unknown) {
   if (value === true) return 'sim';
   if (value === false) return 'nao';
   if (value === 'simulated') return 'simulado';
   if (value === 'planned') return 'planejado';
+  if (value === 'planned_but_disabled') return 'planejado/desligado';
   return String(value);
 }
 
@@ -2292,6 +2307,68 @@ function RuntimePanel({ health, capabilities, config, providers, isLoading, onRe
             {config?.agnoEnabled && !config.agnoConfigured && (
               <p className="mt-2 text-xs text-warning">AGNO_BASE_URL nao configurado no backend.</p>
             )}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function LlmProviderPanel({ config, providers, isLoading, onRefresh }: {
+  config?: LlmConfig;
+  providers: LlmProviderSummary[];
+  isLoading: boolean;
+  onRefresh: () => void;
+}) {
+  const current = providers.find(provider => provider.current);
+  const externalProviders = providers.filter(provider => provider.provider !== 'local_deterministic');
+  return (
+    <div className="rounded-lg border bg-card p-5">
+      <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+        <div>
+          <h3 className="text-sm font-semibold flex items-center gap-2">
+            <Bot className="h-4 w-4 text-primary" />LLM Providers
+          </h3>
+          <p className="text-xs text-muted-foreground">Catalogo sanitizado backend-only, sem secrets ou prompt bruto.</p>
+        </div>
+        <Button variant="outline" size="sm" onClick={onRefresh} disabled={isLoading}>
+          <RefreshCw className="h-3.5 w-3.5 mr-1" />Atualizar
+        </Button>
+      </div>
+      {isLoading ? (
+        <p className="text-sm text-muted-foreground">Carregando providers LLM...</p>
+      ) : (
+        <div className="grid gap-3 lg:grid-cols-[0.85fr_1.15fr]">
+          <div className="rounded-md border p-3">
+            <p className="text-[10px] text-muted-foreground">Provider LLM atual</p>
+            <div className="mt-1 flex flex-wrap items-center gap-2">
+              <Badge variant="secondary" className="font-mono text-[10px]">{current?.provider ?? config?.defaultProvider ?? 'local_deterministic'}</Badge>
+              {current?.health && <StatusBadge status={current.health.status} />}
+            </div>
+            <div className="mt-3 grid grid-cols-2 gap-2 text-xs text-muted-foreground">
+              <span>Catalogo externo: {config?.providersEnabled ? 'habilitado' : 'desligado'}</span>
+              <span>Execucao externa: {config?.executionEnabled ? 'habilitada' : 'desligada'}</span>
+              <span>Raw prompt: {config?.storeRawPrompts ? 'armazenado' : 'bloqueado'}</span>
+              <span>Raw output: {config?.storeRawOutputs ? 'armazenado' : 'bloqueado'}</span>
+              <span>Input preview: {config?.maxInputPreviewChars ?? 500} chars</span>
+              <span>Output preview: {config?.maxOutputPreviewChars ?? 800} chars</span>
+            </div>
+          </div>
+          <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+            {externalProviders.map(provider => (
+              <div key={provider.provider} className="rounded-md border p-3">
+                <div className="flex items-center justify-between gap-2">
+                  <Badge variant="outline" className="font-mono text-[10px]">{provider.provider}</Badge>
+                  <StatusBadge status={provider.health.status} />
+                </div>
+                <div className="mt-2 space-y-1 text-xs text-muted-foreground">
+                  <p>Enabled: {provider.capabilities.enabled ? 'sim' : 'nao'} · Config: {provider.capabilities.configured ? 'sim' : 'nao'}</p>
+                  <p>Execucao: {provider.capabilities.executionEnabled ? 'habilitada' : 'bloqueada'}</p>
+                  <p>Chat: {capabilityText(provider.capabilities.supportsChatCompletion)} · Tools: {capabilityText(provider.capabilities.supportsToolCalling)}</p>
+                  <p>Modelo: {provider.capabilities.defaultModel ?? 'nao configurado'}</p>
+                </div>
+              </div>
+            ))}
           </div>
         </div>
       )}

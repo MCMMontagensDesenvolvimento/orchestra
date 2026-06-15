@@ -1,6 +1,6 @@
 # API
 
-Status: operacional para a fundacao da Fase 04, contratos de core domain da Fase 05, governanca de assistants/agent runs das Fases 05B/05C/05E, catalogo Knowledge/MCP da Fase 06, readiness local da Fase 06B, RAG query local da Fase 06C, MCP execution sandbox da Fase 06D, Runtime Adapter API da Fase 07A e Agno local runtime opcional da Fase 07B.
+Status: operacional para a fundacao da Fase 04, contratos de core domain da Fase 05, governanca de assistants/agent runs das Fases 05B/05C/05E, catalogo Knowledge/MCP da Fase 06, readiness local da Fase 06B, RAG query local da Fase 06C, MCP execution sandbox da Fase 06D, Runtime Adapter API da Fase 07A, Agno local runtime opcional da Fase 07B e LLM Provider API da Fase 07C.
 
 Esta pasta concentra contratos HTTP e convencoes de integracao do backend.
 
@@ -15,6 +15,7 @@ Esta pasta concentra contratos HTTP e convencoes de integracao do backend.
 - `ORCHESTRA_RAG_QUERY_API_CONTRACTS.md`: contratos de query RAG local, citations, historico, detalhe e sources.
 - `ORCHESTRA_MCP_EXECUTION_API_CONTRACTS.md`: contratos de precheck MCP, sandbox tool calls, historico, detalhe e eventos.
 - `ORCHESTRA_RUNTIME_ADAPTER_API_CONTRACTS.md`: contratos de runtime providers, health, capabilities, config sanitizada e boundary HTTP Agno local.
+- `ORCHESTRA_LLM_PROVIDER_API_CONTRACTS.md`: contratos de LLM providers, config sanitizada, health/capabilities e teste local controlado.
 
 ## Convencoes Atuais
 
@@ -34,3 +35,4 @@ Esta pasta concentra contratos HTTP e convencoes de integracao do backend.
 - MCP usa `/mcp/servers`, `/mcp/tools` e bindings sob `/assistants/:id`.
 - MCP execution sandbox usa `/assistants/:id/mcp/precheck`, `/assistants/:id/mcp/tool-calls` e detalhe/eventos sob `/mcp/tool-calls/:toolCallId`.
 - Runtime adapter usa `/runtime/providers`, `/runtime/capabilities`, `/runtime/health` e `/runtime/config`.
+- LLM providers usam `/llm/providers`, `/llm/config` e `/llm/test-generation`.
