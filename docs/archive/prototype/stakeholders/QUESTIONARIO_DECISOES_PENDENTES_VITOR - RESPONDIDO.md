@@ -240,4 +240,4 @@ SEGUIR PREMISSAS DA ENGENHARIA DE SOFTWARE APLICADA.
 Pergunta final:
 
 > O que precisa existir obrigatoriamente para considerar o MVP do Orquestra entregue?
-TODAS AS FUNÇÕES LISTADAS NO SPR_00.
+TODAS AS FUNCOES LISTADAS NO ROTEIRO BASE.

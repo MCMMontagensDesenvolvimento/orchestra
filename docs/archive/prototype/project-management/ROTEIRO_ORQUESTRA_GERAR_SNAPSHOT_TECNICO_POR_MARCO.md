@@ -31,13 +31,11 @@ A documentação final deve ser neutra e institucional para uso interno da MCM.
 
 Não mencione:
 
-- YAZO;
-- YAZO Labs;
+- nomes de empresas anteriores;
+- nomes de laboratorios ou fornecedores anteriores;
 - metodologia interna;
-- nomes de SPRs;
-- "SPR_00";
-- "SPR_22";
-- "SPR_23";
+- nomes de roteiros internos;
+- identificadores de roteiro interno;
 - qualquer referência à metodologia que orientou esta análise.
 
 Você pode usar o método internamente para estruturar a análise, mas o documento final não deve expor esses termos.

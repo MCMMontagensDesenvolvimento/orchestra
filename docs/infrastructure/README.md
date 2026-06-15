@@ -1,6 +1,6 @@
 # Infrastructure
 
-Status: operacional para infraestrutura local fullstack da Fase 05D e validacao Agno local opcional da Fase 07B.
+Status: operacional para infraestrutura local fullstack da Fase 05D, validacao Agno local opcional da Fase 07B e toolchain security upgrade da Fase 07B.1.
 
 Esta pasta concentra infraestrutura, ambientes e operacao.
 
@@ -9,6 +9,7 @@ Esta pasta concentra infraestrutura, ambientes e operacao.
 - `ORCHESTRA_LOCAL_DEV_INFRASTRUCTURE.md`: base de Dockerfiles, Docker Compose, portas, healthchecks, variaveis e comandos locais.
 - `ORCHESTRA_FULLSTACK_LOCAL_DEVELOPMENT.md`: execucao local com `frontend`, `backend` e `db`, API real, smoke fullstack e checklist de navegacao manual.
 - `ORCHESTRA_AGNO_LOCAL_RUNTIME_SETUP.md`: mock Agno local, smoke dedicado e variaveis para backend em `RUNTIME_PROVIDER=agno`.
+- `ORCHESTRA_TOOLCHAIN_SECURITY_UPGRADE.md`: upgrade controlado de Vite, Vitest, plugin React SWC e esbuild transitive para limpar `npm audit --audit-level=high`.
 - `../backend/ORCHESTRA_BACKEND_OPERATIONAL_VALIDATION.md`: validacao operacional local de backend, banco, migrations, seed e smoke tests.
 
 ## Base Atual
@@ -20,6 +21,7 @@ Esta pasta concentra infraestrutura, ambientes e operacao.
 - Healthchecks para frontend, backend e PostgreSQL.
 - Smoke local fullstack em `scripts/smoke-local.sh`.
 - Smoke Agno local opcional em `scripts/smoke-agno-local.sh`.
+- Gate de toolchain com `npm audit --audit-level=high` limpo em backend e frontend.
 
 ## Fora Do Escopo Atual
 

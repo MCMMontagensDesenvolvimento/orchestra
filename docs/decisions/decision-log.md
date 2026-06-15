@@ -535,3 +535,9 @@ Status: decidida.
 `scripts/agno-mock-runtime.mjs` implementa health, capabilities e execute deterministico para validar contrato HTTP, eventos e payload governado. Ele nao representa runtime produtivo, nao chama internet, LLM, MCP remoto, embeddings ou vector store.
 
 Status: decidida.
+
+## DEC-INFRA-006 - Toolchain security upgrade exige fase dedicada e audit alto limpo
+
+A Fase 07B.1 atualiza Vite, Vitest, plugin React SWC e esbuild transitive de forma controlada para remediar advisories altos sem executar `npm audit fix --force`. Backend e frontend devem manter `npm audit --audit-level=high` limpo como gate minimo antes de avancar novas fases de runtime, build ou Docker.
+
+Status: decidida.

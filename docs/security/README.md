@@ -1,6 +1,6 @@
 # Security
 
-Status: preparado para seguranca, SSO, RBAC/ABAC, governanca de execucao de assistants/agent runs, catalogo Knowledge/MCP, conteudo textual local, RAG query local, MCP execution sandbox, Runtime Adapter Boundary e Agno local runtime opcional.
+Status: preparado para seguranca, SSO, RBAC/ABAC, governanca de execucao de assistants/agent runs, catalogo Knowledge/MCP, conteudo textual local, RAG query local, MCP execution sandbox, Runtime Adapter Boundary, Agno local runtime opcional e baseline limpo de dependency audit da Fase 07B.1.
 
 Esta pasta deve concentrar seguranca, compliance, autenticacao, autorizacao e auditoria.
 
@@ -24,6 +24,7 @@ Topicos esperados:
 - `ORCHESTRA_MCP_EXECUTION_SECURITY.md`: controles de precheck, sandbox MCP, tool calls, approval required e auditoria sanitizada.
 - `ORCHESTRA_RUNTIME_BOUNDARY_SECURITY.md`: seguranca do runtime adapter, defaults seguros, sanitizacao e auditoria.
 - `ORCHESTRA_AGNO_RUNTIME_SECURITY.md`: seguranca da integracao HTTP local Agno-compatible e comportamento fail-closed.
+- `ORCHESTRA_DEPENDENCY_AUDIT_BASELINE.md`: baseline de `npm audit --audit-level=high` para backend e frontend apos upgrade controlado da toolchain.
 
 ## Estado Atual
 
@@ -40,4 +41,5 @@ Topicos esperados:
 - MCP execution sandbox filtra binding/server/tool, exige approval para high/critical e persiste apenas preview/hash.
 - Runtime config exposta pela API e sanitizada, sem secrets ou API keys.
 - Agno local runtime e desabilitado por padrao e nao recebe secrets, credenciais MCP ou payload bruto extenso.
+- Dependency audit alto esta limpo em backend e frontend apos upgrade controlado de Vite/Vitest/esbuild.
 - SSO corporativo real segue reservado para fase posterior.
