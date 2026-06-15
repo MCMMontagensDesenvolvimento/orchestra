@@ -108,7 +108,7 @@ function versionFixture(status = 'draft') {
     instructions: 'Controlled test instructions.',
     modelProvider: 'none',
     modelName: 'not-configured',
-    temperature: { toNumber: () => 0.2 },
+    temperature: { toNumber: () => 0.2, toString: () => '0.2' },
     configuration: null,
     createdById: userId,
     createdAt: new Date('2026-06-11T10:00:00.000Z'),
@@ -230,7 +230,13 @@ describe('agent run governance endpoints', () => {
       sourceReferenceCount: 2,
       lastRagQuery: { id: '00000000-0000-0000-0000-000000000931', status: 'completed', resultCount: 1 },
       sourceReferences: [
-        { id: '00000000-0000-0000-0000-000000000932', label: 'Fonte 1', sourceUri: 'manual://runtime-test' },
+        {
+          id: '00000000-0000-0000-0000-000000000932',
+          label: 'Fonte 1',
+          sourceUri: 'manual://runtime-test',
+          document: { title: 'Runtime test document' },
+          chunk: { content: 'Runtime test governed excerpt.' },
+        },
       ],
       mcpBindings: [
         {

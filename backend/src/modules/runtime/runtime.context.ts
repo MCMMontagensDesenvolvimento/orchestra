@@ -23,6 +23,9 @@ interface BuildRuntimeContextInput {
       id: string;
       instructions: string | null;
       displayName?: string | null;
+      modelProvider?: string | null;
+      modelName?: string | null;
+      temperature?: { toString(): string } | number | string | null;
     }>;
   };
   assistantVersionId: string | null;
@@ -37,6 +40,10 @@ interface BuildRuntimeContextInput {
 
 function previewInput(value: string) {
   return value.replace(/\s+/g, ' ').trim().slice(0, 500);
+}
+
+function previewText(value: string | null | undefined, maxChars: number) {
+  return (value ?? '').replace(/\s+/g, ' ').trim().slice(0, maxChars);
 }
 
 function hashInput(value: string) {
@@ -56,6 +63,12 @@ function policySnapshot(policy: Record<string, unknown>): Prisma.InputJsonValue 
   };
 }
 
+function decimalToNumber(value: { toString(): string } | number | string | null | undefined) {
+  if (value == null) return null;
+  const parsed = Number(value.toString());
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
 function buildRagSummary(summary: RuntimeSummary): RuntimeRagSummary {
   return {
     ragReady: summary.knowledgeBindingsCount > 0 && summary.chunkCount > 0,
@@ -67,6 +80,8 @@ function buildRagSummary(summary: RuntimeSummary): RuntimeRagSummary {
       id: reference.id,
       label: reference.label,
       sourceUri: reference.sourceUri,
+      documentTitle: reference.document.title,
+      excerpt: previewText(reference.chunk?.content, 500),
     })),
   };
 }
@@ -94,11 +109,20 @@ function buildMcpSummary(summary: RuntimeSummary): RuntimeMcpSummary {
       blockedTools.push({ id: tool.id, name: tool.name, reason: 'tool_disabled' });
       continue;
     }
-    if (tool.requiresApproval || tool.riskLevel === 'high' || tool.riskLevel === 'critical') {
+    const requiresApprovalForTool = binding.requiresApprovalOverride ?? tool.requiresApproval;
+    if (requiresApprovalForTool || tool.riskLevel === 'high' || tool.riskLevel === 'critical') {
       requiresApproval.push({ id: tool.id, name: tool.name, riskLevel: tool.riskLevel });
       continue;
     }
-    allowedSandboxTools.push({ id: tool.id, name: tool.name, riskLevel: tool.riskLevel });
+    allowedSandboxTools.push({
+      id: binding.id,
+      serverId: binding.server.id,
+      toolId: tool.id,
+      name: tool.name,
+      riskLevel: tool.riskLevel,
+      requiresApproval: requiresApprovalForTool,
+      executionMode: binding.mode,
+    });
   }
 
   return {
@@ -141,6 +165,10 @@ export async function buildRuntimeExecutionContext(input: BuildRuntimeContextInp
       mode: 'placeholder',
       assistantVersionId: selectedVersion?.id ?? null,
       instructionChars: selectedVersion?.instructions?.length ?? 0,
+      instructionsPreview: previewText(selectedVersion?.instructions, 1500),
+      modelProvider: selectedVersion?.modelProvider ?? null,
+      modelName: selectedVersion?.modelName ?? null,
+      temperature: decimalToNumber(selectedVersion?.temperature),
     },
     executionPolicySnapshot: policySnapshot(input.executionPolicy),
     precheckSnapshot: input.precheckSnapshot,

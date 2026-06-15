@@ -53,6 +53,9 @@ function mergeRuntimeMetadata(input: {
   provider: string;
   runtimeStatus: string;
   inputHash: string;
+  outputHash?: string;
+  outputPreview?: string;
+  runtimeMetadata?: Prisma.InputJsonValue;
   ragSummary?: { ragReady: boolean; knowledgeBindingsCount: number; chunkCount: number; sourceReferenceCount: number; lastRagQueryId: string | null };
   mcpSummary?: { mcpBindingsCount: number; allowedSandboxTools: unknown[]; blockedTools: unknown[]; requiresApproval: unknown[]; lastToolCallIds: string[] };
 }): Prisma.InputJsonValue {
@@ -66,6 +69,9 @@ function mergeRuntimeMetadata(input: {
       provider: input.provider,
       status: input.runtimeStatus,
       inputHash: input.inputHash,
+      outputHash: input.outputHash,
+      outputPreview: input.outputPreview,
+      adapterMetadata: input.runtimeMetadata,
       rag: input.ragSummary,
       mcp: input.mcpSummary
         ? {
@@ -437,6 +443,9 @@ export const agentRunsService = {
         provider: runtimeResult.provider,
         runtimeStatus: runtimeResult.status,
         inputHash: runtimeContext.input.hash,
+        outputHash: runtimeResult.outputHash,
+        outputPreview: runtimeResult.outputPreview,
+        runtimeMetadata: runtimeResult.metadata,
         ragSummary: {
           ragReady: runtimeContext.rag.ragReady,
           knowledgeBindingsCount: runtimeContext.rag.knowledgeBindingsCount,

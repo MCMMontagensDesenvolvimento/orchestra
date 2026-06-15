@@ -1,6 +1,6 @@
 # Orchestra Runtime Boundary Security
 
-Status: implementado na Fase 07A.
+Status: implementado na Fase 07A e evoluido na Fase 07B.
 
 ## Autoridade
 
@@ -25,10 +25,16 @@ Defaults backend:
 ```env
 RUNTIME_PROVIDER=local
 RUNTIME_ADAPTER_ENABLED=true
+RUNTIME_DEFAULT_TIMEOUT_MS=15000
 RUNTIME_REQUIRE_PRECHECK=true
+RUNTIME_ALLOW_PROVIDER_FALLBACK=false
 RUNTIME_ALLOW_EXTERNAL_TOOLS=false
 AGNO_ENABLED=false
+AGNO_EXECUTION_ENABLED=false
 AGNO_HEALTHCHECK_ENABLED=false
+AGNO_REQUIRE_SANDBOX=true
+AGNO_ALLOW_EXTERNAL_TOOLS=false
+AGNO_ALLOW_REMOTE_MCP=false
 ```
 
 ## Sanitizacao
@@ -69,4 +75,6 @@ Audit metadata inclui provider, status, health e ids tecnicos, sem secrets.
 
 ## Agno
 
-O adapter Agno e somente stub/readiness nesta fase. Ele nao chama Agno real, nao exige container separado e nao deve ser usado por padrao no stack local.
+O adapter Agno pode chamar runtime HTTP local quando habilitado explicitamente. Ele permanece desabilitado por padrao, exige configuracao backend-only e falha fechado quando a configuracao esta incompleta, o runtime esta indisponivel, a resposta e invalida ou o sandbox obrigatorio nao e respeitado.
+
+Mesmo com Agno habilitado, o payload nao permite providers externos reais nem MCP remoto direto nesta fase.

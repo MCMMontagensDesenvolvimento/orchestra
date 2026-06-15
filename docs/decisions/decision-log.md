@@ -499,3 +499,39 @@ Status: decidida.
 `GET /api/v1/runtime/config` retorna provider, flags e booleanos de readiness. Secrets, tokens, API keys e valores sensiveis nao sao retornados.
 
 Status: decidida.
+
+## DEC-RUNTIME-007 - Agno local integration permanece desabilitada por padrao
+
+A integracao HTTP Agno-compatible existe apenas quando `RUNTIME_PROVIDER=agno`, `AGNO_ENABLED=true` e `AGNO_EXECUTION_ENABLED=true`. O provider padrao continua `local`, e o smoke padrao nao depende de runtime Agno real ou mock.
+
+Status: decidida.
+
+## DEC-RUNTIME-008 - Agno adapter usa boundary HTTP fail-closed
+
+O adapter Agno falha fechado em disabled, misconfigured, timeout, healthcheck indisponivel, status invalido ou resposta JSON invalida. Nao ha fallback automatico para outro provider durante uma execucao Agno.
+
+Status: decidida.
+
+## DEC-RUNTIME-009 - Payload Agno contem apenas contexto RAG/MCP governado
+
+O payload enviado ao runtime local contem input hash/preview, preview de instrucoes, policy snapshot, citations/excerpts RAG e descriptors MCP permitidos. Secrets, tokens, credenciais MCP, conteudo completo de documentos e payload bruto extenso nao sao enviados.
+
+Status: decidida.
+
+## DEC-RUNTIME-010 - Agno nao executa tools MCP externas diretamente nesta fase
+
+Mesmo quando descriptors MCP sao enviados ao runtime local, `toolCallingEnabled=false` e `remoteMcpAllowed=false`. Tool calls reais continuam passando pelo sandbox governado do Orchestra.
+
+Status: decidida.
+
+## DEC-RUNTIME-011 - Adapter local deterministico permanece fallback operacional padrao
+
+O `LocalDeterministicRuntimeAdapter` continua sendo o provider default para desenvolvimento, smoke padrao e ambientes sem runtime local Agno-compatible. Essa escolha evita dependencia operacional nova no stack principal.
+
+Status: decidida.
+
+## DEC-RUNTIME-012 - Mock Agno valida contrato sem LLM ou provider real
+
+`scripts/agno-mock-runtime.mjs` implementa health, capabilities e execute deterministico para validar contrato HTTP, eventos e payload governado. Ele nao representa runtime produtivo, nao chama internet, LLM, MCP remoto, embeddings ou vector store.
+
+Status: decidida.

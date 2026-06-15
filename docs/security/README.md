@@ -1,6 +1,6 @@
 # Security
 
-Status: preparado para seguranca, SSO, RBAC/ABAC, governanca de execucao de assistants/agent runs, catalogo Knowledge/MCP, conteudo textual local, RAG query local, MCP execution sandbox e Runtime Adapter Boundary.
+Status: preparado para seguranca, SSO, RBAC/ABAC, governanca de execucao de assistants/agent runs, catalogo Knowledge/MCP, conteudo textual local, RAG query local, MCP execution sandbox, Runtime Adapter Boundary e Agno local runtime opcional.
 
 Esta pasta deve concentrar seguranca, compliance, autenticacao, autorizacao e auditoria.
 
@@ -23,6 +23,7 @@ Topicos esperados:
 - `ORCHESTRA_RAG_QUERY_SECURITY.md`: autorizacao, escopo, auditoria sanitizada e limites da query RAG local.
 - `ORCHESTRA_MCP_EXECUTION_SECURITY.md`: controles de precheck, sandbox MCP, tool calls, approval required e auditoria sanitizada.
 - `ORCHESTRA_RUNTIME_BOUNDARY_SECURITY.md`: seguranca do runtime adapter, defaults seguros, sanitizacao e auditoria.
+- `ORCHESTRA_AGNO_RUNTIME_SECURITY.md`: seguranca da integracao HTTP local Agno-compatible e comportamento fail-closed.
 
 ## Estado Atual
 
@@ -38,4 +39,5 @@ Topicos esperados:
 - RAG query local filtra bindings habilitados, documentos ingeridos, chunks ativos e persiste apenas excerpts limitados nos resultados.
 - MCP execution sandbox filtra binding/server/tool, exige approval para high/critical e persiste apenas preview/hash.
 - Runtime config exposta pela API e sanitizada, sem secrets ou API keys.
+- Agno local runtime e desabilitado por padrao e nao recebe secrets, credenciais MCP ou payload bruto extenso.
 - SSO corporativo real segue reservado para fase posterior.

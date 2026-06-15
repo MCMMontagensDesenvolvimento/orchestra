@@ -147,13 +147,24 @@ export interface RuntimeHealth {
 export interface RuntimeConfig {
   provider: RuntimeProvider;
   adapterEnabled: boolean;
+  defaultTimeoutMs: number;
   requestTimeoutMs: number;
   requirePrecheck: boolean;
+  allowProviderFallback: boolean;
   externalToolsAllowed: boolean;
   agnoEnabled: boolean;
   agnoConfigured: boolean;
+  agnoExecutionEnabled: boolean;
   agnoHealthcheckEnabled: boolean;
   agnoBaseUrlConfigured: boolean;
+  agnoApiKeyConfigured: boolean;
+  agnoRequireSandbox: boolean;
+  agnoAllowExternalTools: boolean;
+  agnoAllowRemoteMcp: boolean;
+  agnoSendRagContext: boolean;
+  agnoSendMcpToolDescriptors: boolean;
+  agnoMaxInputPreviewChars: number;
+  agnoMaxOutputPreviewChars: number;
 }
 
 export interface RuntimeProviderSummary {

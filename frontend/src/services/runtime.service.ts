@@ -38,6 +38,22 @@ const mockAgnoCapabilities: RuntimeCapabilities = {
   maxOutputPreviewChars: 800,
 };
 
+const mockAgnoLocalCapabilities: RuntimeCapabilities = {
+  provider: 'agno',
+  status: 'disabled',
+  supportsTextGeneration: false,
+  supportsStreaming: false,
+  supportsRagContext: false,
+  supportsMcpTools: false,
+  supportsToolCalling: false,
+  supportsSandbox: false,
+  supportsExternalProviders: false,
+  supportsCitations: false,
+  supportsTraceEvents: false,
+  maxInputPreviewChars: 500,
+  maxOutputPreviewChars: 800,
+};
+
 const mockHealth: RuntimeHealth = {
   provider: 'local',
   status: 'healthy',
@@ -52,13 +68,24 @@ const mockHealth: RuntimeHealth = {
 const mockConfig: RuntimeConfig = {
   provider: 'local',
   adapterEnabled: true,
-  requestTimeoutMs: 30000,
+  defaultTimeoutMs: 15000,
+  requestTimeoutMs: 15000,
   requirePrecheck: true,
+  allowProviderFallback: false,
   externalToolsAllowed: false,
   agnoEnabled: false,
   agnoConfigured: false,
+  agnoExecutionEnabled: false,
   agnoHealthcheckEnabled: false,
   agnoBaseUrlConfigured: false,
+  agnoApiKeyConfigured: false,
+  agnoRequireSandbox: true,
+  agnoAllowExternalTools: false,
+  agnoAllowRemoteMcp: false,
+  agnoSendRagContext: true,
+  agnoSendMcpToolDescriptors: true,
+  agnoMaxInputPreviewChars: 500,
+  agnoMaxOutputPreviewChars: 800,
 };
 
 const mockProviders = (): RuntimeProviderSummary[] => [
@@ -79,6 +106,18 @@ const mockProviders = (): RuntimeProviderSummary[] => [
       details: { realAgnoCalled: false },
     },
     capabilities: mockAgnoCapabilities,
+  },
+  {
+    provider: 'agno',
+    current: false,
+    health: {
+      provider: 'agno',
+      status: 'disabled',
+      message: 'Agno local runtime adapter is disabled by configuration.',
+      checkedAt: nowIso(),
+      details: { httpCalled: false },
+    },
+    capabilities: mockAgnoLocalCapabilities,
   },
 ];
 

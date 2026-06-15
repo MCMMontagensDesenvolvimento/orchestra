@@ -84,6 +84,16 @@ export class LocalDeterministicRuntimeAdapter implements RuntimeAdapter {
       message: 'Runtime local deterministico concluiu a execucao sem provider externo.',
       events: [
         {
+          type: 'provider_selected',
+          status: 'running',
+          message: 'Runtime provider local selecionado pelo registry.',
+          metadata: {
+            provider: this.provider,
+            mode: context.executionMode,
+            traceId: context.traceId,
+          },
+        },
+        {
           type: 'run_started',
           status: 'running',
           message: 'Runtime adapter local recebeu contexto governado.',

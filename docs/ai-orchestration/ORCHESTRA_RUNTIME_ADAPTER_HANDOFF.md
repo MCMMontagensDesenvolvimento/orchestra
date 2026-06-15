@@ -1,6 +1,6 @@
 # Orchestra Runtime Adapter Handoff
 
-Status: implementado na Fase 07A.
+Status: implementado na Fase 07A e evoluido na Fase 07B.
 
 ## Boundary
 
@@ -12,7 +12,7 @@ Frontend
   -> Precheck e policies
   -> AgentRun
   -> RuntimeAdapterRegistry
-  -> LocalDeterministicRuntimeAdapter
+  -> LocalDeterministicRuntimeAdapter ou AgnoRuntimeAdapter local
   -> Runtime events normalizados
   -> AgentRunEvent e AuditLog
 ```
@@ -46,6 +46,10 @@ Nao ha chamada MCP remota e nenhuma tool externa e executada pelo adapter.
 
 Eventos normalizados usam prefixo `runtime.*` em `AgentRunEvent`, permitindo que a UI exiba timeline independente do provider futuro.
 
+## Agno Local
+
+A Fase 07B adiciona `AgnoRuntimeAdapter` HTTP local atras de flags. O provider local continua padrao. Para validar integracao sem runtime real, usar `scripts/agno-mock-runtime.mjs` e `scripts/smoke-agno-local.sh`.
+
 ## Recomendacao Para Proxima Fase
 
-Adicionar adapter real atras de feature flag, com healthcheck opcional, limites de timeout, allowlist de endpoints, testes de seguranca e fallback local.
+Evoluir traces, streaming e runtime local real mantendo o backend como autoridade de governanca e sem habilitar providers externos ou MCP remoto por padrao.

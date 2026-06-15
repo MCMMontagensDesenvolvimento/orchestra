@@ -1,6 +1,6 @@
 # Backend
 
-Status: operacional para a fundacao da Fase 04, core domain inicial da Fase 05, governanca de assistants e agent runs das Fases 05B/05C/05E, catalogo Knowledge/MCP da Fase 06, ingestao local da Fase 06B, RAG query local da Fase 06C, MCP execution sandbox da Fase 06D e Runtime Adapter Boundary da Fase 07A.
+Status: operacional para a fundacao da Fase 04, core domain inicial da Fase 05, governanca de assistants e agent runs das Fases 05B/05C/05E, catalogo Knowledge/MCP da Fase 06, ingestao local da Fase 06B, RAG query local da Fase 06C, MCP execution sandbox da Fase 06D, Runtime Adapter Boundary da Fase 07A e Agno local runtime opcional da Fase 07B.
 
 Esta pasta concentra a documentacao do backend real do Orchestra.
 
@@ -21,6 +21,7 @@ Esta pasta concentra a documentacao do backend real do Orchestra.
 - `ORCHESTRA_MCP_TOOL_CALLS.md`: persistencia de tool calls MCP, eventos, snapshots e integracao com AgentRun.
 - `ORCHESTRA_RUNTIME_ADAPTER_BOUNDARY.md`: contrato oficial de runtime adapter, registry, contexto governado e auditoria.
 - `ORCHESTRA_RUNTIME_LOCAL_ADAPTER.md`: adapter local deterministico, eventos normalizados e limites.
+- `ORCHESTRA_AGNO_RUNTIME_LOCAL_INTEGRATION.md`: integracao HTTP local Agno-compatible, flags, fail-closed e mock runtime.
 
 ## Escopo Atual
 
@@ -41,12 +42,13 @@ Esta pasta concentra a documentacao do backend real do Orchestra.
 - RAG query local com persistencia de queries/resultados e citations.
 - MCP execution sandbox com precheck, tool calls persistidas, eventos e output sintetico local.
 - Runtime endpoints de provider, health, capabilities e config sanitizada.
+- Agno local runtime opcional via HTTP, desabilitado por padrao.
 - Smoke local em `scripts/smoke-local.sh`.
 
 ## Fora Do Escopo Atual
 
 - SSO corporativo.
-- Runtime real de IA.
+- Runtime real de IA produtivo.
 - Providers reais.
 - RAG semantico real, MCP externo real, embeddings, vector store e streaming.
 - Workers e filas.

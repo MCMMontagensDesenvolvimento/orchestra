@@ -6,10 +6,15 @@ export const runtimeProviderValues = ['local', 'agno_stub', 'agno'] as const;
 export const runtimeHealthStatusValues = ['healthy', 'degraded', 'disabled', 'misconfigured', 'unavailable'] as const;
 export const runtimeExecutionStatusValues = ['completed', 'failed', 'blocked', 'cancelled'] as const;
 export const runtimeEventTypeValues = [
+  'provider_selected',
   'run_started',
   'prompt_compiled',
   'rag_context_attached',
   'mcp_tools_attached',
+  'agno_health_checked',
+  'agno_request_started',
+  'agno_request_completed',
+  'agno_request_failed',
   'model_started',
   'model_completed',
   'run_completed',
@@ -50,13 +55,28 @@ export interface RuntimeHealth {
 export interface RuntimeFeatureConfig {
   provider: RuntimeProvider;
   adapterEnabled: boolean;
+  defaultTimeoutMs: number;
   requestTimeoutMs: number;
   requirePrecheck: boolean;
+  allowProviderFallback: boolean;
   externalToolsAllowed: boolean;
   agnoEnabled: boolean;
   agnoConfigured: boolean;
+  agnoExecutionEnabled: boolean;
   agnoHealthcheckEnabled: boolean;
   agnoBaseUrlConfigured: boolean;
+  agnoApiKeyConfigured: boolean;
+  agnoTimeoutMs: number;
+  agnoHealthPath: string;
+  agnoCapabilitiesPath: string;
+  agnoExecutePath: string;
+  agnoRequireSandbox: boolean;
+  agnoAllowExternalTools: boolean;
+  agnoAllowRemoteMcp: boolean;
+  agnoSendRagContext: boolean;
+  agnoSendMcpToolDescriptors: boolean;
+  agnoMaxInputPreviewChars: number;
+  agnoMaxOutputPreviewChars: number;
 }
 
 export interface RuntimeRagSummary {
@@ -69,6 +89,8 @@ export interface RuntimeRagSummary {
     id: string;
     label: string;
     sourceUri?: string | null;
+    documentTitle?: string | null;
+    excerpt?: string | null;
   }>;
 }
 
@@ -76,8 +98,12 @@ export interface RuntimeMcpSummary {
   mcpBindingsCount: number;
   allowedSandboxTools: Array<{
     id: string;
+    serverId: string;
+    toolId: string;
     name: string;
     riskLevel: string;
+    requiresApproval: boolean;
+    executionMode: string;
   }>;
   blockedTools: Array<{
     id: string;
@@ -115,6 +141,10 @@ export interface RuntimeExecutionContext {
     mode: 'placeholder';
     assistantVersionId: string | null;
     instructionChars: number;
+    instructionsPreview?: string | null;
+    modelProvider?: string | null;
+    modelName?: string | null;
+    temperature?: number | null;
   };
   executionPolicySnapshot: Prisma.InputJsonValue;
   precheckSnapshot: AgentRunPrecheckSnapshot;
@@ -138,10 +168,12 @@ export interface RuntimeExecutionResult {
   provider: RuntimeProvider;
   status: RuntimeExecutionStatus;
   outputPreview?: string;
+  outputHash?: string;
   message: string;
   events: RuntimeNormalizedEvent[];
   errorCode?: string;
   errorMessage?: string;
+  metadata?: Prisma.InputJsonValue;
 }
 
 export interface RuntimeAdapter {

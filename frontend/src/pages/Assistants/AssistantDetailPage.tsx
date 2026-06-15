@@ -2220,7 +2220,7 @@ function runtimeMetadata(run: AgentRun) {
   if (!metadata || typeof metadata !== 'object' || Array.isArray(metadata)) return undefined;
   const runtime = (metadata as Record<string, unknown>).runtime;
   if (!runtime || typeof runtime !== 'object' || Array.isArray(runtime)) return undefined;
-  return runtime as { provider?: string; status?: string };
+  return runtime as { provider?: string; status?: string; outputPreview?: string; outputHash?: string };
 }
 
 function RuntimePanel({ health, capabilities, config, providers, isLoading, onRefresh }: {
@@ -2231,7 +2231,9 @@ function RuntimePanel({ health, capabilities, config, providers, isLoading, onRe
   isLoading: boolean;
   onRefresh: () => void;
 }) {
-  const agno = providers.find(provider => provider.provider === 'agno_stub' || provider.provider === 'agno');
+  const activeProvider = providers.find(provider => provider.current);
+  const agno = providers.find(provider => provider.provider === 'agno');
+  const panelHealth = activeProvider?.health ?? health;
   return (
     <div className="rounded-lg border bg-card p-5">
       <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
@@ -2252,8 +2254,8 @@ function RuntimePanel({ health, capabilities, config, providers, isLoading, onRe
           <div className="rounded-md border p-3">
             <p className="text-[10px] text-muted-foreground">Provider atual</p>
             <div className="mt-1 flex flex-wrap items-center gap-2">
-              <Badge variant="secondary" className="font-mono text-[10px]">{config?.provider ?? health?.provider ?? 'local'}</Badge>
-              {health && <StatusBadge status={health.status} />}
+              <Badge variant="secondary" className="font-mono text-[10px]">{activeProvider?.provider ?? config?.provider ?? health?.provider ?? 'local'}</Badge>
+              {panelHealth && <StatusBadge status={panelHealth.status} />}
             </div>
             {health?.message && <p className="mt-2 text-xs text-muted-foreground">{health.message}</p>}
           </div>
@@ -2262,7 +2264,8 @@ function RuntimePanel({ health, capabilities, config, providers, isLoading, onRe
             <div className="mt-2 space-y-1 text-xs">
               <p>Precheck: {config?.requirePrecheck ? 'obrigatorio' : 'opcional'}</p>
               <p>Tools externas: {config?.externalToolsAllowed ? 'liberadas' : 'bloqueadas'}</p>
-              <p>Timeout: {config?.requestTimeoutMs ?? 30000}ms</p>
+              <p>Fallback provider: {config?.allowProviderFallback ? 'habilitado' : 'bloqueado'}</p>
+              <p>Timeout: {config?.requestTimeoutMs ?? 15000}ms</p>
             </div>
           </div>
           <div className="rounded-md border p-3">
@@ -2275,14 +2278,20 @@ function RuntimePanel({ health, capabilities, config, providers, isLoading, onRe
             </div>
           </div>
           <div className="rounded-md border p-3">
-            <p className="text-[10px] text-muted-foreground">Agno readiness</p>
+            <p className="text-[10px] text-muted-foreground">Agno local</p>
             <div className="mt-1 flex flex-wrap items-center gap-2">
-              <Badge variant="outline" className="font-mono text-[10px]">agno_stub</Badge>
+              <Badge variant="outline" className="font-mono text-[10px]">agno</Badge>
               {agno?.health && <StatusBadge status={agno.health.status} />}
             </div>
-            <p className="mt-2 text-xs text-muted-foreground">
-              {config?.agnoEnabled ? 'Configuração backend avaliada.' : 'Desabilitado por padrão.'}
-            </p>
+            <div className="mt-2 space-y-1 text-xs text-muted-foreground">
+              <p>Enabled: {config?.agnoEnabled ? 'sim' : 'nao'} · Configurado: {config?.agnoConfigured ? 'sim' : 'nao'}</p>
+              <p>Execucao: {config?.agnoExecutionEnabled ? 'habilitada' : 'desligada'} · Healthcheck: {config?.agnoHealthcheckEnabled ? 'on' : 'off'}</p>
+              <p>Sandbox: {config?.agnoRequireSandbox ? 'obrigatorio' : 'opcional'} · Remote MCP: {config?.agnoAllowRemoteMcp ? 'liberado' : 'bloqueado'}</p>
+              <p>RAG ctx: {config?.agnoSendRagContext ? 'on' : 'off'} · MCP desc: {config?.agnoSendMcpToolDescriptors ? 'on' : 'off'}</p>
+            </div>
+            {config?.agnoEnabled && !config.agnoConfigured && (
+              <p className="mt-2 text-xs text-warning">AGNO_BASE_URL nao configurado no backend.</p>
+            )}
           </div>
         </div>
       )}
@@ -2316,6 +2325,9 @@ function AgentRunCard({ run, canCancel, isCancelling, onCancel }: {
           </div>
           {run.errorCode && (
             <p className="text-xs text-warning">{run.errorCode}: {run.errorMessage}</p>
+          )}
+          {runtime?.outputPreview && (
+            <p className="rounded bg-muted/50 p-2 text-xs text-muted-foreground">{runtime.outputPreview}</p>
           )}
         </div>
         {canCancel && (

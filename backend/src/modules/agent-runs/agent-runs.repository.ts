@@ -119,6 +119,16 @@ export const agentRunsRepository = {
             id: true,
             label: true,
             sourceUri: true,
+            document: {
+              select: {
+                title: true,
+              },
+            },
+            chunk: {
+              select: {
+                content: true,
+              },
+            },
           },
         })
         : Promise.resolve([]),
@@ -134,6 +144,7 @@ export const agentRunsRepository = {
             select: {
               id: true,
               name: true,
+              description: true,
               riskLevel: true,
               requiresApproval: true,
               isEnabled: true,
