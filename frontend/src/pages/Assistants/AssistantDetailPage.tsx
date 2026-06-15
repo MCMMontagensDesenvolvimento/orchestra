@@ -24,6 +24,10 @@ import type {
   McpExecutionPrecheck,
   McpTool,
   McpToolCallRecord,
+  RuntimeCapabilities,
+  RuntimeConfig,
+  RuntimeHealth,
+  RuntimeProviderSummary,
 } from '@/types';
 import {
   useApproveAssistantApprovalMutation,
@@ -67,6 +71,7 @@ import {
   useMcpTools,
   useRemoveAssistantMcpBindingMutation,
 } from '@/hooks/queries/useMcp';
+import { useRuntimeCapabilities, useRuntimeConfig, useRuntimeHealth, useRuntimeProviders } from '@/hooks/queries/useRuntime';
 import { useConversations } from '@/hooks/queries/useChat';
 import { useAuditLogs } from '@/hooks/queries/useAudit';
 import { useAnalytics } from '@/hooks/queries/useAnalytics';
@@ -112,6 +117,10 @@ export default function AssistantDetailPage() {
   const { data: assistantApprovals = [] } = useAssistantApprovals(id);
   const { data: assistantExecutionPolicy } = useAssistantExecutionPolicy(id);
   const { data: assistantRuns = [], isLoading: assistantRunsLoading, refetch: refetchAssistantRuns } = useAssistantRuns(id);
+  const runtimeHealthQuery = useRuntimeHealth();
+  const runtimeCapabilitiesQuery = useRuntimeCapabilities();
+  const runtimeConfigQuery = useRuntimeConfig();
+  const runtimeProvidersQuery = useRuntimeProviders();
   const { data: assistantKnowledgeBindings = [] } = useAssistantKnowledgeBindings(id);
   const ragReadinessQuery = useAssistantRagReadiness(id);
   const ragQueriesQuery = useAssistantRagQueries(id);
@@ -1088,6 +1097,19 @@ ${tools.map(t => `- ${t.name}: ${t.description}${t.requiresApproval ? ' [REQUER 
 
         {activeTab === 'runs' && (
           <div className="space-y-4">
+            <RuntimePanel
+              health={runtimeHealthQuery.data}
+              capabilities={runtimeCapabilitiesQuery.data}
+              config={runtimeConfigQuery.data}
+              providers={runtimeProvidersQuery.data ?? []}
+              isLoading={runtimeHealthQuery.isLoading || runtimeCapabilitiesQuery.isLoading || runtimeConfigQuery.isLoading || runtimeProvidersQuery.isLoading}
+              onRefresh={() => {
+                void runtimeHealthQuery.refetch();
+                void runtimeCapabilitiesQuery.refetch();
+                void runtimeConfigQuery.refetch();
+                void runtimeProvidersQuery.refetch();
+              }}
+            />
             <div className="grid gap-4 lg:grid-cols-[minmax(0,0.85fr)_minmax(0,1.15fr)]">
               <div className="rounded-lg border bg-card p-5">
                 <div className="mb-4 flex items-center justify-between gap-2">
@@ -1095,7 +1117,7 @@ ${tools.map(t => `- ${t.name}: ${t.description}${t.requiresApproval ? ' [REQUER 
                     <h3 className="text-sm font-semibold flex items-center gap-2">
                       <Activity className="h-4 w-4 text-primary" /> Nova execução
                     </h3>
-                    <p className="text-xs text-muted-foreground">Run controlado com precheck e runtime fake.</p>
+                    <p className="text-xs text-muted-foreground">Run controlado com precheck e runtime adapter.</p>
                   </div>
                   <Badge variant="outline" className="text-[10px]">sem provider externo</Badge>
                 </div>
@@ -2185,6 +2207,89 @@ function compactId(value?: string | null) {
   return `${value.slice(0, 8)}...${value.slice(-6)}`;
 }
 
+function capabilityText(value: RuntimeCapabilities[keyof RuntimeCapabilities]) {
+  if (value === true) return 'sim';
+  if (value === false) return 'nao';
+  if (value === 'simulated') return 'simulado';
+  if (value === 'planned') return 'planejado';
+  return String(value);
+}
+
+function runtimeMetadata(run: AgentRun) {
+  const metadata = run.metadata;
+  if (!metadata || typeof metadata !== 'object' || Array.isArray(metadata)) return undefined;
+  const runtime = (metadata as Record<string, unknown>).runtime;
+  if (!runtime || typeof runtime !== 'object' || Array.isArray(runtime)) return undefined;
+  return runtime as { provider?: string; status?: string };
+}
+
+function RuntimePanel({ health, capabilities, config, providers, isLoading, onRefresh }: {
+  health?: RuntimeHealth;
+  capabilities?: RuntimeCapabilities;
+  config?: RuntimeConfig;
+  providers: RuntimeProviderSummary[];
+  isLoading: boolean;
+  onRefresh: () => void;
+}) {
+  const agno = providers.find(provider => provider.provider === 'agno_stub' || provider.provider === 'agno');
+  return (
+    <div className="rounded-lg border bg-card p-5">
+      <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+        <div>
+          <h3 className="text-sm font-semibold flex items-center gap-2">
+            <Zap className="h-4 w-4 text-primary" />Runtime Provider
+          </h3>
+          <p className="text-xs text-muted-foreground">Boundary oficial de execução, governado pelo backend.</p>
+        </div>
+        <Button variant="outline" size="sm" onClick={onRefresh} disabled={isLoading}>
+          <RefreshCw className="h-3.5 w-3.5 mr-1" />Atualizar
+        </Button>
+      </div>
+      {isLoading ? (
+        <p className="text-sm text-muted-foreground">Carregando runtime...</p>
+      ) : (
+        <div className="grid gap-3 md:grid-cols-4">
+          <div className="rounded-md border p-3">
+            <p className="text-[10px] text-muted-foreground">Provider atual</p>
+            <div className="mt-1 flex flex-wrap items-center gap-2">
+              <Badge variant="secondary" className="font-mono text-[10px]">{config?.provider ?? health?.provider ?? 'local'}</Badge>
+              {health && <StatusBadge status={health.status} />}
+            </div>
+            {health?.message && <p className="mt-2 text-xs text-muted-foreground">{health.message}</p>}
+          </div>
+          <div className="rounded-md border p-3">
+            <p className="text-[10px] text-muted-foreground">Feature flags</p>
+            <div className="mt-2 space-y-1 text-xs">
+              <p>Precheck: {config?.requirePrecheck ? 'obrigatorio' : 'opcional'}</p>
+              <p>Tools externas: {config?.externalToolsAllowed ? 'liberadas' : 'bloqueadas'}</p>
+              <p>Timeout: {config?.requestTimeoutMs ?? 30000}ms</p>
+            </div>
+          </div>
+          <div className="rounded-md border p-3">
+            <p className="text-[10px] text-muted-foreground">Capabilities</p>
+            <div className="mt-2 grid grid-cols-2 gap-x-3 gap-y-1 text-xs">
+              <span>RAG: {capabilityText(capabilities?.supportsRagContext ?? false)}</span>
+              <span>MCP: {capabilityText(capabilities?.supportsMcpTools ?? false)}</span>
+              <span>Sandbox: {capabilityText(capabilities?.supportsSandbox ?? false)}</span>
+              <span>Streaming: {capabilityText(capabilities?.supportsStreaming ?? false)}</span>
+            </div>
+          </div>
+          <div className="rounded-md border p-3">
+            <p className="text-[10px] text-muted-foreground">Agno readiness</p>
+            <div className="mt-1 flex flex-wrap items-center gap-2">
+              <Badge variant="outline" className="font-mono text-[10px]">agno_stub</Badge>
+              {agno?.health && <StatusBadge status={agno.health.status} />}
+            </div>
+            <p className="mt-2 text-xs text-muted-foreground">
+              {config?.agnoEnabled ? 'Configuração backend avaliada.' : 'Desabilitado por padrão.'}
+            </p>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 function AgentRunCard({ run, canCancel, isCancelling, onCancel }: {
   run: AgentRun;
   canCancel: boolean;
@@ -2192,6 +2297,7 @@ function AgentRunCard({ run, canCancel, isCancelling, onCancel }: {
   onCancel: () => void;
 }) {
   const events = run.events ?? [];
+  const runtime = runtimeMetadata(run);
   return (
     <div className={`rounded-md border p-3 ${agentRunStatusClass(run.status)}`}>
       <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
@@ -2205,6 +2311,7 @@ function AgentRunCard({ run, canCancel, isCancelling, onCancel }: {
           <div className="flex flex-wrap gap-x-3 gap-y-1 text-[10px] text-muted-foreground">
             <span>trace {compactId(run.traceId)}</span>
             <span>request {compactId(run.requestId)}</span>
+            {runtime?.provider && <span>adapter {runtime.provider}</span>}
             <span>{new Date(run.createdAt).toLocaleString('pt-BR')}</span>
           </div>
           {run.errorCode && (

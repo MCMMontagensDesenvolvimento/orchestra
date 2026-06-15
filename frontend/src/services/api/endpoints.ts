@@ -77,6 +77,12 @@ export const endpoints = {
   settings: {
     list: '/settings',
   },
+  runtime: {
+    providers: '/runtime/providers',
+    capabilities: '/runtime/capabilities',
+    health: '/runtime/health',
+    config: '/runtime/config',
+  },
   dashboard: {
     summary: '/dashboard/summary',
   },

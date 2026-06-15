@@ -1,6 +1,6 @@
 # Security
 
-Status: preparado para seguranca, SSO, RBAC/ABAC, governanca de execucao de assistants/agent runs, catalogo Knowledge/MCP, conteudo textual local, RAG query local e MCP execution sandbox.
+Status: preparado para seguranca, SSO, RBAC/ABAC, governanca de execucao de assistants/agent runs, catalogo Knowledge/MCP, conteudo textual local, RAG query local, MCP execution sandbox e Runtime Adapter Boundary.
 
 Esta pasta deve concentrar seguranca, compliance, autenticacao, autorizacao e auditoria.
 
@@ -22,6 +22,7 @@ Topicos esperados:
 - `ORCHESTRA_KNOWLEDGE_CONTENT_SECURITY.md`: controles para contentText, chunks, source references, auditoria e limites de retencao.
 - `ORCHESTRA_RAG_QUERY_SECURITY.md`: autorizacao, escopo, auditoria sanitizada e limites da query RAG local.
 - `ORCHESTRA_MCP_EXECUTION_SECURITY.md`: controles de precheck, sandbox MCP, tool calls, approval required e auditoria sanitizada.
+- `ORCHESTRA_RUNTIME_BOUNDARY_SECURITY.md`: seguranca do runtime adapter, defaults seguros, sanitizacao e auditoria.
 
 ## Estado Atual
 
@@ -31,9 +32,10 @@ Topicos esperados:
 - Bloqueios de permissao registram `permission_denied` em audit log.
 - Approval e execution policy sao aplicados no backend.
 - Execution precheck nao chama runtime real de IA.
-- AgentRun usa runtime boundary fake, eventos persistidos e metadata sanitizada.
+- AgentRun usa Runtime Adapter Boundary, adapter local deterministico, eventos persistidos e metadata sanitizada.
 - Knowledge/MCP usa catalogo governado, bindings com workspace scope e guard contra secrets em JSON/templates.
 - Ingestao Knowledge local nao grava conteudo bruto em audit logs e filtra chunks por tenant/workspace.
 - RAG query local filtra bindings habilitados, documentos ingeridos, chunks ativos e persiste apenas excerpts limitados nos resultados.
 - MCP execution sandbox filtra binding/server/tool, exige approval para high/critical e persiste apenas preview/hash.
+- Runtime config exposta pela API e sanitizada, sem secrets ou API keys.
 - SSO corporativo real segue reservado para fase posterior.

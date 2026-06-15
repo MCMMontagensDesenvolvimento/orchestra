@@ -5,12 +5,15 @@ import { AppError } from '../../shared/errors/app-error';
 import type { AuthenticatedUser } from '../../shared/types/auth';
 import { paginationMeta } from '../../shared/validation/pagination';
 import { recordAuditEvent } from '../audit/audit.service';
+import { buildRuntimeExecutionContext } from '../runtime/runtime.context';
+import { normalizeRuntimeEvents } from '../runtime/runtime.events';
+import { runtimeAdapterRegistry } from '../runtime/runtime.registry';
+import { runtimeService } from '../runtime/runtime.service';
 import { mapAgentRun, mapAgentRunEvent } from './agent-runs.mapper';
 import { agentRunPolicies } from './agent-runs.policy';
 import { agentRunsRepository } from './agent-runs.repository';
 import type { AgentRunMode, AgentRunsQuery, CreateAgentRunInput } from './agent-runs.schema';
 import type { AgentRunEventInput, AgentRunPrecheckSnapshot, PrecheckReason, RequestContext } from './agent-runs.types';
-import { fakeRuntimeAdapter } from './runtime/fake-runtime-adapter';
 
 type AssistantForRun = NonNullable<Awaited<ReturnType<typeof agentRunsRepository.findAssistantForRun>>>;
 type PolicyForRun = Awaited<ReturnType<typeof agentRunsRepository.getExecutionPolicy>>;
@@ -43,6 +46,38 @@ function sanitizeMetadata(value: unknown, depth = 0): unknown {
 
 function summarizeInput(input: string) {
   return input.replace(/\s+/g, ' ').trim().slice(0, 500);
+}
+
+function mergeRuntimeMetadata(input: {
+  metadata?: Prisma.InputJsonValue;
+  provider: string;
+  runtimeStatus: string;
+  inputHash: string;
+  ragSummary?: { ragReady: boolean; knowledgeBindingsCount: number; chunkCount: number; sourceReferenceCount: number; lastRagQueryId: string | null };
+  mcpSummary?: { mcpBindingsCount: number; allowedSandboxTools: unknown[]; blockedTools: unknown[]; requiresApproval: unknown[]; lastToolCallIds: string[] };
+}): Prisma.InputJsonValue {
+  const base = typeof input.metadata === 'object' && input.metadata && !Array.isArray(input.metadata)
+    ? input.metadata as Record<string, unknown>
+    : {};
+
+  return {
+    ...base,
+    runtime: {
+      provider: input.provider,
+      status: input.runtimeStatus,
+      inputHash: input.inputHash,
+      rag: input.ragSummary,
+      mcp: input.mcpSummary
+        ? {
+          mcpBindingsCount: input.mcpSummary.mcpBindingsCount,
+          allowedSandboxTools: input.mcpSummary.allowedSandboxTools.length,
+          blockedTools: input.mcpSummary.blockedTools.length,
+          requiresApproval: input.mcpSummary.requiresApproval.length,
+          lastToolCallIds: input.mcpSummary.lastToolCallIds,
+        }
+        : undefined,
+    },
+  } as Prisma.InputJsonValue;
 }
 
 async function recordDenied(
@@ -258,6 +293,7 @@ export const agentRunsService = {
     const assistantPublicationId = input.mode === 'published' ? publication?.id ?? null : null;
     const sanitizedMetadata = sanitizeMetadata(input.metadata) as Prisma.InputJsonValue | undefined;
     const requestedEvents = baseEvents({ mode: input.mode, source: input.source, traceId, assistantId: assistant.id });
+    const runtimeProvider = runtimeAdapterRegistry.currentProvider();
 
     await recordRunAudit({ user, assistant, runId, traceId, action: 'agent_run_requested', mode: input.mode, status: 'queued', context });
 
@@ -282,7 +318,12 @@ export const agentRunsService = {
         errorCode: firstReason?.code,
         errorMessage: firstReason?.message,
         precheckSnapshot: precheck as unknown as Prisma.InputJsonValue,
-        metadata: sanitizedMetadata,
+        metadata: mergeRuntimeMetadata({
+          metadata: sanitizedMetadata,
+          provider: runtimeProvider,
+          runtimeStatus: 'blocked',
+          inputHash: 'not_computed_precheck_blocked',
+        }),
         events: [
           ...requestedEvents,
           {
@@ -305,6 +346,17 @@ export const agentRunsService = {
         assistant,
         runId,
         traceId,
+        action: 'runtime_execution_blocked',
+        mode: input.mode,
+        status: 'blocked',
+        context,
+        metadata: { provider: runtimeProvider, reasons: precheck.reasons.map((reason) => reason.code) },
+      });
+      await recordRunAudit({
+        user,
+        assistant,
+        runId,
+        traceId,
         action: 'agent_run_blocked',
         mode: input.mode,
         status: 'blocked',
@@ -316,14 +368,48 @@ export const agentRunsService = {
     }
 
     await recordRunAudit({ user, assistant, runId, traceId, action: 'agent_run_precheck_passed', mode: input.mode, status: 'prechecking', context });
-    const runtimeResult = await fakeRuntimeAdapter.startRun({
+    const runtimeContext = await buildRuntimeExecutionContext({
       runId,
       traceId,
-      assistantId: assistant.id,
+      requestId: context.requestId,
+      tenantId: user.tenant.id,
+      workspaceId: assistant.workspaceId,
+      userId: user.id,
+      assistant,
       assistantVersionId,
       assistantPublicationId,
-      mode: input.mode,
+      executionMode: input.mode,
+      provider: runtimeProvider,
+      input: input.input,
+      executionPolicy: policy as unknown as Record<string, unknown>,
+      precheckSnapshot: precheck,
+      metadata: sanitizedMetadata,
     });
+    const adapterHealth = await runtimeService.health(user, context);
+    await recordRunAudit({
+      user,
+      assistant,
+      runId,
+      traceId,
+      action: 'runtime_adapter_resolved',
+      mode: input.mode,
+      status: adapterHealth.status,
+      context,
+      metadata: { provider: runtimeProvider, healthStatus: adapterHealth.status },
+    });
+    await recordRunAudit({
+      user,
+      assistant,
+      runId,
+      traceId,
+      action: 'runtime_execution_started',
+      mode: input.mode,
+      status: 'running',
+      context,
+      metadata: { provider: runtimeProvider },
+    });
+    const runtimeResult = await runtimeService.execute(runtimeContext);
+    const normalizedRuntimeEvents = normalizeRuntimeEvents(runtimeResult);
     const now = new Date();
     const isFailed = runtimeResult.status === 'failed';
     const run = await agentRunsRepository.createRun({
@@ -346,20 +432,44 @@ export const agentRunsService = {
       errorCode: runtimeResult.errorCode,
       errorMessage: runtimeResult.errorMessage,
       precheckSnapshot: precheck as unknown as Prisma.InputJsonValue,
-      metadata: sanitizedMetadata,
+      metadata: mergeRuntimeMetadata({
+        metadata: sanitizedMetadata,
+        provider: runtimeResult.provider,
+        runtimeStatus: runtimeResult.status,
+        inputHash: runtimeContext.input.hash,
+        ragSummary: {
+          ragReady: runtimeContext.rag.ragReady,
+          knowledgeBindingsCount: runtimeContext.rag.knowledgeBindingsCount,
+          chunkCount: runtimeContext.rag.chunkCount,
+          sourceReferenceCount: runtimeContext.rag.sourceReferenceCount,
+          lastRagQueryId: runtimeContext.rag.lastRagQueryId,
+        },
+        mcpSummary: runtimeContext.mcp,
+      }),
       events: [
         ...requestedEvents,
         {
           type: 'run.precheck_passed',
           status: 'running',
           message: 'Precheck aprovado.',
-          metadata: { traceId },
+          metadata: { traceId, runtimeProvider },
         },
-        ...runtimeResult.events,
+        ...normalizedRuntimeEvents,
       ],
     });
 
     await recordRunAudit({ user, assistant, runId, traceId, action: 'agent_run_started', mode: input.mode, status: 'running', context });
+    await recordRunAudit({
+      user,
+      assistant,
+      runId,
+      traceId,
+      action: isFailed ? 'runtime_execution_failed' : 'runtime_execution_completed',
+      mode: input.mode,
+      status: runtimeResult.status,
+      context,
+      metadata: { provider: runtimeResult.provider },
+    });
     await recordRunAudit({
       user,
       assistant,
@@ -412,7 +522,7 @@ export const agentRunsService = {
       throw new AppError(409, 'RUN_NOT_CANCELLABLE', 'Run nao pode ser cancelado no status atual.');
     }
 
-    const runtimeResult = await fakeRuntimeAdapter.cancelRun({ runId: run.id, traceId: run.traceId });
+    const runtimeResult = await runtimeService.cancel({ runId: run.id, traceId: run.traceId });
     const cancelledAt = new Date();
     const updated = await agentRunsRepository.updateRun(run.id, {
       status: 'cancelled',
@@ -420,7 +530,7 @@ export const agentRunsService = {
       completedAt: null,
       failedAt: null,
     });
-    await agentRunsRepository.appendEvents(updated, runtimeResult.events);
+    await agentRunsRepository.appendEvents(updated, normalizeRuntimeEvents(runtimeResult));
     const refreshed = await getRunOrThrow(run.id, user);
     await recordRunAudit({
       user,

@@ -1,6 +1,6 @@
 # AI Orchestration
 
-Status: preparado. A Fase 06 criou catalogo governado de Knowledge/RAG/MCP, a Fase 06B adicionou readiness local com chunks textuais, a Fase 06C adicionou query RAG local com citations e a Fase 06D adicionou MCP execution sandbox. Runtime de IA, RAG semantico real, MCP externo real, providers, embeddings, vector store e tool calls produtivos continuam fora do escopo.
+Status: preparado. A Fase 06 criou catalogo governado de Knowledge/RAG/MCP, a Fase 06B adicionou readiness local com chunks textuais, a Fase 06C adicionou query RAG local com citations, a Fase 06D adicionou MCP execution sandbox e a Fase 07A adicionou Runtime Adapter Boundary com adapter local e Agno readiness stub. Runtime real de IA, RAG semantico real, MCP externo real, providers, embeddings, vector store e tool calls produtivos continuam fora do escopo.
 
 Esta pasta deve concentrar a estrategia de IA do Orchestra.
 
@@ -19,3 +19,5 @@ Topicos esperados:
 - `ORCHESTRA_RAG_READINESS_HANDOFF.md`: readiness local, busca textual em chunks autorizados e handoff para RAG semantico futuro.
 - `ORCHESTRA_RAG_RETRIEVAL_CONTRACT_HANDOFF.md`: contrato de retrieval local, citations, queryId e handoff para runtime futuro.
 - `ORCHESTRA_MCP_EXECUTION_HANDOFF.md`: contrato de precheck/tool call sandbox, eventos e handoff para executor MCP futuro.
+- `ORCHESTRA_AGNO_READINESS_HANDOFF.md`: stub/readiness Agno, flags e caminho para integracao futura.
+- `ORCHESTRA_RUNTIME_ADAPTER_HANDOFF.md`: boundary de runtime, resumos RAG/MCP e eventos normalizados.

@@ -66,6 +66,13 @@ export const queryKeys = {
   audit: {
     logs: ['audit', 'logs'] as const,
   },
+  runtime: {
+    all: ['runtime'] as const,
+    providers: () => [...queryKeys.runtime.all, 'providers'] as const,
+    capabilities: () => [...queryKeys.runtime.all, 'capabilities'] as const,
+    health: () => [...queryKeys.runtime.all, 'health'] as const,
+    config: () => [...queryKeys.runtime.all, 'config'] as const,
+  },
   admin: {
     users: ['admin', 'users'] as const,
     workspaces: ['admin', 'workspaces'] as const,

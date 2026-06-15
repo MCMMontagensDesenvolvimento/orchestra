@@ -1,6 +1,6 @@
 # Orchestra Agent Run Governance
 
-Status: implementado na Fase 05E.
+Status: atualizado na Fase 07A.
 
 Este documento descreve a fronteira de execucao criada para `AgentRun`. A fase adiciona rastreabilidade, precheck obrigatorio, eventos persistidos e auditoria, mas ainda nao chama runtime real de IA, RAG, tools externas ou providers reais.
 
@@ -72,15 +72,15 @@ Quando o precheck bloqueia:
 - eventos `run.precheck_failed` e `run.blocked` sao persistidos.
 - audit log `agent_run_blocked` e registrado.
 
-## Runtime Boundary
+## Runtime Adapter Boundary
 
-A fase usa somente `FakeRuntimeAdapter`.
+A Fase 07A substitui o adapter fake direto por `RuntimeAdapterRegistry` e `LocalDeterministicRuntimeAdapter`.
 
 O adapter:
 
 - nao chama providers externos.
 - nao chama tools externas.
-- retorna eventos controlados.
+- retorna eventos controlados e normalizados com prefixo `runtime.*`.
 - completa imediatamente runs aprovados.
 - registra cancelamento de forma local quando o status permite.
 
@@ -89,9 +89,13 @@ Eventos gerados para run aprovado:
 1. `run.requested`
 2. `run.precheck_started`
 3. `run.precheck_passed`
-4. `run.started`
-5. `run.mock_runtime_completed`
-6. `run.completed`
+4. `runtime.run_started`
+5. `runtime.prompt_compiled`
+6. `runtime.rag_context_attached`
+7. `runtime.mcp_tools_attached`
+8. `runtime.model_started`
+9. `runtime.model_completed`
+10. `runtime.run_completed`
 
 Eventos gerados para run bloqueado:
 
@@ -125,6 +129,11 @@ Eventos de auditoria adicionados:
 - `agent_run_completed`
 - `agent_run_failed`
 - `agent_run_cancelled`
+- `runtime_adapter_resolved`
+- `runtime_execution_started`
+- `runtime_execution_completed`
+- `runtime_execution_failed`
+- `runtime_execution_blocked`
 
 Metadata de auditoria inclui ids tecnicos e codigos de governanca. O backend nao grava prompt completo, segredo, token, password, authorization, api key ou conteudo sensivel enviado em metadata.
 

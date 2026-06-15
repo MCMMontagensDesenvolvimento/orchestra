@@ -469,3 +469,33 @@ Status: decidida.
 `agentRunId` e opcional em MCP tool calls. Quando informado e valido, a tool call registra eventos correspondentes em `AgentRunEvent`; isso cria correlacao de controle sem acoplar o Orchestra a runtime real.
 
 Status: decidida.
+
+## DEC-RUNTIME-002 - RuntimeAdapter boundary como contrato oficial de execucao
+
+A Fase 07A promove o runtime boundary para um contrato oficial com `RuntimeAdapter`, registry, capabilities, health, contexto governado e eventos normalizados. `AgentRun` passa a resolver o adapter pelo registry em vez de chamar uma implementacao fake direta.
+
+Status: decidida.
+
+## DEC-RUNTIME-003 - LocalDeterministicRuntimeAdapter como padrao seguro
+
+O provider default e `local`. O adapter local e deterministico, nao chama LLM, provider externo, MCP remoto, embeddings ou vector store, e gera eventos previsiveis para smoke, testes e UI.
+
+Status: decidida.
+
+## DEC-AGNO-001 - AgnoRuntimeAdapter preparado como stub/readiness, desabilitado por padrao
+
+Agno fica preparado por contrato e readiness, mas `AGNO_ENABLED=false` e o padrao. O stack local e o smoke nao exigem Agno instalado, container Agno ou chamada real.
+
+Status: decidida.
+
+## DEC-RUNTIME-004 - Backend Orchestra permanece autoridade de policy, RBAC, audit e persistencia
+
+O runtime adapter executa somente apos auth, RBAC, workspace scope, execution policy e precheck do backend. O frontend nao chama runtime nem Agno diretamente.
+
+Status: decidida.
+
+## DEC-RUNTIME-005 - Runtime config exposta apenas de forma sanitizada
+
+`GET /api/v1/runtime/config` retorna provider, flags e booleanos de readiness. Secrets, tokens, API keys e valores sensiveis nao sao retornados.
+
+Status: decidida.

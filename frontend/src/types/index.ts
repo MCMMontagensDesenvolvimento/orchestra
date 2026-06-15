@@ -8,7 +8,10 @@ export type AssistantApprovalStatus = 'pending' | 'approved' | 'rejected' | 'can
 export type AssistantApprovalAction = 'publish' | 'rollback' | 'restore' | 'enable_execution' | 'configure_sandbox';
 export type AssistantExecutionMode = 'draft_test' | 'sandbox' | 'published' | 'blocked' | 'archived';
 export type AgentRunStatus = 'queued' | 'prechecking' | 'blocked' | 'running' | 'completed' | 'failed' | 'cancelled';
-export type AuditEventType = 'assistant_created' | 'assistant_published' | 'assistant_unpublished' | 'assistant_rollback' | 'assistant_updated' | 'assistant_archived' | 'assistant_restored' | 'assistant_feedback_created' | 'assistant_test_result_created' | 'assistant_approval_requested' | 'assistant_approval_approved' | 'assistant_approval_rejected' | 'assistant_approval_cancelled' | 'assistant_execution_policy_updated' | 'assistant_sandbox_policy_updated' | 'assistant_execution_blocked' | 'assistant_publish_blocked_by_approval' | 'agent_run_requested' | 'agent_run_precheck_passed' | 'agent_run_blocked' | 'agent_run_started' | 'agent_run_completed' | 'agent_run_failed' | 'agent_run_cancelled' | 'permission_denied' | 'tool_executed' | 'knowledge_updated' | 'user_login' | 'policy_changed' | 'security_alert' | 'approval_requested' | 'approval_granted';
+export type RuntimeProvider = 'local' | 'agno_stub' | 'agno';
+export type RuntimeHealthStatus = 'healthy' | 'degraded' | 'disabled' | 'misconfigured' | 'unavailable';
+export type RuntimeCapabilityMode = boolean | 'simulated' | 'planned';
+export type AuditEventType = 'assistant_created' | 'assistant_published' | 'assistant_unpublished' | 'assistant_rollback' | 'assistant_updated' | 'assistant_archived' | 'assistant_restored' | 'assistant_feedback_created' | 'assistant_test_result_created' | 'assistant_approval_requested' | 'assistant_approval_approved' | 'assistant_approval_rejected' | 'assistant_approval_cancelled' | 'assistant_execution_policy_updated' | 'assistant_sandbox_policy_updated' | 'assistant_execution_blocked' | 'assistant_publish_blocked_by_approval' | 'agent_run_requested' | 'agent_run_precheck_passed' | 'agent_run_blocked' | 'agent_run_started' | 'agent_run_completed' | 'agent_run_failed' | 'agent_run_cancelled' | 'runtime_health_checked' | 'runtime_adapter_resolved' | 'runtime_execution_started' | 'runtime_execution_completed' | 'runtime_execution_failed' | 'runtime_execution_blocked' | 'runtime_adapter_misconfigured' | 'agno_adapter_readiness_checked' | 'permission_denied' | 'tool_executed' | 'knowledge_updated' | 'user_login' | 'policy_changed' | 'security_alert' | 'approval_requested' | 'approval_granted';
 
 export interface AssistantPublication {
   id: string;
@@ -115,6 +118,49 @@ export interface AgentRun {
   createdAt: string;
   updatedAt: string;
   events?: AgentRunEvent[];
+}
+
+export interface RuntimeCapabilities {
+  provider: RuntimeProvider;
+  status: RuntimeHealthStatus;
+  supportsTextGeneration: RuntimeCapabilityMode;
+  supportsStreaming: RuntimeCapabilityMode;
+  supportsRagContext: RuntimeCapabilityMode;
+  supportsMcpTools: RuntimeCapabilityMode;
+  supportsToolCalling: RuntimeCapabilityMode;
+  supportsSandbox: RuntimeCapabilityMode;
+  supportsExternalProviders: RuntimeCapabilityMode;
+  supportsCitations: RuntimeCapabilityMode;
+  supportsTraceEvents: RuntimeCapabilityMode;
+  maxInputPreviewChars: number;
+  maxOutputPreviewChars: number;
+}
+
+export interface RuntimeHealth {
+  provider: RuntimeProvider;
+  status: RuntimeHealthStatus;
+  message: string;
+  checkedAt: string;
+  details?: Record<string, unknown>;
+}
+
+export interface RuntimeConfig {
+  provider: RuntimeProvider;
+  adapterEnabled: boolean;
+  requestTimeoutMs: number;
+  requirePrecheck: boolean;
+  externalToolsAllowed: boolean;
+  agnoEnabled: boolean;
+  agnoConfigured: boolean;
+  agnoHealthcheckEnabled: boolean;
+  agnoBaseUrlConfigured: boolean;
+}
+
+export interface RuntimeProviderSummary {
+  provider: RuntimeProvider;
+  current: boolean;
+  health: RuntimeHealth;
+  capabilities: RuntimeCapabilities;
 }
 
 export interface CreateAgentRunInput {

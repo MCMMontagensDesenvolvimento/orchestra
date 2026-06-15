@@ -1,6 +1,6 @@
 # Backend
 
-Status: operacional para a fundacao da Fase 04, core domain inicial da Fase 05, governanca de assistants e agent runs das Fases 05B/05C/05E, catalogo Knowledge/MCP da Fase 06, ingestao local da Fase 06B, RAG query local da Fase 06C e MCP execution sandbox da Fase 06D.
+Status: operacional para a fundacao da Fase 04, core domain inicial da Fase 05, governanca de assistants e agent runs das Fases 05B/05C/05E, catalogo Knowledge/MCP da Fase 06, ingestao local da Fase 06B, RAG query local da Fase 06C, MCP execution sandbox da Fase 06D e Runtime Adapter Boundary da Fase 07A.
 
 Esta pasta concentra a documentacao do backend real do Orchestra.
 
@@ -19,6 +19,8 @@ Esta pasta concentra a documentacao do backend real do Orchestra.
 - `ORCHESTRA_RAG_QUERY_LOCAL.md`: query RAG local, readiness refinado, retrieval keyword, citations, historico e auditoria.
 - `ORCHESTRA_MCP_EXECUTION_SANDBOX.md`: precheck MCP, execucao sandbox local, policies, bloqueios e limites.
 - `ORCHESTRA_MCP_TOOL_CALLS.md`: persistencia de tool calls MCP, eventos, snapshots e integracao com AgentRun.
+- `ORCHESTRA_RUNTIME_ADAPTER_BOUNDARY.md`: contrato oficial de runtime adapter, registry, contexto governado e auditoria.
+- `ORCHESTRA_RUNTIME_LOCAL_ADAPTER.md`: adapter local deterministico, eventos normalizados e limites.
 
 ## Escopo Atual
 
@@ -33,11 +35,12 @@ Esta pasta concentra a documentacao do backend real do Orchestra.
 - Core domain inicial com tenants, workspaces, users, roles, permissions, assistants, audit logs e settings.
 - Governanca de assistants com publicacoes versionadas, rollback, feedback e test results manuais/simulados.
 - Approval workflow, execution policy, sandbox policy e execution precheck sem runtime real.
-- Agent runs com runtime boundary fake, eventos persistidos e contratos de cancelamento.
+- Agent runs com Runtime Adapter Boundary, adapter local deterministico, eventos persistidos e contratos de cancelamento.
 - Catalogo Knowledge/RAG/MCP com policies e bindings governados.
 - Knowledge ingestion local com contentText, chunking textual, source references, jobs e readiness para RAG futuro.
 - RAG query local com persistencia de queries/resultados e citations.
 - MCP execution sandbox com precheck, tool calls persistidas, eventos e output sintetico local.
+- Runtime endpoints de provider, health, capabilities e config sanitizada.
 - Smoke local em `scripts/smoke-local.sh`.
 
 ## Fora Do Escopo Atual

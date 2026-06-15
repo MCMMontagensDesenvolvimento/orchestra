@@ -10,6 +10,7 @@ const mocks = vi.hoisted(() => {
     findAssistantForRun: vi.fn(),
     getExecutionPolicy: vi.fn(),
     countPendingApprovals: vi.fn(),
+    getRuntimeContextSummary: vi.fn(),
     createRun: vi.fn(),
     appendEvents: vi.fn(),
     updateRun: vi.fn(),
@@ -223,6 +224,36 @@ describe('agent run governance endpoints', () => {
     mocks.agentRunsRepository.findAssistantForRun.mockResolvedValue(assistantFixture('draft'));
     mocks.agentRunsRepository.getExecutionPolicy.mockResolvedValue(executionPolicyFixture());
     mocks.agentRunsRepository.countPendingApprovals.mockResolvedValue(0);
+    mocks.agentRunsRepository.getRuntimeContextSummary.mockResolvedValue({
+      knowledgeBindingsCount: 1,
+      chunkCount: 2,
+      sourceReferenceCount: 2,
+      lastRagQuery: { id: '00000000-0000-0000-0000-000000000931', status: 'completed', resultCount: 1 },
+      sourceReferences: [
+        { id: '00000000-0000-0000-0000-000000000932', label: 'Fonte 1', sourceUri: 'manual://runtime-test' },
+      ],
+      mcpBindings: [
+        {
+          id: '00000000-0000-0000-0000-000000000933',
+          mode: 'sandbox_only',
+          tool: {
+            id: '00000000-0000-0000-0000-000000000934',
+            name: 'runtime.lookup',
+            riskLevel: 'low',
+            requiresApproval: false,
+            isEnabled: true,
+            deletedAt: null,
+          },
+          server: {
+            id: '00000000-0000-0000-0000-000000000935',
+            name: 'Runtime MCP',
+            status: 'active',
+            deletedAt: null,
+          },
+        },
+      ],
+      lastToolCallIds: ['00000000-0000-0000-0000-000000000936'],
+    });
     mocks.agentRunsRepository.createRun.mockImplementation(async (input) =>
       runFixture({
         id: input.id ?? runId,
@@ -255,7 +286,7 @@ describe('agent run governance endpoints', () => {
     mocks.agentRunsRepository.appendEvents.mockResolvedValue([eventFixture('run.cancelled', 2, 'cancelled')]);
   });
 
-  it('creates a sandbox run through the fake runtime boundary', async () => {
+  it('creates a sandbox run through the local runtime adapter boundary', async () => {
     const response = await request(createApp())
       .post(`/api/v1/assistants/${assistantId}/runs`)
       .set('Cookie', [sessionCookie()])
@@ -268,13 +299,21 @@ describe('agent run governance endpoints', () => {
       .expect(201);
 
     expect(response.body.data.status).toBe('completed');
-    expect(response.body.data.events.map((event: { type: string }) => event.type)).toContain('run.mock_runtime_completed');
+    expect(response.body.data.events.map((event: { type: string }) => event.type)).toContain('runtime.run_completed');
+    expect(response.body.data.metadata.runtime.provider).toBe('local');
+    expect(response.body.data.metadata.runtime.rag.chunkCount).toBe(2);
     expect(mocks.agentRunsRepository.createRun).toHaveBeenCalledWith(expect.objectContaining({
       metadata: expect.objectContaining({
         prompt: '[redacted]',
         ui: expect.objectContaining({ token: '[redacted]', label: 'detail' }),
+        runtime: expect.objectContaining({
+          provider: 'local',
+          status: 'completed',
+        }),
       }),
     }));
+    expect(mocks.recordAuditEvent).toHaveBeenCalledWith(expect.objectContaining({ action: 'runtime_adapter_resolved' }));
+    expect(mocks.recordAuditEvent).toHaveBeenCalledWith(expect.objectContaining({ action: 'runtime_execution_completed' }));
     expect(mocks.recordAuditEvent).toHaveBeenCalledWith(expect.objectContaining({ action: 'agent_run_completed' }));
   });
 
@@ -290,6 +329,8 @@ describe('agent run governance endpoints', () => {
     expect(response.body.data.status).toBe('blocked');
     expect(response.body.data.errorCode).toBe('SANDBOX_DISABLED');
     expect(response.body.data.precheckSnapshot.canExecute).toBe(false);
+    expect(mocks.agentRunsRepository.getRuntimeContextSummary).not.toHaveBeenCalled();
+    expect(mocks.recordAuditEvent).toHaveBeenCalledWith(expect.objectContaining({ action: 'runtime_execution_blocked' }));
     expect(mocks.recordAuditEvent).toHaveBeenCalledWith(expect.objectContaining({ action: 'agent_run_blocked' }));
   });
 

@@ -63,6 +63,30 @@ expect_status 200 "permissions" \
   -b "$cookie_file" \
   "$BASE_URL/api/v1/permissions"
 
+expect_status 200 "runtime-providers" \
+  -b "$cookie_file" \
+  "$BASE_URL/api/v1/runtime/providers"
+
+python3 -c 'import json,sys; data=json.load(open(sys.argv[1]))["data"]; assert any(item["provider"] == "local" and item["current"] is True for item in data); assert any(item["provider"] == "agno_stub" and item["health"]["status"] in ("disabled", "misconfigured") for item in data)' "$response_file"
+
+expect_status 200 "runtime-capabilities" \
+  -b "$cookie_file" \
+  "$BASE_URL/api/v1/runtime/capabilities"
+
+python3 -c 'import json,sys; data=json.load(open(sys.argv[1]))["data"]; assert data["provider"] == "local"; assert data["supportsSandbox"] is True; assert data["supportsExternalProviders"] is False; assert data["supportsTraceEvents"] is True' "$response_file"
+
+expect_status 200 "runtime-health" \
+  -b "$cookie_file" \
+  "$BASE_URL/api/v1/runtime/health"
+
+python3 -c 'import json,sys; data=json.load(open(sys.argv[1]))["data"]; assert data["provider"] == "local"; assert data["status"] == "healthy"; assert data["details"]["externalProvidersCalled"] is False' "$response_file"
+
+expect_status 200 "runtime-config" \
+  -b "$cookie_file" \
+  "$BASE_URL/api/v1/runtime/config"
+
+python3 -c 'import json,sys; text=open(sys.argv[1]).read(); data=json.loads(text)["data"]; assert data["provider"] == "local"; assert data["adapterEnabled"] is True; assert data["agnoEnabled"] is False; assert data["externalToolsAllowed"] is False; assert "AGNO_API_KEY" not in text; assert "secret" not in text.lower()' "$response_file"
+
 expect_status 200 "assistants" \
   -b "$cookie_file" \
   "$BASE_URL/api/v1/assistants"
@@ -809,6 +833,8 @@ expect_status 201 "agent-run-create-sandbox" \
   --data-binary "@$payload_file" \
   "$BASE_URL/api/v1/assistants/$assistant_id/runs"
 
+python3 -c 'import json,sys; data=json.load(open(sys.argv[1]))["data"]; events=[event["type"] for event in data["events"]]; assert data["status"] == "completed"; assert data["metadata"]["runtime"]["provider"] == "local"; assert data["metadata"]["runtime"]["rag"]["chunkCount"] >= 1; assert "runtime.run_completed" in events; assert "runtime.rag_context_attached" in events; assert "runtime.mcp_tools_attached" in events' "$response_file"
+
 run_id="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["data"]["id"])' "$response_file")"
 
 expect_status 200 "agent-run-list-assistant" \
@@ -822,6 +848,8 @@ expect_status 200 "agent-run-detail" \
 expect_status 200 "agent-run-events" \
   -b "$cookie_file" \
   "$BASE_URL/api/v1/agent-runs/$run_id/events"
+
+python3 -c 'import json,sys; events=[event["type"] for event in json.load(open(sys.argv[1]))["data"]]; assert "runtime.run_started" in events; assert "runtime.run_completed" in events' "$response_file"
 
 cat > "$payload_file" <<'JSON'
 {

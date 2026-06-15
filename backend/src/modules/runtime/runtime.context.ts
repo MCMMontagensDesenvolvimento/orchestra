@@ -1,0 +1,155 @@
+import { createHash } from 'node:crypto';
+import type { Prisma } from '@prisma/client';
+import { agentRunsRepository } from '../agent-runs/agent-runs.repository';
+import type { AgentRunMode } from '../agent-runs/agent-runs.schema';
+import type { AgentRunPrecheckSnapshot } from '../agent-runs/agent-runs.types';
+import type { RuntimeExecutionContext, RuntimeMcpSummary, RuntimeProvider, RuntimeRagSummary } from './runtime.types';
+
+type RuntimeSummary = Awaited<ReturnType<typeof agentRunsRepository.getRuntimeContextSummary>>;
+
+interface BuildRuntimeContextInput {
+  requestId: string;
+  traceId: string;
+  runId: string;
+  userId: string;
+  tenantId: string;
+  workspaceId: string;
+  assistant: {
+    id: string;
+    name: string;
+    description: string | null;
+    status: string;
+    versions: Array<{
+      id: string;
+      instructions: string | null;
+      displayName?: string | null;
+    }>;
+  };
+  assistantVersionId: string | null;
+  assistantPublicationId: string | null;
+  executionMode: AgentRunMode;
+  provider: RuntimeProvider;
+  input: string;
+  executionPolicy: Record<string, unknown>;
+  precheckSnapshot: AgentRunPrecheckSnapshot;
+  metadata?: Prisma.InputJsonValue;
+}
+
+function previewInput(value: string) {
+  return value.replace(/\s+/g, ' ').trim().slice(0, 500);
+}
+
+function hashInput(value: string) {
+  return createHash('sha256').update(value).digest('hex');
+}
+
+function policySnapshot(policy: Record<string, unknown>): Prisma.InputJsonValue {
+  return {
+    executionMode: String(policy.executionMode ?? 'sandbox'),
+    sandboxEnabled: Boolean(policy.sandboxEnabled),
+    sandboxBlocksExternalTools: Boolean(policy.sandboxBlocksExternalTools),
+    sandboxBlocksRealProviders: Boolean(policy.sandboxBlocksRealProviders),
+    sandboxLogsRequired: Boolean(policy.sandboxLogsRequired),
+    allowDraftTesting: Boolean(policy.allowDraftTesting),
+    allowPublishedExecution: Boolean(policy.allowPublishedExecution),
+    isExecutionEnabled: Boolean(policy.isExecutionEnabled),
+  };
+}
+
+function buildRagSummary(summary: RuntimeSummary): RuntimeRagSummary {
+  return {
+    ragReady: summary.knowledgeBindingsCount > 0 && summary.chunkCount > 0,
+    knowledgeBindingsCount: summary.knowledgeBindingsCount,
+    chunkCount: summary.chunkCount,
+    sourceReferenceCount: summary.sourceReferenceCount,
+    lastRagQueryId: summary.lastRagQuery?.id ?? null,
+    sourceReferences: summary.sourceReferences.map((reference) => ({
+      id: reference.id,
+      label: reference.label,
+      sourceUri: reference.sourceUri,
+    })),
+  };
+}
+
+function buildMcpSummary(summary: RuntimeSummary): RuntimeMcpSummary {
+  const allowedSandboxTools: RuntimeMcpSummary['allowedSandboxTools'] = [];
+  const blockedTools: RuntimeMcpSummary['blockedTools'] = [];
+  const requiresApproval: RuntimeMcpSummary['requiresApproval'] = [];
+
+  for (const binding of summary.mcpBindings) {
+    const tool = binding.tool;
+    if (!tool) {
+      blockedTools.push({ id: binding.id, name: binding.server.name, reason: 'binding_without_tool' });
+      continue;
+    }
+    if (binding.mode === 'disabled') {
+      blockedTools.push({ id: tool.id, name: tool.name, reason: 'binding_disabled' });
+      continue;
+    }
+    if (binding.server.deletedAt || binding.server.status !== 'active') {
+      blockedTools.push({ id: tool.id, name: tool.name, reason: 'server_not_active' });
+      continue;
+    }
+    if (tool.deletedAt || !tool.isEnabled) {
+      blockedTools.push({ id: tool.id, name: tool.name, reason: 'tool_disabled' });
+      continue;
+    }
+    if (tool.requiresApproval || tool.riskLevel === 'high' || tool.riskLevel === 'critical') {
+      requiresApproval.push({ id: tool.id, name: tool.name, riskLevel: tool.riskLevel });
+      continue;
+    }
+    allowedSandboxTools.push({ id: tool.id, name: tool.name, riskLevel: tool.riskLevel });
+  }
+
+  return {
+    mcpBindingsCount: summary.mcpBindings.length,
+    allowedSandboxTools,
+    blockedTools,
+    requiresApproval,
+    lastToolCallIds: summary.lastToolCallIds,
+  };
+}
+
+export async function buildRuntimeExecutionContext(input: BuildRuntimeContextInput): Promise<RuntimeExecutionContext> {
+  const summary = await agentRunsRepository.getRuntimeContextSummary({
+    tenantId: input.tenantId,
+    workspaceId: input.workspaceId,
+    assistantId: input.assistant.id,
+  });
+  const selectedVersion = input.assistant.versions.find((version) => version.id === input.assistantVersionId) ?? input.assistant.versions[0];
+
+  return {
+    requestId: input.requestId,
+    traceId: input.traceId,
+    runId: input.runId,
+    tenantId: input.tenantId,
+    workspaceId: input.workspaceId,
+    userId: input.userId,
+    assistantId: input.assistant.id,
+    assistantVersionId: input.assistantVersionId,
+    assistantPublicationId: input.assistantPublicationId,
+    executionMode: input.executionMode,
+    provider: input.provider,
+    assistant: {
+      id: input.assistant.id,
+      name: input.assistant.name,
+      description: input.assistant.description,
+      status: input.assistant.status,
+      objective: input.assistant.description,
+    },
+    compiledPrompt: {
+      mode: 'placeholder',
+      assistantVersionId: selectedVersion?.id ?? null,
+      instructionChars: selectedVersion?.instructions?.length ?? 0,
+    },
+    executionPolicySnapshot: policySnapshot(input.executionPolicy),
+    precheckSnapshot: input.precheckSnapshot,
+    rag: buildRagSummary(summary),
+    mcp: buildMcpSummary(summary),
+    input: {
+      hash: hashInput(input.input),
+      preview: previewInput(input.input),
+    },
+    metadata: input.metadata,
+  };
+}

@@ -58,6 +58,121 @@ export const agentRunsRepository = {
     });
   },
 
+  async getRuntimeContextSummary(input: { tenantId: string; workspaceId: string; assistantId: string }) {
+    const knowledgeBindings = await prisma.assistantKnowledgeBinding.findMany({
+      where: {
+        tenantId: input.tenantId,
+        workspaceId: input.workspaceId,
+        assistantId: input.assistantId,
+        isEnabled: true,
+      },
+      select: { knowledgeBaseId: true },
+    });
+    const knowledgeBaseIds = knowledgeBindings.map((binding) => binding.knowledgeBaseId);
+
+    const [
+      chunkCount,
+      sourceReferenceCount,
+      lastRagQuery,
+      sourceReferences,
+      mcpBindings,
+      lastToolCalls,
+    ] = await Promise.all([
+      knowledgeBaseIds.length > 0
+        ? prisma.knowledgeChunk.count({
+          where: {
+            tenantId: input.tenantId,
+            workspaceId: input.workspaceId,
+            knowledgeBaseId: { in: knowledgeBaseIds },
+            status: 'active',
+          },
+        })
+        : Promise.resolve(0),
+      knowledgeBaseIds.length > 0
+        ? prisma.knowledgeSourceReference.count({
+          where: {
+            tenantId: input.tenantId,
+            workspaceId: input.workspaceId,
+            knowledgeBaseId: { in: knowledgeBaseIds },
+          },
+        })
+        : Promise.resolve(0),
+      prisma.ragQuery.findFirst({
+        where: {
+          tenantId: input.tenantId,
+          workspaceId: input.workspaceId,
+          assistantId: input.assistantId,
+        },
+        orderBy: { createdAt: 'desc' },
+        select: { id: true, status: true, resultCount: true },
+      }),
+      knowledgeBaseIds.length > 0
+        ? prisma.knowledgeSourceReference.findMany({
+          where: {
+            tenantId: input.tenantId,
+            workspaceId: input.workspaceId,
+            knowledgeBaseId: { in: knowledgeBaseIds },
+          },
+          orderBy: { createdAt: 'desc' },
+          take: 5,
+          select: {
+            id: true,
+            label: true,
+            sourceUri: true,
+          },
+        })
+        : Promise.resolve([]),
+      prisma.assistantMcpBinding.findMany({
+        where: {
+          tenantId: input.tenantId,
+          workspaceId: input.workspaceId,
+          assistantId: input.assistantId,
+          isEnabled: true,
+        },
+        include: {
+          tool: {
+            select: {
+              id: true,
+              name: true,
+              riskLevel: true,
+              requiresApproval: true,
+              isEnabled: true,
+              deletedAt: true,
+            },
+          },
+          server: {
+            select: {
+              id: true,
+              name: true,
+              status: true,
+              deletedAt: true,
+            },
+          },
+        },
+      }),
+      prisma.mcpToolCall.findMany({
+        where: {
+          tenantId: input.tenantId,
+          workspaceId: input.workspaceId,
+          assistantId: input.assistantId,
+        },
+        orderBy: { createdAt: 'desc' },
+        take: 5,
+        select: { id: true },
+      }),
+    ]);
+
+    return {
+      knowledgeBindingsCount: knowledgeBindings.length,
+      chunkCount,
+      sourceReferenceCount,
+      lastRagQuery,
+      sourceReferences,
+      mcpBindings,
+      lastToolCallIds: lastToolCalls.map((toolCall) => toolCall.id),
+    };
+  },
+
   createRun(input: {
     id?: string;
     tenantId: string;

@@ -19,6 +19,7 @@ import {
   createRagQueriesRouter,
 } from '../modules/knowledge/knowledge.routes';
 import { createMcpRouter } from '../modules/mcp/mcp.routes';
+import { createRuntimeRouter } from '../modules/runtime/runtime.routes';
 
 export type AppDependencies = HealthDependencies;
 
@@ -41,6 +42,7 @@ export function registerRoutes(app: express.Express, dependencies: AppDependenci
   api.use('/knowledge-data-sources', createKnowledgeDataSourcesRouter());
   api.use('/rag/queries', createRagQueriesRouter());
   api.use('/mcp', createMcpRouter());
+  api.use('/runtime', createRuntimeRouter());
   api.use('/audit-logs', createAuditRouter());
   api.use('/settings', createSettingsRouter());
 
