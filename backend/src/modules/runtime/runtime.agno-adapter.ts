@@ -42,7 +42,10 @@ export class AgnoRuntimeAdapter implements RuntimeAdapter {
   }
 
   async execute(_context: RuntimeExecutionContext): Promise<RuntimeExecutionResult> {
+    void _context;
+
     const health = this.computeHealth();
+
     return {
       provider: this.provider,
       status: 'failed',
