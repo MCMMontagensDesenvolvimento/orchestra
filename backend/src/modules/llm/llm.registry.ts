@@ -1,12 +1,13 @@
 import { getLlmConfig } from './llm.config';
 import type { LlmProvider, LlmProviderName, LlmProviderSummary } from './llm.types';
-import { agnoLocalLlmProvider, anthropicLlmProvider, azureOpenAiLlmProvider, openAiLlmProvider } from './providers/external-fail-closed-provider';
+import { agnoLocalLlmProvider, anthropicLlmProvider, azureOpenAiLlmProvider } from './providers/external-fail-closed-provider';
+import { openAiRealLlmProvider } from './providers/openai-llm-provider';
 import { localLlmProvider } from './providers/local-llm-provider';
 
 const providers = new Map<LlmProviderName, LlmProvider>([
   ['local_deterministic', localLlmProvider],
   ['agno_local', agnoLocalLlmProvider],
-  ['openai', openAiLlmProvider],
+  ['openai', openAiRealLlmProvider],
   ['azure_openai', azureOpenAiLlmProvider],
   ['anthropic', anthropicLlmProvider],
 ]);

@@ -45,6 +45,7 @@ export interface LlmGenerateTextRequest {
   input: {
     hash: string;
     preview: string;
+    raw?: string;
   };
   prompt?: {
     instructionsPreview?: string | null;

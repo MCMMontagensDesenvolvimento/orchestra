@@ -133,6 +133,7 @@ export const llmService = {
       input: {
         hash: inputHash,
         preview: inputPreview,
+        raw: input.input,
       },
       model: input.model,
       context: {
@@ -157,7 +158,12 @@ export const llmService = {
         outputHash: result.outputHash,
         outputPreview: result.outputPreview,
         errorCode: result.errorCode,
-        externalProviderCalled: false,
+        externalProviderCalled:
+          typeof result.metadata === 'object'
+          && result.metadata !== null
+          && 'externalProviderCalled' in result.metadata
+            ? Boolean((result.metadata as Record<string, unknown>).externalProviderCalled)
+            : false,
       },
     });
 
