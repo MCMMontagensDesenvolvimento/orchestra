@@ -3,6 +3,7 @@ import type { Prisma } from '@prisma/client';
 import { agentRunsRepository } from '../agent-runs/agent-runs.repository';
 import type { AgentRunMode } from '../agent-runs/agent-runs.schema';
 import type { AgentRunPrecheckSnapshot } from '../agent-runs/agent-runs.types';
+import type { LlmProviderName } from '../llm/llm.types';
 import type { RuntimeExecutionContext, RuntimeMcpSummary, RuntimeProvider, RuntimeRagSummary } from './runtime.types';
 
 type RuntimeSummary = Awaited<ReturnType<typeof agentRunsRepository.getRuntimeContextSummary>>;
@@ -50,6 +51,19 @@ function hashInput(value: string) {
   return createHash('sha256').update(value).digest('hex');
 }
 
+function stringArray(value: unknown): string[] {
+  if (!Array.isArray(value)) return [];
+  return value.filter((item): item is string => typeof item === 'string');
+}
+
+function llmProviderArray(value: unknown): LlmProviderName[] {
+  return stringArray(value).filter((item): item is LlmProviderName => item === 'openai');
+}
+
+function llmProviderValue(value: unknown): LlmProviderName | null {
+  return value === 'openai' ? value : null;
+}
+
 function policySnapshot(policy: Record<string, unknown>): Prisma.InputJsonValue {
   return {
     executionMode: String(policy.executionMode ?? 'sandbox'),
@@ -60,6 +74,9 @@ function policySnapshot(policy: Record<string, unknown>): Prisma.InputJsonValue 
     allowDraftTesting: Boolean(policy.allowDraftTesting),
     allowPublishedExecution: Boolean(policy.allowPublishedExecution),
     isExecutionEnabled: Boolean(policy.isExecutionEnabled),
+    allowExternalLlmProviders: Boolean(policy.allowExternalLlmProviders),
+    allowedLlmProviders: llmProviderArray(policy.allowedLlmProviders),
+    defaultLlmProvider: llmProviderValue(policy.defaultLlmProvider),
   };
 }
 
@@ -171,12 +188,18 @@ export async function buildRuntimeExecutionContext(input: BuildRuntimeContextInp
       temperature: decimalToNumber(selectedVersion?.temperature),
     },
     executionPolicySnapshot: policySnapshot(input.executionPolicy),
+    llmPolicySnapshot: {
+      allowExternalLlmProviders: Boolean(input.executionPolicy.allowExternalLlmProviders),
+      allowedLlmProviders: llmProviderArray(input.executionPolicy.allowedLlmProviders),
+      defaultLlmProvider: llmProviderValue(input.executionPolicy.defaultLlmProvider),
+    },
     precheckSnapshot: input.precheckSnapshot,
     rag: buildRagSummary(summary),
     mcp: buildMcpSummary(summary),
     input: {
       hash: hashInput(input.input),
       preview: previewInput(input.input),
+      raw: input.input,
     },
     metadata: input.metadata,
   };

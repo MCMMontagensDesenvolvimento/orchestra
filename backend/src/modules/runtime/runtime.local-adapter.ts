@@ -7,9 +7,48 @@ import type {
 } from './runtime.types';
 import { getRuntimeConfig } from './runtime.config';
 import { llmService } from '../llm/llm.service';
+import type { LlmProviderName } from '../llm/llm.types';
 
 const maxInputPreviewChars = 500;
 const maxOutputPreviewChars = 800;
+
+function resolveRuntimeLlmProvider(context: RuntimeExecutionContext): {
+  provider: LlmProviderName;
+  model?: string | null;
+  externalProviderCalled: boolean;
+  reason: string;
+} {
+  const policy = context.llmPolicySnapshot;
+
+  if (context.executionMode === 'sandbox') {
+    return {
+      provider: 'local_deterministic',
+      externalProviderCalled: false,
+      reason: 'sandbox_blocks_real_providers',
+    };
+  }
+
+  if (
+    policy.allowExternalLlmProviders &&
+    policy.defaultLlmProvider === 'openai' &&
+    policy.allowedLlmProviders.includes('openai')
+  ) {
+    return {
+      provider: 'openai',
+      model: context.compiledPrompt.modelProvider === 'openai'
+        ? context.compiledPrompt.modelName
+        : undefined,
+      externalProviderCalled: true,
+      reason: 'assistant_policy_opt_in',
+    };
+  }
+
+  return {
+    provider: 'local_deterministic',
+    externalProviderCalled: false,
+    reason: 'assistant_policy_default_local',
+  };
+}
 
 export class LocalDeterministicRuntimeAdapter implements RuntimeAdapter {
   readonly provider = 'local' as const;
@@ -76,11 +115,14 @@ export class LocalDeterministicRuntimeAdapter implements RuntimeAdapter {
       };
     }
 
+    const llmSelection = resolveRuntimeLlmProvider(context);
+
     const llmResult = await llmService.generateForRuntime({
       requestId: context.requestId,
       traceId: context.traceId,
       runId: context.runId,
-      provider: 'local_deterministic',
+      provider: llmSelection.provider,
+      model: llmSelection.model,
       input: context.input,
       prompt: context.compiledPrompt,
       context: {
@@ -99,7 +141,13 @@ export class LocalDeterministicRuntimeAdapter implements RuntimeAdapter {
         message: llmResult.errorMessage ?? llmResult.message,
         errorCode: llmResult.errorCode,
         errorMessage: llmResult.errorMessage,
-        metadata: llmResult.metadata,
+        metadata: {
+          llmProvider: llmResult.provider,
+          llmModel: llmResult.model,
+          externalProviderCalled: llmSelection.externalProviderCalled,
+          llmSelectionReason: llmSelection.reason,
+          llm: llmResult.metadata,
+        },
         events: [
           {
             type: 'llm_generation_blocked',
@@ -109,6 +157,8 @@ export class LocalDeterministicRuntimeAdapter implements RuntimeAdapter {
               llmProvider: llmResult.provider,
               errorCode: llmResult.errorCode,
               inputHash: llmResult.inputHash,
+              externalProviderCalled: llmSelection.externalProviderCalled,
+              reason: llmSelection.reason,
             },
           },
           {
@@ -128,11 +178,15 @@ export class LocalDeterministicRuntimeAdapter implements RuntimeAdapter {
       status: 'completed',
       outputPreview: outputPreview.slice(0, maxOutputPreviewChars),
       outputHash: llmResult.outputHash,
-      message: 'Runtime local deterministico concluiu a execucao sem provider externo.',
+      message: llmSelection.externalProviderCalled
+        ? 'Runtime local concluiu a execucao usando provider LLM externo governado.'
+        : 'Runtime local deterministico concluiu a execucao sem provider externo.',
       metadata: {
         llmProvider: llmResult.provider,
         llmModel: llmResult.model,
         llmLatencyMs: llmResult.latencyMs,
+        externalProviderCalled: llmSelection.externalProviderCalled,
+        llmSelectionReason: llmSelection.reason,
         llm: llmResult.metadata,
       },
       events: [
@@ -149,11 +203,14 @@ export class LocalDeterministicRuntimeAdapter implements RuntimeAdapter {
         {
           type: 'llm_provider_selected',
           status: 'running',
-          message: 'LLM provider local deterministico selecionado pelo runtime local.',
+          message: llmSelection.externalProviderCalled
+            ? 'LLM provider externo selecionado por policy governada do assistant.'
+            : 'LLM provider local deterministico selecionado pelo runtime local.',
           metadata: {
             llmProvider: llmResult.provider,
             model: llmResult.model,
-            externalProviderCalled: false,
+            externalProviderCalled: llmSelection.externalProviderCalled,
+            reason: llmSelection.reason,
           },
         },
         {
@@ -211,19 +268,27 @@ export class LocalDeterministicRuntimeAdapter implements RuntimeAdapter {
         {
           type: 'llm_generation_started',
           status: 'running',
-          message: 'Geracao LLM local iniciada.',
+          message: llmSelection.externalProviderCalled
+            ? 'Geracao LLM externa governada iniciada.'
+            : 'Geracao LLM local iniciada.',
           metadata: {
-            simulated: true,
-            externalProvidersCalled: false,
+            simulated: !llmSelection.externalProviderCalled,
+            externalProvidersCalled: llmSelection.externalProviderCalled,
+            llmProvider: llmSelection.provider,
             inputHash: context.input.hash,
           },
         },
         {
           type: 'llm_generation_completed',
           status: 'completed',
-          message: 'Geracao LLM local concluida.',
+          message: llmSelection.externalProviderCalled
+            ? 'Geracao LLM externa governada concluida.'
+            : 'Geracao LLM local concluida.',
           metadata: {
-            simulated: true,
+            simulated: !llmSelection.externalProviderCalled,
+            externalProvidersCalled: llmSelection.externalProviderCalled,
+            llmProvider: llmResult.provider,
+            model: llmResult.model,
             outputHash: llmResult.outputHash,
             outputPreview: outputPreview.slice(0, 180),
             latencyMs: llmResult.latencyMs,
@@ -232,9 +297,14 @@ export class LocalDeterministicRuntimeAdapter implements RuntimeAdapter {
         {
           type: 'model_completed',
           status: 'completed',
-          message: 'Modelo simulado concluiu resposta deterministica.',
+          message: llmSelection.externalProviderCalled
+            ? 'Modelo externo concluiu resposta governada.'
+            : 'Modelo simulado concluiu resposta deterministica.',
           metadata: {
-            simulated: true,
+            simulated: !llmSelection.externalProviderCalled,
+            externalProvidersCalled: llmSelection.externalProviderCalled,
+            llmProvider: llmResult.provider,
+            model: llmResult.model,
             outputHash: llmResult.outputHash,
           },
         },

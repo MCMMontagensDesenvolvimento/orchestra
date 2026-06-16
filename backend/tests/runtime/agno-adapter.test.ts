@@ -85,6 +85,11 @@ function context(): RuntimeExecutionContext {
       allowPublishedExecution: false,
       isExecutionEnabled: true,
     } as Prisma.InputJsonValue,
+    llmPolicySnapshot: {
+      allowExternalLlmProviders: false,
+      allowedLlmProviders: [],
+      defaultLlmProvider: null,
+    },
     precheckSnapshot: {
       canExecute: true,
       mode: 'sandbox',

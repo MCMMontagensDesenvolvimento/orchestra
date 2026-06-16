@@ -69,6 +69,12 @@ function versionData(input: AssistantVersionCreateInput & { version: string }, c
   };
 }
 
+function nullableJson(value: unknown) {
+  if (value === undefined) return undefined;
+  if (value === null) return Prisma.DbNull;
+  return value as Prisma.InputJsonValue;
+}
+
 function executionPolicyData(input: AssistantExecutionPolicyUpdateInput, updatedById?: string) {
   return {
     executionMode: input.executionMode,
@@ -78,6 +84,9 @@ function executionPolicyData(input: AssistantExecutionPolicyUpdateInput, updated
     sandboxAllowedForRoles: input.sandboxAllowedForRoles as Prisma.InputJsonValue | undefined,
     sandboxBlocksExternalTools: input.sandboxBlocksExternalTools,
     sandboxBlocksRealProviders: input.sandboxBlocksRealProviders,
+    allowExternalLlmProviders: input.allowExternalLlmProviders,
+    allowedLlmProviders: nullableJson(input.allowedLlmProviders),
+    defaultLlmProvider: input.defaultLlmProvider,
     sandboxLogsRequired: input.sandboxLogsRequired,
     sandboxCostLimitPlaceholder:
       input.sandboxCostLimitPlaceholder === null
