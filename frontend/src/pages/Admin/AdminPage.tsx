@@ -5,6 +5,7 @@ import { QueryState, ListLoading } from '@/components/shared/QueryState';
 import { Plus, Users, Shield, Settings, Search, KeyRound, Briefcase } from 'lucide-react';
 import { Link, useLocation } from 'react-router-dom';
 import { usePermissions, useRoles, useUsers, useWorkspaces } from '@/hooks/queries/useAdmin';
+import { LlmCatalogSection } from './LlmCatalogSection';
 
 const adminTabs = [
   { label: 'Usuarios', path: '/app/admin/users', icon: Users },
@@ -103,27 +104,31 @@ export default function AdminPage() {
             </div>
           </div>
         ) : activePath.endsWith('/settings') ? (
-          <div className="rounded-lg border bg-card overflow-hidden">
-            <div className="border-b p-3 font-medium text-sm">Workspaces</div>
-            <QueryState
-              query={workspacesQuery}
-              isEmpty={workspaces.length === 0}
-              loading={<div className="p-4"><ListLoading rows={4} /></div>}
-              emptyIcon={<Briefcase className="h-6 w-6" />}
-              emptyTitle="Nenhum workspace cadastrado"
-              emptyDescription="Os workspaces do tenant aparecerao aqui."
-              errorTitle="Nao foi possivel carregar workspaces"
-              errorDescription="Tente novamente em instantes."
-            >
-              <div className="divide-y">
-                {workspaces.map((workspace) => (
-                  <div key={workspace.id} className="p-4">
-                    <p className="font-medium">{workspace.name}</p>
-                    <p className="text-xs text-muted-foreground">{workspace.description ?? workspace.slug ?? workspace.id}</p>
-                  </div>
-                ))}
-              </div>
-            </QueryState>
+          <div className="space-y-4">
+            <LlmCatalogSection />
+
+            <div className="rounded-lg border bg-card overflow-hidden">
+              <div className="border-b p-3 font-medium text-sm">Workspaces</div>
+              <QueryState
+                query={workspacesQuery}
+                isEmpty={workspaces.length === 0}
+                loading={<div className="p-4"><ListLoading rows={4} /></div>}
+                emptyIcon={<Briefcase className="h-6 w-6" />}
+                emptyTitle="Nenhum workspace cadastrado"
+                emptyDescription="Os workspaces do tenant aparecerao aqui."
+                errorTitle="Nao foi possivel carregar workspaces"
+                errorDescription="Tente novamente em instantes."
+              >
+                <div className="divide-y">
+                  {workspaces.map((workspace) => (
+                    <div key={workspace.id} className="p-4">
+                      <p className="font-medium">{workspace.name}</p>
+                      <p className="text-xs text-muted-foreground">{workspace.description ?? workspace.slug ?? workspace.id}</p>
+                    </div>
+                  ))}
+                </div>
+              </QueryState>
+            </div>
           </div>
         ) : (
           <div className="rounded-lg border bg-card overflow-hidden">
