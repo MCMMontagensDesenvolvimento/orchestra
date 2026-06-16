@@ -1,6 +1,7 @@
 import type { Prisma } from '@prisma/client';
 import type { AgentRunMode } from '../agent-runs/agent-runs.schema';
 import type { AgentRunEventInput, AgentRunPrecheckSnapshot } from '../agent-runs/agent-runs.types';
+import type { LlmProviderName } from '../llm/llm.types';
 
 export const runtimeProviderValues = ['local', 'agno_stub', 'agno'] as const;
 export const runtimeHealthStatusValues = ['healthy', 'degraded', 'disabled', 'misconfigured', 'unavailable'] as const;
@@ -153,12 +154,18 @@ export interface RuntimeExecutionContext {
     temperature?: number | null;
   };
   executionPolicySnapshot: Prisma.InputJsonValue;
+  llmPolicySnapshot: {
+    allowExternalLlmProviders: boolean;
+    allowedLlmProviders: LlmProviderName[];
+    defaultLlmProvider: LlmProviderName | null;
+  };
   precheckSnapshot: AgentRunPrecheckSnapshot;
   rag: RuntimeRagSummary;
   mcp: RuntimeMcpSummary;
   input: {
     hash: string;
     preview: string;
+    raw?: string;
   };
   metadata?: Prisma.InputJsonValue;
 }

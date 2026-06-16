@@ -3,34 +3,10 @@ import { AppError } from '../../shared/errors/app-error';
 import type { AuthenticatedUser } from '../../shared/types/auth';
 import { paginationMeta } from '../../shared/validation/pagination';
 import { recordAuditEvent } from '../audit/audit.service';
-import {
-  mapAssistant,
-  mapAssistantApprovalRequest,
-  mapAssistantExecutionPolicy,
-  mapAssistantFeedback,
-  mapAssistantPublication,
-  mapAssistantShare,
-  mapAssistantTestResult,
-  mapAssistantVersion,
-} from './assistants.mapper';
+import { mapAssistant, mapAssistantApprovalRequest, mapAssistantExecutionPolicy, mapAssistantFeedback, mapAssistantPublication, mapAssistantShare, mapAssistantTestResult, mapAssistantVersion } from './assistants.mapper';
 import { assistantPolicies, type AssistantPolicySubject } from './assistants.policy';
 import { assistantsRepository } from './assistants.repository';
-import type {
-  AssistantCreateInput,
-  AssistantApprovalCreateInput,
-  AssistantApprovalDecisionInput,
-  AssistantExecutionPolicyUpdateInput,
-  AssistantExecutionPrecheckInput,
-  AssistantFeedbackCreateInput,
-  AssistantsQuery,
-  AssistantPublishInput,
-  AssistantRollbackInput,
-  AssistantRestoreInput,
-  AssistantShareCreateInput,
-  AssistantTestResultCreateInput,
-  AssistantUpdateInput,
-  AssistantVersionCreateInput,
-} from './assistants.schema';
+import type { AssistantCreateInput, AssistantApprovalCreateInput, AssistantApprovalDecisionInput, AssistantExecutionPolicyUpdateInput, AssistantExecutionPrecheckInput, AssistantFeedbackCreateInput, AssistantsQuery, AssistantPublishInput, AssistantRollbackInput, AssistantRestoreInput, AssistantShareCreateInput, AssistantTestResultCreateInput, AssistantUpdateInput, AssistantVersionCreateInput } from './assistants.schema';
 
 interface RequestContext {
   requestId: string;
@@ -744,6 +720,46 @@ export const assistantsService = {
     if (input.sandboxLogsRequired === false) {
       throw new AppError(422, 'SANDBOX_LOGS_REQUIRED', 'Sandbox deve exigir logs nesta fase.');
     }
+
+    const currentPolicy = await assistantsRepository.getExecutionPolicy(assistant);
+
+    const currentAllowedLlmProviders = Array.isArray(currentPolicy.allowedLlmProviders)
+      ? currentPolicy.allowedLlmProviders.filter((provider: unknown): provider is 'openai' => provider === 'openai')
+      : [];
+
+    const nextAllowExternalLlmProviders =
+      input.allowExternalLlmProviders ?? currentPolicy.allowExternalLlmProviders;
+
+    const nextAllowedLlmProviders =
+      'allowedLlmProviders' in input
+        ? (input.allowedLlmProviders ?? [])
+        : currentAllowedLlmProviders;
+
+    const nextDefaultLlmProvider =
+      'defaultLlmProvider' in input
+        ? input.defaultLlmProvider
+        : currentPolicy.defaultLlmProvider === 'openai'
+          ? 'openai'
+          : null;
+
+    if (nextAllowExternalLlmProviders) {
+      if (!nextAllowedLlmProviders.includes('openai')) {
+        throw new AppError(422, 'OPENAI_PROVIDER_POLICY_REQUIRED', 'Para habilitar provider LLM externo nesta fase, allowedLlmProviders deve incluir openai.');
+      }
+
+      if (nextDefaultLlmProvider && nextDefaultLlmProvider !== 'openai') {
+        throw new AppError(422, 'UNSUPPORTED_EXTERNAL_LLM_PROVIDER', 'Nesta fase, apenas openai pode ser usado como provider LLM externo.');
+      }
+    }
+
+    if (nextDefaultLlmProvider === 'openai' && !nextAllowExternalLlmProviders) {
+      throw new AppError(422, 'EXTERNAL_LLM_PROVIDER_NOT_ENABLED', 'defaultLlmProvider=openai exige allowExternalLlmProviders=true.');
+    }
+
+    if (nextDefaultLlmProvider === 'openai' && !nextAllowedLlmProviders.includes('openai')) {
+      throw new AppError(422, 'DEFAULT_LLM_PROVIDER_NOT_ALLOWED', 'defaultLlmProvider deve estar presente em allowedLlmProviders.');
+    }
+
     if (assistant.status === 'archived') {
       throw new AppError(422, 'ARCHIVED_ASSISTANT_BLOCKED', 'Assistente arquivado nao pode ter execucao habilitada.');
     }
@@ -771,6 +787,8 @@ export const assistantsService = {
         executionMode: policy.executionMode,
         isExecutionEnabled: policy.isExecutionEnabled,
         requiresApprovalToPublish: policy.requiresApprovalToPublish,
+        allowExternalLlmProviders: policy.allowExternalLlmProviders,
+        defaultLlmProvider: policy.defaultLlmProvider,
       },
       requestId: context.requestId,
       ipAddress: context.ipAddress,
@@ -786,6 +804,27 @@ export const assistantsService = {
         entity: 'assistant_execution_policy',
         entityId: policy.id,
         metadata: { assistantId: assistant.id, sandboxEnabled: policy.sandboxEnabled },
+        requestId: context.requestId,
+        ipAddress: context.ipAddress,
+        userAgent: context.userAgent,
+      });
+    }
+
+    const llmProviderPolicyKeys = ['allowExternalLlmProviders', 'allowedLlmProviders', 'defaultLlmProvider'];
+    if (llmProviderPolicyKeys.some((key) => key in input)) {
+      await recordAuditEvent({
+        tenantId: user.tenant.id,
+        workspaceId: assistant.workspaceId,
+        actorUserId: user.id,
+        action: 'assistant_llm_provider_policy_updated',
+        entity: 'assistant_execution_policy',
+        entityId: policy.id,
+        metadata: {
+          assistantId: assistant.id,
+          allowExternalLlmProviders: policy.allowExternalLlmProviders,
+          allowedLlmProviders: policy.allowedLlmProviders,
+          defaultLlmProvider: policy.defaultLlmProvider,
+        },
         requestId: context.requestId,
         ipAddress: context.ipAddress,
         userAgent: context.userAgent,

@@ -10,6 +10,7 @@ export const assistantSharePermissionValues = ['can_use', 'can_edit', 'can_manag
 export const assistantApprovalStatusValues = ['pending', 'approved', 'rejected', 'cancelled', 'expired'] as const;
 export const assistantApprovalActionValues = ['publish', 'rollback', 'restore', 'enable_execution', 'configure_sandbox'] as const;
 export const assistantExecutionModeValues = ['draft_test', 'sandbox', 'published', 'blocked', 'archived'] as const;
+export const assistantExternalLlmProviderValues = ['openai'] as const;
 
 export const assistantsQuerySchema = paginationQuerySchema.extend({
   sortBy: z.enum(['name', 'status', 'createdAt', 'updatedAt']).default('updatedAt'),
@@ -146,6 +147,9 @@ export const assistantExecutionPolicyUpdateSchema = z.object({
   sandboxAllowedForRoles: z.array(z.string().trim().min(1).max(80)).max(20).optional(),
   sandboxBlocksExternalTools: z.boolean().optional(),
   sandboxBlocksRealProviders: z.boolean().optional(),
+  allowExternalLlmProviders: z.boolean().optional(),
+  allowedLlmProviders: z.array(z.enum(assistantExternalLlmProviderValues)).max(5).nullable().optional(),
+  defaultLlmProvider: z.enum(assistantExternalLlmProviderValues).nullable().optional(),
   sandboxLogsRequired: z.boolean().optional(),
   sandboxCostLimitPlaceholder: z.number().min(0).max(1_000_000).nullable().optional(),
   allowDraftTesting: z.boolean().optional(),

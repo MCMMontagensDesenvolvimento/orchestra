@@ -1,8 +1,5 @@
 import request from 'supertest';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { createApp } from '../../src/app/app';
-import { env } from '../../src/config/env';
-import { signSession } from '../../src/shared/security/session';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { AuthenticatedUser } from '../../src/shared/types/auth';
 
 const mocks = vi.hoisted(() => ({
@@ -12,6 +9,48 @@ const mocks = vi.hoisted(() => ({
 vi.mock('../../src/modules/audit/audit.service', () => ({
   recordAuditEvent: mocks.recordAuditEvent,
 }));
+
+const originalEnv = { ...process.env };
+
+async function setupApp(overrides: Record<string, string | undefined> = {}) {
+  vi.resetModules();
+
+  process.env = {
+    ...originalEnv,
+    NODE_ENV: 'test',
+    DATABASE_URL: originalEnv.DATABASE_URL ?? 'postgresql://orchestra:orchestra@localhost:5432/orchestra',
+    JWT_SECRET: 'test-secret',
+    COOKIE_NAME: originalEnv.COOKIE_NAME ?? 'orchestra_session',
+
+    LLM_PROVIDERS_ENABLED: 'false',
+    LLM_DEFAULT_PROVIDER: 'local_deterministic',
+    LLM_EXECUTION_ENABLED: 'false',
+    LLM_TEST_GENERATION_ENABLED: 'true',
+    LLM_ALLOW_TEST_GENERATION: 'true',
+
+    OPENAI_ENABLED: 'false',
+    OPENAI_EXECUTION_ENABLED: 'false',
+    OPENAI_API_KEY: '',
+    OPENAI_BASE_URL: 'https://api.openai.com/v1',
+    OPENAI_DEFAULT_MODEL: 'gpt-4o-mini',
+
+    ...overrides,
+  };
+
+  const [{ createApp }, { env }, { signSession }] = await Promise.all([
+    import('../../src/app/app'),
+    import('../../src/config/env'),
+    import('../../src/shared/security/session'),
+  ]);
+
+  return {
+    app: createApp(),
+    sessionCookie(user: AuthenticatedUser = testUser) {
+      const token = signSession({ sub: user.id, user });
+      return `${env.COOKIE_NAME}=${token}`;
+    },
+  };
+}
 
 const tenantId = '00000000-0000-0000-0000-000000000010';
 const workspaceId = '00000000-0000-0000-0000-000000000020';
@@ -38,19 +77,22 @@ const testUser: AuthenticatedUser = {
   permissions: ['llm.providers.read', 'llm.providers.test', 'llm.config.read'],
 };
 
-function sessionCookie(user: AuthenticatedUser = testUser) {
-  const token = signSession({ sub: user.id, user });
-  return `${env.COOKIE_NAME}=${token}`;
-}
-
 describe('llm provider endpoints', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mocks.recordAuditEvent.mockResolvedValue(undefined);
   });
 
+  afterEach(() => {
+    process.env = { ...originalEnv };
+    vi.resetModules();
+    vi.unstubAllGlobals();
+  });
+
   it('returns sanitized provider catalog with external providers disabled by default', async () => {
-    const response = await request(createApp())
+    const { app, sessionCookie } = await setupApp();
+
+    const response = await request(app)
       .get('/api/v1/llm/providers')
       .set('Cookie', [sessionCookie()])
       .expect(200);
@@ -69,7 +111,9 @@ describe('llm provider endpoints', () => {
   });
 
   it('returns sanitized llm config without secrets or endpoints', async () => {
-    const response = await request(createApp())
+    const { app, sessionCookie } = await setupApp();
+
+    const response = await request(app)
       .get('/api/v1/llm/config')
       .set('Cookie', [sessionCookie()])
       .expect(200);
@@ -84,9 +128,11 @@ describe('llm provider endpoints', () => {
   });
 
   it('protects llm endpoints with auth and permissions', async () => {
-    await request(createApp()).get('/api/v1/llm/providers').expect(401);
+    const { app, sessionCookie } = await setupApp();
 
-    const response = await request(createApp())
+    await request(app).get('/api/v1/llm/providers').expect(401);
+
+    const response = await request(app)
       .get('/api/v1/llm/providers')
       .set('Cookie', [sessionCookie({ ...testUser, permissions: [] })])
       .expect(403);
@@ -95,7 +141,9 @@ describe('llm provider endpoints', () => {
   });
 
   it('runs deterministic local test generation without raw prompt or secrets in response', async () => {
-    const response = await request(createApp())
+    const { app, sessionCookie } = await setupApp();
+
+    const response = await request(app)
       .post('/api/v1/llm/test-generation')
       .set('Cookie', [sessionCookie()])
       .send({
@@ -124,7 +172,9 @@ describe('llm provider endpoints', () => {
   });
 
   it('blocks external provider generation fail-closed when disabled', async () => {
-    const response = await request(createApp())
+    const { app, sessionCookie } = await setupApp();
+
+    const response = await request(app)
       .post('/api/v1/llm/test-generation')
       .set('Cookie', [sessionCookie()])
       .send({
@@ -139,12 +189,14 @@ describe('llm provider endpoints', () => {
   });
 
   it('returns structured validation for invalid provider and oversized input', async () => {
-    await request(createApp())
+    const { app, sessionCookie } = await setupApp();
+
+    await request(app)
       .get('/api/v1/llm/providers/not-a-provider/health')
       .set('Cookie', [sessionCookie()])
       .expect(422);
 
-    await request(createApp())
+    await request(app)
       .post('/api/v1/llm/test-generation')
       .set('Cookie', [sessionCookie()])
       .send({
