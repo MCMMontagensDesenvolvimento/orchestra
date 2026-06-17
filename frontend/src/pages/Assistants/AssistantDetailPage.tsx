@@ -118,7 +118,8 @@ export default function AssistantDetailPage() {
   const { data: mockAssistantFeedbacks = [] } = useAssistantFeedback(id);
   const { data: mockTestResults = [] } = useAssistantTestResults(id);
   const { data: assistantApprovals = [] } = useAssistantApprovals(id);
-  const { data: assistantExecutionPolicy } = useAssistantExecutionPolicy(id);
+  const assistantExecutionPolicyQuery = useAssistantExecutionPolicy(id);
+  const assistantExecutionPolicy = assistantExecutionPolicyQuery.data;
   const { data: assistantRuns = [], isLoading: assistantRunsLoading, refetch: refetchAssistantRuns } = useAssistantRuns(id);
   const runtimeHealthQuery = useRuntimeHealth();
   const runtimeCapabilitiesQuery = useRuntimeCapabilities();
@@ -992,6 +993,13 @@ ${tools.map(t => `- ${t.name}: ${t.description}${t.requiresApproval ? ' [REQUER 
               </div>
 
               <div className="space-y-4">
+                <LlmExecutionPolicyPanel
+                  policy={executionPolicy}
+                  isLoading={assistantExecutionPolicyQuery.isLoading}
+                  isError={assistantExecutionPolicyQuery.isError}
+                  onRefresh={() => { void assistantExecutionPolicyQuery.refetch(); }}
+                />
+
                 <div className="rounded-lg border bg-card p-5">
                   <div className="mb-4 flex items-center justify-between gap-2">
                     <h3 className="text-sm font-semibold flex items-center gap-2">
@@ -2236,6 +2244,145 @@ function runtimeMetadata(run: AgentRun) {
   const runtime = (metadata as Record<string, unknown>).runtime;
   if (!runtime || typeof runtime !== 'object' || Array.isArray(runtime)) return undefined;
   return runtime as { provider?: string; status?: string; outputPreview?: string; outputHash?: string };
+}
+
+function LlmExecutionPolicyPanel({ policy, isLoading, isError, onRefresh }: {
+  policy?: AssistantExecutionPolicy;
+  isLoading: boolean;
+  isError: boolean;
+  onRefresh: () => void;
+}) {
+  const allowedProviders = policy?.allowedLlmProviders ?? [];
+  const externalProvidersAllowed = Boolean(policy?.allowExternalLlmProviders);
+  const openAiAllowed = externalProvidersAllowed && allowedProviders.includes('openai');
+  const defaultProvider = policy?.defaultLlmProvider ?? 'local_deterministic';
+  const sandboxBlocksRealProvider = Boolean(policy?.sandboxEnabled && policy.sandboxBlocksRealProviders);
+
+  return (
+    <div className="rounded-lg border bg-card p-5">
+      <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+        <div>
+          <h3 className="text-sm font-semibold flex items-center gap-2">
+            <Shield className="h-4 w-4 text-primary" /> Governanca LLM
+          </h3>
+          <p className="text-xs text-muted-foreground">Leitura segura da policy atual do assistant, sem secrets, prompts brutos ou outputs brutos.</p>
+        </div>
+        <div className="flex flex-wrap items-center gap-2">
+          <Badge variant="outline" className="text-[10px]">Read-only</Badge>
+          {policy && <StatusBadge status={policy.executionMode} />}
+          <Button variant="outline" size="sm" onClick={onRefresh} disabled={isLoading}>
+            <RefreshCw className="h-3.5 w-3.5 mr-1.5" />Atualizar
+          </Button>
+        </div>
+      </div>
+
+      {isLoading && !policy ? (
+        <p className="text-sm text-muted-foreground">Carregando policy de execucao LLM...</p>
+      ) : isError && !policy ? (
+        <div className="rounded-md border border-destructive/30 bg-destructive/5 p-3">
+          <p className="text-sm font-medium text-destructive">Nao foi possivel carregar a policy de execucao.</p>
+          <p className="mt-1 text-xs text-muted-foreground">Tente novamente em instantes. Nenhuma mensagem tecnica interna e exibida aqui.</p>
+        </div>
+      ) : !policy ? (
+        <p className="text-sm text-muted-foreground">Policy ainda nao carregada pelo backend.</p>
+      ) : (
+        <div className="space-y-4">
+          <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+            <PolicySignal
+              label="Provider externo"
+              positive={externalProvidersAllowed}
+              positiveText="Provider externo habilitado"
+              negativeText="Provider externo bloqueado"
+              detail="Controlado por allowExternalLlmProviders"
+            />
+            <PolicySignal
+              label="OpenAI"
+              positive={openAiAllowed}
+              positiveText="OpenAI permitido por policy"
+              negativeText="OpenAI bloqueado por policy"
+              detail="Exige provider externo habilitado e openai na allowlist"
+            />
+            <PolicySignal
+              label="Sandbox"
+              positive={policy.sandboxEnabled}
+              positiveText="Sandbox habilitado"
+              negativeText="Sandbox desabilitado"
+              detail={policy.sandboxRequiresAuth ? 'Auth sandbox obrigatoria' : 'Auth sandbox opcional'}
+            />
+            <PolicySignal
+              label="Provider real"
+              positive={sandboxBlocksRealProvider}
+              positiveText="Sandbox bloqueia provider real"
+              negativeText={policy.sandboxEnabled ? 'Sandbox nao bloqueia provider real' : 'Sandbox desabilitado'}
+              detail={policy.sandboxBlocksExternalTools ? 'Tools externas bloqueadas' : 'Tools externas liberadas'}
+            />
+          </div>
+
+          <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+            <PolicySignal
+              label="Draft test"
+              positive={policy.allowDraftTesting}
+              positiveText="Draft test permitido"
+              negativeText="Draft test bloqueado"
+              detail={`Modo atual: ${policy.executionMode}`}
+            />
+            <PolicySignal
+              label="Published"
+              positive={policy.allowPublishedExecution}
+              positiveText="Execucao publicada permitida"
+              negativeText="Execucao publicada bloqueada"
+              detail={policy.requiresApprovalToPublish ? 'Publicacao exige approval' : 'Approval de publicacao opcional'}
+            />
+            <PolicySignal
+              label="Execucao geral"
+              positive={policy.isExecutionEnabled}
+              positiveText="Execucao geral habilitada"
+              negativeText="Execucao geral bloqueada"
+              detail={policy.sandboxLogsRequired ? 'Logs de sandbox obrigatorios' : 'Logs de sandbox opcionais'}
+            />
+            <div className="rounded-md border p-3">
+              <p className="text-[11px] font-medium uppercase text-muted-foreground">Provider default</p>
+              <Badge variant="secondary" className="mt-2 font-mono text-[10px]">{defaultProvider}</Badge>
+              <p className="mt-2 text-xs text-muted-foreground">
+                {policy.defaultLlmProvider ? 'Default externo definido pela policy' : 'Fallback seguro sem provider externo definido'}
+              </p>
+            </div>
+          </div>
+
+          <div className="rounded-md border p-3">
+            <p className="text-[11px] font-medium uppercase text-muted-foreground">Allowlist LLM</p>
+            <div className="mt-2 flex flex-wrap gap-2">
+              {allowedProviders.length > 0 ? (
+                allowedProviders.map(provider => (
+                  <Badge key={provider} variant="outline" className="font-mono text-[10px]">{provider}</Badge>
+                ))
+              ) : (
+                <Badge variant="outline" className="text-[10px]">Nenhum provider externo permitido</Badge>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function PolicySignal({ label, positive, positiveText, negativeText, detail }: {
+  label: string;
+  positive: boolean;
+  positiveText: string;
+  negativeText: string;
+  detail: string;
+}) {
+  return (
+    <div className="rounded-md border p-3">
+      <p className="text-[11px] font-medium uppercase text-muted-foreground">{label}</p>
+      <Badge variant={positive ? 'secondary' : 'outline'} className="mt-2 text-[10px]">
+        {positive ? positiveText : negativeText}
+      </Badge>
+      <p className="mt-2 text-xs text-muted-foreground">{detail}</p>
+    </div>
+  );
 }
 
 function RuntimePanel({ health, capabilities, config, providers, isLoading, onRefresh }: {

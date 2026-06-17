@@ -80,6 +80,9 @@ interface ApiAssistantExecutionPolicy {
   sandboxBlocksRealProviders: boolean;
   sandboxLogsRequired: boolean;
   sandboxCostLimitPlaceholder: number | null;
+  allowExternalLlmProviders?: boolean;
+  allowedLlmProviders?: unknown;
+  defaultLlmProvider?: unknown;
   allowDraftTesting: boolean;
   allowPublishedExecution: boolean;
   isExecutionEnabled: boolean;
@@ -149,6 +152,12 @@ const mapApproval = (approval: ApiAssistantApprovalRequest): AssistantApprovalRe
   cancelledAt: approval.cancelledAt,
 });
 
+const mapAllowedLlmProviders = (value: unknown): AssistantExecutionPolicy['allowedLlmProviders'] =>
+  Array.isArray(value) ? value.filter((provider): provider is string => typeof provider === 'string') : [];
+
+const mapDefaultLlmProvider = (value: unknown): AssistantExecutionPolicy['defaultLlmProvider'] =>
+  typeof value === 'string' ? value : null;
+
 const mapExecutionPolicy = (policy: ApiAssistantExecutionPolicy): AssistantExecutionPolicy => ({
   id: policy.id,
   assistantId: policy.assistantId,
@@ -161,6 +170,9 @@ const mapExecutionPolicy = (policy: ApiAssistantExecutionPolicy): AssistantExecu
   sandboxBlocksRealProviders: policy.sandboxBlocksRealProviders,
   sandboxLogsRequired: policy.sandboxLogsRequired,
   sandboxCostLimitPlaceholder: policy.sandboxCostLimitPlaceholder,
+  allowExternalLlmProviders: Boolean(policy.allowExternalLlmProviders),
+  allowedLlmProviders: mapAllowedLlmProviders(policy.allowedLlmProviders),
+  defaultLlmProvider: mapDefaultLlmProvider(policy.defaultLlmProvider),
   allowDraftTesting: policy.allowDraftTesting,
   allowPublishedExecution: policy.allowPublishedExecution,
   isExecutionEnabled: policy.isExecutionEnabled,
@@ -492,6 +504,9 @@ export const assistantsService = {
         sandboxBlocksRealProviders: true,
         sandboxLogsRequired: true,
         sandboxCostLimitPlaceholder: null,
+        allowExternalLlmProviders: false,
+        allowedLlmProviders: [],
+        defaultLlmProvider: null,
         allowDraftTesting: true,
         allowPublishedExecution: false,
         isExecutionEnabled: false,

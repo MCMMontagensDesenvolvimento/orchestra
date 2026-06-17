@@ -60,6 +60,9 @@ export interface AssistantExecutionPolicy {
   sandboxBlocksRealProviders: boolean;
   sandboxLogsRequired: boolean;
   sandboxCostLimitPlaceholder?: number | null;
+  allowExternalLlmProviders: boolean;
+  allowedLlmProviders: LlmProvider[];
+  defaultLlmProvider?: LlmProvider | null;
   allowDraftTesting: boolean;
   allowPublishedExecution: boolean;
   isExecutionEnabled: boolean;
