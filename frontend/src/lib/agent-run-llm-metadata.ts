@@ -21,6 +21,7 @@ export interface AgentRunLlmSummary extends AgentRunLlmUsage {
 export interface AgentRunEventLlmSummary extends AgentRunLlmUsage {
   runtimeProvider?: string;
   provider?: LlmProvider;
+  providerStatus?: string;
   model?: string;
   externalProviderCalled?: boolean;
   selectionReason?: string;
@@ -29,7 +30,37 @@ export interface AgentRunEventLlmSummary extends AgentRunLlmUsage {
   simulated?: boolean;
 }
 
+export type AgentRunEventTone = 'neutral' | 'info' | 'success' | 'warning' | 'danger';
+
+export interface AgentRunEventPresentation {
+  label: string;
+  tone: AgentRunEventTone;
+}
+
 const numberFormatter = new Intl.NumberFormat('pt-BR');
+const safeMessageEventTypes = new Set([
+  'runtime.provider_selected',
+  'runtime.model_started',
+  'runtime.model_completed',
+  'runtime.run_completed',
+  'run.completed',
+]);
+
+const eventPresentations: Record<string, AgentRunEventPresentation> = {
+  'llm.provider_selected': { label: 'Provider LLM selecionado', tone: 'info' },
+  'llm.generation_started': { label: 'Geração LLM iniciada', tone: 'info' },
+  'llm.generation_completed': { label: 'Geração LLM concluída', tone: 'success' },
+  'llm.generation_failed': { label: 'Geração LLM falhou', tone: 'danger' },
+  'llm.generation_blocked': { label: 'Geração LLM bloqueada', tone: 'warning' },
+  'runtime.provider_selected': { label: 'Runtime selecionado', tone: 'info' },
+  'runtime.model_started': { label: 'Modelo iniciado', tone: 'info' },
+  'runtime.model_completed': { label: 'Modelo finalizado', tone: 'success' },
+  'runtime.run_completed': { label: 'Run concluído', tone: 'success' },
+  'runtime.run_failed': { label: 'Run falhou no runtime', tone: 'danger' },
+  'run.blocked': { label: 'Run bloqueado', tone: 'warning' },
+  'run.failed': { label: 'Run falhou', tone: 'danger' },
+  'run.completed': { label: 'Run concluído', tone: 'success' },
+};
 
 function asRecord(value: unknown): Record<string, unknown> | undefined {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return undefined;
@@ -77,6 +108,7 @@ export function getAgentRunEventLlmSummary(event: AgentRunEvent): AgentRunEventL
   return {
     runtimeProvider: safeString(metadata?.provider),
     provider: safeString(metadata?.llmProvider) as LlmProvider | undefined,
+    providerStatus: safeString(metadata?.providerStatus),
     model: safeString(metadata?.model),
     externalProviderCalled: firstDefined(
       safeBoolean(metadata?.externalProviderCalled),
@@ -186,6 +218,19 @@ export function llmSelectionReasonLabel(reason?: string) {
   return reason.replace(/[_-]+/g, ' ').slice(0, 80);
 }
 
+export function getAgentRunEventPresentation(event: AgentRunEvent): AgentRunEventPresentation {
+  const knownPresentation = eventPresentations[event.type];
+  if (knownPresentation) return knownPresentation;
+
+  if (event.status === 'completed') return { label: 'Evento concluído', tone: 'success' };
+  if (event.status === 'failed') return { label: 'Evento falhou', tone: 'danger' };
+  if (event.status === 'blocked') return { label: 'Evento bloqueado', tone: 'warning' };
+  if (event.status === 'running' || event.status === 'queued' || event.status === 'prechecking') {
+    return { label: 'Evento em andamento', tone: 'info' };
+  }
+  return { label: 'Evento de execução', tone: 'neutral' };
+}
+
 export function formatLlmLatency(latencyMs?: number) {
   if (latencyMs === undefined) return undefined;
   if (latencyMs < 1000) return `${Math.round(latencyMs)} ms`;
@@ -217,5 +262,6 @@ export function visibleAgentRunEvents(events: AgentRunEvent[]) {
 }
 
 export function safeAgentRunEventMessage(event: AgentRunEvent) {
-  return event.type.startsWith('llm.') ? undefined : event.message;
+  if (!safeMessageEventTypes.has(event.type)) return undefined;
+  return safeString(event.message, 180);
 }
