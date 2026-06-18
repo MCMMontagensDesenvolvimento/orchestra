@@ -13,6 +13,7 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { Badge } from '@/components/ui/badge';
 import type {
   AgentRun,
+  AgentRunEvent,
   AgentRunStatus,
   Assistant,
   AssistantApprovalAction,
@@ -80,6 +81,19 @@ import { useAuditLogs } from '@/hooks/queries/useAudit';
 import { useAnalytics } from '@/hooks/queries/useAnalytics';
 import { isApiError } from '@/services/api/api-error';
 import { HttpStatus } from '@/services/api/http-status';
+import {
+  formatLlmLatency,
+  formatTokenCount,
+  getAgentRunEventLlmSummary,
+  getAgentRunLlmSummary,
+  hasAgentRunLlmSummary,
+  llmProviderLabel,
+  llmSelectionReasonLabel,
+  safeAgentRunEventMessage,
+  visibleAgentRunEvents,
+  type AgentRunEventLlmSummary,
+  type AgentRunLlmSummary,
+} from '@/lib/agent-run-llm-metadata';
 import {
   ArrowLeft, Edit, Copy, Play, Send, Archive, MessageSquare, DollarSign,
   ThumbsUp, ThumbsDown, Thermometer, Bot, Server, BookOpen, Clock,
@@ -2269,9 +2283,9 @@ function capabilityText(value: unknown) {
 function runtimeMetadata(run: AgentRun) {
   const metadata = run.metadata;
   if (!metadata || typeof metadata !== 'object' || Array.isArray(metadata)) return undefined;
-  const runtime = (metadata as Record<string, unknown>).runtime;
+  const runtime = metadata.runtime;
   if (!runtime || typeof runtime !== 'object' || Array.isArray(runtime)) return undefined;
-  return runtime as { provider?: string; status?: string; outputPreview?: string; outputHash?: string };
+  return runtime;
 }
 
 function LlmExecutionPolicyPanel({ policy, isLoading, isError, canEdit, isSaving, onRefresh, onSave }: {
@@ -2722,6 +2736,8 @@ function AgentRunCard({ run, canCancel, isCancelling, onCancel }: {
 }) {
   const events = run.events ?? [];
   const runtime = runtimeMetadata(run);
+  const llmSummary = getAgentRunLlmSummary(run);
+  const visibleEvents = visibleAgentRunEvents(events);
   return (
     <div className={`rounded-md border p-3 ${agentRunStatusClass(run.status)}`}>
       <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
@@ -2739,7 +2755,7 @@ function AgentRunCard({ run, canCancel, isCancelling, onCancel }: {
             <span>{new Date(run.createdAt).toLocaleString('pt-BR')}</span>
           </div>
           {run.errorCode && (
-            <p className="text-xs text-warning">{run.errorCode}: {run.errorMessage}</p>
+            <p className="text-xs text-warning">{run.errorCode}: falha registrada pelo backend.</p>
           )}
           {runtime?.outputPreview && (
             <p className="rounded bg-muted/50 p-2 text-xs text-muted-foreground">{runtime.outputPreview}</p>
@@ -2751,9 +2767,10 @@ function AgentRunCard({ run, canCancel, isCancelling, onCancel }: {
           </Button>
         )}
       </div>
+      <AgentRunLlmSummaryView summary={llmSummary} />
       {events.length > 0 && (
         <div className="mt-3 space-y-2 border-t pt-3">
-          {events.slice(0, 6).map(event => (
+          {visibleEvents.map(event => (
             <div key={event.id} className="grid grid-cols-[2rem_minmax(0,1fr)] gap-2 text-xs">
               <span className="font-mono text-muted-foreground">#{event.sequence}</span>
               <div className="min-w-0">
@@ -2761,14 +2778,164 @@ function AgentRunCard({ run, canCancel, isCancelling, onCancel }: {
                   <span className="font-mono font-medium">{event.type}</span>
                   {event.status && <span className="text-[10px] text-muted-foreground">{event.status}</span>}
                 </div>
-                {event.message && <p className="text-muted-foreground">{event.message}</p>}
+                {safeAgentRunEventMessage(event) && (
+                  <p className="text-muted-foreground">{safeAgentRunEventMessage(event)}</p>
+                )}
+                <AgentRunEventLlmDetails event={event} runSummary={llmSummary} />
               </div>
             </div>
           ))}
-          {events.length > 6 && <p className="text-[10px] text-muted-foreground">+{events.length - 6} evento(s)</p>}
+          {events.length > visibleEvents.length && (
+            <p className="text-[10px] text-muted-foreground">
+              {events.length - visibleEvents.length} evento(s) técnico(s) omitido(s)
+            </p>
+          )}
         </div>
       )}
     </div>
+  );
+}
+
+function AgentRunLlmSummaryView({ summary }: { summary: AgentRunLlmSummary }) {
+  if (!hasAgentRunLlmSummary(summary)) {
+    return (
+      <p className="mt-3 border-t pt-3 text-[11px] text-muted-foreground">
+        Metadados LLM não informados para este run.
+      </p>
+    );
+  }
+
+  return (
+    <div className="mt-3 border-t pt-3">
+      <p className="mb-2 text-[10px] font-semibold uppercase text-muted-foreground">Execução LLM</p>
+      <div className="flex flex-wrap items-center gap-2">
+        {summary.runtimeProvider && (
+          <Badge variant="outline" className="text-[10px]">
+            Runtime: <span className="ml-1 font-mono">{summary.runtimeProvider}</span>
+          </Badge>
+        )}
+        {summary.provider && <LlmProviderBadge provider={summary.provider} />}
+        {summary.model && (
+          <Badge variant="outline" className="max-w-full text-[10px]">
+            Modelo: <span className="ml-1 truncate font-mono">{summary.model}</span>
+          </Badge>
+        )}
+        <ExternalProviderCallBadge
+          called={summary.externalProviderCalled}
+          blocked={summary.failedClosed === true}
+        />
+        {summary.selectionReason && (
+          <Badge variant="outline" className="text-[10px]">
+            {llmSelectionReasonLabel(summary.selectionReason)}
+          </Badge>
+        )}
+        {summary.providerStatus && <StatusBadge status={summary.providerStatus} className="text-[10px]" />}
+        {formatLlmLatency(summary.latencyMs) && (
+          <Badge variant="secondary" className="text-[10px]">
+            Latência: {formatLlmLatency(summary.latencyMs)}
+          </Badge>
+        )}
+        <TokenUsageBadges summary={summary} />
+      </div>
+    </div>
+  );
+}
+
+function AgentRunEventLlmDetails({ event, runSummary }: {
+  event: AgentRunEvent;
+  runSummary: AgentRunLlmSummary;
+}) {
+  const summary = getAgentRunEventLlmSummary(event);
+  const showsRuntimeProvider = event.type === 'runtime.provider_selected' && Boolean(summary.runtimeProvider);
+  const hasDisplayableMetadata = showsRuntimeProvider
+    || Boolean(summary.provider)
+    || Boolean(summary.model)
+    || summary.externalProviderCalled !== undefined
+    || Boolean(summary.selectionReason)
+    || summary.latencyMs !== undefined
+    || summary.inputTokens !== undefined
+    || summary.outputTokens !== undefined
+    || summary.totalTokens !== undefined;
+  if (!hasDisplayableMetadata) return null;
+
+  const useRunCallStatus = event.type === 'llm.generation_blocked'
+    || event.type === 'llm.generation_failed';
+  const externalProviderCalled = useRunCallStatus
+    ? runSummary.externalProviderCalled
+    : summary.externalProviderCalled;
+  const blocked = useRunCallStatus
+    && externalProviderCalled === false
+    && (runSummary.failedClosed === true || event.status === 'blocked');
+
+  return (
+    <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
+      {showsRuntimeProvider && (
+        <Badge variant="outline" className="text-[10px]">
+          Runtime: <span className="ml-1 font-mono">{summary.runtimeProvider}</span>
+        </Badge>
+      )}
+      {summary.provider && <LlmProviderBadge provider={summary.provider} />}
+      {summary.model && (
+        <Badge variant="outline" className="max-w-full text-[10px]">
+          <span className="truncate font-mono">{summary.model}</span>
+        </Badge>
+      )}
+      <ExternalProviderCallBadge called={externalProviderCalled} blocked={blocked} />
+      {summary.selectionReason && (
+        <Badge variant="outline" className="text-[10px]">
+          {llmSelectionReasonLabel(summary.selectionReason)}
+        </Badge>
+      )}
+      {formatLlmLatency(summary.latencyMs) && (
+        <Badge variant="secondary" className="text-[10px]">
+          {formatLlmLatency(summary.latencyMs)}
+        </Badge>
+      )}
+      <TokenUsageBadges summary={summary} />
+    </div>
+  );
+}
+
+function LlmProviderBadge({ provider }: { provider: string }) {
+  const isLocal = provider === 'local_deterministic' || provider === 'agno_local';
+  return (
+    <Badge
+      variant={isLocal ? 'secondary' : 'default'}
+      className="text-[10px]"
+    >
+      {llmProviderLabel(provider)}
+    </Badge>
+  );
+}
+
+function ExternalProviderCallBadge({ called, blocked }: {
+  called?: boolean;
+  blocked?: boolean;
+}) {
+  if (called === undefined) return null;
+  if (called) {
+    return <Badge variant="default" className="text-[10px]">Provider externo chamado</Badge>;
+  }
+  if (blocked) {
+    return <Badge variant="destructive" className="text-[10px]">Provider externo bloqueado</Badge>;
+  }
+  return <Badge variant="outline" className="text-[10px]">Provider externo não chamado</Badge>;
+}
+
+function TokenUsageBadges({ summary }: {
+  summary: AgentRunLlmSummary | AgentRunEventLlmSummary;
+}) {
+  const inputTokens = formatTokenCount(summary.inputTokens);
+  const outputTokens = formatTokenCount(summary.outputTokens);
+  const totalTokens = formatTokenCount(summary.totalTokens);
+  if (!inputTokens && !outputTokens && !totalTokens) return null;
+
+  return (
+    <>
+      {inputTokens && <Badge variant="outline" className="text-[10px]">Entrada: {inputTokens} tokens</Badge>}
+      {outputTokens && <Badge variant="outline" className="text-[10px]">Saída: {outputTokens} tokens</Badge>}
+      {totalTokens && <Badge variant="outline" className="text-[10px]">Total: {totalTokens} tokens</Badge>}
+    </>
   );
 }
 

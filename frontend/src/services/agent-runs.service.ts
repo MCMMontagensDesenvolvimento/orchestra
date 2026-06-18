@@ -5,6 +5,25 @@ import { apiClient, type ApiEnvelope, type PaginatedApiEnvelope } from './api/ap
 import { endpoints } from './api/endpoints';
 
 const nowIso = () => new Date().toISOString();
+
+const mockRuntimeMetadata = (status: AgentRunStatus) => ({
+  provider: 'local',
+  status,
+  adapterMetadata: {
+    llmProvider: 'local_deterministic',
+    llmModel: 'local-deterministic-v1',
+    llmLatencyMs: 12,
+    externalProviderCalled: false,
+    llmSelectionReason: 'assistant_policy_default_local',
+    llm: {
+      provider: 'local_deterministic',
+      simulated: true,
+      externalProviderCalled: false,
+      failedClosed: false,
+    },
+  },
+});
+
 const mockRunEvents = (runId: string, traceId: string, mode: AssistantExecutionMode, status: AgentRunStatus): AgentRunEvent[] => {
   const now = nowIso();
   const events: AgentRunEvent[] = [
@@ -48,31 +67,85 @@ const mockRunEvents = (runId: string, traceId: string, mode: AssistantExecutionM
     {
       id: `${runId}-event-3`,
       agentRunId: runId,
-      type: 'runtime.run_started',
+      type: 'runtime.provider_selected',
       sequence: 3,
       status: 'running',
-      message: 'Runtime adapter local recebeu contexto governado.',
+      message: 'Runtime provider local selecionado pelo registry.',
       metadata: { traceId, provider: 'local' },
       createdAt: now,
     },
     {
       id: `${runId}-event-4`,
       agentRunId: runId,
-      type: 'runtime.run_completed',
+      type: 'llm.provider_selected',
       sequence: 4,
-      status: 'completed',
-      message: 'Run finalizado pelo adapter local deterministico.',
-      metadata: { provider: 'local', externalProvidersCalled: false, toolsCalled: false },
+      status: 'running',
+      message: 'LLM provider local deterministico selecionado pelo runtime local.',
+      metadata: {
+        provider: 'local',
+        llmProvider: 'local_deterministic',
+        model: 'local-deterministic-v1',
+        externalProviderCalled: false,
+        reason: 'assistant_policy_default_local',
+      },
       createdAt: now,
     },
     {
       id: `${runId}-event-5`,
       agentRunId: runId,
-      type: 'run.completed',
+      type: 'llm.generation_started',
       sequence: 5,
+      status: 'running',
+      message: 'Geracao LLM local iniciada.',
+      metadata: {
+        provider: 'local',
+        llmProvider: 'local_deterministic',
+        simulated: true,
+        externalProvidersCalled: false,
+      },
+      createdAt: now,
+    },
+    {
+      id: `${runId}-event-6`,
+      agentRunId: runId,
+      type: 'llm.generation_completed',
+      sequence: 6,
       status: 'completed',
-      message: 'Run finalizado pelo control plane.',
-      metadata: { traceId },
+      message: 'Geracao LLM local concluida.',
+      metadata: {
+        provider: 'local',
+        llmProvider: 'local_deterministic',
+        model: 'local-deterministic-v1',
+        simulated: true,
+        externalProvidersCalled: false,
+        latencyMs: 12,
+      },
+      createdAt: now,
+    },
+    {
+      id: `${runId}-event-7`,
+      agentRunId: runId,
+      type: 'runtime.model_completed',
+      sequence: 7,
+      status: 'completed',
+      message: 'Modelo simulado concluiu resposta deterministica.',
+      metadata: {
+        provider: 'local',
+        llmProvider: 'local_deterministic',
+        model: 'local-deterministic-v1',
+        simulated: true,
+        externalProvidersCalled: false,
+      },
+      createdAt: now,
+    },
+    {
+      id: `${runId}-event-8`,
+      agentRunId: runId,
+      type: 'runtime.run_completed',
+      sequence: 8,
+      status: 'completed',
+      message: 'Run finalizado pelo adapter local deterministico.',
+      metadata: { provider: 'local' },
       createdAt: now,
     },
   );
@@ -103,10 +176,7 @@ const mockAgentRuns: AgentRun[] = [
     errorMessage: null,
     precheckSnapshot: { canExecute: true, mode: 'sandbox', reasons: [], requestId: 'req_mock_1' },
     metadata: {
-      runtime: {
-        provider: 'local',
-        status: 'completed',
-      },
+      runtime: mockRuntimeMetadata('completed'),
     },
     createdAt: nowIso(),
     updatedAt: nowIso(),
@@ -174,10 +244,7 @@ export const agentRunsService = {
         },
         metadata: {
           ...(input.metadata ?? {}),
-          runtime: {
-            provider: 'local',
-            status,
-          },
+          runtime: mockRuntimeMetadata(status),
         },
         createdAt: now,
         updatedAt: now,

@@ -1,6 +1,6 @@
 # Orchestra OpenAI Provider Security Runbook
 
-Status: handoff operacional atualizado na Fase 07E-C.
+Status: handoff operacional atualizado na Fase 07E-D.
 
 ## Visao Geral
 
@@ -160,6 +160,28 @@ Guardrails da UI:
 4. Esperar bloqueio de provider real ou fallback seguro conforme contrato vigente.
 5. Confirmar que nenhuma chamada OpenAI real foi feita.
 6. Confirmar eventos/audit com motivo sanitizado.
+
+## Validar Metadados LLM em AgentRuns
+
+A visualizacao fica no detalhe do assistant, aba `Execucoes`, em cada card do historico.
+
+1. Executar um run local, sandbox ou OpenAI opt-in em ambiente autorizado.
+2. Confirmar no resumo do run, quando disponivel:
+   - runtime provider;
+   - LLM provider e modelo;
+   - chamada externa realizada, nao realizada ou bloqueada;
+   - motivo sanitizado de selecao;
+   - latencia;
+   - contagens numericas de tokens.
+3. Conferir na timeline os eventos `runtime.provider_selected`, `llm.provider_selected`,
+   `llm.generation_started`, `llm.generation_completed`, `llm.generation_failed`,
+   `llm.generation_blocked` e `runtime.model_completed`.
+4. Confirmar que runs antigos sem metadata continuam visiveis com a indicacao
+   `Metadados LLM nao informados para este run`.
+5. Nao inspecionar ou copiar metadata bruta pela UI. A tela usa uma allowlist e nunca
+   renderiza prompt, output, headers, Authorization, secrets, request body ou response body.
+6. Em falhas LLM, validar apenas status, codigo governado, provider, motivo e flags
+   sanitizadas. Mensagens upstream de eventos LLM nao sao renderizadas.
 
 ## Troubleshooting
 

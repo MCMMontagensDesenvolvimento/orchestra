@@ -85,6 +85,60 @@ export interface AssistantExecutionPrecheckResult {
 
 export type AgentRunPrecheckSnapshot = AssistantExecutionPrecheckResult;
 
+export interface AgentRunLlmUsage {
+  inputTokens?: number;
+  outputTokens?: number;
+  totalTokens?: number;
+}
+
+export interface AgentRunLlmProviderMetadata extends AgentRunLlmUsage {
+  provider?: LlmProvider;
+  providerStatus?: string;
+  externalProviderCalled?: boolean;
+  failedClosed?: boolean;
+  simulated?: boolean;
+}
+
+export interface AgentRunRuntimeAdapterMetadata {
+  llmProvider?: LlmProvider;
+  llmModel?: string | null;
+  llmLatencyMs?: number;
+  externalProviderCalled?: boolean;
+  llmSelectionReason?: string;
+  llm?: AgentRunLlmProviderMetadata | null;
+}
+
+export interface AgentRunRuntimeMetadata {
+  provider?: RuntimeProvider | (string & {});
+  status?: string;
+  inputHash?: string;
+  outputHash?: string;
+  outputPreview?: string;
+  adapterMetadata?: AgentRunRuntimeAdapterMetadata | null;
+  [key: string]: unknown;
+}
+
+export interface AgentRunMetadata {
+  runtime?: AgentRunRuntimeMetadata | null;
+  [key: string]: unknown;
+}
+
+export interface AgentRunEventMetadata extends AgentRunLlmUsage {
+  provider?: RuntimeProvider | (string & {});
+  llmProvider?: LlmProvider;
+  model?: string | null;
+  externalProviderCalled?: boolean;
+  externalProvidersCalled?: boolean;
+  llmSelectionReason?: string;
+  reason?: string;
+  llmLatencyMs?: number;
+  latencyMs?: number;
+  failedClosed?: boolean;
+  simulated?: boolean;
+  usage?: AgentRunLlmUsage | null;
+  [key: string]: unknown;
+}
+
 export interface AgentRunEvent {
   id: string;
   agentRunId: string;
@@ -94,7 +148,7 @@ export interface AgentRunEvent {
   sequence: number;
   status?: AgentRunStatus | string | null;
   message?: string | null;
-  metadata?: unknown;
+  metadata?: AgentRunEventMetadata | null;
   createdAt: string;
 }
 
@@ -121,7 +175,7 @@ export interface AgentRun {
   errorCode?: string | null;
   errorMessage?: string | null;
   precheckSnapshot?: AgentRunPrecheckSnapshot | null;
-  metadata?: unknown;
+  metadata?: AgentRunMetadata | null;
   createdAt: string;
   updatedAt: string;
   events?: AgentRunEvent[];
