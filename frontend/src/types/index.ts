@@ -126,6 +126,7 @@ export interface AgentRunMetadata {
 export interface AgentRunEventMetadata extends AgentRunLlmUsage {
   provider?: RuntimeProvider | (string & {});
   llmProvider?: LlmProvider;
+  providerStatus?: string;
   model?: string | null;
   externalProviderCalled?: boolean;
   externalProvidersCalled?: boolean;

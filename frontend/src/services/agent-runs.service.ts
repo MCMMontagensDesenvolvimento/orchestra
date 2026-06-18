@@ -6,7 +6,7 @@ import { endpoints } from './api/endpoints';
 
 const nowIso = () => new Date().toISOString();
 
-const mockRuntimeMetadata = (status: AgentRunStatus) => ({
+const mockRuntimeMetadata = (status: AgentRunStatus, mode: AssistantExecutionMode) => ({
   provider: 'local',
   status,
   adapterMetadata: {
@@ -14,7 +14,9 @@ const mockRuntimeMetadata = (status: AgentRunStatus) => ({
     llmModel: 'local-deterministic-v1',
     llmLatencyMs: 12,
     externalProviderCalled: false,
-    llmSelectionReason: 'assistant_policy_default_local',
+    llmSelectionReason: mode === 'sandbox'
+      ? 'sandbox_blocks_real_providers'
+      : 'assistant_policy_default_local',
     llm: {
       provider: 'local_deterministic',
       simulated: true,
@@ -86,7 +88,9 @@ const mockRunEvents = (runId: string, traceId: string, mode: AssistantExecutionM
         llmProvider: 'local_deterministic',
         model: 'local-deterministic-v1',
         externalProviderCalled: false,
-        reason: 'assistant_policy_default_local',
+        reason: mode === 'sandbox'
+          ? 'sandbox_blocks_real_providers'
+          : 'assistant_policy_default_local',
       },
       createdAt: now,
     },
@@ -176,7 +180,7 @@ const mockAgentRuns: AgentRun[] = [
     errorMessage: null,
     precheckSnapshot: { canExecute: true, mode: 'sandbox', reasons: [], requestId: 'req_mock_1' },
     metadata: {
-      runtime: mockRuntimeMetadata('completed'),
+      runtime: mockRuntimeMetadata('completed', 'sandbox'),
     },
     createdAt: nowIso(),
     updatedAt: nowIso(),
@@ -244,7 +248,7 @@ export const agentRunsService = {
         },
         metadata: {
           ...(input.metadata ?? {}),
-          runtime: mockRuntimeMetadata(status),
+          runtime: mockRuntimeMetadata(status, input.mode),
         },
         createdAt: now,
         updatedAt: now,

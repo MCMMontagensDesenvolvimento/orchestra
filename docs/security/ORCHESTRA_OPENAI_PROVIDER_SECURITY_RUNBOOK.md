@@ -1,6 +1,6 @@
 # Orchestra OpenAI Provider Security Runbook
 
-Status: handoff operacional atualizado na Fase 07E-D.
+Status: handoff operacional atualizado na Fase 07E-E.
 
 ## Visao Geral
 
@@ -182,6 +182,21 @@ A visualizacao fica no detalhe do assistant, aba `Execucoes`, em cada card do hi
    renderiza prompt, output, headers, Authorization, secrets, request body ou response body.
 6. Em falhas LLM, validar apenas status, codigo governado, provider, motivo e flags
    sanitizadas. Mensagens upstream de eventos LLM nao sao renderizadas.
+
+## Ler a Timeline LLM com Seguranca
+
+A timeline avancada fica no detalhe do assistant, aba `Execucoes`, dentro de cada run.
+
+- O label amigavel explica a etapa; o tipo tecnico permanece em fonte monospace para auditoria.
+- Badges podem mostrar provider, modelo, chamada externa, bloqueio, motivo de selecao,
+  fail-closed, simulacao, latencia e contagens numericas de tokens.
+- O status final do run aparece no cabecalho da timeline.
+- Eventos antigos recebem label seguro baseado no status e continuam funcionando sem metadata.
+- Eventos tecnicos fora da jornada principal sao contabilizados como omitidos por seguranca
+  ou compactacao.
+- Mensagens `llm.*`, mensagens de falha e metadata arbitraria nao sao renderizadas.
+- A UI nunca usa `JSON.stringify` para mostrar metadata de run/evento.
+- Prompt, output, request body, response body, headers e secrets permanecem fora da timeline.
 
 ## Troubleshooting
 
