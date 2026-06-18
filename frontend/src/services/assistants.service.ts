@@ -529,6 +529,9 @@ export const assistantsService = {
     'sandboxBlocksRealProviders' |
     'sandboxLogsRequired' |
     'sandboxCostLimitPlaceholder' |
+    'allowExternalLlmProviders' |
+    'allowedLlmProviders' |
+    'defaultLlmProvider' |
     'allowDraftTesting' |
     'allowPublishedExecution' |
     'isExecutionEnabled'

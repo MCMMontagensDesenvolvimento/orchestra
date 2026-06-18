@@ -244,6 +244,9 @@ export const useUpdateAssistantExecutionPolicyMutation = () => {
       'sandboxBlocksRealProviders' |
       'sandboxLogsRequired' |
       'sandboxCostLimitPlaceholder' |
+      'allowExternalLlmProviders' |
+      'allowedLlmProviders' |
+      'defaultLlmProvider' |
       'allowDraftTesting' |
       'allowPublishedExecution' |
       'isExecutionEnabled'

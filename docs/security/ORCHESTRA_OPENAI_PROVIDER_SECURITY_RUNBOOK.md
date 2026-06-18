@@ -1,6 +1,6 @@
 # Orchestra OpenAI Provider Security Runbook
 
-Status: handoff operacional da Fase 07E-B.
+Status: handoff operacional atualizado na Fase 07E-C.
 
 ## Visao Geral
 
@@ -99,6 +99,39 @@ Nunca valide com `echo OPENAI_API_KEY` ou exibindo env real.
 
 Resultado esperado em modo fail-closed: bloqueio com erro governado, sem chamada externa efetiva quando qualquer precondicao falha.
 
+## Editar Policy LLM Por Assistant
+
+A UI de edicao controlada fica no detalhe do assistant, aba Governanca, secao `Governanca LLM`.
+
+Fluxo para permitir OpenAI por assistant:
+
+1. Abrir a secao `Governanca LLM`.
+2. Clicar em `Editar policy LLM`.
+3. Habilitar provider externo.
+4. Habilitar OpenAI.
+5. Escolher `openai` como provider default quando o objetivo for usar OpenAI nesse assistant.
+6. Salvar.
+7. Confirmar que a UI mostra `OpenAI permitido por policy`.
+
+Fluxo para limpar/desabilitar OpenAI:
+
+1. Clicar em `Editar policy LLM`.
+2. Usar `Limpar OpenAI` ou desligar provider externo.
+3. Salvar.
+4. Confirmar que:
+   - `allowExternalLlmProviders=false`;
+   - `allowedLlmProviders=[]`;
+   - `defaultLlmProvider=null`;
+   - a UI mostra `OpenAI bloqueado por policy`.
+
+Guardrails da UI:
+
+- nao permite inserir API key ou segredo;
+- nao chama OpenAI diretamente;
+- nao permite `defaultLlmProvider=openai` sem incluir `openai` na allowlist;
+- ao desligar provider externo, limpa allowlist e default externo;
+- se `sandboxBlocksRealProviders=true`, sinaliza que sandbox continua bloqueando provider real.
+
 ## Validar AgentRun Com OpenAI Opt-In
 
 1. Confirmar config global OpenAI habilitada.
@@ -158,7 +191,7 @@ Sinais:
 - `allowedLlmProviders` vazio ou sem `openai`;
 - `defaultLlmProvider` nulo ou diferente de `openai`.
 
-Acao: manter bloqueado ate a fase de edicao controlada da policy LLM.
+Acao: usar a edicao controlada em `Governanca LLM` para permitir OpenAI somente quando o ambiente e o assistant estiverem autorizados.
 
 ### Sandbox ativo
 

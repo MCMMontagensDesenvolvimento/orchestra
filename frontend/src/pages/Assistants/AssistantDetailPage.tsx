@@ -78,6 +78,8 @@ import { useLlmConfig, useLlmProviders } from '@/hooks/queries/useLlm';
 import { useConversations } from '@/hooks/queries/useChat';
 import { useAuditLogs } from '@/hooks/queries/useAudit';
 import { useAnalytics } from '@/hooks/queries/useAnalytics';
+import { isApiError } from '@/services/api/api-error';
+import { HttpStatus } from '@/services/api/http-status';
 import {
   ArrowLeft, Edit, Copy, Play, Send, Archive, MessageSquare, DollarSign,
   ThumbsUp, ThumbsDown, Thermometer, Bot, Server, BookOpen, Clock,
@@ -90,6 +92,14 @@ import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContai
 import { toast } from 'sonner';
 
 type TabId = 'overview' | 'config' | 'governance' | 'runs' | 'knowledge' | 'tools' | 'prompt' | 'tests' | 'analytics' | 'audit';
+type LlmPolicyUpdatePayload = Pick<AssistantExecutionPolicy, 'allowExternalLlmProviders' | 'allowedLlmProviders'> & {
+  defaultLlmProvider: AssistantExecutionPolicy['defaultLlmProvider'];
+};
+type LlmPolicyForm = {
+  allowExternalLlmProviders: boolean;
+  openaiAllowed: boolean;
+  defaultProvider: 'local_deterministic' | 'openai';
+};
 
 const tabs: { id: TabId; label: string; icon: typeof Bot }[] = [
   { id: 'overview', label: 'Overview', icon: Bot },
@@ -536,6 +546,21 @@ export default function AssistantDetailPage() {
       toast.error('Nao foi possivel atualizar policy', {
         description: error instanceof Error ? error.message : 'Tente novamente em instantes.',
       });
+    }
+  };
+
+  const handleLlmPolicyUpdate = async (payload: LlmPolicyUpdatePayload) => {
+    try {
+      await updateExecutionPolicyMutation.mutateAsync({ id: assistant.id, payload });
+      toast.success('Policy LLM atualizada', {
+        description: payload.allowExternalLlmProviders ? 'OpenAI foi atualizado na policy do assistant.' : 'OpenAI foi removido da policy do assistant.',
+      });
+      return true;
+    } catch (error) {
+      toast.error('Nao foi possivel salvar policy LLM', {
+        description: llmPolicySaveErrorDescription(error),
+      });
+      return false;
     }
   };
 
@@ -997,7 +1022,10 @@ ${tools.map(t => `- ${t.name}: ${t.description}${t.requiresApproval ? ' [REQUER 
                   policy={executionPolicy}
                   isLoading={assistantExecutionPolicyQuery.isLoading}
                   isError={assistantExecutionPolicyQuery.isError}
+                  canEdit={hasPermission('assistants.execution.configure')}
+                  isSaving={updateExecutionPolicyMutation.isPending}
                   onRefresh={() => { void assistantExecutionPolicyQuery.refetch(); }}
+                  onSave={handleLlmPolicyUpdate}
                 />
 
                 <div className="rounded-lg border bg-card p-5">
@@ -2246,17 +2274,67 @@ function runtimeMetadata(run: AgentRun) {
   return runtime as { provider?: string; status?: string; outputPreview?: string; outputHash?: string };
 }
 
-function LlmExecutionPolicyPanel({ policy, isLoading, isError, onRefresh }: {
+function LlmExecutionPolicyPanel({ policy, isLoading, isError, canEdit, isSaving, onRefresh, onSave }: {
   policy?: AssistantExecutionPolicy;
   isLoading: boolean;
   isError: boolean;
+  canEdit: boolean;
+  isSaving: boolean;
   onRefresh: () => void;
+  onSave: (payload: LlmPolicyUpdatePayload) => Promise<boolean>;
 }) {
+  const [isEditing, setIsEditing] = useState(false);
+  const [form, setForm] = useState<LlmPolicyForm>(() => llmPolicyFormFromPolicy(policy));
   const allowedProviders = policy?.allowedLlmProviders ?? [];
   const externalProvidersAllowed = Boolean(policy?.allowExternalLlmProviders);
   const openAiAllowed = externalProvidersAllowed && allowedProviders.includes('openai');
   const defaultProvider = policy?.defaultLlmProvider ?? 'local_deterministic';
   const sandboxBlocksRealProvider = Boolean(policy?.sandboxEnabled && policy.sandboxBlocksRealProviders);
+  const canEditPolicy = canEdit && Boolean(policy);
+  const displayedExternalProvidersAllowed = isEditing ? form.allowExternalLlmProviders : externalProvidersAllowed;
+  const displayedOpenAiAllowed = isEditing ? form.allowExternalLlmProviders && form.openaiAllowed : openAiAllowed;
+  const displayedDefaultProvider = isEditing ? form.defaultProvider : defaultProvider;
+  const displayedAllowedProviders = isEditing
+    ? (form.allowExternalLlmProviders && form.openaiAllowed ? ['openai'] : [])
+    : allowedProviders;
+
+  const beginEdit = () => {
+    if (!policy) return;
+    setForm(llmPolicyFormFromPolicy(policy));
+    setIsEditing(true);
+  };
+
+  const cancelEdit = () => {
+    setForm(llmPolicyFormFromPolicy(policy));
+    setIsEditing(false);
+  };
+
+  const updateExternalProviders = (checked: boolean) => {
+    setForm(prev => checked
+      ? { ...prev, allowExternalLlmProviders: true, openaiAllowed: true, defaultProvider: prev.defaultProvider === 'openai' ? 'openai' : 'local_deterministic' }
+      : { allowExternalLlmProviders: false, openaiAllowed: false, defaultProvider: 'local_deterministic' });
+  };
+
+  const updateOpenAiAllowed = (checked: boolean) => {
+    setForm(prev => checked
+      ? { ...prev, allowExternalLlmProviders: true, openaiAllowed: true }
+      : { allowExternalLlmProviders: false, openaiAllowed: false, defaultProvider: 'local_deterministic' });
+  };
+
+  const updateDefaultProvider = (value: 'local_deterministic' | 'openai') => {
+    setForm(prev => value === 'openai'
+      ? { ...prev, allowExternalLlmProviders: true, openaiAllowed: true, defaultProvider: 'openai' }
+      : { ...prev, defaultProvider: 'local_deterministic' });
+  };
+
+  const clearOpenAi = () => {
+    setForm({ allowExternalLlmProviders: false, openaiAllowed: false, defaultProvider: 'local_deterministic' });
+  };
+
+  const save = async () => {
+    const saved = await onSave(llmPolicyPayloadFromForm(form));
+    if (saved) setIsEditing(false);
+  };
 
   return (
     <div className="rounded-lg border bg-card p-5">
@@ -2265,11 +2343,16 @@ function LlmExecutionPolicyPanel({ policy, isLoading, isError, onRefresh }: {
           <h3 className="text-sm font-semibold flex items-center gap-2">
             <Shield className="h-4 w-4 text-primary" /> Governanca LLM
           </h3>
-          <p className="text-xs text-muted-foreground">Leitura segura da policy atual do assistant, sem secrets, prompts brutos ou outputs brutos.</p>
+          <p className="text-xs text-muted-foreground">Policy LLM governada pelo backend, sem secrets, prompts brutos ou outputs brutos.</p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
-          <Badge variant="outline" className="text-[10px]">Read-only</Badge>
+          <Badge variant={isEditing ? 'secondary' : 'outline'} className="text-[10px]">{isEditing ? 'Editando' : 'Read-only'}</Badge>
           {policy && <StatusBadge status={policy.executionMode} />}
+          {!isEditing && (
+            <Button variant="outline" size="sm" onClick={beginEdit} disabled={!canEditPolicy || isLoading}>
+              <Pencil className="h-3.5 w-3.5 mr-1.5" />Editar policy LLM
+            </Button>
+          )}
           <Button variant="outline" size="sm" onClick={onRefresh} disabled={isLoading}>
             <RefreshCw className="h-3.5 w-3.5 mr-1.5" />Atualizar
           </Button>
@@ -2287,17 +2370,71 @@ function LlmExecutionPolicyPanel({ policy, isLoading, isError, onRefresh }: {
         <p className="text-sm text-muted-foreground">Policy ainda nao carregada pelo backend.</p>
       ) : (
         <div className="space-y-4">
+          {isEditing && (
+            <div className="rounded-md border bg-muted/20 p-4">
+              <div className="grid gap-4 lg:grid-cols-[1fr_1fr_0.8fr]">
+                <PolicyEditSwitch
+                  label="Provider externo"
+                  description="Quando desligado, a allowlist fica vazia e o default volta para local_deterministic."
+                  checked={form.allowExternalLlmProviders}
+                  disabled={isSaving}
+                  onCheckedChange={updateExternalProviders}
+                />
+                <PolicyEditSwitch
+                  label="Permitir OpenAI"
+                  description="OpenAI e apenas valor de policy. Credenciais continuam somente no backend."
+                  checked={form.openaiAllowed}
+                  disabled={isSaving}
+                  onCheckedChange={updateOpenAiAllowed}
+                />
+                <div className="space-y-2">
+                  <Label>Provider default</Label>
+                  <Select value={form.defaultProvider} onValueChange={value => updateDefaultProvider(value as 'local_deterministic' | 'openai')} disabled={isSaving}>
+                    <SelectTrigger><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="local_deterministic">local_deterministic</SelectItem>
+                      <SelectItem value="openai">openai</SelectItem>
+                    </SelectContent>
+                  </Select>
+                  <p className="text-xs text-muted-foreground">Selecionar openai inclui OpenAI na allowlist automaticamente.</p>
+                </div>
+              </div>
+              {policy.sandboxEnabled && policy.sandboxBlocksRealProviders && (
+                <p className="mt-3 rounded-md border border-warning/30 bg-warning/10 px-3 py-2 text-xs text-warning">
+                  Sandbox bloqueia provider real mesmo que OpenAI esteja permitido para outros modos.
+                </p>
+              )}
+              <div className="mt-4 flex flex-wrap gap-2">
+                <Button size="sm" onClick={() => { void save(); }} disabled={isSaving}>
+                  <Save className="h-3.5 w-3.5 mr-1.5" />{isSaving ? 'Salvando...' : 'Salvar policy LLM'}
+                </Button>
+                <Button variant="outline" size="sm" onClick={cancelEdit} disabled={isSaving}>
+                  <X className="h-3.5 w-3.5 mr-1.5" />Cancelar
+                </Button>
+                <Button variant="ghost" size="sm" onClick={clearOpenAi} disabled={isSaving}>
+                  Limpar OpenAI
+                </Button>
+              </div>
+            </div>
+          )}
+
+          {!canEdit && (
+            <p className="rounded-md border bg-muted/30 px-3 py-2 text-xs text-muted-foreground">
+              Seu usuario nao possui permissao para editar esta policy. Alteracoes continuam bloqueadas pelo backend.
+            </p>
+          )}
+
           <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
             <PolicySignal
               label="Provider externo"
-              positive={externalProvidersAllowed}
+              positive={displayedExternalProvidersAllowed}
               positiveText="Provider externo habilitado"
               negativeText="Provider externo bloqueado"
               detail="Controlado por allowExternalLlmProviders"
             />
             <PolicySignal
               label="OpenAI"
-              positive={openAiAllowed}
+              positive={displayedOpenAiAllowed}
               positiveText="OpenAI permitido por policy"
               negativeText="OpenAI bloqueado por policy"
               detail="Exige provider externo habilitado e openai na allowlist"
@@ -2342,9 +2479,9 @@ function LlmExecutionPolicyPanel({ policy, isLoading, isError, onRefresh }: {
             />
             <div className="rounded-md border p-3">
               <p className="text-[11px] font-medium uppercase text-muted-foreground">Provider default</p>
-              <Badge variant="secondary" className="mt-2 font-mono text-[10px]">{defaultProvider}</Badge>
+              <Badge variant="secondary" className="mt-2 font-mono text-[10px]">{displayedDefaultProvider}</Badge>
               <p className="mt-2 text-xs text-muted-foreground">
-                {policy.defaultLlmProvider ? 'Default externo definido pela policy' : 'Fallback seguro sem provider externo definido'}
+                {displayedDefaultProvider === 'openai' ? 'Default externo definido pela policy' : 'Fallback seguro sem provider externo definido'}
               </p>
             </div>
           </div>
@@ -2352,8 +2489,8 @@ function LlmExecutionPolicyPanel({ policy, isLoading, isError, onRefresh }: {
           <div className="rounded-md border p-3">
             <p className="text-[11px] font-medium uppercase text-muted-foreground">Allowlist LLM</p>
             <div className="mt-2 flex flex-wrap gap-2">
-              {allowedProviders.length > 0 ? (
-                allowedProviders.map(provider => (
+              {displayedAllowedProviders.length > 0 ? (
+                displayedAllowedProviders.map(provider => (
                   <Badge key={provider} variant="outline" className="font-mono text-[10px]">{provider}</Badge>
                 ))
               ) : (
@@ -2383,6 +2520,60 @@ function PolicySignal({ label, positive, positiveText, negativeText, detail }: {
       <p className="mt-2 text-xs text-muted-foreground">{detail}</p>
     </div>
   );
+}
+
+function PolicyEditSwitch({ label, description, checked, disabled, onCheckedChange }: {
+  label: string;
+  description: string;
+  checked: boolean;
+  disabled: boolean;
+  onCheckedChange: (checked: boolean) => void;
+}) {
+  return (
+    <label className="flex items-start justify-between gap-3 rounded-md border bg-card p-3 text-sm">
+      <span>
+        <span className="font-medium">{label}</span>
+        <span className="mt-1 block text-xs text-muted-foreground">{description}</span>
+      </span>
+      <Switch checked={checked} disabled={disabled} onCheckedChange={onCheckedChange} />
+    </label>
+  );
+}
+
+function llmPolicyFormFromPolicy(policy?: AssistantExecutionPolicy): LlmPolicyForm {
+  const allowedProviders = policy?.allowedLlmProviders ?? [];
+  const openaiAllowed = Boolean(policy?.allowExternalLlmProviders && allowedProviders.includes('openai'));
+
+  return {
+    allowExternalLlmProviders: Boolean(policy?.allowExternalLlmProviders),
+    openaiAllowed,
+    defaultProvider: policy?.defaultLlmProvider === 'openai' ? 'openai' : 'local_deterministic',
+  };
+}
+
+function llmPolicyPayloadFromForm(form: LlmPolicyForm): LlmPolicyUpdatePayload {
+  if (!form.allowExternalLlmProviders || !form.openaiAllowed) {
+    return {
+      allowExternalLlmProviders: false,
+      allowedLlmProviders: [],
+      defaultLlmProvider: null,
+    };
+  }
+  return {
+    allowExternalLlmProviders: true,
+    allowedLlmProviders: ['openai'],
+    defaultLlmProvider: form.defaultProvider === 'openai' ? 'openai' : null,
+  };
+}
+
+function llmPolicySaveErrorDescription(error: unknown) {
+  if (!isApiError(error)) return 'A alteracao foi bloqueada ou falhou. Tente novamente em instantes.';
+  if (error.status === HttpStatus.UNAUTHORIZED) return 'Sessao expirada. Entre novamente e tente salvar a policy.';
+  if (error.status === HttpStatus.FORBIDDEN) return 'Seu usuario nao tem permissao para editar a policy LLM deste assistant.';
+  if (error.status === HttpStatus.TOO_MANY_REQUESTS) return 'Muitas tentativas em pouco tempo. Aguarde um momento e tente novamente.';
+  if (error.status === HttpStatus.UNPROCESSABLE || error.status === HttpStatus.CONFLICT) return 'O backend recusou a combinacao de policy. Revise allowlist, default provider e sandbox.';
+  if (error.status >= HttpStatus.INTERNAL_SERVER_ERROR) return 'O backend ficou indisponivel ao salvar. Nenhum segredo foi exibido.';
+  return 'Nao foi possivel salvar a policy LLM. Revise as permissoes e tente novamente.';
 }
 
 function RuntimePanel({ health, capabilities, config, providers, isLoading, onRefresh }: {
