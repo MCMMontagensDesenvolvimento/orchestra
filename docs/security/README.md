@@ -26,6 +26,7 @@ Topicos esperados:
 - `ORCHESTRA_AGNO_RUNTIME_SECURITY.md`: seguranca da integracao HTTP local Agno-compatible e comportamento fail-closed.
 - `ORCHESTRA_DEPENDENCY_AUDIT_BASELINE.md`: baseline de `npm audit --audit-level=high` para backend e frontend apos upgrade controlado da toolchain.
 - `ORCHESTRA_LLM_PROVIDER_SECURITY.md`: controles de provider LLM, backend-only secrets, fail-closed e sanitizacao de prompt/output.
+- `ORCHESTRA_OPENAI_PROVIDER_SECURITY_RUNBOOK.md`: handoff operacional do OpenAI provider, opt-in, sandbox, validacao e rollback.
 
 ## Estado Atual
 
