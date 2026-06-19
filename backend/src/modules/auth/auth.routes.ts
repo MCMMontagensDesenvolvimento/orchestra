@@ -8,6 +8,9 @@ import { devLoginSchema } from './auth.schema';
 export function createAuthRouter() {
   const router = Router();
 
+  router.get('/sso/config', authRateLimiter, (req, res, next) => {
+    void authController.ssoConfig(req, res).catch(next);
+  });
   router.post('/dev-login', authRateLimiter, validateBody(devLoginSchema), (req, res, next) => {
     void authController.devLogin(req, res).catch(next);
   });

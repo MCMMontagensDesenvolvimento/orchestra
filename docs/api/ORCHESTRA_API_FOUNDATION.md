@@ -21,6 +21,7 @@ Este documento registra os contratos HTTP implementados na fundacao backend. A A
 | --- | --- | --- |
 | GET | `/health` | Verifica se a aplicacao esta viva. |
 | GET | `/health/db` | Verifica conectividade com PostgreSQL via Prisma. |
+| GET | `/api/v1/auth/sso/config` | Retorna readiness Microsoft SSO sanitizada. |
 | POST | `/api/v1/auth/dev-login` | Login de desenvolvimento, bloqueado em producao. |
 
 `POST /api/v1/auth/dev-login` aceita:
@@ -32,6 +33,11 @@ Este documento registra os contratos HTTP implementados na fundacao backend. A A
 ```
 
 O campo `email` e opcional. Sem ele, o backend usa o usuario dummy criado pela seed.
+
+`GET /api/v1/auth/sso/config` nao exige sessao e retorna somente provider, flags de
+readiness, dominios permitidos e a rota interna reservada para login. Client secret,
+tokens, authorization code, IDs internos e redirect URIs externas nao sao retornados.
+O fluxo Microsoft real ainda nao esta ativo na Fase 08A.
 
 ## Endpoints Autenticados
 
