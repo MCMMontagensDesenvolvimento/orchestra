@@ -4,6 +4,8 @@ import { z } from 'zod';
 dotenv.config();
 
 const emptyToUndefined = (value: unknown) => (value === '' ? undefined : value);
+const blankToUndefined = (value: unknown) =>
+  typeof value === 'string' && value.trim() === '' ? undefined : value;
 const booleanString = (defaultValue: 'true' | 'false') =>
   z
     .string()
@@ -25,12 +27,14 @@ const envSchema = z.object({
   COOKIE_SAME_SITE: z.enum(['lax', 'strict', 'none']).default('lax'),
   BCRYPT_SALT_ROUNDS: z.coerce.number().int().min(8).max(15).default(12),
   LOG_LEVEL: z.string().default('debug'),
-  MICROSOFT_CLIENT_ID: z.string().optional(),
-  MICROSOFT_CLIENT_SECRET: z.string().optional(),
-  MICROSOFT_TENANT_ID: z.string().optional(),
-  MICROSOFT_REDIRECT_URI: z.string().url().optional(),
-  MICROSOFT_ALLOWED_DOMAINS: z.string().optional(),
-  MICROSOFT_POST_LOGOUT_REDIRECT_URI: z.string().url().optional(),
+  MICROSOFT_SSO_ENABLED: booleanString('false'),
+  MICROSOFT_CLIENT_ID: z.preprocess(blankToUndefined, z.string().trim().uuid().optional()),
+  MICROSOFT_CLIENT_SECRET: z.preprocess(blankToUndefined, z.string().trim().min(1).optional()),
+  MICROSOFT_TENANT_ID: z.preprocess(blankToUndefined, z.string().trim().uuid().optional()),
+  MICROSOFT_REDIRECT_URI: z.preprocess(blankToUndefined, z.string().url().optional()),
+  MICROSOFT_ALLOWED_DOMAINS: z.preprocess(blankToUndefined, z.string().optional()),
+  MICROSOFT_ALLOWED_TENANT_IDS: z.preprocess(blankToUndefined, z.string().optional()),
+  MICROSOFT_POST_LOGOUT_REDIRECT_URI: z.preprocess(blankToUndefined, z.string().url().optional()),
   RUNTIME_PROVIDER: z.enum(['local', 'agno_stub', 'agno']).default('local'),
   RUNTIME_ADAPTER_ENABLED: booleanString('true'),
   RUNTIME_DEFAULT_TIMEOUT_MS: z.coerce.number().int().positive().default(15000),

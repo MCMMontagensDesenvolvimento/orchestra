@@ -20,6 +20,13 @@ function sessionResponse(user: AuthenticatedUser, requestId: string) {
 }
 
 export const authController = {
+  async ssoConfig(req: Request, res: Response) {
+    return res.status(200).json({
+      data: authService.ssoConfig(),
+      requestId: req.requestId,
+    });
+  },
+
   async devLogin(req: Request, res: Response) {
     const result = await authService.devLogin(req.body, {
       requestId: req.requestId,

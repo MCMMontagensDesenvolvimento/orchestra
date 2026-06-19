@@ -5,8 +5,13 @@ import { recordAuditEvent } from '../audit/audit.service';
 import { mapUserForAuth } from './auth.mapper';
 import { authRepository } from './auth.repository';
 import type { DevLoginInput } from './auth.schema';
+import { getMicrosoftSsoPublicConfig } from './microsoft-sso.config';
 
 export const authService = {
+  ssoConfig() {
+    return getMicrosoftSsoPublicConfig();
+  },
+
   async devLogin(input: DevLoginInput, context: { requestId: string; ipAddress?: string; userAgent?: string }) {
     if (env.NODE_ENV === 'production' || process.env.NODE_ENV === 'production') {
       throw new AppError(403, 'DEV_LOGIN_DISABLED', 'Dev login nao esta disponivel em producao.');

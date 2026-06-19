@@ -35,6 +35,28 @@ const testUser: AuthenticatedUser = {
 };
 
 describe('auth endpoints', () => {
+  it('returns public sanitized Microsoft SSO readiness without requiring a session', async () => {
+    const response = await request(createApp())
+      .get('/api/v1/auth/sso/config')
+      .expect(200);
+
+    expect(response.body.data).toEqual({
+      provider: 'microsoft',
+      enabled: false,
+      configured: false,
+      allowedDomains: [],
+      loginUrl: '/api/v1/auth/microsoft/start',
+    });
+    expect(response.body.requestId).toMatch(/^req_/);
+
+    const serialized = JSON.stringify(response.body).toLowerCase();
+    expect(serialized).not.toContain('client_secret');
+    expect(serialized).not.toContain('id_token');
+    expect(serialized).not.toContain('access_token');
+    expect(serialized).not.toContain('refresh_token');
+    expect(serialized).not.toContain('authorization_code');
+  });
+
   it('returns 401 for auth/me without session', async () => {
     const response = await request(createApp()).get('/api/v1/auth/me').expect(401);
 
