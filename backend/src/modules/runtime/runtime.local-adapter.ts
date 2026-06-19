@@ -50,6 +50,17 @@ function resolveRuntimeLlmProvider(context: RuntimeExecutionContext): {
   };
 }
 
+function actualExternalProviderCalled(
+  metadata: unknown,
+  selectedExternalProvider: boolean,
+) {
+  if (metadata && typeof metadata === 'object' && !Array.isArray(metadata)) {
+    const value = (metadata as Record<string, unknown>).externalProviderCalled;
+    if (typeof value === 'boolean') return value;
+  }
+  return selectedExternalProvider;
+}
+
 export class LocalDeterministicRuntimeAdapter implements RuntimeAdapter {
   readonly provider = 'local' as const;
 
@@ -135,6 +146,11 @@ export class LocalDeterministicRuntimeAdapter implements RuntimeAdapter {
     });
 
     if (llmResult.status !== 'completed') {
+      const externalProviderCalled = actualExternalProviderCalled(
+        llmResult.metadata,
+        llmSelection.externalProviderCalled,
+      );
+
       return {
         provider: this.provider,
         status: llmResult.status === 'blocked' ? 'blocked' : 'failed',
@@ -144,7 +160,7 @@ export class LocalDeterministicRuntimeAdapter implements RuntimeAdapter {
         metadata: {
           llmProvider: llmResult.provider,
           llmModel: llmResult.model,
-          externalProviderCalled: llmSelection.externalProviderCalled,
+          externalProviderCalled,
           llmSelectionReason: llmSelection.reason,
           llm: llmResult.metadata,
         },
@@ -157,7 +173,7 @@ export class LocalDeterministicRuntimeAdapter implements RuntimeAdapter {
               llmProvider: llmResult.provider,
               errorCode: llmResult.errorCode,
               inputHash: llmResult.inputHash,
-              externalProviderCalled: llmSelection.externalProviderCalled,
+              externalProviderCalled,
               reason: llmSelection.reason,
             },
           },

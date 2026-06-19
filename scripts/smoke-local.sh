@@ -91,13 +91,15 @@ expect_status 200 "llm-providers" \
   -b "$cookie_file" \
   "$BASE_URL/api/v1/llm/providers"
 
-python3 -c 'import json,sys; text=open(sys.argv[1]).read(); data=json.loads(text)["data"]; assert any(item["provider"] == "local_deterministic" and item["current"] is True and item["health"]["status"] == "healthy" for item in data); assert any(item["provider"] == "openai" and item["health"]["status"] == "disabled" for item in data); assert "OPENAI_API_KEY" not in text; assert "api_key" not in text.lower(); assert "authorization" not in text.lower()' "$response_file"
+python3 -c 'import json,sys; text=open(sys.argv[1]).read(); data=json.loads(text)["data"]; assert any(item["provider"] == "local_deterministic" and item["current"] is True and item["health"]["status"] == "healthy" for item in data); assert any(item["provider"] == "openai" for item in data); assert "OPENAI_API_KEY" not in text; assert "api_key" not in text.lower(); assert "authorization" not in text.lower()' "$response_file"
 
 expect_status 200 "llm-config" \
   -b "$cookie_file" \
   "$BASE_URL/api/v1/llm/config"
 
-python3 -c 'import json,sys; text=open(sys.argv[1]).read(); data=json.loads(text)["data"]; assert data["defaultProvider"] == "local_deterministic"; assert data["providersEnabled"] is False; assert data["executionEnabled"] is False; assert data["storeRawPrompts"] is False; assert data["storeRawOutputs"] is False; assert "OPENAI_API_KEY" not in text; assert "https://api.openai.com" not in text' "$response_file"
+python3 -c 'import json,sys; text=open(sys.argv[1]).read(); data=json.loads(text)["data"]; assert data["defaultProvider"] == "local_deterministic"; assert data["storeRawPrompts"] is False; assert data["storeRawOutputs"] is False; assert "OPENAI_API_KEY" not in text; assert "https://api.openai.com" not in text' "$response_file"
+
+openai_real_execution_enabled="$(python3 -c 'import json,sys; data=json.load(open(sys.argv[1]))["data"]; print("true" if data["providersEnabled"] and data["executionEnabled"] and data["openaiEnabled"] and data["openaiConfigured"] and data["openaiExecutionEnabled"] else "false")' "$response_file")"
 
 expect_status 200 "llm-local-health" \
   -b "$cookie_file" \
@@ -133,13 +135,17 @@ cat > "$payload_file" <<'JSON'
 }
 JSON
 
-expect_status 409 "llm-test-generation-openai-disabled" \
-  -b "$cookie_file" \
-  -H 'Content-Type: application/json' \
-  --data-binary "@$payload_file" \
-  "$BASE_URL/api/v1/llm/test-generation"
+if [ "$openai_real_execution_enabled" = "false" ]; then
+  expect_status 409 "llm-test-generation-openai-disabled" \
+    -b "$cookie_file" \
+    -H 'Content-Type: application/json' \
+    --data-binary "@$payload_file" \
+    "$BASE_URL/api/v1/llm/test-generation"
 
-python3 -c 'import json,sys; data=json.load(open(sys.argv[1])); assert data["code"] == "LLM_PROVIDER_EXECUTION_BLOCKED"; assert "disabled" in data["message"]' "$response_file"
+  python3 -c 'import json,sys; data=json.load(open(sys.argv[1])); assert data["code"] == "LLM_PROVIDER_EXECUTION_BLOCKED"' "$response_file"
+else
+  echo "SKIP llm-test-generation-openai-disabled: OpenAI real esta habilitado; smoke local nao faz chamada externa."
+fi
 
 expect_status 200 "assistants" \
   -b "$cookie_file" \
@@ -847,6 +853,9 @@ cat > "$payload_file" <<JSON
   "sandboxBlocksExternalTools": true,
   "sandboxBlocksRealProviders": true,
   "sandboxLogsRequired": true,
+  "allowExternalLlmProviders": false,
+  "allowedLlmProviders": [],
+  "defaultLlmProvider": null,
   "allowDraftTesting": true
 }
 JSON
@@ -857,6 +866,8 @@ expect_status 200 "assistant-execution-policy-configure" \
   -H 'Content-Type: application/json' \
   --data-binary "@$payload_file" \
   "$BASE_URL/api/v1/assistants/$assistant_id/execution-policy"
+
+python3 -c 'import json,sys; data=json.load(open(sys.argv[1]))["data"]; assert data["allowExternalLlmProviders"] is False; assert data["allowedLlmProviders"] == []; assert data["defaultLlmProvider"] is None; assert data["sandboxBlocksRealProviders"] is True' "$response_file"
 
 cat > "$payload_file" <<'JSON'
 {
@@ -887,7 +898,7 @@ expect_status 201 "agent-run-create-sandbox" \
   --data-binary "@$payload_file" \
   "$BASE_URL/api/v1/assistants/$assistant_id/runs"
 
-python3 -c 'import json,sys; data=json.load(open(sys.argv[1]))["data"]; events=[event["type"] for event in data["events"]]; assert data["status"] == "completed"; assert data["metadata"]["runtime"]["provider"] == "local"; assert data["metadata"]["runtime"]["rag"]["chunkCount"] >= 1; assert "runtime.run_completed" in events; assert "runtime.rag_context_attached" in events; assert "runtime.mcp_tools_attached" in events' "$response_file"
+python3 -c 'import json,sys; data=json.load(open(sys.argv[1]))["data"]; events=[event["type"] for event in data["events"]]; adapter=data["metadata"]["runtime"]["adapterMetadata"]; assert data["status"] == "completed"; assert data["metadata"]["runtime"]["provider"] == "local"; assert data["metadata"]["runtime"]["rag"]["chunkCount"] >= 1; assert adapter["llmProvider"] == "local_deterministic"; assert adapter["externalProviderCalled"] is False; assert adapter["llmSelectionReason"] == "sandbox_blocks_real_providers"; assert "runtime.run_completed" in events; assert "runtime.rag_context_attached" in events; assert "runtime.mcp_tools_attached" in events; assert "llm.provider_selected" in events' "$response_file"
 
 run_id="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["data"]["id"])' "$response_file")"
 
@@ -904,6 +915,60 @@ expect_status 200 "agent-run-events" \
   "$BASE_URL/api/v1/agent-runs/$run_id/events"
 
 python3 -c 'import json,sys; events=[event["type"] for event in json.load(open(sys.argv[1]))["data"]]; assert "runtime.run_started" in events; assert "runtime.run_completed" in events' "$response_file"
+
+cat > "$payload_file" <<'JSON'
+{
+  "allowExternalLlmProviders": true,
+  "allowedLlmProviders": ["openai"],
+  "defaultLlmProvider": "openai"
+}
+JSON
+
+expect_status 200 "assistant-llm-policy-openai-opt-in" \
+  -b "$cookie_file" \
+  -X PATCH \
+  -H 'Content-Type: application/json' \
+  --data-binary "@$payload_file" \
+  "$BASE_URL/api/v1/assistants/$assistant_id/execution-policy"
+
+python3 -c 'import json,sys; data=json.load(open(sys.argv[1]))["data"]; assert data["allowExternalLlmProviders"] is True; assert data["allowedLlmProviders"] == ["openai"]; assert data["defaultLlmProvider"] == "openai"' "$response_file"
+
+if [ "$openai_real_execution_enabled" = "false" ]; then
+  cat > "$payload_file" <<'JSON'
+{
+  "mode": "draft_test",
+  "input": "Smoke OpenAI opt-in deve permanecer fail-closed sem credencial real.",
+  "source": "smoke-local"
+}
+JSON
+
+  expect_status 201 "agent-run-openai-opt-in-fail-closed" \
+    -b "$cookie_file" \
+    -H 'Content-Type: application/json' \
+    --data-binary "@$payload_file" \
+    "$BASE_URL/api/v1/assistants/$assistant_id/runs"
+
+  python3 -c 'import json,sys; text=open(sys.argv[1]).read(); data=json.loads(text)["data"]; adapter=data["metadata"]["runtime"]["adapterMetadata"]; events=data["events"]; blocked=next(event for event in events if event["type"] == "llm.generation_blocked"); assert data["status"] == "blocked"; assert adapter["llmProvider"] == "openai"; assert adapter["externalProviderCalled"] is False; assert adapter["llmSelectionReason"] == "assistant_policy_opt_in"; assert adapter["llm"]["failedClosed"] is True; assert blocked["metadata"]["externalProviderCalled"] is False; assert "Smoke OpenAI opt-in" not in text; assert "authorization" not in text.lower(); assert "api_key" not in text.lower()' "$response_file"
+else
+  echo "SKIP agent-run-openai-opt-in-fail-closed: OpenAI real esta habilitado; policy sera limpa sem executar provider externo."
+fi
+
+cat > "$payload_file" <<'JSON'
+{
+  "allowExternalLlmProviders": false,
+  "allowedLlmProviders": [],
+  "defaultLlmProvider": null
+}
+JSON
+
+expect_status 200 "assistant-llm-policy-clear-openai" \
+  -b "$cookie_file" \
+  -X PATCH \
+  -H 'Content-Type: application/json' \
+  --data-binary "@$payload_file" \
+  "$BASE_URL/api/v1/assistants/$assistant_id/execution-policy"
+
+python3 -c 'import json,sys; data=json.load(open(sys.argv[1]))["data"]; assert data["allowExternalLlmProviders"] is False; assert data["allowedLlmProviders"] == []; assert data["defaultLlmProvider"] is None' "$response_file"
 
 cat > "$payload_file" <<'JSON'
 {

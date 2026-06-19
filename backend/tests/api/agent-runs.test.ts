@@ -2,6 +2,7 @@ import request from 'supertest';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { createApp } from '../../src/app/app';
 import { env } from '../../src/config/env';
+import { llmService } from '../../src/modules/llm/llm.service';
 import { signSession } from '../../src/shared/security/session';
 import type { AuthenticatedUser } from '../../src/shared/types/auth';
 
@@ -151,6 +152,9 @@ function executionPolicyFixture(overrides: Record<string, unknown> = {}) {
     sandboxBlocksRealProviders: true,
     sandboxLogsRequired: true,
     sandboxCostLimitPlaceholder: null,
+    allowExternalLlmProviders: false,
+    allowedLlmProviders: [],
+    defaultLlmProvider: null,
     allowDraftTesting: true,
     allowPublishedExecution: true,
     isExecutionEnabled: true,
@@ -308,6 +312,21 @@ describe('agent run governance endpoints', () => {
     expect(response.body.data.events.map((event: { type: string }) => event.type)).toContain('runtime.run_completed');
     expect(response.body.data.metadata.runtime.provider).toBe('local');
     expect(response.body.data.metadata.runtime.rag.chunkCount).toBe(2);
+    expect(response.body.data.metadata.runtime.adapterMetadata).toEqual(expect.objectContaining({
+      llmProvider: 'local_deterministic',
+      externalProviderCalled: false,
+      llmSelectionReason: 'sandbox_blocks_real_providers',
+    }));
+    expect(response.body.data.events).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        type: 'llm.provider_selected',
+        metadata: expect.objectContaining({
+          llmProvider: 'local_deterministic',
+          externalProviderCalled: false,
+          reason: 'sandbox_blocks_real_providers',
+        }),
+      }),
+    ]));
     expect(mocks.agentRunsRepository.createRun).toHaveBeenCalledWith(expect.objectContaining({
       metadata: expect.objectContaining({
         prompt: '[redacted]',
@@ -321,6 +340,72 @@ describe('agent run governance endpoints', () => {
     expect(mocks.recordAuditEvent).toHaveBeenCalledWith(expect.objectContaining({ action: 'runtime_adapter_resolved' }));
     expect(mocks.recordAuditEvent).toHaveBeenCalledWith(expect.objectContaining({ action: 'runtime_execution_completed' }));
     expect(mocks.recordAuditEvent).toHaveBeenCalledWith(expect.objectContaining({ action: 'agent_run_completed' }));
+  });
+
+  it('fails closed without an external call when OpenAI is allowed by policy but disabled globally', async () => {
+    const fetchSpy = vi.spyOn(globalThis, 'fetch');
+    vi.spyOn(llmService, 'generateForRuntime').mockResolvedValueOnce({
+      provider: 'openai',
+      status: 'blocked',
+      message: 'OpenAI provider is disabled by configuration.',
+      model: 'gpt-4o-mini',
+      inputHash: 'a'.repeat(64),
+      latencyMs: 0,
+      errorCode: 'LLM_PROVIDER_EXECUTION_BLOCKED',
+      errorMessage: 'OpenAI provider is disabled by configuration.',
+      metadata: {
+        provider: 'openai',
+        providerStatus: 'disabled',
+        externalProviderCalled: false,
+        failedClosed: true,
+      },
+    });
+    mocks.agentRunsRepository.getExecutionPolicy.mockResolvedValueOnce(executionPolicyFixture({
+      executionMode: 'draft_test',
+      allowExternalLlmProviders: true,
+      allowedLlmProviders: ['openai'],
+      defaultLlmProvider: 'openai',
+      allowDraftTesting: true,
+    }));
+
+    const response = await request(createApp())
+      .post(`/api/v1/assistants/${assistantId}/runs`)
+      .set('Cookie', [sessionCookie()])
+      .send({
+        mode: 'draft_test',
+        input: 'Validate governed OpenAI fail-closed behavior.',
+        source: 'api-test',
+      })
+      .expect(201);
+
+    expect(response.body.data.status).toBe('blocked');
+    expect(response.body.data.completedAt).toBeNull();
+    expect(response.body.data.blockedAt).toBeTruthy();
+    expect(response.body.data.metadata.runtime.adapterMetadata).toEqual(expect.objectContaining({
+      llmProvider: 'openai',
+      externalProviderCalled: false,
+      llmSelectionReason: 'assistant_policy_opt_in',
+      llm: expect.objectContaining({
+        provider: 'openai',
+        externalProviderCalled: false,
+        failedClosed: true,
+      }),
+    }));
+    expect(response.body.data.events).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        type: 'llm.generation_blocked',
+        status: 'blocked',
+        metadata: expect.objectContaining({
+          llmProvider: 'openai',
+          externalProviderCalled: false,
+          reason: 'assistant_policy_opt_in',
+        }),
+      }),
+    ]));
+    expect(mocks.recordAuditEvent).toHaveBeenCalledWith(expect.objectContaining({ action: 'runtime_execution_blocked' }));
+    expect(mocks.recordAuditEvent).toHaveBeenCalledWith(expect.objectContaining({ action: 'agent_run_blocked' }));
+    expect(mocks.recordAuditEvent).not.toHaveBeenCalledWith(expect.objectContaining({ action: 'agent_run_completed' }));
+    expect(fetchSpy).not.toHaveBeenCalled();
   });
 
   it('creates a blocked run when precheck rejects execution', async () => {
