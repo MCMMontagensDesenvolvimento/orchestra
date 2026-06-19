@@ -17,8 +17,14 @@ const microsoftSsoErrorMessages: Record<MicrosoftSsoErrorCode, string> = {
   tenant_invalid: 'Sua conta Microsoft nao pertence a um tenant autorizado.',
   domain_invalid: 'Use uma conta corporativa com dominio permitido.',
   email_missing: 'Nao foi possivel identificar o e-mail corporativo da sua conta.',
+  external_subject_missing: 'Nao foi possivel identificar sua identidade corporativa. Acione o administrador.',
+  external_identity_not_linked: 'Sua identidade corporativa ainda nao esta vinculada ao Orchestra. Solicite acesso ao administrador.',
+  external_identity_conflict: 'Sua identidade corporativa esta vinculada de forma inconsistente. Acione o administrador.',
+  external_identity_link_failed: 'Nao foi possivel vincular sua identidade corporativa agora. Tente novamente.',
   user_not_found: 'Sua conta ainda nao esta liberada no Orchestra. Solicite acesso ao administrador.',
   user_inactive: 'Seu usuario esta inativo no Orchestra. Solicite suporte ao administrador.',
+  tenant_inactive: 'O ambiente Orchestra associado a sua conta esta inativo. Solicite suporte ao administrador.',
+  workspace_unavailable: 'Nao ha workspace ativo disponivel para sua conta. Solicite suporte ao administrador.',
   internal_error: 'Nao foi possivel concluir o login corporativo agora.',
 };
 

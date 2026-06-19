@@ -44,7 +44,15 @@ interface MicrosoftSsoRequestContext {
 
 interface MicrosoftSsoServiceDependencies {
   environment: MicrosoftSsoServiceEnvironment;
-  repository: Pick<typeof authRepository, 'findUserForSso' | 'updateLastLogin'>;
+  repository: Pick<
+    typeof authRepository,
+    | 'createExternalIdentity'
+    | 'findActiveExternalIdentityForUserProvider'
+    | 'findExternalIdentityForSso'
+    | 'findUsersForSsoAutoLink'
+    | 'updateExternalIdentityLogin'
+    | 'updateLastLogin'
+  >;
   recordAudit: typeof recordAuditEvent;
   clientFactory: MicrosoftSsoClientFactory;
   createSessionToken: typeof signSession;
@@ -58,6 +66,12 @@ interface MicrosoftSsoCallbackInput {
 
 interface ValidatedClaims {
   email: string;
+  emailVerified: boolean;
+  displayName?: string;
+  issuer: string;
+  providerTenantId: string;
+  providerUserId: string;
+  providerSubjectSource: 'oid' | 'sub';
 }
 
 export class MicrosoftSsoFlowError extends Error {
@@ -75,6 +89,12 @@ function normalizedIssuer(value: string) {
   return value.replace(/\/+$/, '').toLowerCase();
 }
 
+function claimBoolean(value: unknown) {
+  if (typeof value === 'boolean') return value;
+  const text = asString(value)?.toLowerCase();
+  return text === 'true';
+}
+
 function emailFromClaims(claims: MicrosoftSsoClaims) {
   const email = asString(claims.email);
   if (email) return email.toLowerCase();
@@ -87,6 +107,12 @@ function emailFromClaims(claims: MicrosoftSsoClaims) {
   return null;
 }
 
+function displayNameFromClaims(claims: MicrosoftSsoClaims) {
+  const name = asString(claims.name);
+  if (!name) return undefined;
+  return name.slice(0, 200);
+}
+
 function validateClaims(
   claims: MicrosoftSsoClaims,
   config: NonNullable<ReturnType<typeof getMicrosoftSsoConfiguredRuntimeConfig>>,
@@ -97,6 +123,8 @@ function validateClaims(
   const audience = asString(claims.aud);
   const tenantId = asString(claims.tid)?.toLowerCase();
   const nonce = asString(claims.nonce);
+  const oid = asString(claims.oid);
+  const sub = asString(claims.sub);
   const expiration = typeof claims.exp === 'number' ? claims.exp : Number.NaN;
   const expectedTenantId = config.tenantId.toLowerCase();
   const expectedIssuer = `https://login.microsoftonline.com/${config.tenantId}/v2.0`;
@@ -122,7 +150,18 @@ function validateClaims(
   const domain = email.slice(email.lastIndexOf('@') + 1);
   if (!config.allowedDomains.includes(domain)) return 'domain_invalid';
 
-  return { email };
+  const providerUserId = oid || sub;
+  if (!providerUserId) return 'external_subject_missing';
+
+  return {
+    email,
+    emailVerified: claimBoolean(claims.email_verified),
+    displayName: displayNameFromClaims(claims),
+    issuer: normalizedIssuer(issuer),
+    providerTenantId: tenantId,
+    providerUserId,
+    providerSubjectSource: oid ? 'oid' : 'sub',
+  };
 }
 
 export function createMicrosoftSsoService(
@@ -167,6 +206,33 @@ export function createMicrosoftSsoService(
       reason,
     });
     throw new MicrosoftSsoFlowError(reason);
+  }
+
+  function internalUserFailure(user: {
+    status: string;
+    deletedAt?: Date | null;
+    tenant: {
+      status: string;
+      deletedAt?: Date | null;
+    };
+    memberships?: Array<{
+      workspace: {
+        status: string;
+        deletedAt?: Date | null;
+      };
+    }>;
+  }): MicrosoftSsoFailureReason | null {
+    if (user.deletedAt || user.status !== 'active') return 'user_inactive';
+    if (user.tenant.deletedAt || user.tenant.status !== 'active') return 'tenant_inactive';
+    if (
+      user.memberships
+      && user.memberships.length > 0
+      && !user.memberships.some((membership) =>
+        membership.workspace.status === 'active' && !membership.workspace.deletedAt)
+    ) {
+      return 'workspace_unavailable';
+    }
+    return null;
   }
 
   return {
@@ -283,9 +349,90 @@ export function createMicrosoftSsoService(
           return callbackFailure(validatedClaims, context);
         }
 
-        const user = await dependencies.repository.findUserForSso(validatedClaims.email);
-        if (!user) return callbackFailure('user_not_found', context);
-        if (user.status !== 'active') return callbackFailure('user_inactive', context);
+        const loginAt = dependencies.now();
+        const linkedIdentity = await dependencies.repository.findExternalIdentityForSso({
+          provider: 'microsoft',
+          providerTenantId: validatedClaims.providerTenantId,
+          providerUserId: validatedClaims.providerUserId,
+        });
+
+        let user = linkedIdentity?.user;
+        let externalIdentityId = linkedIdentity?.id;
+
+        if (linkedIdentity && user) {
+          if (linkedIdentity.tenantId !== user.tenantId) {
+            return callbackFailure('external_identity_conflict', context);
+          }
+          const failureReason = internalUserFailure(user);
+          if (failureReason) return callbackFailure(failureReason, context);
+          await dependencies.repository.updateExternalIdentityLogin({
+            id: linkedIdentity.id,
+            issuer: validatedClaims.issuer,
+            email: validatedClaims.email,
+            emailVerified: validatedClaims.emailVerified,
+            displayName: validatedClaims.displayName,
+            lastLoginAt: loginAt,
+          });
+        } else {
+          if (!dependencies.environment.MICROSOFT_SSO_AUTO_LINK_BY_EMAIL) {
+            return callbackFailure('external_identity_not_linked', context);
+          }
+
+          const users = await dependencies.repository.findUsersForSsoAutoLink(validatedClaims.email);
+          if (users.length === 0) return callbackFailure('user_not_found', context);
+          if (users.length > 1) return callbackFailure('external_identity_conflict', context);
+
+          user = users[0];
+          const failureReason = internalUserFailure(user);
+          if (failureReason) return callbackFailure(failureReason, context);
+
+          const conflictingIdentity = await dependencies.repository.findActiveExternalIdentityForUserProvider({
+            provider: 'microsoft',
+            userId: user.id,
+          });
+          if (
+            conflictingIdentity
+            && (
+              conflictingIdentity.providerTenantId !== validatedClaims.providerTenantId
+              || conflictingIdentity.providerUserId !== validatedClaims.providerUserId
+            )
+          ) {
+            return callbackFailure('external_identity_conflict', context);
+          }
+
+          try {
+            const createdIdentity = await dependencies.repository.createExternalIdentity({
+              tenantId: user.tenantId,
+              userId: user.id,
+              provider: 'microsoft',
+              providerTenantId: validatedClaims.providerTenantId,
+              providerUserId: validatedClaims.providerUserId,
+              issuer: validatedClaims.issuer,
+              email: validatedClaims.email,
+              emailVerified: validatedClaims.emailVerified,
+              displayName: validatedClaims.displayName,
+              linkedAt: loginAt,
+              lastLoginAt: loginAt,
+            });
+            externalIdentityId = createdIdentity.id;
+          } catch {
+            return callbackFailure('external_identity_link_failed', context);
+          }
+
+          await audit(
+            'sso_identity_linked',
+            context,
+            {
+              provider: 'microsoft',
+              stage: 'identity_link',
+              externalIdentityId,
+            },
+            {
+              id: user.id,
+              tenantId: user.tenantId,
+            },
+          );
+        }
 
         await dependencies.repository.updateLastLogin(user.id);
         const authUser = mapUserForAuth(user);
@@ -300,6 +447,7 @@ export function createMicrosoftSsoService(
           {
             provider: 'microsoft',
             stage: 'callback',
+            ...(externalIdentityId ? { externalIdentityId } : {}),
           },
           {
             id: authUser.id,

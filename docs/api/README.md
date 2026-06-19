@@ -1,6 +1,6 @@
 # API
 
-Status: operacional para a fundacao da Fase 04, contratos de core domain da Fase 05, governanca de assistants/agent runs das Fases 05B/05C/05E, catalogo Knowledge/MCP da Fase 06, readiness local da Fase 06B, RAG query local da Fase 06C, MCP execution sandbox da Fase 06D, Runtime Adapter API da Fase 07A, Agno local runtime opcional da Fase 07B, LLM Provider API da Fase 07C e Microsoft SSO 08A-08C.
+Status: operacional para a fundacao da Fase 04, contratos de core domain da Fase 05, governanca de assistants/agent runs das Fases 05B/05C/05E, catalogo Knowledge/MCP da Fase 06, readiness local da Fase 06B, RAG query local da Fase 06C, MCP execution sandbox da Fase 06D, Runtime Adapter API da Fase 07A, Agno local runtime opcional da Fase 07B, LLM Provider API da Fase 07C e Microsoft SSO 08A-08D.
 
 Esta pasta concentra contratos HTTP e convencoes de integracao do backend.
 

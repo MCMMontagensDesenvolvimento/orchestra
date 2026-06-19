@@ -1006,8 +1006,14 @@ export type MicrosoftSsoErrorCode =
   | 'tenant_invalid'
   | 'domain_invalid'
   | 'email_missing'
+  | 'external_subject_missing'
+  | 'external_identity_not_linked'
+  | 'external_identity_conflict'
+  | 'external_identity_link_failed'
   | 'user_not_found'
   | 'user_inactive'
+  | 'tenant_inactive'
+  | 'workspace_unavailable'
   | 'internal_error';
 
 export interface AnalyticsData {
