@@ -50,12 +50,14 @@ describe('microsoft sso frontend guardrails', () => {
 
   it('maps SSO errors to safe messages without echoing raw query values', () => {
     const known = getMicrosoftSsoErrorMessage('state_invalid');
+    const identity = getMicrosoftSsoErrorMessage('external_identity_not_linked');
     const unknown = getMicrosoftSsoErrorMessage('upstream_detail_access_token');
 
     expect(known).toBe('Nao foi possivel validar a tentativa de login. Tente novamente.');
+    expect(identity).toBe('Sua identidade corporativa ainda nao esta vinculada ao Orchestra. Solicite acesso ao administrador.');
     expect(unknown).toBe('Nao foi possivel concluir o login corporativo. Tente novamente.');
 
-    const rendered = `${known} ${unknown}`;
-    expect(rendered).not.toMatch(/client_secret|id_token|access_token|refresh_token|authorization_code|state_invalid|nonce_invalid/i);
+    const rendered = `${known} ${identity} ${unknown}`;
+    expect(rendered).not.toMatch(/client_secret|id_token|access_token|refresh_token|authorization_code|providerUserId|providerTenantId|state_invalid|nonce_invalid/i);
   });
 });

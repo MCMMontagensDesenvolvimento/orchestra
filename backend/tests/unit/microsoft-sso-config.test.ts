@@ -11,6 +11,7 @@ const configuredEnvironment: MicrosoftSsoEnvironment = {
   MICROSOFT_ALLOWED_DOMAINS: ' MCM.com.br,example.com,mcm.com.br ',
   MICROSOFT_ALLOWED_TENANT_IDS: '22222222-2222-4222-8222-222222222222',
   MICROSOFT_POST_LOGOUT_REDIRECT_URI: 'http://localhost:5173/login',
+  MICROSOFT_SSO_AUTO_LINK_BY_EMAIL: false,
 };
 
 describe('Microsoft SSO public config', () => {

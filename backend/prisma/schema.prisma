@@ -17,6 +17,7 @@ model Tenant {
   deletedAt                  DateTime?                   @map("deleted_at")
   workspaces                 Workspace[]
   users                      User[]
+  externalIdentities         ExternalIdentity[]
   roles                      Role[]
   settings                   Setting[]
   auditLogs                  AuditLog[]
@@ -115,6 +116,7 @@ model User {
   roles                             UserRole[]
   memberships                       WorkspaceMembership[]
   sessions                          Session[]
+  externalIdentities                ExternalIdentity[]
   auditLogs                         AuditLog[]                  @relation("ActorAuditLogs")
   assistants                        Assistant[]                 @relation("AssistantCreator")
   versions                          AssistantVersion[]          @relation("AssistantVersionCreator")
@@ -142,6 +144,32 @@ model User {
 
   @@index([tenantId])
   @@map("users")
+}
+
+model ExternalIdentity {
+  id               String    @id @default(uuid()) @db.Uuid
+  tenantId         String    @map("tenant_id") @db.Uuid
+  userId           String    @map("user_id") @db.Uuid
+  provider         String
+  providerTenantId String    @map("provider_tenant_id")
+  providerUserId   String    @map("provider_user_id")
+  issuer           String
+  email            String
+  emailVerified    Boolean   @default(false) @map("email_verified")
+  displayName      String?   @map("display_name")
+  lastLoginAt      DateTime? @map("last_login_at")
+  linkedAt         DateTime  @default(now()) @map("linked_at")
+  createdAt        DateTime  @default(now()) @map("created_at")
+  updatedAt        DateTime  @updatedAt @map("updated_at")
+  deletedAt        DateTime? @map("deleted_at")
+  tenant           Tenant    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  user             User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId])
+  @@index([userId])
+  @@index([email])
+  @@index([provider, providerTenantId, providerUserId])
+  @@map("external_identities")
 }
 
 model Role {

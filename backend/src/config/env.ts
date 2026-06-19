@@ -35,6 +35,7 @@ const envSchema = z.object({
   MICROSOFT_ALLOWED_DOMAINS: z.preprocess(blankToUndefined, z.string().optional()),
   MICROSOFT_ALLOWED_TENANT_IDS: z.preprocess(blankToUndefined, z.string().optional()),
   MICROSOFT_POST_LOGOUT_REDIRECT_URI: z.preprocess(blankToUndefined, z.string().url().optional()),
+  MICROSOFT_SSO_AUTO_LINK_BY_EMAIL: booleanString('false'),
   RUNTIME_PROVIDER: z.enum(['local', 'agno_stub', 'agno']).default('local'),
   RUNTIME_ADAPTER_ENABLED: booleanString('true'),
   RUNTIME_DEFAULT_TIMEOUT_MS: z.coerce.number().int().positive().default(15000),

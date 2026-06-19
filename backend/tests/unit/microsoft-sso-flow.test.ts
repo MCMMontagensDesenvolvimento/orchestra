@@ -31,6 +31,7 @@ const configuredEnvironment = {
   MICROSOFT_ALLOWED_DOMAINS: 'mcm.com.br',
   MICROSOFT_ALLOWED_TENANT_IDS: tenantId,
   MICROSOFT_POST_LOGOUT_REDIRECT_URI: 'http://localhost:5173/login',
+  MICROSOFT_SSO_AUTO_LINK_BY_EMAIL: false,
   FRONTEND_ORIGIN: 'http://localhost:5173',
   JWT_SECRET: jwtSecret,
 };
@@ -116,10 +117,32 @@ const userFixture = {
   ],
 } as Awaited<ReturnType<typeof authRepository.findUserForSso>>;
 
+const externalIdentityFixture = {
+  id: '00000000-0000-0000-0000-000000000080',
+  tenantId: userFixture!.tenantId,
+  userId: userFixture!.id,
+  provider: 'microsoft',
+  providerTenantId: tenantId,
+  providerUserId: 'external-oid-1',
+  issuer: `https://login.microsoftonline.com/${tenantId}/v2.0`,
+  email: 'admin@mcm.com.br',
+  emailVerified: false,
+  displayName: null,
+  lastLoginAt: null,
+  linkedAt: date,
+  createdAt: date,
+  updatedAt: date,
+  deletedAt: null,
+  user: userFixture!,
+} as Awaited<ReturnType<typeof authRepository.findExternalIdentityForSso>>;
+
 function createFixture(overrides: {
   environment?: Partial<typeof configuredEnvironment>;
   claims?: (nonce: string) => MicrosoftSsoClaims;
-  user?: Awaited<ReturnType<typeof authRepository.findUserForSso>>;
+  linkedIdentity?: Awaited<ReturnType<typeof authRepository.findExternalIdentityForSso>>;
+  autoLinkUsers?: Awaited<ReturnType<typeof authRepository.findUsersForSsoAutoLink>>;
+  conflictingIdentity?: Awaited<ReturnType<typeof authRepository.findActiveExternalIdentityForUserProvider>>;
+  createIdentityError?: Error;
   exchangeError?: Error;
 } = {}) {
   let authorizationRequest: MicrosoftAuthorizationRequest | undefined;
@@ -138,14 +161,52 @@ function createFixture(overrides: {
       nonce: input.nonce,
       exp: Math.floor(now.getTime() / 1000) + 3600,
       email: 'Admin@MCM.com.br',
+      email_verified: true,
+      name: 'Admin MCM',
+      oid: 'external-oid-1',
+      sub: 'external-sub-1',
     };
   });
   const client: MicrosoftSsoClient = {
     getAuthorizationUrl,
     exchangeAuthorizationCode,
   };
-  const findUserForSso = vi.fn<typeof authRepository.findUserForSso>()
-    .mockResolvedValue(overrides.user === undefined ? userFixture : overrides.user);
+  const findExternalIdentityForSso = vi.fn<typeof authRepository.findExternalIdentityForSso>()
+    .mockResolvedValue(
+      overrides.linkedIdentity === undefined ? externalIdentityFixture : overrides.linkedIdentity,
+    );
+  const findUsersForSsoAutoLink = vi.fn<typeof authRepository.findUsersForSsoAutoLink>()
+    .mockResolvedValue(overrides.autoLinkUsers ?? [userFixture!]);
+  const findActiveExternalIdentityForUserProvider = vi
+    .fn<typeof authRepository.findActiveExternalIdentityForUserProvider>()
+    .mockResolvedValue(overrides.conflictingIdentity ?? null);
+  const createExternalIdentity = vi.fn<typeof authRepository.createExternalIdentity>()
+    .mockImplementation(async (input) => {
+      if (overrides.createIdentityError) throw overrides.createIdentityError;
+      return {
+        id: '00000000-0000-0000-0000-000000000081',
+        tenantId: input.tenantId,
+        userId: input.userId,
+        provider: input.provider,
+        providerTenantId: input.providerTenantId,
+        providerUserId: input.providerUserId,
+        issuer: input.issuer,
+        email: input.email,
+        emailVerified: input.emailVerified,
+        displayName: input.displayName ?? null,
+        lastLoginAt: input.lastLoginAt,
+        linkedAt: input.linkedAt,
+        createdAt: date,
+        updatedAt: date,
+        deletedAt: null,
+      };
+    });
+  const updateExternalIdentityLogin = vi.fn<typeof authRepository.updateExternalIdentityLogin>()
+    .mockResolvedValue({
+      ...externalIdentityFixture!,
+      user: undefined,
+      lastLoginAt: now,
+    } as Awaited<ReturnType<typeof authRepository.updateExternalIdentityLogin>>);
   const updateLastLogin = vi.fn<typeof authRepository.updateLastLogin>()
     .mockResolvedValue(undefined);
   const recordAudit = vi.fn<typeof recordAuditEvent>().mockResolvedValue(undefined);
@@ -155,7 +216,11 @@ function createFixture(overrides: {
       ...overrides.environment,
     },
     repository: {
-      findUserForSso,
+      createExternalIdentity,
+      findActiveExternalIdentityForUserProvider,
+      findExternalIdentityForSso,
+      findUsersForSsoAutoLink,
+      updateExternalIdentityLogin,
       updateLastLogin,
     },
     recordAudit,
@@ -167,7 +232,11 @@ function createFixture(overrides: {
     service,
     getAuthorizationUrl,
     exchangeAuthorizationCode,
-    findUserForSso,
+    createExternalIdentity,
+    findActiveExternalIdentityForUserProvider,
+    findExternalIdentityForSso,
+    findUsersForSsoAutoLink,
+    updateExternalIdentityLogin,
     updateLastLogin,
     recordAudit,
     get authorizationRequest() {
@@ -264,6 +333,7 @@ describe('Microsoft SSO backend flow', () => {
       nonce: `${nonce}-invalid`,
       exp: Math.floor(now.getTime() / 1000) + 3600,
       email: 'admin@mcm.com.br',
+      oid: 'external-oid-1',
     })],
     ['tenant_invalid', (nonce: string) => ({
       iss: `https://login.microsoftonline.com/${tenantId}/v2.0`,
@@ -272,6 +342,7 @@ describe('Microsoft SSO backend flow', () => {
       nonce,
       exp: Math.floor(now.getTime() / 1000) + 3600,
       email: 'admin@mcm.com.br',
+      oid: 'external-oid-1',
     })],
     ['domain_invalid', (nonce: string) => ({
       iss: `https://login.microsoftonline.com/${tenantId}/v2.0`,
@@ -280,6 +351,7 @@ describe('Microsoft SSO backend flow', () => {
       nonce,
       exp: Math.floor(now.getTime() / 1000) + 3600,
       email: 'admin@external.example',
+      oid: 'external-oid-1',
     })],
     ['claims_invalid', (nonce: string) => ({
       iss: `https://login.microsoftonline.com/${tenantId}/v2.0`,
@@ -288,6 +360,7 @@ describe('Microsoft SSO backend flow', () => {
       nonce,
       exp: Math.floor(now.getTime() / 1000) - 1,
       email: 'admin@mcm.com.br',
+      oid: 'external-oid-1',
     })],
     ['email_missing', (nonce: string) => ({
       iss: `https://login.microsoftonline.com/${tenantId}/v2.0`,
@@ -303,15 +376,15 @@ describe('Microsoft SSO backend flow', () => {
     await expectCallbackFailure(
       fixture.service.callback({
         query: { code: 'authorization-code', state: transaction.state },
-        transactionToken: start.transactionToken,
-      }, requestContext),
+      transactionToken: start.transactionToken,
+    }, requestContext),
       reason,
     );
-    expect(fixture.findUserForSso).not.toHaveBeenCalled();
+    expect(fixture.findExternalIdentityForSso).not.toHaveBeenCalled();
   });
 
-  it('rejects an unknown internal user without auto-provisioning', async () => {
-    const fixture = createFixture({ user: null });
+  it('rejects login without an existing external identity when auto-link is disabled', async () => {
+    const fixture = createFixture({ linkedIdentity: null });
     const { start, transaction } = await startAndTransaction(fixture);
 
     await expectCallbackFailure(
@@ -319,16 +392,21 @@ describe('Microsoft SSO backend flow', () => {
         query: { code: 'authorization-code', state: transaction.state },
         transactionToken: start.transactionToken,
       }, requestContext),
-      'user_not_found',
+      'external_identity_not_linked',
     );
+    expect(fixture.findUsersForSsoAutoLink).not.toHaveBeenCalled();
+    expect(fixture.createExternalIdentity).not.toHaveBeenCalled();
     expect(fixture.updateLastLogin).not.toHaveBeenCalled();
   });
 
   it('rejects an inactive internal user', async () => {
     const fixture = createFixture({
-      user: {
-        ...userFixture!,
-        status: 'inactive',
+      linkedIdentity: {
+        ...externalIdentityFixture!,
+        user: {
+          ...userFixture!,
+          status: 'inactive',
+        },
       },
     });
     const { start, transaction } = await startAndTransaction(fixture);
@@ -343,6 +421,31 @@ describe('Microsoft SSO backend flow', () => {
     expect(fixture.updateLastLogin).not.toHaveBeenCalled();
   });
 
+  it('rejects a linked identity when the internal tenant is inactive', async () => {
+    const fixture = createFixture({
+      linkedIdentity: {
+        ...externalIdentityFixture!,
+        user: {
+          ...userFixture!,
+          tenant: {
+            ...userFixture!.tenant,
+            status: 'inactive',
+          },
+        },
+      },
+    });
+    const { start, transaction } = await startAndTransaction(fixture);
+
+    await expectCallbackFailure(
+      fixture.service.callback({
+        query: { code: 'authorization-code', state: transaction.state },
+        transactionToken: start.transactionToken,
+      }, requestContext),
+      'tenant_inactive',
+    );
+    expect(fixture.updateLastLogin).not.toHaveBeenCalled();
+  });
+
   it('maps preferred_username, creates an Orchestra session and keeps audit sanitized', async () => {
     const fixture = createFixture({
       claims: (nonce) => ({
@@ -352,6 +455,7 @@ describe('Microsoft SSO backend flow', () => {
         nonce,
         exp: Math.floor(now.getTime() / 1000) + 3600,
         preferred_username: 'Admin@MCM.com.br',
+        oid: 'external-oid-1',
       }),
     });
     const { start, transaction } = await startAndTransaction(fixture);
@@ -365,7 +469,20 @@ describe('Microsoft SSO backend flow', () => {
     expect(session.user.email).toBe('admin@mcm.com.br');
     expect(session.user.permissions).toContain('assistants.read');
     expect(result.redirectUrl).toBe('http://localhost:5173/app/dashboard');
-    expect(fixture.findUserForSso).toHaveBeenCalledWith('admin@mcm.com.br');
+    expect(fixture.findExternalIdentityForSso).toHaveBeenCalledWith({
+      provider: 'microsoft',
+      providerTenantId: tenantId,
+      providerUserId: 'external-oid-1',
+    });
+    expect(fixture.findUsersForSsoAutoLink).not.toHaveBeenCalled();
+    expect(fixture.updateExternalIdentityLogin).toHaveBeenCalledWith({
+      id: externalIdentityFixture!.id,
+      issuer: `https://login.microsoftonline.com/${tenantId}/v2.0`,
+      email: 'admin@mcm.com.br',
+      emailVerified: false,
+      displayName: undefined,
+      lastLoginAt: now,
+    });
     expect(fixture.updateLastLogin).toHaveBeenCalledWith(userFixture!.id);
     expect(fixture.exchangeRequest).toEqual({
       code: 'authorization-code-sensitive',
@@ -379,6 +496,7 @@ describe('Microsoft SSO backend flow', () => {
       metadata: {
         provider: 'microsoft',
         stage: 'callback',
+        externalIdentityId: externalIdentityFixture!.id,
       },
     }));
 
@@ -389,6 +507,174 @@ describe('Microsoft SSO backend flow', () => {
     expect(serializedAudit).not.toContain('id_token');
     expect(serializedAudit).not.toContain('access_token');
     expect(serializedAudit).not.toContain('refresh_token');
+  });
+
+  it('auto-links an existing internal user by email only when explicitly enabled', async () => {
+    const fixture = createFixture({
+      environment: { MICROSOFT_SSO_AUTO_LINK_BY_EMAIL: true },
+      linkedIdentity: null,
+    });
+    const { start, transaction } = await startAndTransaction(fixture);
+
+    const result = await fixture.service.callback({
+      query: { code: 'authorization-code-sensitive', state: transaction.state },
+      transactionToken: start.transactionToken,
+    }, requestContext);
+
+    const session = verifySession(result.token);
+    expect(session.user.id).toBe(userFixture!.id);
+    expect(fixture.findUsersForSsoAutoLink).toHaveBeenCalledWith('admin@mcm.com.br');
+    expect(fixture.findActiveExternalIdentityForUserProvider).toHaveBeenCalledWith({
+      provider: 'microsoft',
+      userId: userFixture!.id,
+    });
+    expect(fixture.createExternalIdentity).toHaveBeenCalledWith({
+      tenantId: userFixture!.tenantId,
+      userId: userFixture!.id,
+      provider: 'microsoft',
+      providerTenantId: tenantId,
+      providerUserId: 'external-oid-1',
+      issuer: `https://login.microsoftonline.com/${tenantId}/v2.0`,
+      email: 'admin@mcm.com.br',
+      emailVerified: true,
+      displayName: 'Admin MCM',
+      linkedAt: now,
+      lastLoginAt: now,
+    });
+    expect(fixture.recordAudit).toHaveBeenCalledWith(expect.objectContaining({
+      action: 'sso_identity_linked',
+      actorUserId: userFixture!.id,
+      metadata: {
+        provider: 'microsoft',
+        stage: 'identity_link',
+        externalIdentityId: '00000000-0000-0000-0000-000000000081',
+      },
+    }));
+
+    const serializedAudit = JSON.stringify(fixture.recordAudit.mock.calls).toLowerCase();
+    expect(serializedAudit).not.toContain('admin@mcm.com.br');
+    expect(serializedAudit).not.toContain('authorization-code-sensitive');
+    expect(serializedAudit).not.toContain('client_secret');
+  });
+
+  it('does not auto-provision a user when auto-link by email finds nobody', async () => {
+    const fixture = createFixture({
+      environment: { MICROSOFT_SSO_AUTO_LINK_BY_EMAIL: true },
+      linkedIdentity: null,
+      autoLinkUsers: [],
+    });
+    const { start, transaction } = await startAndTransaction(fixture);
+
+    await expectCallbackFailure(
+      fixture.service.callback({
+        query: { code: 'authorization-code', state: transaction.state },
+        transactionToken: start.transactionToken,
+      }, requestContext),
+      'user_not_found',
+    );
+    expect(fixture.createExternalIdentity).not.toHaveBeenCalled();
+    expect(fixture.updateLastLogin).not.toHaveBeenCalled();
+  });
+
+  it('rejects auto-link when the internal user already has a different Microsoft identity', async () => {
+    const fixture = createFixture({
+      environment: { MICROSOFT_SSO_AUTO_LINK_BY_EMAIL: true },
+      linkedIdentity: null,
+      conflictingIdentity: {
+        ...externalIdentityFixture!,
+        providerUserId: 'different-external-oid',
+      },
+    });
+    const { start, transaction } = await startAndTransaction(fixture);
+
+    await expectCallbackFailure(
+      fixture.service.callback({
+        query: { code: 'authorization-code', state: transaction.state },
+        transactionToken: start.transactionToken,
+      }, requestContext),
+      'external_identity_conflict',
+    );
+    expect(fixture.createExternalIdentity).not.toHaveBeenCalled();
+  });
+
+  it('rejects claims without oid and sub', async () => {
+    const fixture = createFixture({
+      claims: (nonce) => ({
+        iss: `https://login.microsoftonline.com/${tenantId}/v2.0`,
+        aud: clientId,
+        tid: tenantId,
+        nonce,
+        exp: Math.floor(now.getTime() / 1000) + 3600,
+        email: 'admin@mcm.com.br',
+      }),
+    });
+    const { start, transaction } = await startAndTransaction(fixture);
+
+    await expectCallbackFailure(
+      fixture.service.callback({
+        query: { code: 'authorization-code', state: transaction.state },
+        transactionToken: start.transactionToken,
+      }, requestContext),
+      'external_subject_missing',
+    );
+    expect(fixture.findExternalIdentityForSso).not.toHaveBeenCalled();
+  });
+
+  it('prefers oid over sub when both are present', async () => {
+    const fixture = createFixture({
+      claims: (nonce) => ({
+        iss: `https://login.microsoftonline.com/${tenantId}/v2.0`,
+        aud: clientId,
+        tid: tenantId,
+        nonce,
+        exp: Math.floor(now.getTime() / 1000) + 3600,
+        email: 'admin@mcm.com.br',
+        oid: 'preferred-oid',
+        sub: 'fallback-sub',
+      }),
+      linkedIdentity: {
+        ...externalIdentityFixture!,
+        providerUserId: 'preferred-oid',
+      },
+    });
+    const { start, transaction } = await startAndTransaction(fixture);
+
+    await fixture.service.callback({
+      query: { code: 'authorization-code', state: transaction.state },
+      transactionToken: start.transactionToken,
+    }, requestContext);
+
+    expect(fixture.findExternalIdentityForSso).toHaveBeenCalledWith(expect.objectContaining({
+      providerUserId: 'preferred-oid',
+    }));
+  });
+
+  it('uses sub as a documented fallback when oid is missing', async () => {
+    const fixture = createFixture({
+      claims: (nonce) => ({
+        iss: `https://login.microsoftonline.com/${tenantId}/v2.0`,
+        aud: clientId,
+        tid: tenantId,
+        nonce,
+        exp: Math.floor(now.getTime() / 1000) + 3600,
+        email: 'admin@mcm.com.br',
+        sub: 'fallback-sub',
+      }),
+      linkedIdentity: {
+        ...externalIdentityFixture!,
+        providerUserId: 'fallback-sub',
+      },
+    });
+    const { start, transaction } = await startAndTransaction(fixture);
+
+    await fixture.service.callback({
+      query: { code: 'authorization-code', state: transaction.state },
+      transactionToken: start.transactionToken,
+    }, requestContext);
+
+    expect(fixture.findExternalIdentityForSso).toHaveBeenCalledWith(expect.objectContaining({
+      providerUserId: 'fallback-sub',
+    }));
   });
 
   it('maps upstream exchange failures to a governed sanitized error', async () => {
