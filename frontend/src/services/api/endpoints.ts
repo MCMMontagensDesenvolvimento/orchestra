@@ -3,6 +3,7 @@ export const endpoints = {
     devLogin: '/auth/dev-login',
     logout: '/auth/logout',
     me: '/auth/me',
+    ssoConfig: '/auth/sso/config',
   },
   tenants: {
     list: '/tenants',

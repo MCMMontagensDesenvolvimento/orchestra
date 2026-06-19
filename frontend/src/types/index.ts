@@ -985,6 +985,31 @@ export interface CurrentSession {
   permissions: string[];
 }
 
+export interface SsoProviderConfig {
+  provider: 'microsoft' | (string & {});
+  enabled: boolean;
+  configured: boolean;
+  allowedDomains: string[];
+  loginUrl: string;
+}
+
+export type MicrosoftSsoErrorCode =
+  | 'sso_disabled'
+  | 'sso_misconfigured'
+  | 'authorization_url_failed'
+  | 'state_invalid'
+  | 'callback_invalid'
+  | 'nonce_invalid'
+  | 'provider_error'
+  | 'token_exchange_failed'
+  | 'claims_invalid'
+  | 'tenant_invalid'
+  | 'domain_invalid'
+  | 'email_missing'
+  | 'user_not_found'
+  | 'user_inactive'
+  | 'internal_error';
+
 export interface AnalyticsData {
   date: string;
   conversations: number;

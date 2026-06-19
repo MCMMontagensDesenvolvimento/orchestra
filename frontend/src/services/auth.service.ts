@@ -1,6 +1,8 @@
-import type { CurrentSession } from '@/types';
+import type { CurrentSession, SsoProviderConfig } from '@/types';
 import { env } from '@/lib/env';
+import { MICROSOFT_SSO_LOGIN_URL } from '@/lib/microsoft-sso';
 import { apiClient } from './api/api-client';
+import type { ApiEnvelope } from './api/api-client';
 import { endpoints } from './api/endpoints';
 import { mockResponse } from './mocks/mock-utils';
 
@@ -57,7 +59,21 @@ const mockSession: CurrentSession = {
   ],
 };
 
+const mockSsoConfig: SsoProviderConfig = {
+  provider: 'microsoft',
+  enabled: false,
+  configured: false,
+  allowedDomains: [],
+  loginUrl: MICROSOFT_SSO_LOGIN_URL,
+};
+
 export const authService = {
+  async ssoConfig(): Promise<SsoProviderConfig> {
+    if (env.useMocks) return mockResponse(mockSsoConfig);
+    const response = await apiClient.get<ApiEnvelope<SsoProviderConfig>>(endpoints.auth.ssoConfig);
+    return response.data.data;
+  },
+
   async me(): Promise<CurrentSession> {
     if (env.useMocks) return mockResponse(mockSession);
     const response = await apiClient.get<CurrentSession>(endpoints.auth.me);

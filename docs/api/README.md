@@ -1,6 +1,6 @@
 # API
 
-Status: operacional para a fundacao da Fase 04, contratos de core domain da Fase 05, governanca de assistants/agent runs das Fases 05B/05C/05E, catalogo Knowledge/MCP da Fase 06, readiness local da Fase 06B, RAG query local da Fase 06C, MCP execution sandbox da Fase 06D, Runtime Adapter API da Fase 07A, Agno local runtime opcional da Fase 07B e LLM Provider API da Fase 07C.
+Status: operacional para a fundacao da Fase 04, contratos de core domain da Fase 05, governanca de assistants/agent runs das Fases 05B/05C/05E, catalogo Knowledge/MCP da Fase 06, readiness local da Fase 06B, RAG query local da Fase 06C, MCP execution sandbox da Fase 06D, Runtime Adapter API da Fase 07A, Agno local runtime opcional da Fase 07B, LLM Provider API da Fase 07C e Microsoft SSO 08A-08C.
 
 Esta pasta concentra contratos HTTP e convencoes de integracao do backend.
 
@@ -37,3 +37,5 @@ Esta pasta concentra contratos HTTP e convencoes de integracao do backend.
 - MCP execution sandbox usa `/assistants/:id/mcp/precheck`, `/assistants/:id/mcp/tool-calls` e detalhe/eventos sob `/mcp/tool-calls/:toolCallId`.
 - Runtime adapter usa `/runtime/providers`, `/runtime/capabilities`, `/runtime/health` e `/runtime/config`.
 - LLM providers usam `/llm/providers`, `/llm/config` e `/llm/test-generation`.
+- Microsoft SSO usa `/auth/sso/config`, `/auth/microsoft/start` e
+  `/auth/microsoft/callback`; o frontend consome somente o backend.

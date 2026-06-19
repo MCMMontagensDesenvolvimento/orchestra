@@ -1,6 +1,6 @@
 # Security
 
-Status: preparado para seguranca, fundacao Microsoft SSO, RBAC/ABAC, governanca de execucao de assistants/agent runs, catalogo Knowledge/MCP, conteudo textual local, RAG query local, MCP execution sandbox, Runtime Adapter Boundary, Agno local runtime opcional, baseline limpo de dependency audit da Fase 07B.1 e LLM Provider Security da Fase 07C.
+Status: preparado para seguranca, Microsoft SSO 08A-08C, RBAC/ABAC, governanca de execucao de assistants/agent runs, catalogo Knowledge/MCP, conteudo textual local, RAG query local, MCP execution sandbox, Runtime Adapter Boundary, Agno local runtime opcional, baseline limpo de dependency audit da Fase 07B.1 e LLM Provider Security da Fase 07C.
 
 Esta pasta deve concentrar seguranca, compliance, autenticacao, autorizacao e auditoria.
 
@@ -15,7 +15,7 @@ Topicos esperados:
 
 ## Documentos
 
-- `ORCHESTRA_MICROSOFT_SSO_PREPARATION.md`: fundacao 08A, start/callback 08B, App Registration, guardrails OIDC e plano 08C-08E.
+- `ORCHESTRA_MICROSOFT_SSO_PREPARATION.md`: fundacao 08A, start/callback 08B, frontend login/logout 08C, App Registration, guardrails OIDC e plano 08D-08E.
 - `ORCHESTRA_ASSISTANT_EXECUTION_GOVERNANCE.md`: approval workflow, execution policy, sandbox policy, auditoria e limites de execucao futura.
 - `ORCHESTRA_EXECUTION_GOVERNANCE_SECURITY.md`: controles de AgentRun, sanitizacao, auditoria, cancelamento e observabilidade segura.
 - `ORCHESTRA_KNOWLEDGE_MCP_CATALOG_SECURITY.md`: RBAC/ABAC, guard contra secrets, MCP sandbox policy e auditoria do catalogo Knowledge/MCP.
@@ -45,4 +45,4 @@ Topicos esperados:
 - Agno local runtime e desabilitado por padrao e nao recebe secrets, credenciais MCP ou payload bruto extenso.
 - Dependency audit alto esta limpo em backend e frontend apos upgrade controlado de Vite/Vitest/esbuild.
 - LLM providers externos sao desabilitados por padrao e bloqueados por wrappers fail-closed.
-- Backend Microsoft SSO possui config sanitizada, start/callback fail-closed e sessao Orchestra; frontend dedicado segue para 08C.
+- Backend Microsoft SSO possui config sanitizada, start/callback fail-closed e sessao Orchestra; frontend 08C usa somente o backend, valida `loginUrl`, trata `sso_error` e preserva logout Orchestra.

@@ -1,6 +1,7 @@
 # Orchestra Auth API
 
-Status: Microsoft SSO backend start/callback e sessao implementados na Fase 08B.
+Status: Microsoft SSO backend start/callback e sessao implementados na Fase 08B;
+frontend de login/logout Microsoft conectado com tratamento seguro de erro na Fase 08C.
 
 Base path: `/api/v1/auth`.
 
@@ -47,6 +48,22 @@ A resposta nunca inclui:
 - authorization code;
 - ID token, access token ou refresh token;
 - headers de autorizacao.
+
+## Consumo Frontend do SSO
+
+A tela `/login` do frontend consome `GET /api/v1/auth/sso/config` para descobrir
+readiness. O botao "Entrar com Microsoft" fica ativo somente quando:
+
+- `enabled=true`;
+- `configured=true`;
+- `loginUrl` e exatamente `/api/v1/auth/microsoft/start`.
+
+O frontend redireciona apenas para essa rota interna do backend. Ele nao monta URL
+Microsoft, nao usa MSAL browser, nao armazena tokens e nao conhece client ID, tenant
+ID ou secrets.
+
+Quando o callback falha, a tela de login aceita somente o codigo sanitizado em
+`sso_error`, mapeia para mensagem amigavel e nao ecoa detalhes desconhecidos.
 
 ## Iniciar Microsoft SSO
 
@@ -173,4 +190,6 @@ POST /api/v1/auth/logout
 ```
 
 Exige sessao, registra audit de logout, limpa o cookie HttpOnly e retorna `204`.
-Logout federado Microsoft sera integrado em fase posterior.
+O frontend continua usando este endpoint para logout do Orchestra e redireciona para
+`/login`. Logout federado Microsoft completo nao deve ser chamado diretamente pelo
+frontend; a integracao federada fica para fase posterior.

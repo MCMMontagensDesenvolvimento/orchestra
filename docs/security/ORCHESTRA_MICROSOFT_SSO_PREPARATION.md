@@ -1,6 +1,7 @@
 # Orchestra Microsoft SSO Preparation
 
-Status: backend Microsoft SSO implementado na Fase 08B; frontend dedicado ainda pendente.
+Status: backend Microsoft SSO implementado na Fase 08B; frontend de login/logout
+Microsoft conectado na Fase 08C com erros sanitizados e sem MSAL no browser.
 
 ## Visao Geral
 
@@ -19,6 +20,10 @@ A Fase 08A adicionou:
 
 A Fase 08B adiciona start/callback real no backend, usando MSAL Node, e cria a sessao
 Orchestra somente depois de todas as validacoes.
+
+A Fase 08C conecta a tela de login ao readiness publico do backend, exibe o login
+corporativo somente quando a configuracao permite, trata `sso_error` com mensagens
+seguras e preserva logout via sessao Orchestra.
 
 ## Variaveis de Ambiente
 
@@ -60,6 +65,10 @@ O endpoint publico pode retornar somente:
 
 Client ID, tenant ID, tenant allowlist, client secret, redirect URI externa, tokens,
 authorization code e headers nunca fazem parte da resposta.
+
+O frontend 08C aceita `loginUrl` somente quando ele e exatamente
+`/api/v1/auth/microsoft/start`. URLs absolutas, esquemas como `javascript:`/`data:`,
+paths inesperados e valores vazios sao rejeitados no cliente.
 
 ## Azure App Registration
 
@@ -157,6 +166,31 @@ Email nao deve permanecer como unico identificador imutavel. A Fase 08D definira
 vinculo persistente com `oid`/`sub` e a estrategia de provisionamento. Nenhuma
 migration e criada em 08B.
 
+## Frontend Implementado na 08C
+
+A tela `/login`:
+
+- consulta `GET /api/v1/auth/sso/config`;
+- mantem o login atual/dev-login funcionando;
+- mostra o botao "Entrar com Microsoft" com loading/disabled;
+- habilita o botao somente com `enabled=true`, `configured=true` e `loginUrl`
+  interno esperado;
+- redireciona com `window.location.assign(loginUrl)` para o backend;
+- nao monta authorization URL e nao chama Microsoft diretamente;
+- nao usa `@azure/msal-browser`;
+- nao grava token em `localStorage` ou `sessionStorage`;
+- trata `sso_error` com mensagens seguras e remove o parametro da URL quando
+  capturado.
+
+Depois do callback bem-sucedido, o backend cria o cookie HttpOnly do Orchestra e
+redireciona para `/app/dashboard`. O `ProtectedRoute` do frontend continua usando
+`GET /api/v1/auth/me` como fonte de sessao, sem assumir token local.
+
+Logout no frontend continua chamando `POST /api/v1/auth/logout`, limpando estado de
+sessao local e voltando para `/login`. Logout federado Microsoft completo permanece
+pendente para 08E ou fase posterior e nao deve ser iniciado diretamente pelo
+browser.
+
 ## Auditoria e Logs
 
 Eventos:
@@ -198,9 +232,9 @@ Na Fase 08E:
 
 ## Proximas Fases
 
-- 08C: login/logout Microsoft no frontend e tratamento seguro de erros.
-- 08D: mapeamento de identidade externa, tenant, workspace e RBAC.
-- 08E: bloqueio operacional do dev-login, smoke real e checklist de producao.
+- 08D: mapeamento persistente de identidade externa, tenant, workspace e RBAC.
+- 08E: bloqueio operacional do dev-login, logout federado/smoke real e checklist de
+  producao.
 
 ## Checklist de Seguranca
 
@@ -215,6 +249,9 @@ Na Fase 08E:
 - State, nonce e PKCE cobertos por testes sem chamada Microsoft real.
 - Usuario deve existir e estar ativo; sem auto-provisionamento.
 - Sessao final continua sendo o cookie HttpOnly do Orchestra.
-- Frontend e login atual permanecem inalterados.
+- Frontend consome somente o backend, valida `loginUrl` interno e nao usa MSAL
+  browser.
+- Login atual/dev-login permanecem funcionando.
+- `sso_error` e renderizado somente como mensagem segura, sem detalhes upstream.
 - Sem Microsoft Graph, migration ou persistencia de token/cache MSAL.
 - Rotacao e expiracao do client secret documentadas por ambiente.
