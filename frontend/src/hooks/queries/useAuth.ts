@@ -9,6 +9,14 @@ export const useCurrentSession = () =>
     retry: false,
   });
 
+export const useSsoConfigQuery = () =>
+  useQuery({
+    queryKey: queryKeys.auth.ssoConfig,
+    queryFn: () => authService.ssoConfig(),
+    retry: false,
+    staleTime: 60_000,
+  });
+
 export const useDevLoginMutation = () => {
   const queryClient = useQueryClient();
   return useMutation({

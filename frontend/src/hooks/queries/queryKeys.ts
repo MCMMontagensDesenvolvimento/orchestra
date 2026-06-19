@@ -5,6 +5,7 @@
 export const queryKeys = {
   auth: {
     me: ['auth', 'me'] as const,
+    ssoConfig: ['auth', 'sso', 'config'] as const,
   },
   dashboard: {
     summary: ['dashboard', 'summary'] as const,

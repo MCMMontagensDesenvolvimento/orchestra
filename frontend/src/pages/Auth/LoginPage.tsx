@@ -1,19 +1,60 @@
-import { useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
-import { Zap, Eye, EyeOff } from 'lucide-react';
+import { Building2, Eye, EyeOff, LoaderCircle, ShieldCheck, Zap } from 'lucide-react';
+import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { env } from '@/lib/env';
-import { useDevLoginMutation } from '@/hooks/queries/useAuth';
+import {
+  canStartMicrosoftSso,
+  getMicrosoftSsoErrorMessage,
+  isSafeMicrosoftSsoLoginUrl,
+  redirectToMicrosoftSsoLogin,
+} from '@/lib/microsoft-sso';
+import { useDevLoginMutation, useSsoConfigQuery } from '@/hooks/queries/useAuth';
 
 export default function LoginPage() {
   const navigate = useNavigate();
   const location = useLocation();
   const devLoginMutation = useDevLoginMutation();
+  const ssoConfigQuery = useSsoConfigQuery();
   const [showPassword, setShowPassword] = useState(false);
   const [email, setEmail] = useState(env.useMocks ? 'maria.silva@empresa.com' : 'admin.dev@orchestra.local');
   const [password, setPassword] = useState('password123');
+  const [ssoErrorMessage, setSsoErrorMessage] = useState<string | null>(null);
+  const [redirectingToSso, setRedirectingToSso] = useState(false);
+
+  useEffect(() => {
+    const params = new URLSearchParams(location.search);
+    const errorCode = params.get('sso_error');
+    const safeMessage = getMicrosoftSsoErrorMessage(errorCode);
+    if (!safeMessage) return;
+
+    setSsoErrorMessage(safeMessage);
+    params.delete('sso_error');
+    const nextSearch = params.toString();
+    navigate(
+      {
+        pathname: location.pathname,
+        search: nextSearch ? `?${nextSearch}` : '',
+      },
+      { replace: true, state: location.state },
+    );
+  }, [location.pathname, location.search, location.state, navigate]);
+
+  const ssoConfig = ssoConfigQuery.data;
+  const ssoLoginUrlIsSafe = isSafeMicrosoftSsoLoginUrl(ssoConfig?.loginUrl);
+  const microsoftSsoReady = canStartMicrosoftSso(ssoConfig);
+  const showMicrosoftSsoControl = ssoConfigQuery.isLoading || Boolean(ssoConfig);
+  const microsoftSsoStatus = useMemo(() => {
+    if (ssoConfigQuery.isLoading) return 'Verificando login corporativo Microsoft.';
+    if (!ssoConfig) return null;
+    if (!ssoConfig.enabled) return 'Login corporativo nao esta habilitado neste ambiente.';
+    if (!ssoConfig.configured) return 'Login corporativo ainda nao esta configurado corretamente.';
+    if (!ssoLoginUrlIsSafe) return 'Configuracao de login corporativo indisponivel.';
+    return 'Use sua conta corporativa para acessar o Orchestra.';
+  }, [ssoConfig, ssoConfigQuery.isLoading, ssoLoginUrlIsSafe]);
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -30,6 +71,16 @@ export default function LoginPage() {
       navigate(redirectTo);
     } catch {
       // Error state is rendered from the mutation.
+    }
+  };
+
+  const handleMicrosoftLogin = () => {
+    if (!ssoConfig) return;
+    setRedirectingToSso(true);
+    const redirected = redirectToMicrosoftSsoLogin(ssoConfig);
+    if (!redirected) {
+      setRedirectingToSso(false);
+      setSsoErrorMessage('Login corporativo indisponivel neste ambiente.');
     }
   };
 
@@ -84,7 +135,13 @@ export default function LoginPage() {
             <span className="text-xl font-bold">ORQUESTRA</span>
           </div>
           <h2 className="text-2xl font-bold">Bem-vindo de volta</h2>
-          <p className="mt-1 text-sm text-muted-foreground">Entre com suas credenciais para acessar a plataforma.</p>
+          <p className="mt-1 text-sm text-muted-foreground">Entre com suas credenciais ou acesso corporativo para usar a plataforma.</p>
+
+          {ssoErrorMessage && (
+            <Alert variant="destructive" className="mt-6">
+              <AlertDescription>{ssoErrorMessage}</AlertDescription>
+            </Alert>
+          )}
 
           <form onSubmit={(event) => { void handleLogin(event); }} className="mt-8 space-y-4">
             <div className="space-y-2">
@@ -131,6 +188,36 @@ export default function LoginPage() {
               {devLoginMutation.isPending ? 'Entrando...' : 'Entrar'}
             </Button>
           </form>
+
+          {showMicrosoftSsoControl && (
+            <div className="mt-6 space-y-3">
+              <div className="flex items-center gap-3 text-xs uppercase tracking-wide text-muted-foreground">
+                <span className="h-px flex-1 bg-border" />
+                <span>Login corporativo</span>
+                <span className="h-px flex-1 bg-border" />
+              </div>
+              <Button
+                type="button"
+                variant="outline"
+                className="w-full"
+                disabled={!microsoftSsoReady || redirectingToSso || ssoConfigQuery.isLoading}
+                onClick={handleMicrosoftLogin}
+              >
+                {redirectingToSso ? (
+                  <LoaderCircle className="mr-2 h-4 w-4 animate-spin" />
+                ) : (
+                  <Building2 className="mr-2 h-4 w-4" />
+                )}
+                Entrar com Microsoft
+              </Button>
+              {microsoftSsoStatus && (
+                <p className="flex items-start gap-2 text-xs text-muted-foreground">
+                  <ShieldCheck className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+                  <span>{microsoftSsoStatus}</span>
+                </p>
+              )}
+            </div>
+          )}
 
           <p className="mt-6 text-center text-xs text-muted-foreground">
             Acesso restrito a usuários autorizados. Ao entrar, você concorda com as políticas de uso da plataforma.

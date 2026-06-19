@@ -40,7 +40,8 @@ O campo `email` e opcional. Sem ele, o backend usa o usuario dummy criado pela s
 readiness, dominios permitidos e a rota interna reservada para login. Client secret,
 tokens, authorization code, IDs internos e redirect URIs externas nao sao retornados.
 O fluxo backend Microsoft esta ativo quando explicitamente habilitado e configurado.
-O login frontend dedicado permanece para a Fase 08C.
+O frontend da Fase 08C usa esse contrato para habilitar o botao Microsoft apenas
+quando o backend permite e redireciona somente para a rota interna de start.
 
 ## Endpoints Autenticados
 
