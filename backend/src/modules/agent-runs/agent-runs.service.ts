@@ -418,6 +418,7 @@ export const agentRunsService = {
     const normalizedRuntimeEvents = normalizeRuntimeEvents(runtimeResult);
     const now = new Date();
     const isFailed = runtimeResult.status === 'failed';
+    const isBlocked = runtimeResult.status === 'blocked';
     const run = await agentRunsRepository.createRun({
       id: runId,
       tenantId: user.tenant.id,
@@ -433,8 +434,9 @@ export const agentRunsService = {
       requestId: context.requestId,
       traceId,
       startedAt: now,
-      completedAt: isFailed ? undefined : now,
+      completedAt: isFailed || isBlocked ? undefined : now,
       failedAt: isFailed ? now : undefined,
+      blockedAt: isBlocked ? now : undefined,
       errorCode: runtimeResult.errorCode,
       errorMessage: runtimeResult.errorMessage,
       precheckSnapshot: precheck as unknown as Prisma.InputJsonValue,
@@ -473,7 +475,11 @@ export const agentRunsService = {
       assistant,
       runId,
       traceId,
-      action: isFailed ? 'runtime_execution_failed' : 'runtime_execution_completed',
+      action: isBlocked
+        ? 'runtime_execution_blocked'
+        : isFailed
+          ? 'runtime_execution_failed'
+          : 'runtime_execution_completed',
       mode: input.mode,
       status: runtimeResult.status,
       context,
@@ -484,12 +490,19 @@ export const agentRunsService = {
       assistant,
       runId,
       traceId,
-      action: isFailed ? 'agent_run_failed' : 'agent_run_completed',
+      action: isBlocked
+        ? 'agent_run_blocked'
+        : isFailed
+          ? 'agent_run_failed'
+          : 'agent_run_completed',
       mode: input.mode,
       status: runtimeResult.status,
       context,
     });
-    logger.info({ requestId: context.requestId, traceId, runId, assistantId: assistant.id, status: runtimeResult.status }, 'agent run completed');
+    logger.info(
+      { requestId: context.requestId, traceId, runId, assistantId: assistant.id, status: runtimeResult.status },
+      isBlocked ? 'agent run blocked by runtime' : 'agent run completed',
+    );
     return mapAgentRun(run);
   },
 

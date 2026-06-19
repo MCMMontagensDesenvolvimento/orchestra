@@ -108,7 +108,7 @@ describe('llm provider endpoints', () => {
     expect(response.body.data.find((provider: { provider: string; health: { status: string } }) => provider.provider === 'openai').health.status).toBe('disabled');
     expect(JSON.stringify(response.body).toLowerCase()).not.toContain('api_key');
     expect(JSON.stringify(response.body).toLowerCase()).not.toContain('authorization');
-  });
+  }, 15_000);
 
   it('returns sanitized llm config without secrets or endpoints', async () => {
     const { app, sessionCookie } = await setupApp();

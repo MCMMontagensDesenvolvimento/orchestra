@@ -119,6 +119,9 @@ Body parcial:
   "sandboxBlocksRealProviders": true,
   "sandboxLogsRequired": true,
   "sandboxCostLimitPlaceholder": 25,
+  "allowExternalLlmProviders": false,
+  "allowedLlmProviders": [],
+  "defaultLlmProvider": null,
   "allowDraftTesting": true,
   "allowPublishedExecution": false,
   "isExecutionEnabled": false
@@ -130,8 +133,20 @@ Regras:
 - `sandboxBlocksExternalTools=false` e bloqueado nesta fase.
 - `sandboxBlocksRealProviders=false` e bloqueado nesta fase.
 - `sandboxLogsRequired=false` e bloqueado nesta fase.
+- `allowExternalLlmProviders=true` exige `openai` em `allowedLlmProviders`.
+- `defaultLlmProvider=openai` exige opt-in externo e `openai` na allowlist.
+- Limpar OpenAI usa `allowExternalLlmProviders=false`, `allowedLlmProviders=[]` e
+  `defaultLlmProvider=null`.
 - `executionMode=published` ou `allowPublishedExecution=true` exige publicacao ativa.
 - `isExecutionEnabled=true` exige `assistants.execution.enable`.
+
+O backend reaplica a verificacao `assistants.execution.configure` no service e valida
+escopo de workspace. Tentativa sem permissao retorna `403 FORBIDDEN`, nao persiste a
+policy e gera audit `permission_denied`.
+
+Alteracao aceita gera `assistant_execution_policy_updated` com metadata sanitizada:
+identificadores, modo, flags booleanas e provider default. API key, Authorization,
+prompt, output e payload bruto nao fazem parte do audit.
 
 ## Execution Precheck
 
@@ -178,3 +193,6 @@ O endpoint nao chama IA e nao simula resposta de assistant.
 - `422 VALIDATION_ERROR`
 - `422 REAL_EXECUTION_NOT_AVAILABLE`
 - `422 NO_ACTIVE_PUBLICATION`
+- `422 OPENAI_PROVIDER_POLICY_REQUIRED`
+- `422 EXTERNAL_LLM_PROVIDER_NOT_ENABLED`
+- `422 DEFAULT_LLM_PROVIDER_NOT_ALLOWED`

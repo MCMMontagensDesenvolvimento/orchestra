@@ -215,6 +215,9 @@ function executionPolicyFixture(overrides: Record<string, unknown> = {}) {
     sandboxBlocksRealProviders: true,
     sandboxLogsRequired: true,
     sandboxCostLimitPlaceholder: null,
+    allowExternalLlmProviders: false,
+    allowedLlmProviders: [],
+    defaultLlmProvider: null,
     allowDraftTesting: true,
     allowPublishedExecution: false,
     isExecutionEnabled: false,
@@ -438,6 +441,110 @@ describe('assistant governance endpoints', () => {
     expect(patchResponse.body.data.requiresApprovalToPublish).toBe(true);
     expect(mocks.recordAuditEvent).toHaveBeenCalledWith(expect.objectContaining({ action: 'assistant_execution_policy_updated' }));
     expect(mocks.recordAuditEvent).toHaveBeenCalledWith(expect.objectContaining({ action: 'assistant_sandbox_policy_updated' }));
+  });
+
+  it('allows read-only policy access but rejects policy updates without configure permission', async () => {
+    mocks.assistantsRepository.findById.mockResolvedValue(assistantFixture('draft'));
+
+    const readOnlyUser = {
+      ...testUser,
+      permissions: ['assistants.read'],
+    };
+
+    const getResponse = await request(createApp())
+      .get(`/api/v1/assistants/${assistantId}/execution-policy`)
+      .set('Cookie', [sessionCookie(readOnlyUser)])
+      .expect(200);
+
+    expect(getResponse.body.data.executionMode).toBe('draft_test');
+
+    const patchResponse = await request(createApp())
+      .patch(`/api/v1/assistants/${assistantId}/execution-policy`)
+      .set('Cookie', [sessionCookie(readOnlyUser)])
+      .send({
+        allowExternalLlmProviders: true,
+        allowedLlmProviders: ['openai'],
+        defaultLlmProvider: 'openai',
+      })
+      .expect(403);
+
+    expect(patchResponse.body.code).toBe('FORBIDDEN');
+    expect(mocks.assistantsRepository.updateExecutionPolicy).not.toHaveBeenCalled();
+    expect(mocks.recordAuditEvent).toHaveBeenCalledWith(expect.objectContaining({
+      action: 'permission_denied',
+      metadata: expect.objectContaining({
+        permission: 'assistants.execution.configure',
+      }),
+    }));
+  });
+
+  it('updates OpenAI opt-in policy with sanitized audit metadata', async () => {
+    mocks.assistantsRepository.findById.mockResolvedValue(assistantFixture('draft'));
+    mocks.assistantsRepository.getExecutionPolicy.mockResolvedValueOnce(executionPolicyFixture());
+    mocks.assistantsRepository.updateExecutionPolicy.mockResolvedValueOnce(executionPolicyFixture({
+      allowExternalLlmProviders: true,
+      allowedLlmProviders: ['openai'],
+      defaultLlmProvider: 'openai',
+    }));
+
+    const response = await request(createApp())
+      .patch(`/api/v1/assistants/${assistantId}/execution-policy`)
+      .set('Cookie', [sessionCookie()])
+      .send({
+        allowExternalLlmProviders: true,
+        allowedLlmProviders: ['openai'],
+        defaultLlmProvider: 'openai',
+      })
+      .expect(200);
+
+    expect(response.body.data.allowExternalLlmProviders).toBe(true);
+    expect(response.body.data.allowedLlmProviders).toEqual(['openai']);
+    expect(response.body.data.defaultLlmProvider).toBe('openai');
+    expect(mocks.assistantsRepository.updateExecutionPolicy).toHaveBeenCalledWith(expect.objectContaining({
+      payload: expect.objectContaining({
+        allowExternalLlmProviders: true,
+        allowedLlmProviders: ['openai'],
+        defaultLlmProvider: 'openai',
+      }),
+      updatedById: userId,
+    }));
+
+    const auditCall = mocks.recordAuditEvent.mock.calls.find(
+      ([input]) => input.action === 'assistant_execution_policy_updated',
+    )?.[0];
+    expect(auditCall).toEqual(expect.objectContaining({
+      metadata: expect.objectContaining({
+        assistantId,
+        allowExternalLlmProviders: true,
+        defaultLlmProvider: 'openai',
+      }),
+    }));
+    expect(JSON.stringify(auditCall).toLowerCase()).not.toContain('api_key');
+    expect(JSON.stringify(auditCall).toLowerCase()).not.toContain('authorization');
+    expect(JSON.stringify(auditCall).toLowerCase()).not.toContain('prompt');
+    expect(JSON.stringify(auditCall).toLowerCase()).not.toContain('output');
+  });
+
+  it('requires execution enable permission separately from policy configure permission', async () => {
+    mocks.assistantsRepository.findById.mockResolvedValue(assistantFixture('draft'));
+
+    const configureOnlyUser = {
+      ...testUser,
+      permissions: ['assistants.read', 'assistants.execution.configure'],
+    };
+
+    const response = await request(createApp())
+      .patch(`/api/v1/assistants/${assistantId}/execution-policy`)
+      .set('Cookie', [sessionCookie(configureOnlyUser)])
+      .send({ isExecutionEnabled: true })
+      .expect(403);
+
+    expect(response.body.code).toBe('FORBIDDEN');
+    expect(mocks.assistantsRepository.updateExecutionPolicy).not.toHaveBeenCalled();
+    expect(mocks.recordAuditEvent).toHaveBeenCalledWith(expect.objectContaining({
+      action: 'permission_denied',
+      metadata: expect.objectContaining({ policy: 'canEnableExecution' }),
+    }));
   });
 
   it('prechecks execution without running AI', async () => {

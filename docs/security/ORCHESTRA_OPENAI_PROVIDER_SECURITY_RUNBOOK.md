@@ -1,6 +1,6 @@
 # Orchestra OpenAI Provider Security Runbook
 
-Status: handoff operacional atualizado na Fase 07E-E.
+Status: Sprint 11 de governanca LLM encerrada na Fase 07E-F.
 
 ## Visao Geral
 
@@ -103,6 +103,16 @@ Resultado esperado em modo fail-closed: bloqueio com erro governado, sem chamada
 
 A UI de edicao controlada fica no detalhe do assistant, aba Governanca, secao `Governanca LLM`.
 
+Permissoes:
+
+- `assistants.read`: visualizar a policy.
+- `assistants.execution.configure`: editar allowlist e provider default.
+- `assistants.execution.enable`: necessario adicionalmente para habilitar execucao geral.
+
+Sem `assistants.execution.configure`, a UI permanece read-only e o backend retorna
+`403 FORBIDDEN` em qualquer tentativa direta de PATCH. O backend e a autoridade; ocultar
+ou desabilitar o botao no frontend nao substitui RBAC server-side.
+
 Fluxo para permitir OpenAI por assistant:
 
 1. Abrir a secao `Governanca LLM`.
@@ -197,6 +207,64 @@ A timeline avancada fica no detalhe do assistant, aba `Execucoes`, dentro de cad
 - Mensagens `llm.*`, mensagens de falha e metadata arbitraria nao sao renderizadas.
 - A UI nunca usa `JSON.stringify` para mostrar metadata de run/evento.
 - Prompt, output, request body, response body, headers e secrets permanecem fora da timeline.
+
+## Smoke Sem Credencial OpenAI Real
+
+O smoke padrao deve funcionar com OpenAI desabilitado e nao pode depender de API key.
+O script `scripts/smoke-local.sh` cobre o fluxo integrado quando a stack local esta ativa.
+Se detectar OpenAI real habilitado, ele valida catalogo/policy e pula geracoes OpenAI para
+nao produzir chamada externa acidental. O fail-closed continua coberto por teste automatizado.
+
+1. Aplicar policy limpa:
+   - `allowExternalLlmProviders=false`;
+   - `allowedLlmProviders=[]`;
+   - `defaultLlmProvider=null`.
+2. Executar run sandbox.
+3. Confirmar:
+   - `llmProvider=local_deterministic`;
+   - `externalProviderCalled=false`;
+   - `llmSelectionReason=sandbox_blocks_real_providers`.
+4. Aplicar opt-in OpenAI por policy.
+5. Executar run `draft_test` com provider global desabilitado.
+6. Confirmar fail-closed:
+   - status `blocked`;
+   - `llmProvider=openai`;
+   - `externalProviderCalled=false`;
+   - `failedClosed=true`;
+   - evento `llm.generation_blocked`;
+   - audit `runtime_execution_blocked` e `agent_run_blocked`.
+7. Limpar OpenAI e confirmar retorno ao estado seguro.
+8. Executar testes automatizados de permissao e confirmar `403` sem
+   `assistants.execution.configure`.
+
+Esse smoke nao deve chamar `api.openai.com`, mesmo que a maquina possua credenciais em
+outro contexto.
+
+## Smoke Opcional Com OpenAI Real
+
+Executar somente em ambiente controlado, com autorizacao operacional e limites de custo.
+
+1. Confirmar config global sanitizada e todas as flags opt-in.
+2. Confirmar policy do assistant com OpenAI permitido e modo nao sandbox.
+3. Usar entrada nao sensivel e curta.
+4. Confirmar `externalProviderCalled=true`, provider/modelo, latencia e tokens numericos.
+5. Confirmar ausencia de prompt/output bruto, request/response body, headers e segredo.
+6. Limpar a policy e desabilitar execution flags ao finalizar.
+
+O smoke real nao faz parte da validacao local obrigatoria da Sprint 11.
+
+## Validar Permissoes e Erros Seguros
+
+- Leitura com `assistants.read`: `200`.
+- Edicao com `assistants.execution.configure`: `200`, persistencia e audit sanitizado.
+- Edicao sem permissao: `403`, sem chamada ao repository de update.
+- Habilitar execucao sem `assistants.execution.enable`: `403`.
+- Frontend:
+  - `401`: solicita nova autenticacao sem mostrar mensagem interna;
+  - `403`: informa falta de permissao;
+  - `409/422`: orienta revisar combinacao de policy;
+  - `429`: orienta aguardar;
+  - `5xx`: informa indisponibilidade sem ecoar payload upstream.
 
 ## Troubleshooting
 
@@ -313,3 +381,18 @@ Acao: fail-closed, revisar status do provider, manter fallback local quando apli
 - Logs sem API keys, tokens, Authorization headers, prompt bruto ou output bruto.
 - Frontend sem secrets e sem chamada direta a OpenAI.
 - Policy limpa/desabilitada quando rollback for necessario.
+
+## Checklist Final da Sprint 11
+
+- Catalogo LLM read-only disponivel no Admin.
+- Policy LLM visivel e editavel por permissao no assistant.
+- PATCH protegido por RBAC e escopo de workspace.
+- OpenAI opt-in coerente entre flag externa, allowlist e default.
+- Sandbox seleciona `local_deterministic` e bloqueia provider real.
+- Bloqueio antes da chamada registra `externalProviderCalled=false`.
+- Runs e timeline exibem somente metadata sanitizada.
+- `401`, `403`, `409/422`, `429` e `5xx` possuem mensagens frontend seguras.
+- Audit de policy e run nao contem segredo, prompt bruto ou output bruto.
+- Smoke sem credencial real e testes de permissao passam.
+- Smoke OpenAI real permanece opcional e controlado.
+- Frontend nunca chama provider externo diretamente.
