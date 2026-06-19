@@ -7,7 +7,7 @@ Esta pasta concentra contratos HTTP e convencoes de integracao do backend.
 ## Documentos
 
 - `ORCHESTRA_API_FOUNDATION.md`: prefixos, envelopes de resposta, erros, autenticacao e endpoints implementados.
-- `ORCHESTRA_AUTH_API.md`: dev-login, sessao atual e readiness sanitizada da fundacao Microsoft SSO.
+- `ORCHESTRA_AUTH_API.md`: dev-login, sessao, readiness e start/callback Microsoft SSO.
 - `ORCHESTRA_CORE_DOMAIN_API.md`: endpoints, paginacao, filtros e acoes de governanca de assistants.
 - `ORCHESTRA_ASSISTANT_GOVERNANCE_API.md`: approval workflow, execution policy e execution precheck.
 - `ORCHESTRA_RUNTIME_EXECUTION_CONTRACTS.md`: contratos REST de AgentRun, eventos, precheck bloqueante e cancelamento.

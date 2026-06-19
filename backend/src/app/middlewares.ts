@@ -20,7 +20,9 @@ export function registerMiddlewares(app: express.Express) {
         tenantId: req.user?.tenant.id,
       }),
       autoLogging: {
-        ignore: (req) => req.url === '/health',
+        ignore: (req) =>
+          req.url === '/health'
+          || req.url?.startsWith('/api/v1/auth/microsoft/callback'),
       },
     }),
   );

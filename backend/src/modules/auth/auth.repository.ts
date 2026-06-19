@@ -29,6 +29,39 @@ export const authRepository = {
     });
   },
 
+  async findUserForSso(email: string) {
+    return prisma.user.findFirst({
+      where: {
+        email: {
+          equals: email,
+          mode: 'insensitive',
+        },
+        deletedAt: null,
+      },
+      include: {
+        tenant: true,
+        roles: {
+          include: {
+            role: {
+              include: {
+                permissions: {
+                  include: {
+                    permission: true,
+                  },
+                },
+              },
+            },
+          },
+        },
+        memberships: {
+          include: {
+            workspace: true,
+          },
+        },
+      },
+    });
+  },
+
   async updateLastLogin(userId: string) {
     await prisma.user.update({
       where: { id: userId },

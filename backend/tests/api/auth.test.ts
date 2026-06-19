@@ -1,7 +1,12 @@
 import request from 'supertest';
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { createApp } from '../../src/app/app';
 import { env } from '../../src/config/env';
+import {
+  MicrosoftSsoFlowError,
+  microsoftSsoService,
+} from '../../src/modules/auth/microsoft-sso.service';
+import { MICROSOFT_SSO_TRANSACTION_COOKIE } from '../../src/modules/auth/microsoft-sso.state';
 import { signSession } from '../../src/shared/security/session';
 import type { AuthenticatedUser } from '../../src/shared/types/auth';
 
@@ -34,7 +39,17 @@ const testUser: AuthenticatedUser = {
   permissions: ['assistants.read', 'assistants.create'],
 };
 
+function responseCookies(response: request.Response) {
+  const value = response.headers['set-cookie'] as unknown;
+  if (Array.isArray(value)) return value as string[];
+  return typeof value === 'string' ? [value] : [];
+}
+
 describe('auth endpoints', () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
   it('returns public sanitized Microsoft SSO readiness without requiring a session', async () => {
     const response = await request(createApp())
       .get('/api/v1/auth/sso/config')
@@ -62,6 +77,85 @@ describe('auth endpoints', () => {
 
     expect(response.body.code).toBe('UNAUTHORIZED');
     expect(response.body.requestId).toMatch(/^req_/);
+  });
+
+  it('fails safely when Microsoft SSO start is disabled', async () => {
+    const response = await request(createApp())
+      .get('/api/v1/auth/microsoft/start')
+      .expect(409);
+
+    expect(response.body.code).toBe('SSO_DISABLED');
+    expect(JSON.stringify(response.body).toLowerCase()).not.toContain('client_secret');
+  });
+
+  it('sets a short-lived HttpOnly transaction cookie before redirecting to Microsoft', async () => {
+    vi.spyOn(microsoftSsoService, 'start').mockResolvedValueOnce({
+      authorizationUrl: 'https://login.microsoftonline.com/tenant/oauth2/v2.0/authorize',
+      transactionToken: 'signed-transaction-token',
+    });
+
+    const response = await request(createApp())
+      .get('/api/v1/auth/microsoft/start')
+      .expect(302);
+
+    expect(response.headers.location).toMatch(/^https:\/\/login\.microsoftonline\.com\//);
+    const cookie = responseCookies(response).find(
+      (value: string) => value.startsWith(`${MICROSOFT_SSO_TRANSACTION_COOKIE}=`),
+    );
+    expect(cookie).toContain('HttpOnly');
+    expect(cookie).toContain('SameSite=Lax');
+    expect(cookie).toContain('Path=/api/v1/auth/microsoft');
+    expect(cookie).toContain('Max-Age=600');
+    expect(JSON.stringify(response.headers)).not.toContain('client_secret');
+  });
+
+  it('creates the Orchestra session and clears the transaction cookie on callback success', async () => {
+    const token = signSession({ sub: testUser.id, user: testUser });
+    vi.spyOn(microsoftSsoService, 'callback').mockResolvedValueOnce({
+      token,
+      user: testUser,
+      redirectUrl: 'http://localhost:5173/app/dashboard',
+    });
+
+    const response = await request(createApp())
+      .get('/api/v1/auth/microsoft/callback?code=sensitive-code&state=sensitive-state')
+      .set('Cookie', [`${MICROSOFT_SSO_TRANSACTION_COOKIE}=signed-transaction-token`])
+      .expect(302);
+
+    expect(response.headers.location).toBe('http://localhost:5173/app/dashboard');
+    const cookies = responseCookies(response);
+    expect(cookies.some((cookie) => cookie.startsWith(`${env.COOKIE_NAME}=`))).toBe(true);
+    expect(cookies.some((cookie) =>
+      cookie.startsWith(`${MICROSOFT_SSO_TRANSACTION_COOKIE}=;`)
+      && cookie.includes('Path=/api/v1/auth/microsoft'),
+    )).toBe(true);
+    expect(JSON.stringify(response.headers)).not.toContain('sensitive-code');
+
+    const sessionCookie = cookies
+      .find((cookie) => cookie.startsWith(`${env.COOKIE_NAME}=`))
+      ?.split(';')[0];
+    expect(sessionCookie).toBeTruthy();
+    const meResponse = await request(createApp())
+      .get('/api/v1/auth/me')
+      .set('Cookie', [sessionCookie!])
+      .expect(200);
+    expect(meResponse.body.user.email).toBe(testUser.email);
+  });
+
+  it('redirects callback failures with a sanitized code and clears transaction state', async () => {
+    vi.spyOn(microsoftSsoService, 'callback')
+      .mockRejectedValueOnce(new MicrosoftSsoFlowError('state_invalid'));
+
+    const response = await request(createApp())
+      .get('/api/v1/auth/microsoft/callback?code=sensitive-code&state=invalid')
+      .set('Cookie', [`${MICROSOFT_SSO_TRANSACTION_COOKIE}=invalid-transaction`])
+      .expect(302);
+
+    expect(response.headers.location).toBe('http://localhost:5173/login?sso_error=state_invalid');
+    const cookies = responseCookies(response);
+    expect(cookies).toHaveLength(1);
+    expect(cookies[0]).toContain(`${MICROSOFT_SSO_TRANSACTION_COOKIE}=;`);
+    expect(JSON.stringify(response.headers)).not.toContain('sensitive-code');
   });
 
   it('returns user for auth/me with dev session cookie', async () => {

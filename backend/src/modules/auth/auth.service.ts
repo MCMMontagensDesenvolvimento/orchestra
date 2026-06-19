@@ -5,11 +5,11 @@ import { recordAuditEvent } from '../audit/audit.service';
 import { mapUserForAuth } from './auth.mapper';
 import { authRepository } from './auth.repository';
 import type { DevLoginInput } from './auth.schema';
-import { getMicrosoftSsoPublicConfig } from './microsoft-sso.config';
+import { microsoftSsoService } from './microsoft-sso.service';
 
 export const authService = {
   ssoConfig() {
-    return getMicrosoftSsoPublicConfig();
+    return microsoftSsoService.publicConfig();
   },
 
   async devLogin(input: DevLoginInput, context: { requestId: string; ipAddress?: string; userAgent?: string }) {
