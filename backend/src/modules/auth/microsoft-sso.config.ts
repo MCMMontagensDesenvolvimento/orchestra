@@ -1,5 +1,6 @@
 import { env } from '../../config/env';
 import type {
+  MicrosoftSsoConfiguredRuntimeConfig,
   MicrosoftSsoEnvironment,
   MicrosoftSsoPublicConfig,
 } from './microsoft-sso.types';
@@ -20,9 +21,7 @@ function normalizedList(value?: string, normalizeCase = false) {
   return [...new Set(values)];
 }
 
-export function getMicrosoftSsoPublicConfig(
-  source: MicrosoftSsoEnvironment = env,
-): MicrosoftSsoPublicConfig {
+function resolveMicrosoftSsoConfig(source: MicrosoftSsoEnvironment) {
   const domainCandidates = normalizedList(source.MICROSOFT_ALLOWED_DOMAINS, true);
   const allowedDomains = domainCandidates.filter((domain) => domainPattern.test(domain));
   const tenantCandidates = normalizedList(source.MICROSOFT_ALLOWED_TENANT_IDS, true);
@@ -46,10 +45,51 @@ export function getMicrosoftSsoPublicConfig(
   );
 
   return {
+    allowedDomains,
+    allowedTenantIds,
+    configured,
+    tenantId,
+  };
+}
+
+export function getMicrosoftSsoPublicConfig(
+  source: MicrosoftSsoEnvironment = env,
+): MicrosoftSsoPublicConfig {
+  const config = resolveMicrosoftSsoConfig(source);
+
+  return {
     provider: 'microsoft',
     enabled: source.MICROSOFT_SSO_ENABLED,
-    configured,
-    allowedDomains,
+    configured: config.configured,
+    allowedDomains: config.allowedDomains,
     loginUrl: MICROSOFT_LOGIN_URL,
+  };
+}
+
+export function getMicrosoftSsoConfiguredRuntimeConfig(
+  source: MicrosoftSsoEnvironment = env,
+): MicrosoftSsoConfiguredRuntimeConfig | null {
+  const config = resolveMicrosoftSsoConfig(source);
+  if (
+    !config.configured
+    || !source.MICROSOFT_CLIENT_ID
+    || !source.MICROSOFT_CLIENT_SECRET
+    || !config.tenantId
+    || !source.MICROSOFT_REDIRECT_URI
+    || !source.MICROSOFT_POST_LOGOUT_REDIRECT_URI
+  ) {
+    return null;
+  }
+
+  return {
+    provider: 'microsoft',
+    clientId: source.MICROSOFT_CLIENT_ID,
+    clientSecret: source.MICROSOFT_CLIENT_SECRET,
+    tenantId: config.tenantId,
+    redirectUri: source.MICROSOFT_REDIRECT_URI,
+    postLogoutRedirectUri: source.MICROSOFT_POST_LOGOUT_REDIRECT_URI,
+    allowedDomains: config.allowedDomains,
+    allowedTenantIds: config.allowedTenantIds,
+    authority: `https://login.microsoftonline.com/${config.tenantId}`,
   };
 }

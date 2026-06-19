@@ -15,7 +15,7 @@ Topicos esperados:
 
 ## Documentos
 
-- `ORCHESTRA_MICROSOFT_SSO_PREPARATION.md`: fundacao 08A, envs, readiness sanitizada, App Registration, guardrails OIDC e plano 08B-08E.
+- `ORCHESTRA_MICROSOFT_SSO_PREPARATION.md`: fundacao 08A, start/callback 08B, App Registration, guardrails OIDC e plano 08C-08E.
 - `ORCHESTRA_ASSISTANT_EXECUTION_GOVERNANCE.md`: approval workflow, execution policy, sandbox policy, auditoria e limites de execucao futura.
 - `ORCHESTRA_EXECUTION_GOVERNANCE_SECURITY.md`: controles de AgentRun, sanitizacao, auditoria, cancelamento e observabilidade segura.
 - `ORCHESTRA_KNOWLEDGE_MCP_CATALOG_SECURITY.md`: RBAC/ABAC, guard contra secrets, MCP sandbox policy e auditoria do catalogo Knowledge/MCP.
@@ -45,4 +45,4 @@ Topicos esperados:
 - Agno local runtime e desabilitado por padrao e nao recebe secrets, credenciais MCP ou payload bruto extenso.
 - Dependency audit alto esta limpo em backend e frontend apos upgrade controlado de Vite/Vitest/esbuild.
 - LLM providers externos sao desabilitados por padrao e bloqueados por wrappers fail-closed.
-- Fundacao Microsoft SSO possui config sanitizada e defaults fail-closed; login real segue reservado para 08B.
+- Backend Microsoft SSO possui config sanitizada, start/callback fail-closed e sessao Orchestra; frontend dedicado segue para 08C.

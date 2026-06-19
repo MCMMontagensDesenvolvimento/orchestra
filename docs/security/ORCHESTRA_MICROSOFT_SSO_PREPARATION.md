@@ -1,6 +1,6 @@
 # Orchestra Microsoft SSO Preparation
 
-Status: fundacao segura implementada na Fase 08A; login Microsoft real ainda inativo.
+Status: backend Microsoft SSO implementado na Fase 08B; frontend dedicado ainda pendente.
 
 ## Visao Geral
 
@@ -8,7 +8,7 @@ O Microsoft Entra ID sera o provider corporativo de identidade do Orchestra. O
 backend continua sendo a autoridade para sessao web, usuario interno, tenant,
 workspaces, roles, permissions e auditoria.
 
-A Fase 08A adiciona somente:
+A Fase 08A adicionou:
 
 - schema de configuracao backend;
 - defaults fail-closed;
@@ -17,8 +17,8 @@ A Fase 08A adiciona somente:
 - `GET /api/v1/auth/sso/config` sanitizado;
 - redaction defensiva para nomes comuns de secrets, codes e tokens.
 
-Ela nao inicia OAuth, nao processa callback, nao troca authorization code, nao cria
-sessao Microsoft e nao modifica o frontend.
+A Fase 08B adiciona start/callback real no backend, usando MSAL Node, e cria a sessao
+Orchestra somente depois de todas as validacoes.
 
 ## Variaveis de Ambiente
 
@@ -85,9 +85,9 @@ Checklist para cada ambiente:
 
 Cada ambiente deve usar App Registration e credenciais separadas.
 
-## Guardrails do Fluxo 08B
+## Fluxo Implementado na 08B
 
-O fluxo futuro deve:
+O fluxo:
 
 - usar Authorization Code Flow;
 - gerar e validar `state` contra CSRF;
@@ -103,23 +103,87 @@ O fluxo futuro deve:
 - descartar tokens Microsoft quando nao forem necessarios;
 - emitir somente a sessao HttpOnly do Orchestra.
 
-`offline_access` e refresh token nao fazem parte da fundacao 08A. Qualquer necessidade
-futura deve passar por revisao de seguranca e retencao.
+O Orchestra declara somente `openid`, `profile` e `email`. O MSAL Node adiciona seus
+scopes OIDC padrao durante a montagem da requisicao. A instancia e o cache MSAL sao
+locais a cada operacao; todas as contas do cache sao removidas apos a troca e nenhum
+refresh token, access token ou ID token e persistido ou retornado pelo adapter.
+
+## Cookie Transitorio
+
+A transacao OAuth fica em cookie separado da sessao:
+
+- nome derivado de `COOKIE_NAME`;
+- HttpOnly;
+- SameSite Lax;
+- Secure conforme `COOKIE_SECURE`;
+- path `/api/v1/auth/microsoft`;
+- TTL de 10 minutos;
+- conteudo JWT assinado com audience e issuer especificos.
+
+O payload contem somente state, nonce e code verifier aleatorios. O code challenge
+S256 e enviado a Microsoft. O cookie e limpo no inicio do callback, em sucesso ou
+falha. Ele nao e gravado no banco.
+
+## Claims Validadas
+
+Depois da validacao criptografica feita pelo MSAL:
+
+- issuer deve ser o endpoint v2 do tenant configurado;
+- audience deve ser o client ID backend;
+- tenant claim deve corresponder ao tenant configurado;
+- tenant deve respeitar a allowlist opcional;
+- expiracao deve estar no futuro;
+- nonce deve corresponder a transacao;
+- `email` deve existir e pertencer a dominio permitido;
+- `preferred_username` pode substituir `email` apenas se tiver formato de e-mail e
+  dominio permitido.
 
 ## Mapeamento de Identidade
 
-Estrategia planejada:
+Estrategia da Fase 08B:
 
-1. Validar issuer/tenant e o identificador imutavel do usuario externo.
+1. Validar issuer, audience, tenant, nonce, expiracao e e-mail.
 2. Validar email corporativo e dominio permitido.
-3. Resolver uma vinculacao explicita entre identidade Microsoft e usuario interno.
+3. Localizar usuario interno existente por e-mail normalizado.
 4. Carregar tenant, memberships, roles e permissions somente do banco Orchestra.
 5. Bloquear usuario interno ausente, inativo ou fora do tenant esperado.
 6. Auditar sucesso/falha com IDs tecnicos e reason code sanitizado.
 
-Email nao deve ser usado como unico identificador imutavel. A Fase 08D definira o
-modelo persistente de identidade externa e a estrategia de provisionamento. Nenhuma
-migration e criada em 08A.
+Email e usado temporariamente para localizar, sem diferenca de caixa, um usuario
+interno ja existente e nao deletado. Usuario ausente ou inativo e bloqueado. Nao ha
+auto-provisionamento.
+
+Email nao deve permanecer como unico identificador imutavel. A Fase 08D definira o
+vinculo persistente com `oid`/`sub` e a estrategia de provisionamento. Nenhuma
+migration e criada em 08B.
+
+## Auditoria e Logs
+
+Eventos:
+
+- `sso_login_started`;
+- `sso_callback_received`;
+- `sso_login_succeeded`;
+- `sso_login_failed`.
+
+Metadata permitida:
+
+- provider;
+- etapa;
+- reason code sanitizado;
+- IDs internos somente no sucesso.
+
+O callback e excluido do auto access-log porque sua query contem authorization code.
+MSAL opera com logging PII desabilitado e callback de logger silencioso.
+
+Nunca registrar:
+
+- URL/query completa do callback;
+- authorization code;
+- client secret;
+- ID token, access token ou refresh token;
+- resposta bruta Microsoft;
+- e-mail da identidade externa em audit de falha.
 
 ## Dev Login
 
@@ -134,7 +198,6 @@ Na Fase 08E:
 
 ## Proximas Fases
 
-- 08B: start/callback OIDC, state, nonce, PKCE, validacao e criacao de sessao.
 - 08C: login/logout Microsoft no frontend e tratamento seguro de erros.
 - 08D: mapeamento de identidade externa, tenant, workspace e RBAC.
 - 08E: bloqueio operacional do dev-login, smoke real e checklist de producao.
@@ -147,7 +210,11 @@ Na Fase 08E:
 - Nenhum token ou authorization code em resposta, log ou audit.
 - Config publica coberta por teste de sanitizacao.
 - Dominios normalizados e tenant allowlist validada.
-- Callback e login Microsoft ainda nao implementados em 08A.
+- Start/callback implementados com rate limit e falha fechada.
+- Callback nao registra query no access log.
+- State, nonce e PKCE cobertos por testes sem chamada Microsoft real.
+- Usuario deve existir e estar ativo; sem auto-provisionamento.
+- Sessao final continua sendo o cookie HttpOnly do Orchestra.
 - Frontend e login atual permanecem inalterados.
-- Sem Microsoft Graph, migration ou persistencia de token.
+- Sem Microsoft Graph, migration ou persistencia de token/cache MSAL.
 - Rotacao e expiracao do client secret documentadas por ambiente.
