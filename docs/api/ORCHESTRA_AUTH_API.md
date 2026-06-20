@@ -2,7 +2,8 @@
 
 Status: Microsoft SSO backend start/callback e sessao implementados na Fase 08B;
 frontend conectado na Fase 08C; identidade externa persistente e auto-link governado
-implementados na Fase 08D.
+implementados na Fase 08D; hardening operacional, smoke e logout federado
+backend-driven implementados na Fase 08E.
 
 Base path: `/api/v1/auth`.
 
@@ -62,6 +63,9 @@ readiness. O botao "Entrar com Microsoft" fica ativo somente quando:
 O frontend redireciona apenas para essa rota interna do backend. Ele nao monta URL
 Microsoft, nao usa MSAL browser, nao armazena tokens e nao conhece client ID, tenant
 ID ou secrets.
+
+Para logout federado, o frontend tambem deve chamar somente a rota backend
+`GET /api/v1/auth/microsoft/logout`. Ele nao deve montar URL de logout Microsoft.
 
 Quando o callback falha, a tela de login aceita somente o codigo sanitizado em
 `sso_error`, mapeia para mensagem amigavel e nao ecoa detalhes desconhecidos.
@@ -155,6 +159,30 @@ Codigos possiveis:
 Nenhuma mensagem upstream, e-mail, tenant, query, code ou token e adicionada ao
 redirect.
 
+## Logout Microsoft Federado
+
+```http
+GET /api/v1/auth/microsoft/logout
+```
+
+Endpoint publico com rate limit de autenticacao. Ele e backend-driven e existe para
+permitir logout federado sem expor configuracao Microsoft no frontend.
+
+Comportamento:
+
+1. limpa o cookie HttpOnly de sessao Orchestra, mesmo quando nao ha sessao valida;
+2. se Microsoft SSO esta desabilitado ou incompleto, retorna `302` para
+   `FRONTEND_ORIGIN/login`;
+3. se Microsoft SSO esta habilitado e configurado, retorna `302` para o endpoint de
+   logout do tenant Microsoft;
+4. inclui `post_logout_redirect_uri` com a URI configurada no backend, validada para
+   o mesmo origin de `FRONTEND_ORIGIN`;
+5. se a URI configurada nao for segura para esse frontend, usa
+   `FRONTEND_ORIGIN/login` como fallback.
+
+O endpoint nao recebe nem retorna ID token, access token, refresh token, authorization
+code, client secret, tenant allowlist ou headers de autorizacao.
+
 ## Claims Validadas
 
 - issuer exato do tenant Microsoft v2;
@@ -198,8 +226,14 @@ ou claims brutas.
 POST /api/v1/auth/dev-login
 ```
 
-Permanece disponivel somente fora de producao. A Fase 08A nao altera seu payload,
-cookie, resposta ou auditoria.
+Disponivel somente quando:
+
+- `NODE_ENV` nao e `production`;
+- `DEV_LOGIN_ENABLED=true`.
+
+Em producao, retorna `403 DEV_LOGIN_DISABLED` mesmo que `DEV_LOGIN_ENABLED=true`.
+Quando a flag esta `false`, o backend bloqueia antes de consultar usuario no banco.
+O payload, cookie, resposta e auditoria de sucesso permanecem iguais.
 
 ## Sessao Atual
 
@@ -218,5 +252,5 @@ POST /api/v1/auth/logout
 
 Exige sessao, registra audit de logout, limpa o cookie HttpOnly e retorna `204`.
 O frontend continua usando este endpoint para logout do Orchestra e redireciona para
-`/login`. Logout federado Microsoft completo nao deve ser chamado diretamente pelo
-frontend; a integracao federada fica para fase posterior.
+`/login`. Para encerrar tambem a sessao Microsoft, usar somente
+`GET /api/v1/auth/microsoft/logout` como rota backend.

@@ -311,6 +311,35 @@ describe('Microsoft SSO backend flow', () => {
     expect(JSON.stringify(start)).not.toContain('backend-only-client-secret');
   });
 
+  it('builds a backend-owned Microsoft logout URL when SSO is enabled and configured', () => {
+    const fixture = createFixture();
+
+    const logoutUrl = new URL(fixture.service.logoutRedirectUrl());
+
+    expect(logoutUrl.origin).toBe('https://login.microsoftonline.com');
+    expect(logoutUrl.pathname).toBe(`/${tenantId}/oauth2/v2.0/logout`);
+    expect(logoutUrl.searchParams.get('post_logout_redirect_uri')).toBe('http://localhost:5173/login');
+    expect(logoutUrl.toString()).not.toContain('backend-only-client-secret');
+  });
+
+  it('falls back to the frontend login page for Microsoft logout when SSO is disabled', () => {
+    const fixture = createFixture({
+      environment: { MICROSOFT_SSO_ENABLED: false },
+    });
+
+    expect(fixture.service.logoutRedirectUrl()).toBe('http://localhost:5173/login');
+  });
+
+  it('does not use a configured Microsoft logout redirect outside the frontend origin', () => {
+    const fixture = createFixture({
+      environment: { MICROSOFT_POST_LOGOUT_REDIRECT_URI: 'https://example.invalid/logout' },
+    });
+
+    const logoutUrl = new URL(fixture.service.logoutRedirectUrl());
+
+    expect(logoutUrl.searchParams.get('post_logout_redirect_uri')).toBe('http://localhost:5173/login');
+  });
+
   it('rejects an invalid state before exchanging the code', async () => {
     const fixture = createFixture();
     const { start } = await startAndTransaction(fixture);

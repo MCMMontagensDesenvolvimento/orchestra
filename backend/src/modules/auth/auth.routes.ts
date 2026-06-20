@@ -17,6 +17,9 @@ export function createAuthRouter() {
   router.get('/microsoft/callback', authRateLimiter, (req, res, next) => {
     void authController.microsoftCallback(req, res).catch(next);
   });
+  router.get('/microsoft/logout', authRateLimiter, (req, res, next) => {
+    void authController.microsoftLogout(req, res).catch(next);
+  });
   router.post('/dev-login', authRateLimiter, validateBody(devLoginSchema), (req, res, next) => {
     void authController.devLogin(req, res).catch(next);
   });

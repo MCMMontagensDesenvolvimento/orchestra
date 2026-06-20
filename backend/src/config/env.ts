@@ -27,6 +27,7 @@ const envSchema = z.object({
   COOKIE_SAME_SITE: z.enum(['lax', 'strict', 'none']).default('lax'),
   BCRYPT_SALT_ROUNDS: z.coerce.number().int().min(8).max(15).default(12),
   LOG_LEVEL: z.string().default('debug'),
+  DEV_LOGIN_ENABLED: booleanString('false'),
   MICROSOFT_SSO_ENABLED: booleanString('false'),
   MICROSOFT_CLIENT_ID: z.preprocess(blankToUndefined, z.string().trim().uuid().optional()),
   MICROSOFT_CLIENT_SECRET: z.preprocess(blankToUndefined, z.string().trim().min(1).optional()),

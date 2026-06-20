@@ -13,8 +13,9 @@ export const authService = {
   },
 
   async devLogin(input: DevLoginInput, context: { requestId: string; ipAddress?: string; userAgent?: string }) {
-    if (env.NODE_ENV === 'production' || process.env.NODE_ENV === 'production') {
-      throw new AppError(403, 'DEV_LOGIN_DISABLED', 'Dev login nao esta disponivel em producao.');
+    const isProduction = env.NODE_ENV === 'production' || process.env.NODE_ENV === 'production';
+    if (isProduction || !env.DEV_LOGIN_ENABLED) {
+      throw new AppError(403, 'DEV_LOGIN_DISABLED', 'Dev login nao esta habilitado neste ambiente.');
     }
 
     const user = await authRepository.findUserForLogin(input.email);

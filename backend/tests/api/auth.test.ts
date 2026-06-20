@@ -2,6 +2,7 @@ import request from 'supertest';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { createApp } from '../../src/app/app';
 import { env } from '../../src/config/env';
+import { prisma } from '../../src/infrastructure/prisma/prisma.service';
 import {
   MicrosoftSsoFlowError,
   microsoftSsoService,
@@ -15,9 +16,42 @@ vi.mock('../../src/infrastructure/prisma/prisma.service', () => ({
     auditLog: {
       create: vi.fn().mockResolvedValue({}),
     },
+    user: {
+      findFirst: vi.fn(),
+      update: vi.fn().mockResolvedValue({}),
+    },
   },
 }));
 
+const originalDevLoginEnabled = env.DEV_LOGIN_ENABLED;
+const originalNodeEnv = process.env.NODE_ENV;
+const date = new Date('2026-06-19T12:00:00.000Z');
+const configuredTenantId = '22222222-2222-4222-8222-222222222222';
+const configuredClientId = '11111111-1111-4111-8111-111111111111';
+
+type MutableMicrosoftSsoEnv = {
+  MICROSOFT_SSO_ENABLED: boolean;
+  MICROSOFT_CLIENT_ID?: string;
+  MICROSOFT_CLIENT_SECRET?: string;
+  MICROSOFT_TENANT_ID?: string;
+  MICROSOFT_REDIRECT_URI?: string;
+  MICROSOFT_ALLOWED_DOMAINS?: string;
+  MICROSOFT_ALLOWED_TENANT_IDS?: string;
+  MICROSOFT_POST_LOGOUT_REDIRECT_URI?: string;
+  MICROSOFT_SSO_AUTO_LINK_BY_EMAIL: boolean;
+};
+
+const originalMicrosoftSsoEnv: MutableMicrosoftSsoEnv = {
+  MICROSOFT_SSO_ENABLED: env.MICROSOFT_SSO_ENABLED,
+  MICROSOFT_CLIENT_ID: env.MICROSOFT_CLIENT_ID,
+  MICROSOFT_CLIENT_SECRET: env.MICROSOFT_CLIENT_SECRET,
+  MICROSOFT_TENANT_ID: env.MICROSOFT_TENANT_ID,
+  MICROSOFT_REDIRECT_URI: env.MICROSOFT_REDIRECT_URI,
+  MICROSOFT_ALLOWED_DOMAINS: env.MICROSOFT_ALLOWED_DOMAINS,
+  MICROSOFT_ALLOWED_TENANT_IDS: env.MICROSOFT_ALLOWED_TENANT_IDS,
+  MICROSOFT_POST_LOGOUT_REDIRECT_URI: env.MICROSOFT_POST_LOGOUT_REDIRECT_URI,
+  MICROSOFT_SSO_AUTO_LINK_BY_EMAIL: env.MICROSOFT_SSO_AUTO_LINK_BY_EMAIL,
+};
 const testUser: AuthenticatedUser = {
   id: '00000000-0000-0000-0000-000000000001',
   email: 'admin.dev@orchestra.local',
@@ -39,15 +73,118 @@ const testUser: AuthenticatedUser = {
   permissions: ['assistants.read', 'assistants.create'],
 };
 
+const devLoginUserFixture = {
+  id: testUser.id,
+  tenantId: testUser.tenant.id,
+  email: testUser.email,
+  name: testUser.name,
+  passwordHash: null,
+  status: 'active',
+  lastLoginAt: null,
+  createdAt: date,
+  updatedAt: date,
+  deletedAt: null,
+  tenant: {
+    id: testUser.tenant.id,
+    name: testUser.tenant.name,
+    slug: testUser.tenant.slug,
+    status: 'active',
+    createdAt: date,
+    updatedAt: date,
+    deletedAt: null,
+  },
+  roles: [
+    {
+      id: '00000000-0000-0000-0000-000000000030',
+      userId: testUser.id,
+      roleId: '00000000-0000-0000-0000-000000000040',
+      workspaceId: null,
+      createdAt: date,
+      role: {
+        id: '00000000-0000-0000-0000-000000000040',
+        tenantId: testUser.tenant.id,
+        name: 'admin_platform',
+        description: null,
+        createdAt: date,
+        updatedAt: date,
+        permissions: testUser.permissions.map((permission, index) => ({
+          id: `00000000-0000-0000-0000-00000000005${index}`,
+          roleId: '00000000-0000-0000-0000-000000000040',
+          permissionId: `00000000-0000-0000-0000-00000000006${index}`,
+          createdAt: date,
+          permission: {
+            id: `00000000-0000-0000-0000-00000000006${index}`,
+            key: permission,
+            description: null,
+            createdAt: date,
+            updatedAt: date,
+          },
+        })),
+      },
+    },
+  ],
+  memberships: [
+    {
+      id: '00000000-0000-0000-0000-000000000070',
+      userId: testUser.id,
+      workspaceId: testUser.workspaces[0].id,
+      role: testUser.workspaces[0].role,
+      createdAt: date,
+      workspace: {
+        id: testUser.workspaces[0].id,
+        tenantId: testUser.tenant.id,
+        name: testUser.workspaces[0].name,
+        slug: testUser.workspaces[0].slug,
+        description: null,
+        status: 'active',
+        createdAt: date,
+        updatedAt: date,
+        deletedAt: null,
+      },
+    },
+  ],
+};
+
 function responseCookies(response: request.Response) {
   const value = response.headers['set-cookie'] as unknown;
   if (Array.isArray(value)) return value as string[];
   return typeof value === 'string' ? [value] : [];
 }
 
+function setDevLoginEnabled(value: boolean) {
+  (env as { DEV_LOGIN_ENABLED: boolean }).DEV_LOGIN_ENABLED = value;
+}
+
+function restoreNodeEnv() {
+  if (originalNodeEnv === undefined) {
+    delete process.env.NODE_ENV;
+    return;
+  }
+  process.env.NODE_ENV = originalNodeEnv;
+}
+
+function setMicrosoftSsoEnv(overrides: Partial<MutableMicrosoftSsoEnv> = {}) {
+  Object.assign(env as MutableMicrosoftSsoEnv, {
+    MICROSOFT_SSO_ENABLED: true,
+    MICROSOFT_CLIENT_ID: configuredClientId,
+    MICROSOFT_CLIENT_SECRET: 'backend-only-client-secret',
+    MICROSOFT_TENANT_ID: configuredTenantId,
+    MICROSOFT_REDIRECT_URI: 'http://localhost:3000/api/v1/auth/microsoft/callback',
+    MICROSOFT_ALLOWED_DOMAINS: 'mcm.com.br',
+    MICROSOFT_ALLOWED_TENANT_IDS: configuredTenantId,
+    MICROSOFT_POST_LOGOUT_REDIRECT_URI: 'http://localhost:5173/login',
+    MICROSOFT_SSO_AUTO_LINK_BY_EMAIL: false,
+    ...overrides,
+  });
+}
+
 describe('auth endpoints', () => {
   afterEach(() => {
     vi.restoreAllMocks();
+    vi.clearAllMocks();
+    setDevLoginEnabled(originalDevLoginEnabled);
+    Object.assign(env as MutableMicrosoftSsoEnv, originalMicrosoftSsoEnv);
+    restoreNodeEnv();
   });
 
   it('returns public sanitized Microsoft SSO readiness without requiring a session', async () => {
@@ -55,13 +192,13 @@ describe('auth endpoints', () => {
       .get('/api/v1/auth/sso/config')
       .expect(200);
 
-    expect(response.body.data).toEqual({
+    expect(response.body.data).toMatchObject({
       provider: 'microsoft',
       enabled: false,
-      configured: false,
-      allowedDomains: [],
       loginUrl: '/api/v1/auth/microsoft/start',
     });
+    expect(typeof response.body.data.configured).toBe('boolean');
+    expect(Array.isArray(response.body.data.allowedDomains)).toBe(true);
     expect(response.body.requestId).toMatch(/^req_/);
 
     const serialized = JSON.stringify(response.body).toLowerCase();
@@ -171,8 +308,40 @@ describe('auth endpoints', () => {
     expect(response.body.permissions).toContain('assistants.read');
   });
 
+  it('blocks dev-login when it is not explicitly enabled', async () => {
+    setDevLoginEnabled(false);
+    process.env.NODE_ENV = 'test';
+
+    const response = await request(createApp())
+      .post('/api/v1/auth/dev-login')
+      .send({ email: 'admin.dev@orchestra.local' })
+      .expect(403);
+
+    expect(response.body.code).toBe('DEV_LOGIN_DISABLED');
+    expect(prisma.user.findFirst).not.toHaveBeenCalled();
+  });
+
+  it('allows dev-login outside production when explicitly enabled', async () => {
+    setDevLoginEnabled(true);
+    process.env.NODE_ENV = 'test';
+    vi.mocked(prisma.user.findFirst).mockResolvedValueOnce(devLoginUserFixture as any);
+
+    const response = await request(createApp())
+      .post('/api/v1/auth/dev-login')
+      .send({ email: 'admin.dev@orchestra.local' })
+      .expect(200);
+
+    expect(response.body.user.email).toBe('admin.dev@orchestra.local');
+    expect(response.body.permissions).toContain('assistants.read');
+    expect(responseCookies(response).some((cookie) => cookie.startsWith(`${env.COOKIE_NAME}=`))).toBe(true);
+    expect(prisma.user.update).toHaveBeenCalledWith({
+      where: { id: testUser.id },
+      data: { lastLoginAt: expect.any(Date) },
+    });
+  });
+
   it('blocks dev-login in production', async () => {
-    const previousNodeEnv = process.env.NODE_ENV;
+    setDevLoginEnabled(true);
     process.env.NODE_ENV = 'production';
 
     const response = await request(createApp())
@@ -180,8 +349,42 @@ describe('auth endpoints', () => {
       .send({ email: 'admin.dev@orchestra.local' })
       .expect(403);
 
-    process.env.NODE_ENV = previousNodeEnv;
     expect(response.body.code).toBe('DEV_LOGIN_DISABLED');
+    expect(prisma.user.findFirst).not.toHaveBeenCalled();
+  });
+
+  it('clears local session and falls back to login on Microsoft logout when SSO is unavailable', async () => {
+    const token = signSession({ sub: testUser.id, user: testUser });
+    const response = await request(createApp())
+      .get('/api/v1/auth/microsoft/logout')
+      .set('Cookie', [`${env.COOKIE_NAME}=${token}`])
+      .expect(302);
+
+    expect(response.headers.location).toBe('http://localhost:5173/login');
+    expect(responseCookies(response).some((cookie) => cookie.startsWith(`${env.COOKIE_NAME}=;`))).toBe(true);
+  });
+
+  it('clears local session and redirects to the Microsoft logout URL when SSO is configured', async () => {
+    setMicrosoftSsoEnv();
+    const token = signSession({ sub: testUser.id, user: testUser });
+
+    const response = await request(createApp())
+      .get('/api/v1/auth/microsoft/logout')
+      .set('Cookie', [`${env.COOKIE_NAME}=${token}`])
+      .expect(302);
+
+    const location = String(response.headers.location);
+    const logoutUrl = new URL(location);
+    expect(logoutUrl.origin).toBe('https://login.microsoftonline.com');
+    expect(logoutUrl.pathname).toBe(`/${configuredTenantId}/oauth2/v2.0/logout`);
+    expect(location).not.toContain('/v2.0/oauth2/v2.0/logout');
+    expect(logoutUrl.searchParams.get('post_logout_redirect_uri')).toBe('http://localhost:5173/login');
+    expect(location).not.toContain('backend-only-client-secret');
+    expect(location).not.toContain('id_token');
+    expect(location).not.toContain('access_token');
+    expect(location).not.toContain('refresh_token');
+    expect(location).not.toContain('authorization_code');
+    expect(responseCookies(response).some((cookie) => cookie.startsWith(`${env.COOKIE_NAME}=;`))).toBe(true);
   });
 
   it('clears session on logout', async () => {

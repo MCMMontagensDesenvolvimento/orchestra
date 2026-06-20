@@ -2,7 +2,8 @@
 
 Status: backend Microsoft SSO implementado na Fase 08B; frontend de login/logout
 Microsoft conectado na Fase 08C; vinculo persistente de identidade externa e
-auto-link governado implementados na Fase 08D.
+auto-link governado implementados na Fase 08D; hardening operacional, smokes e
+logout federado backend-driven implementados na Fase 08E.
 
 ## Visao Geral
 
@@ -30,9 +31,15 @@ A Fase 08D adiciona a tabela `external_identities`, usa `oid` Microsoft como
 identificador principal, permite fallback controlado para `sub` e remove a
 dependencia de e-mail como identificador imutavel.
 
+A Fase 08E fecha o sprint SSO com `DEV_LOGIN_ENABLED` fail-closed por padrao,
+bloqueio absoluto do dev-login em producao, smoke local sem credenciais Microsoft,
+smoke real opt-in e logout federado iniciado pelo backend.
+
 ## Variaveis de Ambiente
 
 ```env
+DEV_LOGIN_ENABLED=false
+
 MICROSOFT_SSO_ENABLED=false
 MICROSOFT_CLIENT_ID=
 MICROSOFT_CLIENT_SECRET=
@@ -57,6 +64,11 @@ Regras:
 - `enabled=true` nao torna o login obrigatorio e nao implica `configured=true`.
 - `MICROSOFT_SSO_AUTO_LINK_BY_EMAIL` e `false` por padrao. Quando `false`, apenas
   identidades externas previamente vinculadas podem concluir login.
+- `DEV_LOGIN_ENABLED` e `false` por padrao no backend. O `.env.example` local pode
+  habilitar `true` para desenvolvimento e smoke local, mas staging/producao devem
+  manter `false`.
+- Em `NODE_ENV=production`, `POST /api/v1/auth/dev-login` e sempre bloqueado,
+  mesmo se `DEV_LOGIN_ENABLED=true` for configurado por engano.
 
 Client secret e todas as credenciais ficam somente no backend ou secret manager.
 Nao criar variaveis `VITE_*` para segredo, tenant privado, token ou authorization code.
@@ -267,9 +279,101 @@ redireciona para `/app/dashboard`. O `ProtectedRoute` do frontend continua usand
 `GET /api/v1/auth/me` como fonte de sessao, sem assumir token local.
 
 Logout no frontend continua chamando `POST /api/v1/auth/logout`, limpando estado de
-sessao local e voltando para `/login`. Logout federado Microsoft completo permanece
-pendente para 08E ou fase posterior e nao deve ser iniciado diretamente pelo
-browser.
+sessao local e voltando para `/login`. Quando a experiencia precisar encerrar a
+sessao Microsoft tambem, o browser deve chamar somente a rota backend
+`GET /api/v1/auth/microsoft/logout`; o frontend nunca monta URL Microsoft.
+
+## Hardening e Smokes 08E
+
+### Dev Login
+
+`POST /api/v1/auth/dev-login` exige simultaneamente:
+
+- `NODE_ENV` diferente de `production`;
+- `DEV_LOGIN_ENABLED=true`.
+
+O backend avalia a protecao antes de consultar usuario no banco. Em producao, o
+bloqueio vence qualquer valor da flag.
+
+### Logout Federado Backend-Driven
+
+```http
+GET /api/v1/auth/microsoft/logout
+```
+
+Comportamento:
+
+- endpoint publico com rate limit de autenticacao;
+- limpa o cookie HttpOnly de sessao Orchestra quando existir;
+- se Microsoft SSO estiver desabilitado ou incompleto, redireciona para
+  `FRONTEND_ORIGIN/login`;
+- se Microsoft SSO estiver habilitado e configurado, redireciona para
+  `https://login.microsoftonline.com/{tenant}/oauth2/v2.0/logout`;
+- envia `post_logout_redirect_uri` usando a URI configurada no backend;
+- se a URI configurada nao pertencer ao mesmo origin de `FRONTEND_ORIGIN`, usa
+  fallback seguro para `FRONTEND_ORIGIN/login`;
+- nao recebe, armazena, renderiza ou encaminha token Microsoft.
+
+O logout atual `POST /api/v1/auth/logout` permanece como logout de sessao Orchestra
+com auditoria autenticada.
+
+### Smoke Local Sem Microsoft Real
+
+Pre-requisitos:
+
+- backend e frontend locais rodando;
+- banco local com seed;
+- `DEV_LOGIN_ENABLED=true` no backend local;
+- `MICROSOFT_SSO_ENABLED=false` ou configuracao Microsoft incompleta.
+
+Comando:
+
+```bash
+bash scripts/smoke-local.sh
+```
+
+O smoke local valida readiness SSO sanitizado, fallback de logout Microsoft para
+`/login`, dev-login local, sessao, runtime, LLM local, RAG e MCP sandbox. Ele nao
+segue redirect externo e nao chama Microsoft.
+
+### Smoke Real Microsoft Opt-In
+
+O smoke real e desabilitado por padrao e so roda com opt-in explicito:
+
+```bash
+RUN_REAL_MICROSOFT_SSO_SMOKE=true bash scripts/smoke-microsoft-sso-real.sh
+```
+
+Esse script valida:
+
+- `GET /api/v1/auth/sso/config` habilitado, configurado e sanitizado;
+- `GET /api/v1/auth/microsoft/start` retornando redirect Microsoft e cookie
+  transitorio HttpOnly;
+- `GET /api/v1/auth/microsoft/logout` retornando redirect Microsoft com
+  `post_logout_redirect_uri`;
+- ausencia de campos sensiveis nas respostas JSON avaliadas.
+
+O login real interativo continua sendo validacao manual no navegador com conta
+corporativa permitida. O script nao solicita nem imprime segredo.
+
+### Migration Readiness 08D
+
+Antes de homologacao/producao:
+
+```bash
+cd backend
+npx prisma validate
+npx prisma generate
+npx prisma migrate status
+npx prisma migrate deploy
+```
+
+`npx prisma migrate deploy` deve ser executado somente quando o banco do ambiente
+estiver disponivel e apontando para a `DATABASE_URL` correta.
+
+A migration `20260619120000_phase08d_external_identities` nao deve ser recriada em
+08E. Qualquer falha de deploy deve ser tratada como incidente de readiness do
+ambiente, nao como motivo para reescrever historico de migration.
 
 ## Auditoria e Logs
 
@@ -304,19 +408,16 @@ Nunca registrar:
 
 ## Dev Login
 
-O `POST /api/v1/auth/dev-login` continua funcionando em desenvolvimento/teste e
-continua bloqueado em producao pelo backend. A Fase 08A nao altera esse comportamento.
-
-Na Fase 08E:
-
-- dev-login devera exigir ambiente de desenvolvimento explicitamente permitido;
-- builds e deploys de producao deverao validar que ele permanece bloqueado;
-- smoke de SSO e logout substituira o dev-login como caminho operacional.
+O `POST /api/v1/auth/dev-login` funciona somente em desenvolvimento/teste com
+`DEV_LOGIN_ENABLED=true`. Em producao ele retorna `DEV_LOGIN_DISABLED` mesmo com a
+flag ligada.
 
 ## Proximas Fases
 
-- 08E: bloqueio operacional do dev-login, logout federado/smoke real e checklist de
-  producao.
+- provisionamento administrativo de vinculos externos;
+- automacao de smoke real com navegador controlado, se aprovada para ambiente de
+  homologacao;
+- politica operacional de rotacao de credenciais por ambiente.
 
 ## Checklist de Seguranca
 
@@ -336,7 +437,8 @@ Na Fase 08E:
 - Sessao final continua sendo o cookie HttpOnly do Orchestra.
 - Frontend consome somente o backend, valida `loginUrl` interno e nao usa MSAL
   browser.
-- Login atual/dev-login permanecem funcionando.
+- Dev-login e opt-in em nao-producao e bloqueado sempre em producao.
+- Logout federado e backend-driven, com fallback seguro para `/login`.
 - `sso_error` e renderizado somente como mensagem segura, sem detalhes upstream.
 - Sem Microsoft Graph ou persistencia de token/cache MSAL.
 - Sem payload bruto de claims persistido.
