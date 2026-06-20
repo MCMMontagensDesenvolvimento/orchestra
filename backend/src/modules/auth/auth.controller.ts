@@ -72,6 +72,11 @@ export const authController = {
     }
   },
 
+  async microsoftLogout(_req: Request, res: Response) {
+    clearSessionCookie(res);
+    return res.redirect(302, microsoftSsoService.logoutRedirectUrl());
+  },
+
   async devLogin(req: Request, res: Response) {
     const result = await authService.devLogin(req.body, {
       requestId: req.requestId,

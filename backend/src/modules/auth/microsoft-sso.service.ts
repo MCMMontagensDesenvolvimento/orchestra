@@ -113,6 +113,22 @@ function displayNameFromClaims(claims: MicrosoftSsoClaims) {
   return name.slice(0, 200);
 }
 
+function loginUrl(frontendOrigin: string) {
+  return new URL('/login', frontendOrigin).toString();
+}
+
+function safePostLogoutRedirectUri(configuredUri: string, frontendOrigin: string) {
+  const fallbackUrl = loginUrl(frontendOrigin);
+  try {
+    const postLogoutUrl = new URL(configuredUri);
+    const allowedFrontendOrigin = new URL(frontendOrigin);
+    if (postLogoutUrl.origin !== allowedFrontendOrigin.origin) return fallbackUrl;
+    return postLogoutUrl.toString();
+  } catch {
+    return fallbackUrl;
+  }
+}
+
 function validateClaims(
   claims: MicrosoftSsoClaims,
   config: NonNullable<ReturnType<typeof getMicrosoftSsoConfiguredRuntimeConfig>>,
@@ -245,8 +261,21 @@ export function createMicrosoftSsoService(
     },
 
     errorRedirectUrl(reason: MicrosoftSsoFailureReason) {
-      const url = new URL('/login', dependencies.environment.FRONTEND_ORIGIN);
+      const url = new URL(loginUrl(dependencies.environment.FRONTEND_ORIGIN));
       url.searchParams.set('sso_error', reason);
+      return url.toString();
+    },
+
+    logoutRedirectUrl() {
+      const publicConfig = getMicrosoftSsoPublicConfig(dependencies.environment);
+      const config = getMicrosoftSsoConfiguredRuntimeConfig(dependencies.environment);
+      if (!publicConfig.enabled || !config) return loginUrl(dependencies.environment.FRONTEND_ORIGIN);
+
+      const url = new URL(`${config.authority}/oauth2/v2.0/logout`);
+      url.searchParams.set(
+        'post_logout_redirect_uri',
+        safePostLogoutRedirectUri(config.postLogoutRedirectUri, dependencies.environment.FRONTEND_ORIGIN),
+      );
       return url.toString();
     },
 

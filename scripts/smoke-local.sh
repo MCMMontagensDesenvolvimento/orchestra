@@ -3,12 +3,14 @@ set -euo pipefail
 
 BASE_URL="${BASE_URL:-http://localhost:3000}"
 FRONTEND_URL="${FRONTEND_URL:-http://localhost:5173}"
+COOKIE_NAME="${COOKIE_NAME:-orchestra_session}"
 DEV_EMAIL="${DEV_EMAIL:-admin.dev@orchestra.local}"
 
 cookie_file="$(mktemp)"
+headers_file="$(mktemp)"
 payload_file="$(mktemp)"
 response_file="$(mktemp)"
-trap 'rm -f "$cookie_file" "$payload_file" "$response_file"' EXIT
+trap 'rm -f "$cookie_file" "$headers_file" "$payload_file" "$response_file"' EXIT
 
 expect_status() {
   local expected="$1"
@@ -16,7 +18,8 @@ expect_status() {
   shift 2
 
   local status
-  status="$(curl -sS -o "$response_file" -w '%{http_code}' "$@")"
+  : > "$headers_file"
+  status="$(curl -sS -D "$headers_file" -o "$response_file" -w '%{http_code}' "$@")"
   if [ "$status" != "$expected" ]; then
     echo "FAIL $label expected=$expected actual=$status"
     cat "$response_file"
@@ -32,12 +35,54 @@ expect_status 200 "backend-health" "$BASE_URL/health"
 expect_status 200 "backend-health-db" "$BASE_URL/health/db"
 expect_status 401 "auth-me-no-cookie" "$BASE_URL/api/v1/auth/me"
 
+expect_status 200 "auth-sso-config" "$BASE_URL/api/v1/auth/sso/config"
+
+python3 -c 'import json,sys; text=open(sys.argv[1]).read(); data=json.loads(text)["data"]; assert data["provider"] == "microsoft"; assert data["loginUrl"] == "/api/v1/auth/microsoft/start"; assert isinstance(data["enabled"], bool); assert isinstance(data["configured"], bool); assert isinstance(data["allowedDomains"], list); forbidden=("id"+"_token","access"+"_token","refresh"+"_token","authorization"+"_code","client"+"_secret"); assert not any(item in text.lower() for item in forbidden)' "$response_file"
+sso_ready="$(python3 -c 'import json,sys; data=json.load(open(sys.argv[1]))["data"]; print("true" if data["enabled"] and data["configured"] else "false")' "$response_file")"
+
+expect_status 302 "auth-microsoft-logout" "$BASE_URL/api/v1/auth/microsoft/logout"
+
+python3 - "$headers_file" "$FRONTEND_URL" "$COOKIE_NAME" "$sso_ready" <<'PY'
+import sys
+
+headers = open(sys.argv[1], encoding="utf-8", errors="replace").read().splitlines()
+frontend_url = sys.argv[2].rstrip("/")
+cookie_name = sys.argv[3]
+sso_ready = sys.argv[4] == "true"
+
+location = next((line.split(":", 1)[1].strip() for line in headers if line.lower().startswith("location:")), "")
+set_cookies = [line for line in headers if line.lower().startswith("set-cookie:")]
+assert any(f"{cookie_name}=;" in cookie for cookie in set_cookies)
+if sso_ready:
+    assert location.startswith("https://login.microsoftonline.com/")
+    assert "post_logout_redirect_uri=" in location
+else:
+    assert location == f"{frontend_url}/login"
+PY
+
 printf '{"email":"%s"}' "$DEV_EMAIL" > "$payload_file"
-expect_status 200 "dev-login" \
+
+: > "$headers_file"
+dev_login_status="$(curl -sS -D "$headers_file" -o "$response_file" -w '%{http_code}' \
   -c "$cookie_file" \
   -H 'Content-Type: application/json' \
   --data-binary "@$payload_file" \
-  "$BASE_URL/api/v1/auth/dev-login"
+  "$BASE_URL/api/v1/auth/dev-login")"
+
+if [ "$dev_login_status" = "403" ]; then
+  python3 -c 'import json,sys; data=json.load(open(sys.argv[1])); assert data.get("code") == "DEV_LOGIN_DISABLED"' "$response_file"
+  echo "OK dev-login disabled by environment"
+  echo "SKIP authenticated smoke checks because DEV_LOGIN_ENABLED is false."
+  exit 0
+fi
+
+if [ "$dev_login_status" != "200" ]; then
+  echo "FAIL dev-login expected=200-or-403 actual=$dev_login_status"
+  cat "$response_file"
+  exit 1
+fi
+
+echo "OK dev-login 200"
 
 expect_status 200 "auth-me" \
   -b "$cookie_file" \

@@ -1,13 +1,13 @@
 # API
 
-Status: operacional para a fundacao da Fase 04, contratos de core domain da Fase 05, governanca de assistants/agent runs das Fases 05B/05C/05E, catalogo Knowledge/MCP da Fase 06, readiness local da Fase 06B, RAG query local da Fase 06C, MCP execution sandbox da Fase 06D, Runtime Adapter API da Fase 07A, Agno local runtime opcional da Fase 07B, LLM Provider API da Fase 07C e Microsoft SSO 08A-08D.
+Status: operacional para a fundacao da Fase 04, contratos de core domain da Fase 05, governanca de assistants/agent runs das Fases 05B/05C/05E, catalogo Knowledge/MCP da Fase 06, readiness local da Fase 06B, RAG query local da Fase 06C, MCP execution sandbox da Fase 06D, Runtime Adapter API da Fase 07A, Agno local runtime opcional da Fase 07B, LLM Provider API da Fase 07C e Microsoft SSO 08A-08E.
 
 Esta pasta concentra contratos HTTP e convencoes de integracao do backend.
 
 ## Documentos
 
 - `ORCHESTRA_API_FOUNDATION.md`: prefixos, envelopes de resposta, erros, autenticacao e endpoints implementados.
-- `ORCHESTRA_AUTH_API.md`: dev-login, sessao, readiness e start/callback Microsoft SSO.
+- `ORCHESTRA_AUTH_API.md`: dev-login, sessao, readiness, start/callback e logout Microsoft SSO backend-driven.
 - `ORCHESTRA_CORE_DOMAIN_API.md`: endpoints, paginacao, filtros e acoes de governanca de assistants.
 - `ORCHESTRA_ASSISTANT_GOVERNANCE_API.md`: approval workflow, execution policy e execution precheck.
 - `ORCHESTRA_RUNTIME_EXECUTION_CONTRACTS.md`: contratos REST de AgentRun, eventos, precheck bloqueante e cancelamento.
@@ -37,5 +37,6 @@ Esta pasta concentra contratos HTTP e convencoes de integracao do backend.
 - MCP execution sandbox usa `/assistants/:id/mcp/precheck`, `/assistants/:id/mcp/tool-calls` e detalhe/eventos sob `/mcp/tool-calls/:toolCallId`.
 - Runtime adapter usa `/runtime/providers`, `/runtime/capabilities`, `/runtime/health` e `/runtime/config`.
 - LLM providers usam `/llm/providers`, `/llm/config` e `/llm/test-generation`.
-- Microsoft SSO usa `/auth/sso/config`, `/auth/microsoft/start` e
-  `/auth/microsoft/callback`; o frontend consome somente o backend.
+- Microsoft SSO usa `/auth/sso/config`, `/auth/microsoft/start`,
+  `/auth/microsoft/callback` e `/auth/microsoft/logout`; o frontend consome
+  somente o backend.
