@@ -4,7 +4,7 @@ import { mockResponse } from '@/services/mocks/mock-utils';
 import { env } from '@/lib/env';
 
 export const chatService = {
-  conversations(assistantId?: string): Promise<Conversation[]> {
+  async conversations(assistantId?: string): Promise<Conversation[]> {
     if (env.useMocks) {
       const items = assistantId
         ? mockConversations.filter(c => c.assistantId === assistantId)
@@ -13,7 +13,7 @@ export const chatService = {
     }
     throw new Error('API real ainda não implementada.');
   },
-  messages(conversationId: string): Promise<ConversationMessage[]> {
+  async messages(conversationId: string): Promise<ConversationMessage[]> {
     if (env.useMocks) {
       // Mock atual não diferencia por conversationId; retorna todas.
       void conversationId;

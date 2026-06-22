@@ -9,14 +9,14 @@ import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContai
 
 export default function AnalyticsPage() {
   const analyticsQuery = useAnalytics();
-  const mockAnalytics = analyticsQuery.data ?? [];
-  const { data: mockAssistants = [] } = useAssistants();
-  const totalCost = mockAnalytics.reduce((acc, d) => acc + d.cost, 0);
-  const totalConversations = mockAnalytics.reduce((acc, d) => acc + d.conversations, 0);
-  const avgLatency = mockAnalytics.length
-    ? (mockAnalytics.reduce((acc, d) => acc + d.latency, 0) / mockAnalytics.length).toFixed(1)
+  const analytics = analyticsQuery.data ?? [];
+  const { data: assistants = [] } = useAssistants();
+  const totalCost = analytics.reduce((acc, d) => acc + d.cost, 0);
+  const totalConversations = analytics.reduce((acc, d) => acc + d.conversations, 0);
+  const avgLatency = analytics.length
+    ? (analytics.reduce((acc, d) => acc + d.latency, 0) / analytics.length).toFixed(1)
     : '0.0';
-  const totalToolCalls = mockAnalytics.reduce((acc, d) => acc + d.toolCalls, 0);
+  const totalToolCalls = analytics.reduce((acc, d) => acc + d.toolCalls, 0);
 
   const costByModel = [
     { name: 'GPT-4o', cost: 678.20 },
@@ -32,11 +32,11 @@ export default function AnalyticsPage() {
 
         <QueryState
           query={analyticsQuery}
-          isEmpty={mockAnalytics.length === 0}
+          isEmpty={analytics.length === 0}
           loading={<ListLoading rows={3} />}
           emptyIcon={<BarChart3 className="h-6 w-6" />}
           emptyTitle="Sem métricas para o período"
-          emptyDescription="Ainda não há eventos suficientes para gerar análises. Use seus assistentes e volte em alguns minutos."
+          emptyDescription="A API consolidada de Analytics ainda não está disponível. Nenhum dado de demonstração é exibido no modo de API real."
           errorTitle="Não foi possível carregar as métricas"
           errorDescription="Tente novamente em instantes."
         >
@@ -51,7 +51,7 @@ export default function AnalyticsPage() {
             <div className="rounded-lg border bg-card p-5">
               <h3 className="text-sm font-semibold mb-4">Custo ao Longo do Tempo (R$)</h3>
               <ResponsiveContainer width="100%" height={260}>
-                <AreaChart data={mockAnalytics}>
+                <AreaChart data={analytics}>
                   <CartesianGrid strokeDasharray="3 3" stroke="hsl(220 13% 91%)" />
                   <XAxis dataKey="date" tick={{ fontSize: 11 }} tickFormatter={v => v.slice(5)} />
                   <YAxis tick={{ fontSize: 11 }} />
@@ -79,7 +79,7 @@ export default function AnalyticsPage() {
             <div className="rounded-lg border bg-card p-5">
               <h3 className="text-sm font-semibold mb-4">Volume de Conversas</h3>
               <ResponsiveContainer width="100%" height={240}>
-                <LineChart data={mockAnalytics}>
+                <LineChart data={analytics}>
                   <CartesianGrid strokeDasharray="3 3" stroke="hsl(220 13% 91%)" />
                   <XAxis dataKey="date" tick={{ fontSize: 11 }} tickFormatter={v => v.slice(5)} />
                   <YAxis tick={{ fontSize: 11 }} />
@@ -92,7 +92,7 @@ export default function AnalyticsPage() {
             <div className="rounded-lg border bg-card p-5">
               <h3 className="text-sm font-semibold mb-4">Latência Média (s)</h3>
               <ResponsiveContainer width="100%" height={240}>
-                <LineChart data={mockAnalytics}>
+                <LineChart data={analytics}>
                   <CartesianGrid strokeDasharray="3 3" stroke="hsl(220 13% 91%)" />
                   <XAxis dataKey="date" tick={{ fontSize: 11 }} tickFormatter={v => v.slice(5)} />
                   <YAxis tick={{ fontSize: 11 }} />
@@ -118,7 +118,7 @@ export default function AnalyticsPage() {
                   </tr>
                 </thead>
                 <tbody>
-                  {mockAssistants.filter(a => a.status === 'published').sort((a, b) => b.conversations - a.conversations).map((a, i) => (
+                  {assistants.filter(a => a.status === 'published').sort((a, b) => b.conversations - a.conversations).map((a, i) => (
                     <tr key={a.id} className="border-b hover:bg-muted/30">
                       <td className="px-3 py-2 font-bold text-primary">{i + 1}</td>
                       <td className="px-3 py-2 font-medium">{a.name}</td>

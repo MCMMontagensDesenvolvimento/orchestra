@@ -182,6 +182,46 @@ Politica: tratar como variaveis futuras/legadas ate 09B validar se devem ser rem
 - O seed nao cria `ExternalIdentity` Microsoft fake; usuarios reais devem ser vinculados pelo fluxo SSO real.
 - O runbook operacional esta em `docs/operations/ORCHESTRA_BOOTSTRAP_E_SEEDS.md`.
 
+## Atualizacao 09D - API real sem fallback implicito
+
+### Dominios estabilizados
+
+- Auth/session, Assistants, Audit, Knowledge, MCP, AgentRun, Runtime e catalogo LLM continuam usando seus endpoints reais quando `VITE_USE_MOCKS=false`; falhas desses services sao propagadas, sem `catch` que devolva dataset demo.
+- O Dashboard em modo real passou a agregar somente Assistants, Audit e catalogo MCP vindos do backend. Contadores fixos, custos, conversas e tendencias demonstrativas ficam restritos ao componente de mock mode.
+- O detalhe de Assistant usa exclusivamente `GET /assistants/:id` como fonte do registro. Uma falha ou ausencia nao e mais substituida pelo item equivalente ou pelo primeiro item da listagem.
+- Bindings de Knowledge e MCP no detalhe de Assistant usam o contrato real. O fallback para IDs embutidos no dataset do Assistant permanece apenas quando mock mode esta explicitamente ativo.
+- O catalogo LLM e o runtime continuam backend-only e sanitizados; nenhum provider externo e chamado diretamente pelo frontend.
+
+### Prototipos explicitos
+
+- Chat permanece um simulador visual. Com mock mode desligado, a rota mostra um estado explicito de prototipo indisponivel e nao consulta nem renderiza conversas, mensagens, fontes ou tool calls demo.
+- Analytics consolidado ainda nao possui endpoint backend. O service retorna lista vazia em modo real e a pagina mostra empty state honesto; graficos e custos estaticos aparecem somente no mock mode.
+- Analytics por Assistant permanece visivel somente no mock mode. Em modo real, a aba explica que o contrato agregado ainda nao existe.
+- A timeline detalhada de uma Knowledge Base continua demonstrativa apenas no mock mode. Em modo real, a aba exibe estado indisponivel em vez de eventos ficticios.
+
+### Fallbacks removidos ou bloqueados
+
+- Removido o fallback do detalhe de Assistant para dados da listagem e para o primeiro Assistant disponivel.
+- Bloqueado o uso de dados agregados demo no Dashboard real.
+- Bloqueada a montagem do Chat demo quando `VITE_USE_MOCKS=false`.
+- Bloqueados graficos de Analytics e eventos locais de Knowledge no modo de API real.
+- O erro de Chat sem contrato real passou a ser uma rejeicao assincrona consistente, sem retorno de mensagens mockadas.
+
+### Testes adicionados
+
+- Services maduros sao exercitados com `useMocks=false` e seus endpoints backend sao verificados.
+- Falha de API em Assistants e validada como erro propagado, sem retorno silencioso do dataset local.
+- Analytics e Chat sao validados como dominios sem fallback demo no modo real.
+- Dashboard e Chat sao renderizados em testes com mock mode desligado para comprovar os estados honestos.
+
+### Pendencias para 09E e 09F
+
+- Executar smoke fullstack com frontend, backend e banco reais para Auth, Assistants, Audit, Knowledge, MCP, AgentRun, Runtime e LLM.
+- Criar contrato backend de Analytics e de conversas antes de habilitar essas experiencias no modo real.
+- Continuar a troca de nomes locais `mock...` em paginas secundarias de MCP, Knowledge e Wizard, sem refatoracao ampla.
+- Revisar estados de erro das queries secundarias em telas de detalhe, onde a query principal ja e real mas paineis auxiliares ainda podem mostrar apenas vazio.
+- Adicionar verificacao de CI para builds production-like com mock mode bloqueado e para impedir novos fallbacks de erro para datasets demo.
+
 ## Criterios de Aceite da Sprint 18
 
 - Documento de auditoria criado em `docs/operations/`.

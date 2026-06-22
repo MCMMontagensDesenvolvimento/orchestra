@@ -1,6 +1,7 @@
 import { useState, useMemo } from 'react';
 import { useParams, Link, useNavigate } from 'react-router-dom';
 import { AppShell } from '@/components/shared/AppShell';
+import { EmptyState } from '@/components/shared/EmptyState';
 import { StatusBadge } from '@/components/shared/StatusBadge';
 import { KpiCard } from '@/components/shared/KpiCard';
 import { AgentRunLlmBadges, AgentRunLlmTimeline } from '@/components/assistants/AgentRunLlmTimeline';
@@ -42,7 +43,6 @@ import {
   useAssistantFeedback,
   useAssistantTestResults,
   useAssistantVersions,
-  useAssistants,
   useCancelAssistantApprovalMutation,
   useCreateAssistantApprovalMutation,
   useCreateAssistantFeedbackMutation,
@@ -80,6 +80,7 @@ import { useConversations } from '@/hooks/queries/useChat';
 import { useAuditLogs } from '@/hooks/queries/useAudit';
 import { useAnalytics } from '@/hooks/queries/useAnalytics';
 import { llmPolicySaveErrorDescription } from '@/lib/llm-policy-errors';
+import { env } from '@/lib/env';
 import {
   getAgentRunLlmSummary,
   hasAgentRunLlmSummary,
@@ -120,18 +121,16 @@ const tabs: { id: TabId; label: string; icon: typeof Bot }[] = [
 ];
 
 export default function AssistantDetailPage() {
-  const assistantsQuery = useAssistants();
-  const mockAssistants = assistantsQuery.data ?? [];
-  const { data: mockKnowledgeBases = [] } = useKnowledgeBases();
-  const { data: mockMcpTools = [] } = useMcpTools();
-  const { data: mockConversations = [] } = useConversations();
-  const { data: mockAuditLogs = [] } = useAuditLogs();
-  const { data: mockAnalytics = [] } = useAnalytics();
+  const { data: knowledgeBases = [] } = useKnowledgeBases();
+  const { data: mcpTools = [] } = useMcpTools();
+  const { data: conversationData = [] } = useConversations(undefined, env.useMocks);
+  const { data: auditLogsData = [] } = useAuditLogs();
+  const { data: analyticsData = [] } = useAnalytics(env.useMocks);
   const { id } = useParams();
   const assistantQuery = useAssistant(id);
-  const { data: mockAssistantVersions = [] } = useAssistantVersions(id);
-  const { data: mockAssistantFeedbacks = [] } = useAssistantFeedback(id);
-  const { data: mockTestResults = [] } = useAssistantTestResults(id);
+  const { data: versionData = [] } = useAssistantVersions(id);
+  const { data: feedbackData = [] } = useAssistantFeedback(id);
+  const { data: testResultData = [] } = useAssistantTestResults(id);
   const { data: assistantApprovals = [] } = useAssistantApprovals(id);
   const assistantExecutionPolicyQuery = useAssistantExecutionPolicy(id);
   const assistantExecutionPolicy = assistantExecutionPolicyQuery.data;
@@ -211,37 +210,45 @@ export default function AssistantDetailPage() {
   const [mcpSandboxInput, setMcpSandboxInput] = useState('{\n  "query": "teste sandbox"\n}');
   const [selectedMcpToolCallId, setSelectedMcpToolCallId] = useState<string | null>(null);
 
-  const assistant = assistantQuery.data ?? mockAssistants.find(a => a.id === id) ?? mockAssistants[0];
+  const assistant = assistantQuery.data;
 
-  if (assistantQuery.isLoading || assistantsQuery.isLoading || !assistant) {
-    if (assistantQuery.isError || assistantsQuery.isError) {
-      return <AppShell><div className="flex items-center justify-center py-16 text-sm text-muted-foreground">Nao foi possivel carregar o assistente. <Button variant="link" onClick={() => { void assistantQuery.refetch(); }}>Tentar novamente</Button></div></AppShell>;
-    }
-    if (mockAssistants.length === 0 && !assistantsQuery.isLoading) {
-      return <AppShell><div className="flex items-center justify-center py-16 text-sm text-muted-foreground">Assistente não encontrado.</div></AppShell>;
-    }
-    return <AppShell><div className="flex items-center justify-center py-16 text-sm text-muted-foreground">Carregando assistente…</div></AppShell>;
+  if (assistantQuery.isLoading) {
+    return <AppShell><div className="flex items-center justify-center py-16 text-sm text-muted-foreground">Carregando assistente...</div></AppShell>;
   }
-  const versions = mockAssistantVersions.filter(v => v.assistantId === assistant.id);
-  const feedbacks = mockAssistantFeedbacks.filter(f => f.assistantId === assistant.id);
-  const tests = mockTestResults.filter(t => t.assistantId === assistant.id);
+  if (assistantQuery.isError) {
+    return <AppShell><EmptyState icon={<Bot className="h-6 w-6" />} title="Nao foi possivel carregar o assistente" description="A consulta ao backend falhou e nenhum outro registro sera exibido como fallback." action={<Button variant="outline" onClick={() => { void assistantQuery.refetch(); }}>Tentar novamente</Button>} /></AppShell>;
+  }
+  if (!assistant) {
+    return <AppShell><EmptyState icon={<Bot className="h-6 w-6" />} title="Assistente nao encontrado" description="O assistente solicitado nao existe ou nao esta disponivel neste workspace." /></AppShell>;
+  }
+  const versions = versionData.filter(v => v.assistantId === assistant.id);
+  const feedbacks = feedbackData.filter(f => f.assistantId === assistant.id);
+  const tests = testResultData.filter(t => t.assistantId === assistant.id);
   const approvals = assistantApprovals.filter(approval => approval.assistantId === assistant.id);
   const runs = assistantRuns.filter(run => run.assistantId === assistant.id);
   const executionPolicy = assistantExecutionPolicy ?? assistant.executionPolicy;
-  const conversations = mockConversations.filter(c => c.assistantId === assistant.id);
+  const conversations = conversationData.filter(c => c.assistantId === assistant.id);
   const boundKnowledgeBases = assistantKnowledgeBindings
     .map(binding => binding.knowledgeBase)
     .filter((kb): kb is KnowledgeBase => Boolean(kb));
   const boundMcpTools = assistantMcpBindings
     .map(binding => binding.tool)
     .filter((tool): tool is McpTool => Boolean(tool));
-  const kbs = boundKnowledgeBases.length > 0 ? boundKnowledgeBases : mockKnowledgeBases.filter(kb => assistant.knowledgeBases.includes(kb.id));
-  const tools = boundMcpTools.length > 0 ? boundMcpTools : mockMcpTools.filter(t => assistant.mcpTools.includes(t.id));
+  const kbs = boundKnowledgeBases.length > 0
+    ? boundKnowledgeBases
+    : env.useMocks
+      ? knowledgeBases.filter(kb => assistant.knowledgeBases.includes(kb.id))
+      : [];
+  const tools = boundMcpTools.length > 0
+    ? boundMcpTools
+    : env.useMocks
+      ? mcpTools.filter(tool => assistant.mcpTools.includes(tool.id))
+      : [];
   const knowledgeBindingByBaseId = new Map(assistantKnowledgeBindings.map(binding => [binding.knowledgeBaseId, binding.id]));
   const mcpBindingByToolId = new Map(assistantMcpBindings.filter(binding => binding.mcpToolId).map(binding => [binding.mcpToolId, binding.id]));
-  const availableKnowledgeBases = mockKnowledgeBases.filter(kb => !kbs.some(bound => bound.id === kb.id));
-  const availableMcpTools = mockMcpTools.filter(tool => !tools.some(bound => bound.id === tool.id));
-  const auditLogs = mockAuditLogs.filter(l => l.resource === assistant.name || l.resource.includes(assistant.name.split(' ')[0]));
+  const availableKnowledgeBases = knowledgeBases.filter(kb => !kbs.some(bound => bound.id === kb.id));
+  const availableMcpTools = mcpTools.filter(tool => !tools.some(bound => bound.id === tool.id));
+  const auditLogs = auditLogsData.filter(l => l.resource === assistant.name || l.resource.includes(assistant.name.split(' ')[0]));
 
   const positiveFeedbacks = feedbacks.filter(f => f.type === 'positive').length;
   const negativeFeedbacks = feedbacks.filter(f => f.type === 'negative').length;
@@ -326,7 +333,7 @@ export default function AssistantDetailPage() {
   };
 
   const handleBindMcpTool = async () => {
-    const tool = mockMcpTools.find(item => item.id === selectedMcpToolId);
+    const tool = mcpTools.find(item => item.id === selectedMcpToolId);
     if (!tool) return;
     try {
       await createMcpBindingMutation.mutateAsync({
@@ -673,11 +680,15 @@ ${kbs.map(kb => `- ${kb.name} (${kb.documentCount} docs, ${kb.totalChunks} chunk
 ${tools.map(t => `- ${t.name}: ${t.description}${t.requiresApproval ? ' [REQUER APROVAÇÃO]' : ''}`).join('\n') || '- Nenhuma'}`;
 
   const handleAction = (action: string) => {
-    toast.success(`${action}: ${assistant.name}`, { description: 'Ação executada com sucesso (mock)' });
+    if (!env.useMocks) {
+      toast.info('Acao disponivel apenas no prototipo local.');
+      return;
+    }
+    toast.success(`${action}: ${assistant.name}`, { description: 'Acao simulada no modo mock.' });
   };
 
   // Assistant-specific analytics (mock per-assistant)
-  const assistantAnalytics = mockAnalytics.map(d => ({
+  const assistantAnalytics = analyticsData.map(d => ({
     ...d,
     conversations: Math.round(d.conversations * (assistant.conversations / 7000)),
     cost: +(d.cost * (assistant.costThisMonth / 650)).toFixed(2),
@@ -1667,7 +1678,7 @@ ${tools.map(t => `- ${t.name}: ${t.description}${t.requiresApproval ? ' [REQUER 
           </div>
         )}
 
-        {activeTab === 'analytics' && (
+        {activeTab === 'analytics' && (env.useMocks ? (
           <div className="space-y-4">
             <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
               <KpiCard label="Conversas (mês)" value={assistant.conversations.toLocaleString()} change={12} trend="up" icon={<MessageSquare className="h-5 w-5" />} />
@@ -1702,7 +1713,13 @@ ${tools.map(t => `- ${t.name}: ${t.description}${t.requiresApproval ? ' [REQUER 
               </div>
             </div>
           </div>
-        )}
+        ) : (
+          <EmptyState
+            icon={<BarChart3 className="h-6 w-6" />}
+            title="Analytics do assistente ainda indisponivel"
+            description="A API real ainda nao fornece metricas consolidadas por assistente. Nenhum grafico de demonstracao e exibido."
+          />
+        ))}
 
         {activeTab === 'audit' && (
           <div className="space-y-4">

@@ -2,144 +2,197 @@ import { AppShell } from '@/components/shared/AppShell';
 import { PageHeader } from '@/components/shared/PageHeader';
 import { KpiCard } from '@/components/shared/KpiCard';
 import { StatusBadge } from '@/components/shared/StatusBadge';
+import { QueryState, ListLoading } from '@/components/shared/QueryState';
 import { useAssistants } from '@/hooks/queries/useAssistants';
 import { useAuditLogs } from '@/hooks/queries/useAudit';
 import { useAnalytics } from '@/hooks/queries/useAnalytics';
 import { useMcpTools } from '@/hooks/queries/useMcp';
-import { QueryState, ListLoading } from '@/components/shared/QueryState';
-import { Bot, MessageSquare, DollarSign, Server, AlertTriangle, TrendingUp } from 'lucide-react';
+import { env } from '@/lib/env';
+import { Bot, MessageSquare, DollarSign, Wrench, AlertTriangle, TrendingUp, ShieldCheck } from 'lucide-react';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
 
 export default function DashboardPage() {
-  const assistantsQuery = useAssistants();
-  const mockAssistants = assistantsQuery.data ?? [];
-  const { data: mockAuditLogs = [] } = useAuditLogs();
-  const { data: mockAnalytics = [] } = useAnalytics();
-  const { data: mockMcpTools = [] } = useMcpTools();
-  const totalConversations = mockAssistants.reduce((acc, a) => acc + a.conversations, 0);
-  const totalCost = mockAssistants.reduce((acc, a) => acc + a.costThisMonth, 0);
-  const publishedAssistants = mockAssistants.filter(a => a.status === 'published').length;
-  const topToolCalls = mockMcpTools.sort((a, b) => b.executionCount - a.executionCount).slice(0, 5);
+  return env.useMocks ? <MockDashboard /> : <RealDashboard />;
+}
 
-  const costByAssistant = mockAssistants
-    .filter(a => a.costThisMonth > 0)
-    .sort((a, b) => b.costThisMonth - a.costThisMonth)
-    .map(a => ({ name: a.name.length > 15 ? a.name.slice(0, 15) + '…' : a.name, cost: a.costThisMonth }));
+function RealDashboard() {
+  const assistantsQuery = useAssistants();
+  const auditQuery = useAuditLogs();
+  const mcpToolsQuery = useMcpTools();
+  const assistants = assistantsQuery.data ?? [];
+  const auditLogs = auditQuery.data ?? [];
+  const mcpTools = mcpToolsQuery.data ?? [];
+  const publishedAssistants = assistants.filter((assistant) => assistant.status === 'published').length;
 
   return (
     <AppShell>
       <div className="space-y-6 animate-fade-in">
-        <PageHeader title="Dashboard" description="Visão geral do tenant Acme Corp" />
+        <PageHeader
+          title="Dashboard"
+          description="Resumo operacional calculado a partir das APIs disponiveis"
+        />
 
         <QueryState
           query={assistantsQuery}
           loading={<ListLoading rows={3} />}
-          errorTitle="Não foi possível carregar o dashboard"
-          errorDescription="Tente novamente em instantes."
+          errorTitle="Nao foi possivel carregar os assistentes"
+          errorDescription="O dashboard nao substitui falhas da API por dados de demonstracao."
         >
-        {/* KPIs */}
-        <div className="grid gap-3 grid-cols-2 lg:grid-cols-4">
-          <KpiCard label="Assistentes Ativos" value={publishedAssistants} change={12} trend="up" icon={<Bot className="h-5 w-5" />} />
-          <KpiCard label="Conversas (mês)" value={totalConversations.toLocaleString()} change={8} trend="up" icon={<MessageSquare className="h-5 w-5" />} />
-          <KpiCard label="Custo de IA (mês)" value={`R$ ${totalCost.toFixed(2)}`} change={-3} trend="down" icon={<DollarSign className="h-5 w-5" />} />
-          <KpiCard label="Servidores MCP" value={8} change={0} trend="neutral" icon={<Server className="h-5 w-5" />} />
-        </div>
+          <QueryState
+            query={auditQuery}
+            errorTitle="Nao foi possivel carregar a auditoria"
+            errorDescription="O dashboard nao substitui falhas da API por atividade ficticia."
+          >
+            <QueryState
+              query={mcpToolsQuery}
+              errorTitle="Nao foi possivel carregar o catalogo MCP"
+              errorDescription="O dashboard nao substitui falhas da API por ferramentas ficticias."
+            >
+              <div className="grid gap-3 grid-cols-2 lg:grid-cols-4">
+                <KpiCard label="Assistentes" value={assistants.length} icon={<Bot className="h-5 w-5" />} />
+                <KpiCard label="Publicados" value={publishedAssistants} icon={<ShieldCheck className="h-5 w-5" />} />
+                <KpiCard label="Tools MCP" value={mcpTools.length} icon={<Wrench className="h-5 w-5" />} />
+                <KpiCard label="Eventos auditados" value={auditLogs.length} icon={<AlertTriangle className="h-5 w-5" />} />
+              </div>
 
-        {/* Charts */}
-        <div className="grid gap-4 lg:grid-cols-2">
-          <div className="rounded-lg border bg-card p-5">
-            <h3 className="text-sm font-semibold mb-4 flex items-center gap-2">
-              <TrendingUp className="h-4 w-4 text-primary" />
-              Conversas por dia
-            </h3>
-            <ResponsiveContainer width="100%" height={240}>
-              <BarChart data={mockAnalytics}>
-                <CartesianGrid strokeDasharray="3 3" stroke="hsl(220 13% 91%)" />
-                <XAxis dataKey="date" tick={{ fontSize: 11 }} tickFormatter={v => v.slice(5)} />
-                <YAxis tick={{ fontSize: 11 }} />
-                <Tooltip />
-                <Bar dataKey="conversations" fill="hsl(16, 99%, 55%)" radius={[4, 4, 0, 0]} />
-              </BarChart>
-            </ResponsiveContainer>
-          </div>
-
-          <div className="rounded-lg border bg-card p-5">
-            <h3 className="text-sm font-semibold mb-4 flex items-center gap-2">
-              <DollarSign className="h-4 w-4 text-primary" />
-              Custo por assistente (R$)
-            </h3>
-            <ResponsiveContainer width="100%" height={240}>
-              <BarChart data={costByAssistant} layout="vertical">
-                <CartesianGrid strokeDasharray="3 3" stroke="hsl(220 13% 91%)" />
-                <XAxis type="number" tick={{ fontSize: 11 }} />
-                <YAxis dataKey="name" type="category" tick={{ fontSize: 11 }} width={120} />
-                <Tooltip />
-                <Bar dataKey="cost" fill="hsl(16, 99%, 55%)" radius={[0, 4, 4, 0]} />
-              </BarChart>
-            </ResponsiveContainer>
-          </div>
-        </div>
-
-        {/* Bottom panels */}
-        <div className="grid gap-4 lg:grid-cols-3">
-          {/* Top Assistants */}
-          <div className="rounded-lg border bg-card p-5">
-            <h3 className="text-sm font-semibold mb-3">Top Assistentes</h3>
-            <div className="space-y-3">
-              {mockAssistants.filter(a => a.status === 'published').sort((a, b) => b.conversations - a.conversations).slice(0, 4).map(a => (
-                <div key={a.id} className="flex items-center justify-between text-sm">
-                  <div className="flex items-center gap-2">
-                    <div className="flex h-7 w-7 items-center justify-center rounded-md bg-primary/10 text-xs font-bold text-primary">
-                      {a.name.charAt(0)}
+              <div className="grid gap-4 lg:grid-cols-2">
+                <div className="rounded-lg border bg-card p-5">
+                  <h3 className="text-sm font-semibold">Assistentes recentes</h3>
+                  {assistants.length === 0 ? (
+                    <p className="mt-3 text-sm text-muted-foreground">Nenhum assistente cadastrado.</p>
+                  ) : (
+                    <div className="mt-3 space-y-3">
+                      {assistants.slice(0, 5).map((assistant) => (
+                        <div key={assistant.id} className="flex items-center justify-between gap-3 text-sm">
+                          <div className="min-w-0">
+                            <p className="truncate font-medium">{assistant.name}</p>
+                            <p className="truncate text-xs text-muted-foreground">{assistant.owner}</p>
+                          </div>
+                          <StatusBadge status={assistant.status} />
+                        </div>
+                      ))}
                     </div>
-                    <div>
-                      <p className="font-medium text-card-foreground">{a.name}</p>
-                      <p className="text-xs text-muted-foreground">{a.area}</p>
-                    </div>
-                  </div>
-                  <span className="text-xs text-muted-foreground">{a.conversations} conversas</span>
+                  )}
                 </div>
-              ))}
+
+                <div className="rounded-lg border bg-card p-5">
+                  <h3 className="text-sm font-semibold">Atividade recente</h3>
+                  {auditLogs.length === 0 ? (
+                    <p className="mt-3 text-sm text-muted-foreground">Nenhum evento de auditoria registrado.</p>
+                  ) : (
+                    <div className="mt-3 space-y-3">
+                      {auditLogs.slice(0, 5).map((log) => (
+                        <div key={log.id} className="flex items-start gap-2 text-sm">
+                          <StatusBadge status={log.riskLevel} />
+                          <div className="min-w-0">
+                            <p className="text-xs leading-snug">{log.description}</p>
+                            <p className="mt-0.5 text-[10px] text-muted-foreground">{log.user}</p>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              <p className="text-xs text-muted-foreground">
+                Metricas consolidadas de conversas, custos e latencia permanecem indisponiveis ate existir uma API real de Analytics.
+              </p>
+            </QueryState>
+          </QueryState>
+        </QueryState>
+      </div>
+    </AppShell>
+  );
+}
+
+function MockDashboard() {
+  const assistantsQuery = useAssistants();
+  const assistants = assistantsQuery.data ?? [];
+  const { data: auditLogs = [] } = useAuditLogs();
+  const { data: analytics = [] } = useAnalytics();
+  const { data: mcpTools = [] } = useMcpTools();
+  const totalConversations = assistants.reduce((acc, assistant) => acc + assistant.conversations, 0);
+  const totalCost = assistants.reduce((acc, assistant) => acc + assistant.costThisMonth, 0);
+  const publishedAssistants = assistants.filter((assistant) => assistant.status === 'published').length;
+  const topToolCalls = [...mcpTools].sort((a, b) => b.executionCount - a.executionCount).slice(0, 5);
+  const costByAssistant = [...assistants]
+    .filter((assistant) => assistant.costThisMonth > 0)
+    .sort((a, b) => b.costThisMonth - a.costThisMonth)
+    .map((assistant) => ({
+      name: assistant.name.length > 15 ? `${assistant.name.slice(0, 15)}...` : assistant.name,
+      cost: assistant.costThisMonth,
+    }));
+
+  return (
+    <AppShell>
+      <div className="space-y-6 animate-fade-in">
+        <PageHeader title="Dashboard" description="Prototipo local com dados de demonstracao" />
+
+        <QueryState query={assistantsQuery} loading={<ListLoading rows={3} />}>
+          <div className="grid gap-3 grid-cols-2 lg:grid-cols-4">
+            <KpiCard label="Assistentes Ativos" value={publishedAssistants} icon={<Bot className="h-5 w-5" />} />
+            <KpiCard label="Conversas (mes)" value={totalConversations.toLocaleString()} icon={<MessageSquare className="h-5 w-5" />} />
+            <KpiCard label="Custo de IA (mes)" value={`R$ ${totalCost.toFixed(2)}`} icon={<DollarSign className="h-5 w-5" />} />
+            <KpiCard label="Tools MCP" value={mcpTools.length} icon={<Wrench className="h-5 w-5" />} />
+          </div>
+
+          <div className="grid gap-4 lg:grid-cols-2">
+            <div className="rounded-lg border bg-card p-5">
+              <h3 className="text-sm font-semibold mb-4 flex items-center gap-2">
+                <TrendingUp className="h-4 w-4 text-primary" />
+                Conversas por dia
+              </h3>
+              <ResponsiveContainer width="100%" height={240}>
+                <BarChart data={analytics}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="hsl(220 13% 91%)" />
+                  <XAxis dataKey="date" tick={{ fontSize: 11 }} tickFormatter={(value: string) => value.slice(5)} />
+                  <YAxis tick={{ fontSize: 11 }} />
+                  <Tooltip />
+                  <Bar dataKey="conversations" fill="hsl(16, 99%, 55%)" radius={[4, 4, 0, 0]} />
+                </BarChart>
+              </ResponsiveContainer>
+            </div>
+
+            <div className="rounded-lg border bg-card p-5">
+              <h3 className="text-sm font-semibold mb-4">Custo por assistente (R$)</h3>
+              <ResponsiveContainer width="100%" height={240}>
+                <BarChart data={costByAssistant} layout="vertical">
+                  <CartesianGrid strokeDasharray="3 3" stroke="hsl(220 13% 91%)" />
+                  <XAxis type="number" tick={{ fontSize: 11 }} />
+                  <YAxis dataKey="name" type="category" tick={{ fontSize: 11 }} width={120} />
+                  <Tooltip />
+                  <Bar dataKey="cost" fill="hsl(16, 99%, 55%)" radius={[0, 4, 4, 0]} />
+                </BarChart>
+              </ResponsiveContainer>
             </div>
           </div>
 
-          {/* Top MCP Tools */}
-          <div className="rounded-lg border bg-card p-5">
-            <h3 className="text-sm font-semibold mb-3">Ferramentas MCP Mais Utilizadas</h3>
-            <div className="space-y-3">
-              {topToolCalls.map(t => (
-                <div key={t.id} className="flex items-center justify-between text-sm">
-                  <div>
-                    <p className="font-mono text-xs font-medium text-card-foreground">{t.name}</p>
-                    <p className="text-xs text-muted-foreground">{t.description}</p>
+          <div className="grid gap-4 lg:grid-cols-2">
+            <div className="rounded-lg border bg-card p-5">
+              <h3 className="text-sm font-semibold mb-3">Ferramentas MCP mais utilizadas</h3>
+              <div className="space-y-3">
+                {topToolCalls.map((tool) => (
+                  <div key={tool.id} className="flex items-center justify-between gap-3 text-sm">
+                    <p className="truncate font-mono text-xs">{tool.name}</p>
+                    <span className="text-xs text-muted-foreground">{tool.executionCount.toLocaleString()}</span>
                   </div>
-                  <span className="text-xs text-muted-foreground">{t.executionCount.toLocaleString()}</span>
-                </div>
-              ))}
+                ))}
+              </div>
             </div>
-          </div>
 
-          {/* Recent Audit */}
-          <div className="rounded-lg border bg-card p-5">
-            <h3 className="text-sm font-semibold mb-3 flex items-center gap-2">
-              <AlertTriangle className="h-3.5 w-3.5 text-warning" />
-              Atividade Recente
-            </h3>
-            <div className="space-y-3">
-              {mockAuditLogs.slice(0, 5).map(log => (
-                <div key={log.id} className="flex items-start gap-2 text-sm">
-                  <div className="mt-1.5">
+            <div className="rounded-lg border bg-card p-5">
+              <h3 className="text-sm font-semibold mb-3">Atividade recente</h3>
+              <div className="space-y-3">
+                {auditLogs.slice(0, 5).map((log) => (
+                  <div key={log.id} className="flex items-start gap-2 text-sm">
                     <StatusBadge status={log.riskLevel} />
+                    <p className="text-xs leading-snug">{log.description}</p>
                   </div>
-                  <div className="min-w-0 flex-1">
-                    <p className="text-xs text-card-foreground leading-snug">{log.description}</p>
-                    <p className="text-[10px] text-muted-foreground mt-0.5">{log.user} · {new Date(log.timestamp).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}</p>
-                  </div>
-                </div>
-              ))}
+                ))}
+              </div>
             </div>
           </div>
-        </div>
         </QueryState>
       </div>
     </AppShell>
