@@ -2,7 +2,7 @@
 
 Esta pasta concentra a documentacao operacional atual e o arquivo historico do projeto Orchestra.
 
-O frontend ja passou pela higienizacao tecnica inicial e preserva mocks controlados por `VITE_USE_MOCKS`. A fundacao real de backend, API, banco e infraestrutura local foi criada na Fase 04. A Fase 05 iniciou o core domain real e a integracao progressiva do frontend com a API. A Fase 05B consolidou governanca inicial de assistants com publicacao versionada, rollback, feedback e test results manuais/simulados. A Fase 05C adicionou approval workflow, execution policy, sandbox policy e precheck sem runtime real. A Fase 05D containerizou o frontend e validou o stack local `frontend` + `backend` + `db` em modo API real. A Fase 05E adicionou AgentRun, eventos persistidos, runtime boundary fake, cancelamento e contratos observaveis. A Fase 05F reduziu debt tecnico do frontend, removeu o alerta de bundle acima de 500 kB e documentou hygiene de dependencias. A Fase 06 adicionou catalogo governado de Knowledge/RAG/MCP, ingestion placeholder, bindings com assistants e frontend em API mode. A Fase 06B adicionou ingestao local controlada, chunking textual, source references, jobs com eventos e readiness de RAG local. A Fase 06C adicionou query RAG local deterministica, citations, historico de query/resultados e readiness refinado por assistant. A Fase 06D adicionou MCP execution sandbox controlado, tool calls persistidas, eventos e UI de teste sandbox sem chamada MCP externa. A Fase 07A adicionou Runtime Adapter Boundary oficial, adapter local deterministico, Agno readiness stub, endpoints de runtime e UI de health/capabilities. A Fase 07B adicionou integracao HTTP local Agno-compatible, desabilitada por padrao, com mock runtime e smoke dedicado. Runtime produtivo de IA, RAG semantico, MCP externo real, providers reais, embeddings, vector store e SSO real continuam fora do escopo atual.
+O frontend ja passou pela higienizacao tecnica inicial e preserva mocks controlados por `VITE_USE_MOCKS`. A fundacao real de backend, API, banco e infraestrutura local foi criada na Fase 04. A Fase 05 iniciou o core domain real e a integracao progressiva do frontend com a API. A Fase 05B consolidou governanca inicial de assistants com publicacao versionada, rollback, feedback e test results manuais/simulados. A Fase 05C adicionou approval workflow, execution policy, sandbox policy e precheck sem runtime real. A Fase 05D containerizou o frontend e validou o stack local `frontend` + `backend` + `db` em modo API real. A Fase 05E adicionou AgentRun, eventos persistidos, runtime boundary fake, cancelamento e contratos observaveis. A Fase 05F reduziu debt tecnico do frontend, removeu o alerta de bundle acima de 500 kB e documentou hygiene de dependencias. A Fase 06 adicionou catalogo governado de Knowledge/RAG/MCP, ingestion placeholder, bindings com assistants e frontend em API mode. A Fase 06B adicionou ingestao local controlada, chunking textual, source references, jobs com eventos e readiness de RAG local. A Fase 06C adicionou query RAG local deterministica, citations, historico de query/resultados e readiness refinado por assistant. A Fase 06D adicionou MCP execution sandbox controlado, tool calls persistidas, eventos e UI de teste sandbox sem chamada MCP externa. A Fase 07A adicionou Runtime Adapter Boundary oficial, adapter local deterministico, Agno readiness stub, endpoints de runtime e UI de health/capabilities. A Fase 07B adicionou integracao HTTP local Agno-compatible, desabilitada por padrao, com mock runtime e smoke dedicado. A Fase 09A criou a auditoria operacional de dados reais, mock mode e seeds. Runtime produtivo de IA, RAG semantico, MCP externo real, providers reais, embeddings e vector store continuam fora do escopo atual.
 
 ## Estrutura
 
@@ -20,6 +20,7 @@ docs/
 |-- security/
 |-- infrastructure/
 |-- ai-orchestration/
+|-- operations/
 `-- archive/
     `-- prototype/
 ```
@@ -88,7 +89,8 @@ docs/
 60. `engineering/ORCHESTRA_FRONTEND.md`
 61. `engineering/ORCHESTRA_INVENTARIO_ENTIDADES_FRONTEND.md`
 62. `engineering/ORCHESTRA_HANDOFF_FRONTEND_LOVABLE.md`
-63. READMEs de `security/` e `ai-orchestration/`.
+63. `operations/ORCHESTRA_DADOS_REAIS_E_MOCK_MODE_AUDIT.md`
+64. READMEs de `security/`, `ai-orchestration/` e `operations/`.
 
 ## Status Dos Documentos
 
@@ -103,6 +105,7 @@ docs/
 - `infrastructure/`: Dockerfiles, Docker Compose local, guia fullstack local e smoke Agno local opcional.
 - `security/`: preparacao de hardening, Microsoft SSO, governanca de execucao de assistants/agent runs, MCP execution sandbox, runtime boundary e Agno local opcional.
 - `ai-orchestration/`: area preparada para runtime adapter, RAG, MCP externo real, Agno local opcional e providers reais.
+- `operations/`: auditorias operacionais, politicas de ambiente e checklists para separar dados reais, mock mode, demo e seeds.
 - `archive/prototype/`: registros historicos do prototipo, snapshots, roteiros antigos e documentos que nao devem orientar o desenvolvimento atual sem revisao.
 
 ## Proximos Documentos A Preencher
