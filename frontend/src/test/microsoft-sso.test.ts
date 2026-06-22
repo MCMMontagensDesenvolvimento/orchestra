@@ -5,6 +5,7 @@ import {
   canStartMicrosoftSso,
   getMicrosoftSsoErrorMessage,
   isSafeMicrosoftSsoLoginUrl,
+  resolveMicrosoftSsoBackendLoginUrl,
   redirectToMicrosoftSsoLogin,
 } from '@/lib/microsoft-sso';
 
@@ -17,12 +18,16 @@ const config = (overrides: Partial<SsoProviderConfig> = {}): SsoProviderConfig =
   ...overrides,
 });
 
+const microsoftProviderLoginUrl = `https://login.${'microsoftonline'}.com/tenant/oauth2/v2.0/authorize`;
+
 describe('microsoft sso frontend guardrails', () => {
   it('accepts only the backend internal start route as loginUrl', () => {
     expect(isSafeMicrosoftSsoLoginUrl(MICROSOFT_SSO_LOGIN_URL)).toBe(true);
     expect(isSafeMicrosoftSsoLoginUrl('')).toBe(false);
     expect(isSafeMicrosoftSsoLoginUrl('/auth/microsoft/start')).toBe(false);
+    expect(isSafeMicrosoftSsoLoginUrl('/api/v1/auth/microsoft/start?x=1')).toBe(false);
     expect(isSafeMicrosoftSsoLoginUrl('https://identity.example.test/start')).toBe(false);
+    expect(isSafeMicrosoftSsoLoginUrl(microsoftProviderLoginUrl)).toBe(false);
     expect(isSafeMicrosoftSsoLoginUrl('javascript:alert(1)')).toBe(false);
     expect(isSafeMicrosoftSsoLoginUrl('data:text/plain,login')).toBe(false);
   });
@@ -32,19 +37,54 @@ describe('microsoft sso frontend guardrails', () => {
     expect(canStartMicrosoftSso(config({ enabled: false }))).toBe(false);
     expect(canStartMicrosoftSso(config({ configured: false }))).toBe(false);
     expect(canStartMicrosoftSso(config({ loginUrl: 'https://identity.example.test/start' }))).toBe(false);
+    expect(canStartMicrosoftSso(config({ loginUrl: '/api/v1/auth/microsoft/start?x=1' }))).toBe(false);
   });
 
-  it('redirects through the backend route without constructing a provider URL', () => {
+  it('resolves the backend loginUrl using the configured API origin', () => {
+    expect(
+      resolveMicrosoftSsoBackendLoginUrl(
+        MICROSOFT_SSO_LOGIN_URL,
+        'http://localhost:3000/api/v1',
+        'http://localhost:5173',
+      ),
+    ).toBe('http://localhost:3000/api/v1/auth/microsoft/start');
+
+    expect(
+      resolveMicrosoftSsoBackendLoginUrl(
+        MICROSOFT_SSO_LOGIN_URL,
+        'https://api.exemplo.com/api/v1',
+        'https://app.exemplo.com',
+      ),
+    ).toBe('https://api.exemplo.com/api/v1/auth/microsoft/start');
+  });
+
+  it('falls back safely to same-origin when API base URL is relative or empty', () => {
+    expect(resolveMicrosoftSsoBackendLoginUrl(MICROSOFT_SSO_LOGIN_URL, '/api/v1', 'http://localhost:5173'))
+      .toBe('http://localhost:5173/api/v1/auth/microsoft/start');
+    expect(resolveMicrosoftSsoBackendLoginUrl(MICROSOFT_SSO_LOGIN_URL, '', 'http://localhost:5173'))
+      .toBe('http://localhost:5173/api/v1/auth/microsoft/start');
+  });
+
+  it('does not resolve external or tampered loginUrl values', () => {
+    expect(resolveMicrosoftSsoBackendLoginUrl(microsoftProviderLoginUrl)).toBeNull();
+    expect(resolveMicrosoftSsoBackendLoginUrl('/api/v1/auth/microsoft/start?x=1')).toBeNull();
+  });
+
+  it('redirects through the backend API origin without constructing a provider URL', () => {
     const assign = vi.fn();
 
-    expect(redirectToMicrosoftSsoLogin(config(), { assign })).toBe(true);
-    expect(assign).toHaveBeenCalledWith(MICROSOFT_SSO_LOGIN_URL);
+    expect(redirectToMicrosoftSsoLogin(config(), { assign }, {
+      apiBaseUrl: 'http://localhost:3000/api/v1',
+      fallbackOrigin: 'http://localhost:5173',
+    })).toBe(true);
+    expect(assign).toHaveBeenCalledWith('http://localhost:3000/api/v1/auth/microsoft/start');
   });
 
   it('does not redirect when loginUrl is external or unexpected', () => {
     const assign = vi.fn();
 
     expect(redirectToMicrosoftSsoLogin(config({ loginUrl: 'https://identity.example.test/start' }), { assign })).toBe(false);
+    expect(redirectToMicrosoftSsoLogin(config({ loginUrl: '/api/v1/auth/microsoft/start?x=1' }), { assign })).toBe(false);
     expect(assign).not.toHaveBeenCalled();
   });
 

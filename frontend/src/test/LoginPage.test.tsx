@@ -7,6 +7,7 @@ import LoginPage from '@/pages/Auth/LoginPage';
 import {
   MICROSOFT_SSO_LOGIN_URL,
   microsoftSsoNavigator,
+  resolveMicrosoftSsoBackendLoginUrl,
 } from '@/lib/microsoft-sso';
 import { authService } from '@/services/auth.service';
 
@@ -95,7 +96,7 @@ describe('LoginPage Microsoft SSO', () => {
     expect(screen.getByText(/conta corporativa/i)).toBeInTheDocument();
   });
 
-  it('redirects to the internal backend loginUrl on Microsoft login click', async () => {
+  it('redirects to the backend API loginUrl on Microsoft login click', async () => {
     const assign = vi.spyOn(microsoftSsoNavigator, 'assign').mockImplementation(() => undefined);
     vi.mocked(authService.ssoConfig).mockResolvedValueOnce(ssoConfig());
 
@@ -108,7 +109,7 @@ describe('LoginPage Microsoft SSO', () => {
     });
     fireEvent.click(button);
 
-    expect(assign).toHaveBeenCalledWith(MICROSOFT_SSO_LOGIN_URL);
+    expect(assign).toHaveBeenCalledWith(resolveMicrosoftSsoBackendLoginUrl(MICROSOFT_SSO_LOGIN_URL));
   });
 
   it('does not redirect when backend returns an invalid loginUrl', async () => {

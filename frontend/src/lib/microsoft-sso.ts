@@ -1,4 +1,5 @@
 import type { MicrosoftSsoErrorCode, SsoProviderConfig } from '@/types';
+import { env } from './env';
 
 export const MICROSOFT_SSO_LOGIN_URL = '/api/v1/auth/microsoft/start';
 
@@ -34,6 +35,10 @@ export const microsoftSsoNavigator = {
   },
 };
 
+function browserOrigin() {
+  return window.location.origin;
+}
+
 export function getMicrosoftSsoErrorMessage(code?: string | null) {
   if (!code?.trim()) return null;
   if (code in microsoftSsoErrorMessages) {
@@ -51,11 +56,34 @@ export function canStartMicrosoftSso(config?: SsoProviderConfig | null) {
   return Boolean(config?.enabled && config.configured && isSafeMicrosoftSsoLoginUrl(config.loginUrl));
 }
 
+export function resolveMicrosoftSsoBackendLoginUrl(
+  loginUrl?: string | null,
+  apiBaseUrl = env.apiBaseUrl,
+  fallbackOrigin = browserOrigin(),
+) {
+  if (!isSafeMicrosoftSsoLoginUrl(loginUrl)) return null;
+
+  try {
+    const apiUrl = new URL(apiBaseUrl.trim() || '/', fallbackOrigin);
+    return new URL(loginUrl, apiUrl.origin).toString();
+  } catch {
+    return new URL(loginUrl, fallbackOrigin).toString();
+  }
+}
+
 export function redirectToMicrosoftSsoLogin(
   config: SsoProviderConfig,
   navigator = microsoftSsoNavigator,
+  options: { apiBaseUrl?: string; fallbackOrigin?: string } = {},
 ) {
   if (!canStartMicrosoftSso(config)) return false;
-  navigator.assign(config.loginUrl);
+  const resolvedLoginUrl = resolveMicrosoftSsoBackendLoginUrl(
+    config.loginUrl,
+    options.apiBaseUrl ?? env.apiBaseUrl,
+    options.fallbackOrigin ?? browserOrigin(),
+  );
+  if (!resolvedLoginUrl) return false;
+
+  navigator.assign(resolvedLoginUrl);
   return true;
 }
