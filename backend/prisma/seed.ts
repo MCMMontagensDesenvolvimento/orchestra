@@ -1,7 +1,12 @@
+import 'dotenv/config';
 import bcrypt from 'bcrypt';
 import { PrismaClient } from '@prisma/client';
+import { resolveSeedPolicy } from './seed-policy';
 
 const prisma = new PrismaClient();
+
+const demoAssistantId = '00000000-0000-0000-0000-000000000101';
+const demoAssistantVersion = '0.1.0';
 
 const permissions = [
   'users.read',
@@ -183,7 +188,7 @@ const rolePermissionKeys: Record<string, string[]> = {
   ],
 };
 
-async function main() {
+async function seedBootstrap() {
   const tenant = await prisma.tenant.upsert({
     where: { slug: 'orchestra-dev' },
     update: {},
@@ -317,39 +322,93 @@ async function main() {
     }),
   );
 
-  await prisma.assistant.upsert({
-    where: { id: '00000000-0000-0000-0000-000000000101' },
-    update: {},
-    create: {
-      id: '00000000-0000-0000-0000-000000000101',
-      tenantId: tenant.id,
-      workspaceId: workspace.id,
+  return {
+    tenant,
+    workspace,
+    admin,
+  };
+}
+
+async function seedDemoData(input: Awaited<ReturnType<typeof seedBootstrap>>) {
+  const assistant = await prisma.assistant.upsert({
+    where: { id: demoAssistantId },
+    update: {
       name: 'Assistant Foundation Example',
       description: 'Dummy assistant used only for local backend foundation validation.',
       status: 'draft',
-      createdById: admin.id,
-      versions: {
-        create: {
-          version: '0.1.0',
-          status: 'draft',
-          displayName: 'Foundation draft',
-          description: 'Initial local draft for governance validation.',
-          instructions: 'Dummy instructions for local development only.',
-          modelProvider: 'none',
-          modelName: 'not-configured',
-          temperature: '0.20',
-          configuration: {
-            source: 'seed',
-            runtimeEnabled: false,
-          },
-          createdById: admin.id,
-        },
+    },
+    create: {
+      id: demoAssistantId,
+      tenantId: input.tenant.id,
+      workspaceId: input.workspace.id,
+      name: 'Assistant Foundation Example',
+      description: 'Dummy assistant used only for local backend foundation validation.',
+      status: 'draft',
+      createdById: input.admin.id,
+    },
+  });
+
+  await prisma.assistantVersion.upsert({
+    where: {
+      assistantId_version: {
+        assistantId: assistant.id,
+        version: demoAssistantVersion,
       },
+    },
+    update: {
+      status: 'draft',
+      displayName: 'Foundation draft',
+      description: 'Initial local draft for governance validation.',
+      instructions: 'Dummy instructions for local development only.',
+      modelProvider: 'none',
+      modelName: 'not-configured',
+      temperature: '0.20',
+      configuration: {
+        source: 'seed-demo',
+        runtimeEnabled: false,
+      },
+      createdById: input.admin.id,
+    },
+    create: {
+      assistantId: assistant.id,
+      version: demoAssistantVersion,
+      status: 'draft',
+      displayName: 'Foundation draft',
+      description: 'Initial local draft for governance validation.',
+      instructions: 'Dummy instructions for local development only.',
+      modelProvider: 'none',
+      modelName: 'not-configured',
+      temperature: '0.20',
+      configuration: {
+        source: 'seed-demo',
+        runtimeEnabled: false,
+      },
+      createdById: input.admin.id,
     },
   });
 }
 
-main()
+async function main() {
+  const policy = resolveSeedPolicy();
+  const bootstrap = await seedBootstrap();
+
+  if (policy.demoRequested) {
+    await seedDemoData(bootstrap);
+  }
+
+  console.log(
+    [
+      '[seed] Bootstrap complete.',
+      `environment=${policy.environment}`,
+      `tenant=${bootstrap.tenant.slug}`,
+      `workspace=${bootstrap.workspace.slug}`,
+      `admin=${bootstrap.admin.email}`,
+      `demo=${policy.demoRequested ? 'enabled' : 'disabled'}`,
+    ].join(' '),
+  );
+}
+
+void main()
   .finally(async () => {
     await prisma.$disconnect();
   })
