@@ -162,6 +162,16 @@ Politica: tratar como variaveis futuras/legadas ate 09B validar se devem ser rem
 - Confirmar que segredos ficam apenas em backend/secret manager.
 - Manter OpenAI e demais providers como backend-only, com auditoria e flags de execucao.
 
+## Atualizacao 09B - Guardrails Implementados
+
+- `VITE_USE_MOCKS` passou a ser opt-in: ausente, vazio, falso ou invalido resulta em `useMocks=false`.
+- Mock mode e permitido somente em `test`, `local`, `development`, `dev`, `prototype` e `prototipo`.
+- `staging`, `homolog`, `homologation`, `production` e `prod` bloqueiam o bootstrap quando `VITE_USE_MOCKS=true`.
+- Ambientes desconhecidos tambem falham fechado quando solicitam mock mode.
+- `ProtectedRoute` so libera acesso sem sessao quando `useMocks=true` e `mockModeAllowed=true`.
+- O setup do Vitest fixa um baseline `test` com mocks desligados. Testes que exercitam services mockados habilitam mocks por mock de modulo explicito, sem depender de `frontend/.env`.
+- `VITE_ENABLE_DEMO_MODE` permanece como placeholder legado e nao recebeu comportamento funcional nesta fase.
+
 ## Criterios de Aceite da Sprint 18
 
 - Documento de auditoria criado em `docs/operations/`.

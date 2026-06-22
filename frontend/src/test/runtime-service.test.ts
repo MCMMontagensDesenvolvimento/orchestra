@@ -1,4 +1,18 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
+
+vi.mock('@/lib/env', () => ({
+  env: {
+    appEnv: 'test',
+    isProductionLike: false,
+    useMocks: true,
+    mockModeAllowed: true,
+    mockModeBlockedReason: null,
+    mockDelayMs: 0,
+    mockScenario: 'success',
+    apiBaseUrl: '/api/v1',
+  },
+}));
+
 import { runtimeService } from '@/services/runtime.service';
 
 describe('runtime service', () => {

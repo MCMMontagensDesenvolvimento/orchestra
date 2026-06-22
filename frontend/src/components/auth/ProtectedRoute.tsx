@@ -6,7 +6,7 @@ export default function ProtectedRoute() {
   const location = useLocation();
   const sessionQuery = useCurrentSession();
 
-  if (env.useMocks) return <Outlet />;
+  if (env.useMocks && env.mockModeAllowed) return <Outlet />;
 
   if (sessionQuery.isLoading) {
     return (
