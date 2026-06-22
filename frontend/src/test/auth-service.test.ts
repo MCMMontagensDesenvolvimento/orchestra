@@ -5,7 +5,11 @@ import { endpoints } from '@/services/api/endpoints';
 
 vi.mock('@/lib/env', () => ({
   env: {
+    appEnv: 'test',
+    isProductionLike: false,
     useMocks: false,
+    mockModeAllowed: true,
+    mockModeBlockedReason: null,
     mockDelayMs: 0,
     mockScenario: 'success',
     apiBaseUrl: '/api/v1',
