@@ -1,6 +1,7 @@
 import { useState, useEffect, useMemo } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import { AppShell } from '@/components/shared/AppShell';
+import { EmptyState } from '@/components/shared/EmptyState';
 import { useAssistants } from '@/hooks/queries/useAssistants';
 import { useConversations, useMessages } from '@/hooks/queries/useChat';
 import { QueryState, ListLoading } from '@/components/shared/QueryState';
@@ -16,6 +17,7 @@ import { RAGSourcesList } from '@/components/chat/RAGSourcesList';
 import { FallbackBadge } from '@/components/chat/FallbackBadge';
 import { ChatErrorState } from '@/components/chat/ChatErrorState';
 import { FeedbackBar } from '@/components/chat/FeedbackBar';
+import { env } from '@/lib/env';
 import type { ChatRunState, MockRagSource, MockToolCall, ChatError, MessageFeedback } from '@/types/chat';
 
 const DEMO_SOURCES: MockRagSource[] = [
@@ -55,6 +57,22 @@ const DEMO_STATES: { state: ChatRunState; label: string }[] = [
 const STREAM_TEXT = 'De acordo com a Política de RH 2026 (seção 4.2), as férias coletivas devem ser comunicadas com no mínimo 15 dias de antecedência e respeitar o período mínimo de 10 dias corridos…';
 
 export default function ChatPage() {
+  if (!env.useMocks) {
+    return (
+      <AppShell>
+        <EmptyState
+          icon={<FlaskConical className="h-6 w-6" />}
+          title="Chat disponível apenas como protótipo"
+          description="O contrato real de conversas ainda não está disponível. O modo de API real não renderiza mensagens, fontes ou tool calls de demonstração."
+        />
+      </AppShell>
+    );
+  }
+
+  return <ChatPrototypePage />;
+}
+
+function ChatPrototypePage() {
   const assistantsQuery = useAssistants();
   const mockAssistants = assistantsQuery.data ?? [];
   const { data: mockConversations = [] } = useConversations();

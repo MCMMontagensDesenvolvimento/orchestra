@@ -35,6 +35,7 @@ import {
 import type { KnowledgeDocument, IngestionStatus } from '@/types';
 import type { KnowledgeDataSourcePayload, KnowledgeDocumentPayload } from '@/services/knowledge.service';
 import { toast } from '@/hooks/use-toast';
+import { env } from '@/lib/env';
 
 const statusIcon: Partial<Record<IngestionStatus, React.ReactNode>> = {
   completed: <CheckCircle2 className="h-4 w-4 text-success" />,
@@ -65,24 +66,24 @@ function mimeTypeFromName(name: string) {
 
 export default function KnowledgeDetailPage() {
   const knowledgeQuery = useKnowledgeBases();
-  const mockKnowledgeBases = knowledgeQuery.data ?? [];
+  const knowledgeBases = knowledgeQuery.data ?? [];
   const { id } = useParams<{ id: string }>();
   const documentsQuery = useKnowledgeDocuments(id);
-  const { data: mockDocuments = [] } = documentsQuery;
+  const { data: documentData = [] } = documentsQuery;
   const dataSourcesQuery = useKnowledgeDataSources(id);
   const { data: dataSources = [] } = dataSourcesQuery;
-  const { data: mockAssistants = [] } = useAssistants();
+  const { data: assistants = [] } = useAssistants();
   const createDocumentMutation = useCreateKnowledgeDocumentMutation();
   const requestIngestionMutation = useRequestKnowledgeIngestionMutation();
   const archiveDocumentMutation = useArchiveKnowledgeDocumentMutation();
   const createDataSourceMutation = useCreateKnowledgeDataSourceMutation();
   const navigate = useNavigate();
-  const kb = mockKnowledgeBases.find(k => k.id === id);
+  const kb = knowledgeBases.find(k => k.id === id);
 
   const [documents, setDocuments] = useState<KnowledgeDocument[]>([]);
   useEffect(() => {
-    setDocuments(mockDocuments.filter(d => d.knowledgeBaseId === id));
-  }, [mockDocuments, id]);
+    setDocuments(documentData.filter(d => d.knowledgeBaseId === id));
+  }, [documentData, id]);
   const [docSearch, setDocSearch] = useState('');
   const [uploadOpen, setUploadOpen] = useState(false);
   const [dataSourceOpen, setDataSourceOpen] = useState(false);
@@ -104,8 +105,8 @@ export default function KnowledgeDetailPage() {
 
   const linkedAssistants = useMemo(() => {
     if (!kb) return [];
-    return mockAssistants.filter(a => a.knowledgeBases.includes(kb.id));
-  }, [kb, mockAssistants]);
+    return assistants.filter(a => a.knowledgeBases.includes(kb.id));
+  }, [kb, assistants]);
 
   const filteredDocs = useMemo(() => {
     return documents.filter(d => !docSearch || d.name.toLowerCase().includes(docSearch.toLowerCase()));
@@ -529,6 +530,7 @@ export default function KnowledgeDetailPage() {
 
           {/* Audit Tab */}
           <TabsContent value="audit" className="space-y-4">
+            {env.useMocks ? (
             <div className="space-y-3">
               {[
                 { time: '2026-03-08 15:00', event: 'Documento "Processo de Admissão - Fluxo.pdf" enviado para processamento', user: 'Maria Silva' },
@@ -552,6 +554,13 @@ export default function KnowledgeDetailPage() {
                 </div>
               ))}
             </div>
+            ) : (
+              <EmptyState
+                icon={<ShieldCheck className="h-6 w-6" />}
+                title="Historico detalhado ainda indisponivel"
+                description="A API real desta fase nao fornece uma timeline especifica da base. Eventos de demonstracao nao sao exibidos."
+              />
+            )}
           </TabsContent>
         </Tabs>
       </div>
