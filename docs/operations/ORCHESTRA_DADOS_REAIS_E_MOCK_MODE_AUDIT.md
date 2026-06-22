@@ -22,7 +22,7 @@ A meta da Sprint 18 e deixar claro o que e real, o que e demonstrativo e o que d
 - `VITE_ENABLE_DEMO_MODE` existe no `.env.example`, mas nao foi encontrado como variavel consumida em `frontend/src`. O modo visual de chat/demo hoje esta codificado na pagina de Chat e nos tipos associados.
 - Muitos nomes de variaveis nas paginas ainda usam prefixo `mock...`, mesmo quando os hooks podem estar retornando dados reais via API. Isso aumenta o risco de confusao operacional, mas nao e por si so uma fonte de mock.
 - O backend ja possui bases reais e governadas: autenticacao/dev login/SSO, RBAC, assistants, Knowledge/RAG local, MCP sandbox, AgentRun, runtime adapter e LLM catalog. Mocks de backend aparecem majoritariamente em testes, scripts de smoke e adapters locais/deterministicos.
-- O seed Prisma e idempotente e cria tenant, workspace, usuario admin de desenvolvimento, roles, permissoes e um assistant exemplo. Ele e bootstrap local/dev; nao deve ser tratado como fixture de produto em staging/producao sem uma politica explicita.
+- O seed Prisma e idempotente e cria bootstrap real minimo por padrao: tenant, workspace, usuario admin de desenvolvimento, roles, permissoes, membership e userRole. Assistant exemplo existe apenas no seed demo opcional, bloqueado por ambiente production-like.
 - Provedores externos de LLM nao sao chamados pelo frontend. A chamada real de OpenAI, quando habilitada, existe somente no backend e e governada por flags, configuracao e sanitizacao.
 
 ## Inventario de Variaveis de Ambiente
@@ -102,7 +102,7 @@ Politica: tratar como variaveis futuras/legadas ate 09B validar se devem ser rem
 | Fonte | Conteudo criado/usado | Classificacao | Politica recomendada |
 | --- | --- | --- | --- |
 | `backend/prisma/seed.ts` | Tenant `orchestra-dev`, workspace default, usuario admin de desenvolvimento, roles, permissoes, membership e userRole | Bootstrap local/dev | Idempotente e util localmente; bloquear uso irrestrito em staging/prod |
-| `backend/prisma/seed.ts` | Assistant exemplo com versao draft, instrucoes dummy e `runtimeEnabled=false` | Fixture de validacao local | Migrar para seed demo separado ou remover de ambientes reais em 09D |
+| `backend/prisma/seed.ts` | Assistant exemplo somente com opt-in demo, versao draft, instrucoes dummy e `runtimeEnabled=false` | Fixture de validacao local opcional | Manter bloqueado em staging/producao e validar idempotencia com banco local |
 | `backend/tests/**` | Fixtures de tenants, users, assistants, runs, RAG, MCP, SSO | Test-only | Manter isolado; nunca depender desses dados fora do runner |
 | `frontend/src/data/mockData.ts` | Dados demo de produto, usuarios, conversas, documentos e ferramentas | Demo/mock frontend | Permitido so com `VITE_USE_MOCKS=true`; adicionar banner/guard em 09B |
 | `scripts/agno-mock-runtime.mjs` | Runtime HTTP local deterministic para smoke Agno | Dev/smoke-only | Nunca configurar como runtime de staging/prod |
@@ -123,7 +123,7 @@ Politica: tratar como variaveis futuras/legadas ate 09B validar se devem ser rem
 - Bypass de autenticacao: `ProtectedRoute` retorna `<Outlet />` em mock mode.
 - Dados demonstrativos com aparencia real: nomes, custos, datas, documentos e ferramentas no mock dataset podem ser confundidos com dados de producao.
 - Variaveis declaradas mas nao consumidas: `VITE_ENABLE_DEMO_MODE` e placeholders backend podem gerar falsa sensacao de controle.
-- Seeds misturam bootstrap e exemplo de assistant: bom para local, arriscado para ambientes reais.
+- Seed Prisma separado na 09C: bootstrap padrao real/idempotente; assistant exemplo apenas com opt-in demo.
 - Nomes `mock...` em paginas dificultam distinguir dado real de dado demonstrativo durante manutencao.
 - Backend `.env.example` habilita algumas flags locais/convenientes; sem checklist, isso pode vazar para ambientes superiores.
 - OpenAI real existe no backend: a fronteira esta correta, mas qualquer habilitacao deve ser tratada como mudanca governada e auditavel.
@@ -145,9 +145,9 @@ Politica: tratar como variaveis futuras/legadas ate 09B validar se devem ser rem
 
 ### 09D - Seeds e fixtures por finalidade
 
-- Separar seed de bootstrap obrigatorio de seed demo opcional.
+- Manter seed de bootstrap obrigatorio separado do seed demo opcional.
 - Adicionar comando/documentacao para aplicar apenas bootstrap em staging/prod.
-- Remover assistant exemplo de ambientes reais ou condicionar a flag local/demo.
+- Manter assistant exemplo condicionado a flag local/demo e bloqueado em ambientes production-like.
 
 ### 09E - Validacao fullstack com dados reais
 
@@ -171,6 +171,16 @@ Politica: tratar como variaveis futuras/legadas ate 09B validar se devem ser rem
 - `ProtectedRoute` so libera acesso sem sessao quando `useMocks=true` e `mockModeAllowed=true`.
 - O setup do Vitest fixa um baseline `test` com mocks desligados. Testes que exercitam services mockados habilitam mocks por mock de modulo explicito, sem depender de `frontend/.env`.
 - `VITE_ENABLE_DEMO_MODE` permanece como placeholder legado e nao recebeu comportamento funcional nesta fase.
+
+
+## Atualizacao 09C - Bootstrap Real e Seed Demo
+
+- `backend/prisma/seed.ts` passou a executar bootstrap real/idempotente por padrao, sem criar assistant demo automaticamente.
+- Dados demo ficam condicionados a opt-in explicito por `ORCHESTRA_SEED_DEMO=true`, `SEED_DEMO_DATA=true` ou `--demo`.
+- Demo seed e bloqueado em `production`, `prod`, `staging`, `homolog` e `homologation`.
+- O bootstrap padrao cria tenant, workspace, usuario admin local/dev, roles, permissions, memberships e user roles.
+- O seed nao cria `ExternalIdentity` Microsoft fake; usuarios reais devem ser vinculados pelo fluxo SSO real.
+- O runbook operacional esta em `docs/operations/ORCHESTRA_BOOTSTRAP_E_SEEDS.md`.
 
 ## Criterios de Aceite da Sprint 18
 
