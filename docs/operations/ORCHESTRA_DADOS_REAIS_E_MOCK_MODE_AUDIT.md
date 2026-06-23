@@ -222,6 +222,19 @@ Politica: tratar como variaveis futuras/legadas ate 09B validar se devem ser rem
 - Revisar estados de erro das queries secundarias em telas de detalhe, onde a query principal ja e real mas paineis auxiliares ainda podem mostrar apenas vazio.
 - Adicionar verificacao de CI para builds production-like com mock mode bloqueado e para impedir novos fallbacks de erro para datasets demo.
 
+## Atualizacao 09E - Smoke Fullstack com Dados Reais
+
+- Criado `scripts/smoke-fullstack-real.sh` para validar `frontend`, `backend` e `db` reais sob `docker-compose.dev.yml`.
+- O script falha se `VITE_USE_MOCKS=true` estiver configurado nos arquivos de ambiente ou no container frontend.
+- Migrations sao verificadas por `prisma migrate status`; o script nao aplica migrations automaticamente.
+- O bootstrap padrao roda com `ORCHESTRA_SEED_DEMO=false` e `SEED_DEMO_DATA=false` forcados.
+- O contador do Assistant demo e comparado antes e depois do bootstrap, impedindo que o smoke real introduza fixture demo.
+- Health, database health, frontend login e configuracao SSO sanitizada sao sempre validados.
+- Endpoints autenticados sao exercitados com dev-login apenas em ambiente local nao produtivo.
+- Quando dev-login esta desabilitado, checks autenticados sao marcados como `SKIPPED` e o fluxo manual Microsoft e documentado.
+- O smoke aceita catalogos reais vazios e nao cria registros de negocio para obter sucesso.
+- O runbook completo esta em `docs/operations/ORCHESTRA_SMOKE_FULLSTACK_DADOS_REAIS.md`.
+
 ## Criterios de Aceite da Sprint 18
 
 - Documento de auditoria criado em `docs/operations/`.
