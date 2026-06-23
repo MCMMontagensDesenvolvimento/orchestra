@@ -266,3 +266,13 @@ Politica: tratar como variaveis futuras/legadas ate 09B validar se devem ser rem
 - Implementar execucao real de MCP externo, RAG semantico, embeddings ou vector store.
 - Habilitar OpenAI ou qualquer provider externo pelo frontend.
 - Commitar alteracoes.
+
+## Atualizacao 09F - Fechamento da Sprint 18
+
+- As fases 09A a 09E foram concluidas, e 09C, 09D e 09E estao integradas na `main`.
+- Mock mode permanece opt-in e bloqueado em ambientes production-like ou desconhecidos.
+- Bootstrap real, seed demo opcional, frontend sem fallback implicito e smoke fullstack real formam o conjunto de aceite da sprint.
+- A evidencia operacional final disponivel e o smoke 09E com `27 PASS, 0 SKIPPED, 0 FAIL`.
+- Chat real, Analytics consolidado, RAG semantico, MCP remoto e observabilidade avancada continuam como roadmap e nao bloqueiam este fechamento.
+- A Sprint 18 esta apta para encerramento.
+- O fechamento formal, checklist, riscos residuais e proximas fases estao em `docs/operations/ORCHESTRA_FECHAMENTO_SPRINT_18_DADOS_REAIS.md`.
