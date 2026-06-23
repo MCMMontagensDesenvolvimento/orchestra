@@ -32,4 +32,3 @@ Um executor real deve consumir um contrato equivalente:
 - Nao ha secrets manager.
 
 O valor desta fase e estabilizar governanca, auditoria, historico e UI antes da conexao com runtime.
-
