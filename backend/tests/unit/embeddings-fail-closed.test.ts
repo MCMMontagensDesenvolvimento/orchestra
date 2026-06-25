@@ -12,8 +12,11 @@ async function loadEmbeddings(overrides: Record<string, string | undefined> = {}
     JWT_SECRET: 'test-secret',
     EMBEDDINGS_ENABLED: undefined,
     EMBEDDINGS_PROVIDER: undefined,
+    EMBEDDINGS_EXECUTION_ENABLED: undefined,
     EMBEDDINGS_MODEL: undefined,
     EMBEDDINGS_DIMENSION: undefined,
+    EMBEDDINGS_STORE_RAW_INPUTS: undefined,
+    EMBEDDINGS_STORE_RAW_OUTPUTS: undefined,
     ...overrides,
   };
 
@@ -37,6 +40,7 @@ describe('embeddings fail-closed service', () => {
       provider: 'disabled',
       status: 'disabled',
       failClosed: true,
+      secretsConfigured: false,
       externalProviderCalled: false,
       rawInputStored: false,
       rawOutputStored: false,
@@ -73,14 +77,15 @@ describe('embeddings fail-closed service', () => {
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
-  it('fails closed for planned external providers without network calls', async () => {
+  it('marks OpenAI embeddings misconfigured when required backend-only config is missing', async () => {
     const fetchMock = vi.fn();
     vi.stubGlobal('fetch', fetchMock);
     const { embeddingsService } = await loadEmbeddings({
       EMBEDDINGS_ENABLED: 'true',
       EMBEDDINGS_PROVIDER: 'openai',
-      EMBEDDINGS_MODEL: 'text-embedding-3-small',
-      EMBEDDINGS_DIMENSION: '1536',
+      EMBEDDINGS_MODEL: '',
+      EMBEDDINGS_DIMENSION: '',
+      OPENAI_API_KEY: '',
     });
 
     const readiness = embeddingsService.getEmbeddingReadiness();
@@ -91,12 +96,73 @@ describe('embeddings fail-closed service', () => {
       provider: 'openai',
       status: 'misconfigured',
       failClosed: true,
+      secretsConfigured: false,
       externalProviderCalled: false,
     });
 
     await expect(embeddingsService.embedBatch({ texts: ['one', 'two'] })).rejects.toMatchObject({
       status: 409,
       code: 'EMBEDDING_PROVIDER_NOT_CONFIGURED',
+    });
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it('recognizes configured OpenAI embeddings but blocks execution by default', async () => {
+    const fetchMock = vi.fn();
+    vi.stubGlobal('fetch', fetchMock);
+    const { embeddingsService } = await loadEmbeddings({
+      EMBEDDINGS_ENABLED: 'true',
+      EMBEDDINGS_PROVIDER: 'openai',
+      EMBEDDINGS_EXECUTION_ENABLED: 'false',
+      EMBEDDINGS_MODEL: 'text-embedding-3-small',
+      EMBEDDINGS_DIMENSION: '1536',
+      OPENAI_API_KEY: 'openai-placeholder-key',
+    });
+
+    expect(embeddingsService.getEmbeddingReadiness()).toMatchObject({
+      enabled: true,
+      configured: true,
+      executionEnabled: false,
+      provider: 'openai',
+      status: 'configured_but_execution_disabled',
+      failClosed: true,
+      model: 'text-embedding-3-small',
+      dimension: 1536,
+      secretsConfigured: true,
+      externalProviderCalled: false,
+      rawInputStored: false,
+      rawOutputStored: false,
+    });
+
+    await expect(embeddingsService.embedText({ text: 'must not leave backend during 10E' })).rejects.toMatchObject({
+      status: 409,
+      code: 'EMBEDDING_EXECUTION_DISABLED',
+    });
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it('keeps OpenAI execution blocked even when the execution flag is explicitly requested in 10E', async () => {
+    const fetchMock = vi.fn();
+    vi.stubGlobal('fetch', fetchMock);
+    const { embeddingsService } = await loadEmbeddings({
+      EMBEDDINGS_ENABLED: 'true',
+      EMBEDDINGS_PROVIDER: 'openai',
+      EMBEDDINGS_EXECUTION_ENABLED: 'true',
+      EMBEDDINGS_MODEL: 'text-embedding-3-small',
+      EMBEDDINGS_DIMENSION: '1536',
+      OPENAI_API_KEY: 'openai-placeholder-key',
+    });
+
+    expect(embeddingsService.getEmbeddingReadiness()).toMatchObject({
+      configured: true,
+      executionEnabled: false,
+      status: 'configured_but_execution_disabled',
+      failClosed: true,
+    });
+
+    await expect(embeddingsService.embedBatch({ texts: ['one', 'two'] })).rejects.toMatchObject({
+      status: 409,
+      code: 'EMBEDDING_EXECUTION_DISABLED',
     });
     expect(fetchMock).not.toHaveBeenCalled();
   });
