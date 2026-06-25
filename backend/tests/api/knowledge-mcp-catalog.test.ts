@@ -915,6 +915,14 @@ describe('knowledge and MCP catalog endpoints', () => {
     expect(chunkSourcesResponse.body.data[0].chunkId).toBe(chunkId);
     expect(jobResponse.body.data.events[0].eventType).toBe('knowledge_ingestion_completed');
     expect(readinessResponse.body.data.retrievalMode).toBe('local_chunks_only');
+    expect(readinessResponse.body.data.embeddings).toMatchObject({
+      enabled: false,
+      configured: false,
+      provider: 'disabled',
+      status: 'disabled',
+      failClosed: true,
+      externalProviderCalled: false,
+    });
     expect(searchResponse.body.data.mode).toBe('keyword_local_placeholder');
     expect(mocks.recordAuditEvent).toHaveBeenCalledWith(expect.objectContaining({ action: 'rag_readiness_checked' }));
     expect(mocks.recordAuditEvent).toHaveBeenCalledWith(expect.objectContaining({ action: 'rag_local_search_executed' }));
