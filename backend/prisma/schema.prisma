@@ -31,6 +31,7 @@ model Tenant {
   knowledgeDocuments         KnowledgeDocument[]
   knowledgeDataSources       KnowledgeDataSource[]
   knowledgeChunks            KnowledgeChunk[]
+  knowledgeChunkEmbeddings  KnowledgeChunkEmbedding[]
   knowledgeSourceReferences  KnowledgeSourceReference[]
   knowledgeIngestionJobs     KnowledgeIngestionJob[]
   knowledgeIngestionEvents   KnowledgeIngestionEvent[]
@@ -78,6 +79,7 @@ model Workspace {
   knowledgeDocuments         KnowledgeDocument[]
   knowledgeDataSources       KnowledgeDataSource[]
   knowledgeChunks            KnowledgeChunk[]
+  knowledgeChunkEmbeddings  KnowledgeChunkEmbedding[]
   knowledgeSourceReferences  KnowledgeSourceReference[]
   knowledgeIngestionJobs     KnowledgeIngestionJob[]
   knowledgeIngestionEvents   KnowledgeIngestionEvent[]
@@ -579,6 +581,7 @@ model KnowledgeBase {
   documents          KnowledgeDocument[]
   dataSources        KnowledgeDataSource[]
   chunks             KnowledgeChunk[]
+  chunkEmbeddings    KnowledgeChunkEmbedding[]
   sourceReferences   KnowledgeSourceReference[]
   ingestionJobs      KnowledgeIngestionJob[]
   ingestionEvents    KnowledgeIngestionEvent[]
@@ -624,6 +627,7 @@ model KnowledgeDocument {
   createdBy             User?                      @relation("KnowledgeDocumentCreator", fields: [createdById], references: [id], onDelete: SetNull)
   ingestionJobs         KnowledgeIngestionJob[]
   chunks                KnowledgeChunk[]
+  chunkEmbeddings       KnowledgeChunkEmbedding[]
   sourceReferences      KnowledgeSourceReference[]
   ingestionEvents       KnowledgeIngestionEvent[]
   ragQueryResults       RagQueryResult[]
@@ -657,6 +661,7 @@ model KnowledgeChunk {
   workspace        Workspace                  @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
   knowledgeBase    KnowledgeBase              @relation(fields: [knowledgeBaseId], references: [id], onDelete: Cascade)
   document         KnowledgeDocument          @relation(fields: [documentId], references: [id], onDelete: Cascade)
+  embeddings       KnowledgeChunkEmbedding[]
   sourceReferences KnowledgeSourceReference[]
   ragQueryResults  RagQueryResult[]
 
@@ -669,6 +674,47 @@ model KnowledgeChunk {
   @@index([status])
   @@index([createdAt])
   @@map("knowledge_chunks")
+}
+
+
+model KnowledgeChunkEmbedding {
+  id               String            @id @default(uuid()) @db.Uuid
+  tenantId         String            @map("tenant_id") @db.Uuid
+  workspaceId      String            @map("workspace_id") @db.Uuid
+  knowledgeBaseId  String            @map("knowledge_base_id") @db.Uuid
+  documentId       String            @map("document_id") @db.Uuid
+  chunkId          String            @map("chunk_id") @db.Uuid
+  provider         String
+  embeddingModel   String            @map("model")
+  dimension        Int
+  embedding        Unsupported("vector")?
+  contentHash      String            @map("content_hash")
+  embeddingHash    String?           @map("embedding_hash")
+  status           String            @default("pending")
+  errorCode        String?           @map("error_code")
+  errorMessage     String?           @map("error_message")
+  embeddedAt       DateTime?         @map("embedded_at")
+  metadata         Json?
+  createdAt        DateTime          @default(now()) @map("created_at")
+  updatedAt        DateTime          @updatedAt @map("updated_at")
+  tenant           Tenant            @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  workspace        Workspace         @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  knowledgeBase    KnowledgeBase     @relation(fields: [knowledgeBaseId], references: [id], onDelete: Cascade)
+  document         KnowledgeDocument @relation(fields: [documentId], references: [id], onDelete: Cascade)
+  chunk            KnowledgeChunk    @relation(fields: [chunkId], references: [id], onDelete: Cascade)
+
+  @@unique([chunkId, provider, embeddingModel, dimension, contentHash], map: "knowledge_chunk_embeddings_chunk_provider_model_dim_hash_key")
+  @@index([tenantId])
+  @@index([workspaceId])
+  @@index([knowledgeBaseId])
+  @@index([documentId])
+  @@index([chunkId])
+  @@index([provider, embeddingModel])
+  @@index([status])
+  @@index([contentHash])
+  @@index([embeddedAt])
+  @@index([createdAt])
+  @@map("knowledge_chunk_embeddings")
 }
 
 model KnowledgeSourceReference {
