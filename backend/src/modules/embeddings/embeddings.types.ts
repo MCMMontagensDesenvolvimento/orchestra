@@ -18,8 +18,12 @@ export type EmbeddingProviderStatus = typeof embeddingProviderStatusValues[numbe
 export interface EmbeddingsConfig {
   enabled: boolean;
   provider: EmbeddingProviderName;
+  executionEnabled: boolean;
   model: string | null;
   dimension: number | null;
+  storeRawInputs: boolean;
+  storeRawOutputs: boolean;
+  openaiApiKeyConfigured: boolean;
 }
 
 export interface EmbeddingReadiness {
@@ -32,6 +36,7 @@ export interface EmbeddingReadiness {
   reason: string;
   model: string | null;
   dimension: number | null;
+  secretsConfigured: boolean;
   externalProviderCalled: false;
   rawInputStored: false;
   rawOutputStored: false;

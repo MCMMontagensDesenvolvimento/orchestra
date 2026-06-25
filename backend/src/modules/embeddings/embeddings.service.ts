@@ -1,24 +1,31 @@
+import { getEmbeddingsConfig } from './embeddings.config';
 import { embeddingReadinessError } from './embeddings.errors';
 import { disabledEmbeddingProvider } from './embeddings.provider';
-import type { EmbedBatchInput, EmbedTextInput } from './embeddings.types';
+import { openAiEmbeddingProvider } from './providers/openai-embedding.provider';
+import type { EmbedBatchInput, EmbeddingProvider, EmbedTextInput } from './embeddings.types';
+
+function currentProvider(): EmbeddingProvider {
+  const config = getEmbeddingsConfig();
+  if (config.enabled && config.provider === 'openai') return openAiEmbeddingProvider;
+  return disabledEmbeddingProvider;
+}
 
 export const embeddingsService = {
   getEmbeddingReadiness() {
-    return disabledEmbeddingProvider.getReadiness();
+    return currentProvider().getReadiness();
   },
 
   assertEmbeddingReady() {
-    const readiness = this.getEmbeddingReadiness();
+    const provider = currentProvider();
+    const readiness = provider.getReadiness();
     throw embeddingReadinessError(readiness);
   },
 
   async embedText(input: EmbedTextInput) {
-    this.assertEmbeddingReady();
-    return disabledEmbeddingProvider.embedText(input);
+    return currentProvider().embedText(input);
   },
 
   async embedBatch(input: EmbedBatchInput) {
-    this.assertEmbeddingReady();
-    return disabledEmbeddingProvider.embedBatch(input);
+    return currentProvider().embedBatch(input);
   },
 };

@@ -38,6 +38,7 @@ export class DisabledEmbeddingProvider implements EmbeddingProvider {
       reason: '',
       model: config.model,
       dimension: config.dimension,
+      secretsConfigured: false,
       externalProviderCalled: false,
       rawInputStored: false,
       rawOutputStored: false,
