@@ -10,3 +10,15 @@ export function embeddingReadinessError(readiness: EmbeddingReadiness) {
         : 'EMBEDDING_PROVIDER_NOT_CONFIGURED';
   return new AppError(409, code, readiness.reason);
 }
+
+export function embeddingInputError(code: string, message: string) {
+  return new AppError(422, code, message);
+}
+
+export function embeddingProviderError(code: string, message: string) {
+  return new AppError(502, code, message);
+}
+
+export function embeddingProviderTimeoutError() {
+  return new AppError(504, 'EMBEDDING_PROVIDER_TIMEOUT', 'Embedding provider request timed out.');
+}
