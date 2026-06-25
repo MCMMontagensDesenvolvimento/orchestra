@@ -3,6 +3,7 @@ import { AppError } from '../../shared/errors/app-error';
 import type { AuthenticatedUser } from '../../shared/types/auth';
 import { paginationMeta } from '../../shared/validation/pagination';
 import { recordAuditEvent } from '../audit/audit.service';
+import { embeddingsService } from '../embeddings';
 import {
   mapAssistantKnowledgeBinding,
   mapKnowledgeBase,
@@ -232,6 +233,7 @@ function scoreRagCandidate(candidate: {
 function mapReadiness(readiness: Awaited<ReturnType<typeof knowledgeRepository.getRagReadiness>>) {
   if (!readiness) return null;
   const ready = readiness.blockedReasons.length === 0;
+  const embeddings = embeddingsService.getEmbeddingReadiness();
   return {
     assistantId: readiness.assistant.id,
     ready,
@@ -249,6 +251,7 @@ function mapReadiness(readiness: Awaited<ReturnType<typeof knowledgeRepository.g
     missingRequirements: readiness.blockedReasons,
     retrievalMode: 'local_chunks_only',
     embeddingsEnabled: false,
+    embeddings,
     vectorStoreEnabled: false,
   };
 }
@@ -795,6 +798,9 @@ export const knowledgeService = {
         ready: response.ready,
         blockedReasons: readiness.blockedReasons,
         embeddingsEnabled: false,
+        embeddingStatus: response.embeddings.status,
+        embeddingProvider: response.embeddings.provider,
+        embeddingFailClosed: response.embeddings.failClosed,
         vectorStoreEnabled: false,
       },
     });
