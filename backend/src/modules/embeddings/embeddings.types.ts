@@ -10,6 +10,7 @@ export const embeddingProviderStatusValues = [
   'disabled',
   'misconfigured',
   'configured_but_execution_disabled',
+  'ready',
 ] as const;
 
 export type EmbeddingProviderName = typeof embeddingProviderNameValues[number];
@@ -21,9 +22,14 @@ export interface EmbeddingsConfig {
   executionEnabled: boolean;
   model: string | null;
   dimension: number | null;
+  timeoutMs: number;
+  maxInputChars: number;
+  maxBatchSize: number;
   storeRawInputs: boolean;
   storeRawOutputs: boolean;
-  openaiApiKeyConfigured: boolean;
+  openaiCredential: string | null;
+  openaiCredentialConfigured: boolean;
+  openaiBaseUrl: string;
 }
 
 export interface EmbeddingReadiness {
@@ -32,7 +38,7 @@ export interface EmbeddingReadiness {
   executionEnabled: boolean;
   provider: EmbeddingProviderName;
   status: EmbeddingProviderStatus;
-  failClosed: true;
+  failClosed: boolean;
   reason: string;
   model: string | null;
   dimension: number | null;
@@ -61,6 +67,15 @@ export interface EmbeddingVectorResult {
   model: string | null;
   dimension: number | null;
   vector: number[];
+  usage?: {
+    inputTokens?: number | null;
+  };
+  metadata?: {
+    externalProviderCalled: boolean;
+    rawInputStored: boolean;
+    rawOutputStored: boolean;
+    estimatedCost?: null;
+  };
 }
 
 export interface EmbeddingProvider {
