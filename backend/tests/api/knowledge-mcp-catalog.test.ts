@@ -24,6 +24,11 @@ const mocks = vi.hoisted(() => {
     findIngestionJob: vi.fn(),
     listDocumentChunks: vi.fn(),
     listKnowledgeBaseChunks: vi.fn(),
+    listDocumentChunksForEmbedding: vi.fn(),
+    listKnowledgeBaseChunksForEmbedding: vi.fn(),
+    listExistingEmbeddedChunkEmbeddings: vi.fn(),
+    upsertEmbeddedChunkEmbedding: vi.fn(),
+    upsertFailedChunkEmbedding: vi.fn(),
     findChunk: vi.fn(),
     listDocumentSourceReferences: vi.fn(),
     listChunkSourceReferences: vi.fn(),
@@ -75,9 +80,15 @@ const mocks = vi.hoisted(() => {
     updateBinding: vi.fn(),
     disableBinding: vi.fn(),
   };
+  const embeddingsService = {
+    getEmbeddingReadiness: vi.fn(),
+    embedText: vi.fn(),
+    embedBatch: vi.fn(),
+  };
   return {
     knowledgeRepository,
     mcpRepository,
+    embeddingsService,
     recordAuditEvent: vi.fn().mockResolvedValue(undefined),
   };
 });
@@ -92,6 +103,10 @@ vi.mock('../../src/modules/mcp/mcp.repository', () => ({
 
 vi.mock('../../src/modules/audit/audit.service', () => ({
   recordAuditEvent: mocks.recordAuditEvent,
+}));
+
+vi.mock('../../src/modules/embeddings', () => ({
+  embeddingsService: mocks.embeddingsService,
 }));
 
 const tenantId = '00000000-0000-0000-0000-000000000010';
@@ -379,6 +394,41 @@ function ragReadinessFixture(overrides: Record<string, unknown> = {}) {
     warnings: [],
     ...overrides,
   };
+}
+
+function embeddingReadinessFixture(overrides: Record<string, unknown> = {}) {
+  return {
+    enabled: false,
+    configured: false,
+    executionEnabled: false,
+    provider: 'disabled',
+    status: 'disabled',
+    failClosed: true,
+    reason: 'Embeddings are disabled by backend configuration.',
+    model: null,
+    dimension: null,
+    secretsConfigured: false,
+    externalProviderCalled: false,
+    rawInputStored: false,
+    rawOutputStored: false,
+    ...overrides,
+  };
+}
+
+function readyEmbeddingReadinessFixture(overrides: Record<string, unknown> = {}) {
+  return embeddingReadinessFixture({
+    enabled: true,
+    configured: true,
+    executionEnabled: true,
+    provider: 'openai',
+    status: 'ready',
+    failClosed: false,
+    reason: 'OpenAI embeddings are configured and execution is explicitly enabled.',
+    model: 'text-embedding-3-small',
+    dimension: 3,
+    secretsConfigured: true,
+    ...overrides,
+  });
 }
 
 function ragCandidateChunkFixture() {
@@ -702,6 +752,11 @@ describe('knowledge and MCP catalog endpoints', () => {
     mocks.knowledgeRepository.findIngestionJob.mockResolvedValue({ ...ingestionJobFixture(), events: [ingestionEventFixture()] });
     mocks.knowledgeRepository.listDocumentChunks.mockResolvedValue({ data: [chunkFixture()], total: 1 });
     mocks.knowledgeRepository.listKnowledgeBaseChunks.mockResolvedValue({ data: [chunkFixture()], total: 1 });
+    mocks.knowledgeRepository.listDocumentChunksForEmbedding.mockResolvedValue([chunkFixture()]);
+    mocks.knowledgeRepository.listKnowledgeBaseChunksForEmbedding.mockResolvedValue([chunkFixture()]);
+    mocks.knowledgeRepository.listExistingEmbeddedChunkEmbeddings.mockResolvedValue([]);
+    mocks.knowledgeRepository.upsertEmbeddedChunkEmbedding.mockResolvedValue(undefined);
+    mocks.knowledgeRepository.upsertFailedChunkEmbedding.mockResolvedValue(undefined);
     mocks.knowledgeRepository.findChunk.mockResolvedValue(chunkFixture());
     mocks.knowledgeRepository.listDocumentSourceReferences.mockResolvedValue([sourceReferenceFixture()]);
     mocks.knowledgeRepository.listChunkSourceReferences.mockResolvedValue([sourceReferenceFixture()]);
@@ -753,6 +808,22 @@ describe('knowledge and MCP catalog endpoints', () => {
     mocks.knowledgeRepository.findAssistant.mockResolvedValue(assistantFixture());
     mocks.knowledgeRepository.createBinding.mockResolvedValue(knowledgeBindingFixture());
     mocks.knowledgeRepository.listBindings.mockResolvedValue([knowledgeBindingFixture()]);
+
+    mocks.embeddingsService.getEmbeddingReadiness.mockReturnValue(embeddingReadinessFixture());
+    mocks.embeddingsService.embedText.mockResolvedValue({
+      provider: 'openai',
+      model: 'text-embedding-3-small',
+      dimension: 3,
+      vector: [0.1, 0.2, 0.3],
+      usage: { inputTokens: 12 },
+      metadata: {
+        externalProviderCalled: true,
+        rawInputStored: false,
+        rawOutputStored: false,
+        estimatedCost: null,
+      },
+    });
+    mocks.embeddingsService.embedBatch.mockResolvedValue([]);
 
     mocks.mcpRepository.listServers.mockResolvedValue({ data: [mcpServerFixture()], total: 1 });
     mocks.mcpRepository.findServer.mockResolvedValue(mcpServerFixture());
@@ -845,6 +916,219 @@ describe('knowledge and MCP catalog endpoints', () => {
     expect(mocks.recordAuditEvent).toHaveBeenCalledWith(expect.objectContaining({ action: 'knowledge_document_created' }));
     expect(mocks.recordAuditEvent).toHaveBeenCalledWith(expect.objectContaining({ action: 'knowledge_ingestion_requested' }));
     expect(mocks.recordAuditEvent).toHaveBeenCalledWith(expect.objectContaining({ action: 'knowledge_data_source_created' }));
+  });
+
+  it('requests controlled embeddings for an ingested document without returning raw text or vectors', async () => {
+    mocks.knowledgeRepository.findDocument.mockResolvedValueOnce(documentFixture({
+      status: 'indexed',
+      ingestionStatus: 'completed',
+      chunkCount: 1,
+    }));
+    mocks.embeddingsService.getEmbeddingReadiness.mockReturnValue(readyEmbeddingReadinessFixture());
+
+    const response = await request(createApp())
+      .post(`/api/v1/knowledge-documents/${documentId}/request-embeddings`)
+      .set('Cookie', [sessionCookie()])
+      .send({ metadata: { scenario: 'doc-embedding' } })
+      .expect(202);
+
+    expect(response.body.data).toMatchObject({
+      scope: 'document',
+      scopeId: documentId,
+      status: 'completed',
+      provider: 'openai',
+      model: 'text-embedding-3-small',
+      dimension: 3,
+      requestedChunks: 1,
+      selectedForEmbedding: 1,
+      embedded: 1,
+      skipped: 0,
+      failed: 0,
+      retrievalMode: 'local_chunks_only',
+      ragUpdated: false,
+      vectorSearchEnabled: false,
+    });
+    const serialized = JSON.stringify(response.body.data);
+    expect(serialized).not.toContain('Politica operacional');
+    expect(serialized).not.toContain('0.1');
+    expect(mocks.embeddingsService.embedText).toHaveBeenCalledWith(expect.objectContaining({
+      text: expect.stringContaining('Politica operacional'),
+      model: 'text-embedding-3-small',
+    }));
+    expect(mocks.knowledgeRepository.upsertEmbeddedChunkEmbedding).toHaveBeenCalledWith(expect.objectContaining({
+      chunkId,
+      provider: 'openai',
+      model: 'text-embedding-3-small',
+      dimension: 3,
+      contentHash: 'chunk-hash',
+      embeddingHash: expect.any(String),
+    }));
+    expect(mocks.recordAuditEvent).toHaveBeenCalledWith(expect.objectContaining({ action: 'knowledge_embeddings_requested' }));
+    expect(mocks.recordAuditEvent).toHaveBeenCalledWith(expect.objectContaining({ action: 'knowledge_embeddings_completed' }));
+  });
+
+  it('requests controlled embeddings for a knowledge base', async () => {
+    mocks.embeddingsService.getEmbeddingReadiness.mockReturnValue(readyEmbeddingReadinessFixture());
+
+    const response = await request(createApp())
+      .post(`/api/v1/knowledge-bases/${knowledgeBaseId}/request-embeddings`)
+      .set('Cookie', [sessionCookie()])
+      .send({ limit: 10 })
+      .expect(202);
+
+    expect(response.body.data).toMatchObject({
+      scope: 'knowledge_base',
+      scopeId: knowledgeBaseId,
+      status: 'completed',
+      requestedChunks: 1,
+      selectedForEmbedding: 1,
+      embedded: 1,
+      skipped: 0,
+      failed: 0,
+      retrievalMode: 'local_chunks_only',
+      ragUpdated: false,
+      vectorSearchEnabled: false,
+    });
+    expect(mocks.knowledgeRepository.listKnowledgeBaseChunksForEmbedding).toHaveBeenCalledWith(
+      knowledgeBaseId,
+      tenantId,
+      [workspaceId],
+      expect.objectContaining({ limit: 10 }),
+    );
+  });
+
+  it('skips existing embedded chunks unless force is requested', async () => {
+    mocks.knowledgeRepository.findDocument.mockResolvedValue(documentFixture({
+      status: 'indexed',
+      ingestionStatus: 'completed',
+      chunkCount: 1,
+    }));
+    mocks.embeddingsService.getEmbeddingReadiness.mockReturnValue(readyEmbeddingReadinessFixture());
+    mocks.knowledgeRepository.listExistingEmbeddedChunkEmbeddings.mockResolvedValue([
+      { chunkId, contentHash: 'chunk-hash', status: 'embedded' },
+    ]);
+
+    const skippedResponse = await request(createApp())
+      .post(`/api/v1/knowledge-documents/${documentId}/request-embeddings`)
+      .set('Cookie', [sessionCookie()])
+      .send({})
+      .expect(202);
+
+    expect(skippedResponse.body.data).toMatchObject({
+      status: 'completed',
+      requestedChunks: 1,
+      selectedForEmbedding: 0,
+      embedded: 0,
+      skipped: 1,
+      failed: 0,
+    });
+    expect(mocks.embeddingsService.embedText).not.toHaveBeenCalled();
+
+    const forcedResponse = await request(createApp())
+      .post(`/api/v1/knowledge-documents/${documentId}/request-embeddings`)
+      .set('Cookie', [sessionCookie()])
+      .send({ force: true })
+      .expect(202);
+
+    expect(forcedResponse.body.data).toMatchObject({
+      selectedForEmbedding: 1,
+      embedded: 1,
+      skipped: 0,
+    });
+    expect(mocks.embeddingsService.embedText).toHaveBeenCalledTimes(1);
+  });
+
+  it('fails closed when embeddings are not ready', async () => {
+    mocks.knowledgeRepository.findDocument.mockResolvedValueOnce(documentFixture({
+      status: 'indexed',
+      ingestionStatus: 'completed',
+      chunkCount: 1,
+    }));
+
+    const response = await request(createApp())
+      .post(`/api/v1/knowledge-documents/${documentId}/request-embeddings`)
+      .set('Cookie', [sessionCookie()])
+      .send({})
+      .expect(409);
+
+    expect(response.body.code).toBe('EMBEDDINGS_NOT_READY');
+    expect(mocks.embeddingsService.embedText).not.toHaveBeenCalled();
+    expect(mocks.knowledgeRepository.upsertEmbeddedChunkEmbedding).not.toHaveBeenCalled();
+    expect(mocks.recordAuditEvent).toHaveBeenCalledWith(expect.objectContaining({ action: 'knowledge_embeddings_failed' }));
+  });
+
+  it('persists per-chunk embedding failures with sanitized messages', async () => {
+    const failedChunkId = '00000000-0000-0000-0000-000000000614';
+    mocks.knowledgeRepository.findDocument.mockResolvedValueOnce(documentFixture({
+      status: 'indexed',
+      ingestionStatus: 'completed',
+      chunkCount: 2,
+    }));
+    mocks.knowledgeRepository.listDocumentChunksForEmbedding.mockResolvedValueOnce([
+      chunkFixture(),
+      chunkFixture({
+        id: failedChunkId,
+        chunkIndex: 1,
+        content: 'Conteudo de segundo chunk para embeddings.',
+        contentHash: 'chunk-hash-2',
+      }),
+    ]);
+    mocks.embeddingsService.getEmbeddingReadiness.mockReturnValue(readyEmbeddingReadinessFixture());
+    mocks.embeddingsService.embedText
+      .mockResolvedValueOnce({
+        provider: 'openai',
+        model: 'text-embedding-3-small',
+        dimension: 3,
+        vector: [0.1, 0.2, 0.3],
+        metadata: { externalProviderCalled: true, rawInputStored: false, rawOutputStored: false },
+      })
+      .mockRejectedValueOnce(Object.assign(new Error('Provider failed with token=fixture-token-value'), {
+        code: 'EMBEDDING_PROVIDER_REQUEST_FAILED',
+      }));
+
+    const response = await request(createApp())
+      .post(`/api/v1/knowledge-documents/${documentId}/request-embeddings`)
+      .set('Cookie', [sessionCookie()])
+      .send({ metadata: { scenario: 'partial-failure' } })
+      .expect(202);
+
+    expect(response.body.data).toMatchObject({
+      status: 'partial',
+      requestedChunks: 2,
+      selectedForEmbedding: 2,
+      embedded: 1,
+      skipped: 0,
+      failed: 1,
+    });
+    expect(response.body.data.failures[0]).toMatchObject({
+      chunkId: failedChunkId,
+      code: 'EMBEDDING_PROVIDER_REQUEST_FAILED',
+    });
+    expect(response.body.data.failures[0].message).not.toContain('fixture-token-value');
+    expect(response.body.data.failures[0].message).not.toContain('token=fixture-token-value');
+    expect(mocks.knowledgeRepository.upsertFailedChunkEmbedding).toHaveBeenCalledWith(expect.objectContaining({
+      chunkId: failedChunkId,
+      errorCode: 'EMBEDDING_PROVIDER_REQUEST_FAILED',
+      errorMessage: expect.not.stringContaining('fixture-token-value'),
+    }));
+  });
+
+  it('rejects sensitive embedding request metadata and missing ingestion permission', async () => {
+    mocks.embeddingsService.getEmbeddingReadiness.mockReturnValue(readyEmbeddingReadinessFixture());
+
+    const invalidResponse = await request(createApp())
+      .post(`/api/v1/knowledge-documents/${documentId}/request-embeddings`)
+      .set('Cookie', [sessionCookie()])
+      .send({ metadata: { token: 'secret' } })
+      .expect(422);
+
+    await request(createApp())
+      .post(`/api/v1/knowledge-documents/${documentId}/request-embeddings`)
+      .set('Cookie', [sessionCookie({ ...testUser, permissions: ['knowledge.read'] })])
+      .send({})
+      .expect(403);
+
+    expect(invalidResponse.body.code).toBe('VALIDATION_ERROR');
   });
 
   it('persists failed local ingestion job before returning 422 for documents without text', async () => {

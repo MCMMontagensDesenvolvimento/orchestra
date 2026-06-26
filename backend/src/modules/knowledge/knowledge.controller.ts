@@ -70,6 +70,16 @@ export const knowledgeController = {
     return res.status(201).json({ data, requestId: req.requestId });
   },
 
+  async requestDocumentEmbeddings(req: Request, res: Response) {
+    const data = await knowledgeService.requestDocumentEmbeddings(req.params.documentId, req.body, req.user!, requestContext(req));
+    return res.status(202).json({ data, requestId: req.requestId });
+  },
+
+  async requestKnowledgeBaseEmbeddings(req: Request, res: Response) {
+    const data = await knowledgeService.requestKnowledgeBaseEmbeddings(req.params.id, req.body, req.user!, requestContext(req));
+    return res.status(202).json({ data, requestId: req.requestId });
+  },
+
   async listIngestionJobs(req: Request, res: Response) {
     const data = await knowledgeService.listIngestionJobs(req.params.documentId, req.user!);
     return res.status(200).json({ data, requestId: req.requestId });

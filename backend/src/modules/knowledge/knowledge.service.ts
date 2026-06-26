@@ -29,6 +29,7 @@ import type {
   KnowledgeDataSourceUpdateInput,
   KnowledgeDocumentCreateInput,
   KnowledgeDocumentUpdateInput,
+  KnowledgeEmbeddingRequestInput,
   KnowledgeIngestionRequestInput,
   RagQueriesQuery,
   RagQueryRequestInput,
@@ -41,7 +42,31 @@ interface RequestContext {
   userAgent?: string;
 }
 
-const unsafeMetadataKeys = new Set(['instructions', 'prompt', 'content', 'secret', 'token', 'password', 'apiKey', 'authorization']);
+type EmbeddingScope = 'document' | 'knowledge_base';
+
+interface EmbeddingFailure {
+  chunkId: string;
+  code: string;
+  message: string;
+}
+
+const unsafeMetadataKeys = new Set([
+  'instructions',
+  'prompt',
+  'content',
+  'secret',
+  'secrets',
+  'token',
+  'tokens',
+  'password',
+  'apikey',
+  'api_key',
+  'apiKey',
+  'authorization',
+  'cookie',
+  'privatekey',
+  'private_key',
+]);
 const userWorkspaceIds = (user: AuthenticatedUser) => user.workspaces.map((workspace) => workspace.id);
 
 function sanitizeMetadata(value: unknown, depth = 0): unknown {
@@ -253,6 +278,168 @@ function mapReadiness(readiness: Awaited<ReturnType<typeof knowledgeRepository.g
     embeddingsEnabled: false,
     embeddings,
     vectorStoreEnabled: false,
+  };
+}
+
+function embeddingConfigOrThrow() {
+  const readiness = embeddingsService.getEmbeddingReadiness();
+  if (readiness.status !== 'ready' || !readiness.model || !readiness.dimension) {
+    throw new AppError(409, 'EMBEDDINGS_NOT_READY', readiness.reason);
+  }
+  return {
+    provider: readiness.provider,
+    model: readiness.model,
+    dimension: readiness.dimension,
+  };
+}
+
+function embeddingHash(vector: number[]) {
+  return hashText(vector.map((value) => value.toPrecision(12)).join(','));
+}
+
+function embeddingSummaryStatus(embedded: number, skipped: number, failed: number) {
+  if (failed > 0 && embedded + skipped === 0) return 'failed';
+  if (failed > 0) return 'partial';
+  return 'completed';
+}
+
+function embeddingErrorCode(error: unknown) {
+  if (error instanceof AppError) return error.code;
+  const maybeCode = (error as { code?: unknown })?.code;
+  if (typeof maybeCode === 'string' && maybeCode.trim()) {
+    return maybeCode.replace(/[^a-zA-Z0-9_]/g, '_').toUpperCase().slice(0, 120);
+  }
+  return 'EMBEDDING_CHUNK_FAILED';
+}
+
+function embeddingErrorMessage(error: unknown) {
+  const message = error instanceof Error ? error.message : String(error ?? 'Embedding chunk failed.');
+  return message
+    .replace(/Bearer\s+[A-Za-z0-9._~+/=-]+/gi, 'Bearer [redacted]')
+    .replace(/sk-[A-Za-z0-9_-]+/gi, '[redacted]')
+    .replace(/(api[_-]?key|authorization|token|secret)\s*[:=]\s*["']?[^"'\s,}]+/gi, '$1=[redacted]')
+    .slice(0, 500);
+}
+
+async function processEmbeddingChunks(input: {
+  scope: EmbeddingScope;
+  scopeId: string;
+  chunks: Awaited<ReturnType<typeof knowledgeRepository.listDocumentChunksForEmbedding>>;
+  request: KnowledgeEmbeddingRequestInput;
+  user: AuthenticatedUser;
+  context: RequestContext;
+}) {
+  const embeddingConfig = embeddingConfigOrThrow();
+  const existing = input.request.force || input.chunks.length === 0
+    ? []
+    : await knowledgeRepository.listExistingEmbeddedChunkEmbeddings({
+        chunkIds: input.chunks.map((chunk) => chunk.id),
+        provider: embeddingConfig.provider,
+        model: embeddingConfig.model,
+        dimension: embeddingConfig.dimension,
+        contentHashes: Array.from(new Set(input.chunks.map((chunk) => chunk.contentHash))),
+      });
+
+  const existingKeys = new Set(existing.map((row) => `${row.chunkId}:${row.contentHash}`));
+  const chunksToEmbed = input.chunks.filter((chunk) => !existingKeys.has(`${chunk.id}:${chunk.contentHash}`));
+  const failures: EmbeddingFailure[] = [];
+  let embedded = 0;
+
+  for (const chunk of chunksToEmbed) {
+    try {
+      const result = await embeddingsService.embedText({
+        text: chunk.content,
+        requestId: input.context.requestId,
+        model: embeddingConfig.model,
+        metadata: {
+          scope: input.scope,
+          scopeId: input.scopeId,
+          chunkId: chunk.id,
+          rawInputStored: false,
+          rawOutputStored: false,
+        },
+      });
+
+      if (result.vector.length !== embeddingConfig.dimension) {
+        throw new AppError(502, 'EMBEDDING_DIMENSION_MISMATCH', 'Embedding provider returned a vector with unexpected dimension.');
+      }
+
+      await knowledgeRepository.upsertEmbeddedChunkEmbedding({
+        tenantId: chunk.tenantId,
+        workspaceId: chunk.workspaceId,
+        knowledgeBaseId: chunk.knowledgeBaseId,
+        documentId: chunk.documentId,
+        chunkId: chunk.id,
+        provider: embeddingConfig.provider,
+        model: embeddingConfig.model,
+        dimension: embeddingConfig.dimension,
+        embedding: result.vector,
+        contentHash: chunk.contentHash,
+        embeddingHash: embeddingHash(result.vector),
+        embeddedAt: new Date(),
+        metadata: sanitizeMetadata({
+          ...(input.request.metadata ?? {}),
+          scope: input.scope,
+          scopeId: input.scopeId,
+          requestedById: input.user.id,
+          requestId: input.context.requestId,
+          externalProviderCalled: result.metadata?.externalProviderCalled ?? true,
+          rawInputStored: false,
+          rawOutputStored: false,
+          usage: result.usage,
+        }) as Prisma.InputJsonValue,
+      });
+      embedded += 1;
+    } catch (error) {
+      const code = embeddingErrorCode(error);
+      const message = embeddingErrorMessage(error);
+      failures.push({ chunkId: chunk.id, code, message });
+      await knowledgeRepository.upsertFailedChunkEmbedding({
+        tenantId: chunk.tenantId,
+        workspaceId: chunk.workspaceId,
+        knowledgeBaseId: chunk.knowledgeBaseId,
+        documentId: chunk.documentId,
+        chunkId: chunk.id,
+        provider: embeddingConfig.provider,
+        model: embeddingConfig.model,
+        dimension: embeddingConfig.dimension,
+        contentHash: chunk.contentHash,
+        errorCode: code,
+        errorMessage: message,
+        metadata: sanitizeMetadata({
+          ...(input.request.metadata ?? {}),
+          scope: input.scope,
+          scopeId: input.scopeId,
+          requestedById: input.user.id,
+          requestId: input.context.requestId,
+          errorCode: code,
+          rawInputStored: false,
+          rawOutputStored: false,
+        }) as Prisma.InputJsonValue,
+      });
+    }
+  }
+
+  const skipped = input.chunks.length - chunksToEmbed.length;
+  const failed = failures.length;
+  const status = embeddingSummaryStatus(embedded, skipped, failed);
+
+  return {
+    scope: input.scope,
+    scopeId: input.scopeId,
+    status,
+    provider: embeddingConfig.provider,
+    model: embeddingConfig.model,
+    dimension: embeddingConfig.dimension,
+    requestedChunks: input.chunks.length,
+    selectedForEmbedding: chunksToEmbed.length,
+    embedded,
+    skipped,
+    failed,
+    failures,
+    retrievalMode: 'local_chunks_only',
+    ragUpdated: false,
+    vectorSearchEnabled: false,
   };
 }
 
@@ -707,6 +894,148 @@ export const knowledgeService = {
       chunksCreated: result.chunks.length,
       sourceReferencesCreated: result.sourceReferences.length,
     };
+  },
+
+  async requestDocumentEmbeddings(documentId: string, input: KnowledgeEmbeddingRequestInput, user: AuthenticatedUser, context: RequestContext) {
+    const current = await knowledgeRepository.findDocument(documentId, user.tenant.id, userWorkspaceIds(user));
+    if (!current) {
+      throw new AppError(404, 'KNOWLEDGE_DOCUMENT_NOT_FOUND', 'Documento de conhecimento nao encontrado.');
+    }
+    if (current.status === 'archived' || current.deletedAt) {
+      throw new AppError(409, 'KNOWLEDGE_DOCUMENT_ARCHIVED', 'Documento arquivado nao pode receber embeddings.');
+    }
+    if (current.ingestionStatus !== 'completed') {
+      throw new AppError(409, 'KNOWLEDGE_DOCUMENT_NOT_INGESTED', 'Documento precisa estar com ingestao concluida para receber embeddings.');
+    }
+
+    await audit({
+      user,
+      context,
+      action: 'knowledge_embeddings_requested',
+      entity: 'knowledge_document',
+      entityId: current.id,
+      workspaceId: current.workspaceId,
+      metadata: {
+        scope: 'document',
+        knowledgeBaseId: current.knowledgeBaseId,
+        limit: input.limit,
+        force: input.force,
+        requestedChunkIds: input.chunkIds?.length ?? 0,
+      },
+    });
+
+    try {
+      const chunks = await knowledgeRepository.listDocumentChunksForEmbedding(current.id, user.tenant.id, userWorkspaceIds(user), {
+        limit: input.limit,
+        chunkIds: input.chunkIds,
+      });
+      const summary = await processEmbeddingChunks({
+        scope: 'document',
+        scopeId: current.id,
+        chunks,
+        request: input,
+        user,
+        context,
+      });
+
+      await audit({
+        user,
+        context,
+        action: summary.status === 'failed' ? 'knowledge_embeddings_failed' : 'knowledge_embeddings_completed',
+        entity: 'knowledge_document',
+        entityId: current.id,
+        workspaceId: current.workspaceId,
+        metadata: {
+          ...summary,
+          failures: summary.failures.map((failure) => ({ chunkId: failure.chunkId, code: failure.code })),
+        },
+      });
+
+      return summary;
+    } catch (error) {
+      await audit({
+        user,
+        context,
+        action: 'knowledge_embeddings_failed',
+        entity: 'knowledge_document',
+        entityId: current.id,
+        workspaceId: current.workspaceId,
+        metadata: {
+          scope: 'document',
+          scopeId: current.id,
+          knowledgeBaseId: current.knowledgeBaseId,
+          errorCode: embeddingErrorCode(error),
+        },
+      });
+      throw error;
+    }
+  },
+
+  async requestKnowledgeBaseEmbeddings(knowledgeBaseId: string, input: KnowledgeEmbeddingRequestInput, user: AuthenticatedUser, context: RequestContext) {
+    const base = await getKnowledgeBaseOrThrow(knowledgeBaseId, user);
+    if (base.status === 'archived' || base.deletedAt) {
+      throw new AppError(409, 'KNOWLEDGE_BASE_ARCHIVED', 'Base arquivada nao pode receber embeddings.');
+    }
+
+    await audit({
+      user,
+      context,
+      action: 'knowledge_embeddings_requested',
+      entity: 'knowledge_base',
+      entityId: base.id,
+      workspaceId: base.workspaceId,
+      metadata: {
+        scope: 'knowledge_base',
+        limit: input.limit,
+        force: input.force,
+        requestedChunkIds: input.chunkIds?.length ?? 0,
+      },
+    });
+
+    try {
+      const chunks = await knowledgeRepository.listKnowledgeBaseChunksForEmbedding(base.id, user.tenant.id, userWorkspaceIds(user), {
+        limit: input.limit,
+        chunkIds: input.chunkIds,
+      });
+      const summary = await processEmbeddingChunks({
+        scope: 'knowledge_base',
+        scopeId: base.id,
+        chunks,
+        request: input,
+        user,
+        context,
+      });
+
+      await audit({
+        user,
+        context,
+        action: summary.status === 'failed' ? 'knowledge_embeddings_failed' : 'knowledge_embeddings_completed',
+        entity: 'knowledge_base',
+        entityId: base.id,
+        workspaceId: base.workspaceId,
+        metadata: {
+          ...summary,
+          failures: summary.failures.map((failure) => ({ chunkId: failure.chunkId, code: failure.code })),
+        },
+      });
+
+      return summary;
+    } catch (error) {
+      await audit({
+        user,
+        context,
+        action: 'knowledge_embeddings_failed',
+        entity: 'knowledge_base',
+        entityId: base.id,
+        workspaceId: base.workspaceId,
+        metadata: {
+          scope: 'knowledge_base',
+          scopeId: base.id,
+          errorCode: embeddingErrorCode(error),
+        },
+      });
+      throw error;
+    }
   },
 
   async listIngestionJobs(documentId: string, user: AuthenticatedUser) {
