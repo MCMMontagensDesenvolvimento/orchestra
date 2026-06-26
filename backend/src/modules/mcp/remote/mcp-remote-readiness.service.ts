@@ -36,6 +36,10 @@ function policyAllowsRemoteExecution(policy: GovernedMcpRemotePolicy | null | un
   return Boolean(policy?.allowRuntimeExecution) && policy?.blockedByDefault === false && policy?.sandboxOnly === false;
 }
 
+function policyAllowsControlledDiscovery(policy: GovernedMcpRemotePolicy | null | undefined) {
+  return policy?.allowDiscovery !== false;
+}
+
 function disabledReadiness(config: McpRemoteFeatureConfig): McpRemoteReadiness {
   return {
     status: 'disabled',
@@ -90,6 +94,7 @@ export class McpRemoteReadinessService {
     const server = input.server ?? null;
     const authType = server?.authType ?? 'none';
     const credentialsConfigured = Boolean(input.credentialsConfigured);
+    const purpose = input.purpose ?? 'execution';
     const checks: McpRemoteReadinessCheck[] = [check('feature_flag', 'pass')];
 
     if (!server) {
@@ -171,6 +176,54 @@ export class McpRemoteReadinessService {
       });
     }
     checks.push(check('auth', 'pass'));
+
+    if (purpose === 'discovery') {
+      if (!config.discoveryEnabled) {
+        checks.push(
+          check('discovery', 'fail', 'MCP_REMOTE_DISCOVERY_ENABLED=false.'),
+          check('execution', config.executionEnabled ? 'pass' : 'skipped'),
+          check('policy', 'skipped'),
+        );
+        return result({
+          status: 'discovery_disabled',
+          config,
+          server,
+          reason: 'MCP remote discovery is disabled by backend configuration.',
+          checks,
+          credentialsConfigured,
+          authType,
+        });
+      }
+      checks.push(check('discovery', 'pass'));
+
+      checks.push(config.executionEnabled
+        ? check('execution', 'pass')
+        : check('execution', 'skipped', 'MCP_REMOTE_EXECUTION_ENABLED=false; discovery can continue while runtime execution remains blocked.'));
+
+      if (!policyAllowsControlledDiscovery(input.policy)) {
+        checks.push(check('policy', 'fail', 'MCP policy blocks controlled discovery.'));
+        return result({
+          status: 'blocked',
+          config,
+          server,
+          reason: 'MCP remote discovery is blocked by policy.',
+          checks,
+          credentialsConfigured,
+          authType,
+        });
+      }
+      checks.push(check('policy', 'pass', 'MCP policy allows controlled discovery; runtime execution remains separately governed.'));
+
+      return result({
+        status: 'ready',
+        config,
+        server,
+        reason: 'MCP remote discovery readiness is structurally ready, with runtime execution still governed separately.',
+        checks,
+        credentialsConfigured,
+        authType,
+      });
+    }
 
     if (!config.executionEnabled) {
       checks.push(
