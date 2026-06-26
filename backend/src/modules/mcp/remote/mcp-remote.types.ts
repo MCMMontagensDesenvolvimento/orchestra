@@ -167,6 +167,136 @@ export interface McpRemoteDiscoveryOutput {
   sanitizedMetadata: Record<string, unknown>;
 }
 
+export type McpRemoteDiscoveryApprovalDecisionStatus =
+  | 'blocked'
+  | 'pending_human_review'
+  | 'approved_for_future_import'
+  | 'rejected'
+  | 'no_changes';
+
+export type McpRemoteDiscoveryProposedActionType =
+  | 'propose_add'
+  | 'propose_update'
+  | 'propose_remove'
+  | 'keep_existing'
+  | 'blocked';
+
+export interface McpRemoteDiscoveryApprovalPolicy {
+  allowAutoApproveLowRisk?: boolean;
+  allowAutoApproveMediumRisk?: boolean;
+  requireHumanReviewForHighRisk?: boolean;
+  requireHumanReviewForCriticalRisk?: boolean;
+  requireHumanReviewForChangedTools?: boolean;
+  requireHumanReviewForRemovedTools?: boolean;
+  blockedByDefault?: boolean;
+}
+
+export interface McpRemoteDiscoveryProposedAction {
+  type: McpRemoteDiscoveryProposedActionType;
+  externalName: string;
+  specHash?: string;
+  previousSpecHash?: string | null;
+  riskLevel?: McpRemoteDiscoveredToolRiskLevel;
+  requiresApproval: boolean;
+  canApplyAutomatically: boolean;
+  reason: string;
+  defaultPolicy?: {
+    allowRuntimeExecution: false;
+    sandboxOnly: true;
+    blockedByDefault: true;
+  };
+}
+
+export interface McpRemoteDiscoveryApprovalDecision {
+  status: McpRemoteDiscoveryApprovalDecisionStatus;
+  requiresHumanReview: boolean;
+  reasons: string[];
+}
+
+export interface McpRemoteDiscoveryHumanReviewRequirement {
+  required: boolean;
+  reasons: string[];
+  riskLevels: McpRemoteDiscoveredToolRiskLevel[];
+  actionTypes: McpRemoteDiscoveryProposedActionType[];
+}
+
+export interface McpRemoteDiscoveryApplyPlan {
+  status: 'blocked';
+  canApply: false;
+  reason: string;
+  proposedActions: McpRemoteDiscoveryProposedAction[];
+}
+
+export interface McpRemoteDiscoveryAuditEvent {
+  type: 'mcp.remote.discovery.review_package_created';
+  tenantId: string;
+  workspaceId: string;
+  serverId: string;
+  requestId: string;
+  snapshotHash: string;
+  decisionStatus: McpRemoteDiscoveryApprovalDecisionStatus;
+  counts: Record<string, number>;
+  diff: {
+    added: string[];
+    changed: string[];
+    removed: string[];
+  };
+  riskSummary: {
+    low: number;
+    medium: number;
+    high: number;
+    critical: number;
+  };
+  metadata: Record<string, unknown>;
+}
+
+export interface McpRemoteDiscoveryReviewPackage {
+  snapshotId: string;
+  serverId: string;
+  tenantId: string;
+  workspaceId: string;
+  requestedByUserId: string;
+  requestId: string;
+  discoveredAt: string;
+  discoverySpecHash?: string;
+  snapshotHash: string;
+  summary: {
+    status: 'completed' | 'blocked' | 'failed';
+    totalTools: number;
+    added: number;
+    changed: number;
+    removed: number;
+    warnings: number;
+  };
+  riskSummary: {
+    low: number;
+    medium: number;
+    high: number;
+    critical: number;
+  };
+  diff: {
+    added: string[];
+    changed: string[];
+    removed: string[];
+  };
+  proposedActions: McpRemoteDiscoveryProposedAction[];
+  decision: McpRemoteDiscoveryApprovalDecision;
+  humanReview: McpRemoteDiscoveryHumanReviewRequirement;
+  applyPlan: McpRemoteDiscoveryApplyPlan;
+  auditEvent: McpRemoteDiscoveryAuditEvent;
+  sanitizedMetadata: Record<string, unknown>;
+}
+
+export interface McpRemoteDiscoveryReviewInput {
+  tenantId: string;
+  workspaceId: string;
+  requestedByUserId: string;
+  requestId: string;
+  discovery: McpRemoteDiscoveryOutput;
+  approvalPolicy?: McpRemoteDiscoveryApprovalPolicy;
+  existingTools?: McpRemoteExistingToolSpec[];
+}
+
 export interface McpToolDiscoveryRequest {
   tenantId: string;
   workspaceId: string;
