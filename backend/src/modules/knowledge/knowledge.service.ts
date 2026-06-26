@@ -3,7 +3,7 @@ import { AppError } from '../../shared/errors/app-error';
 import type { AuthenticatedUser } from '../../shared/types/auth';
 import { paginationMeta } from '../../shared/validation/pagination';
 import { recordAuditEvent } from '../audit/audit.service';
-import { embeddingsService } from '../embeddings';
+import { embeddingsService, type EmbeddingReadiness } from '../embeddings';
 import {
   mapAssistantKnowledgeBinding,
   mapKnowledgeBase,
@@ -50,6 +50,7 @@ type SemanticFallbackReason =
   | 'SEMANTIC_NO_RESULTS'
   | 'SEMANTIC_RETRIEVAL_FAILED'
   | 'RAG_NOT_READY';
+type OfficialRagMode = 'semantic_vector' | 'semantic_fallback_local_keyword' | 'local_keyword' | 'local_readiness';
 
 interface EmbeddingFailure {
   chunkId: string;
@@ -301,12 +302,39 @@ interface RagSearchChunk {
     sourceUri: string | null;
   };
   sourceReferences: Array<{
+    id?: string | null;
     label: string;
     sourceUri: string | null;
     sectionTitle: string | null;
   }>;
   semanticScore?: number;
   semanticDistance?: number;
+}
+
+interface OfficialRagSelectedResult {
+  knowledgeBaseId: string;
+  documentId: string;
+  chunkId: string;
+  sourceReferenceId?: string | null;
+  rank: number;
+  score: number;
+  matchType: string;
+  excerpt: string;
+  citationLabel: string;
+  metadata: Prisma.InputJsonValue;
+}
+
+interface OfficialRagRetrievalResolution {
+  mode: OfficialRagMode;
+  retrievalMode: OfficialRagMode;
+  semanticEnabled: boolean;
+  vectorStoreUsed: boolean;
+  fallbackUsed: boolean;
+  fallbackReason: SemanticFallbackReason | null;
+  provider: string | null;
+  model: string | null;
+  dimension: number | null;
+  selectedResults: OfficialRagSelectedResult[];
 }
 
 function mapRagSearchSource(chunk: RagSearchChunk) {
@@ -368,6 +396,200 @@ function mapLexicalFallbackResults(input: {
       snippet: safeExcerpt(item.chunk.content, input.normalizedTerms, 360),
       source: mapRagSearchSource(item.chunk),
     }));
+}
+
+function embeddingReadinessMetadata(readiness: EmbeddingReadiness) {
+  return {
+    provider: readiness.model && readiness.dimension ? readiness.provider : null,
+    model: readiness.model,
+    dimension: readiness.dimension,
+  };
+}
+
+function buildLexicalOfficialRagResults(input: {
+  chunks: RagSearchChunk[];
+  normalizedTerms: string[];
+  priorityByKnowledgeBaseId: Map<string, number>;
+  limit: number;
+}) {
+  const scoredResults: Array<{
+    chunk: RagSearchChunk;
+    score: number;
+    rawScore: number;
+    matchType: string;
+    priority: number;
+  }> = [];
+
+  for (const chunk of input.chunks) {
+    const score = scoreRagCandidate(chunk, input.normalizedTerms);
+    if (!score) continue;
+    scoredResults.push({
+      chunk,
+      score: score.score,
+      rawScore: score.rawScore,
+      matchType: score.matchType,
+      priority: input.priorityByKnowledgeBaseId.get(chunk.knowledgeBaseId) ?? 1000,
+    });
+  }
+
+  return scoredResults
+    .sort((left, right) =>
+      right.score - left.score ||
+      left.priority - right.priority ||
+      left.chunk.document.title.localeCompare(right.chunk.document.title) ||
+      left.chunk.chunkIndex - right.chunk.chunkIndex ||
+      left.chunk.id.localeCompare(right.chunk.id),
+    )
+    .slice(0, input.limit)
+    .map((item, index): OfficialRagSelectedResult => {
+      const sourceReference = item.chunk.sourceReferences[0];
+      return {
+        knowledgeBaseId: item.chunk.knowledgeBaseId,
+        documentId: item.chunk.documentId,
+        chunkId: item.chunk.id,
+        sourceReferenceId: sourceReference?.id,
+        rank: index + 1,
+        score: item.score,
+        matchType: item.matchType,
+        excerpt: safeExcerpt(item.chunk.content, input.normalizedTerms),
+        citationLabel: `Fonte ${index + 1}`,
+        metadata: sanitizeMetadata({
+          rawScore: item.rawScore,
+          chunkIndex: item.chunk.chunkIndex,
+          tokenEstimate: item.chunk.tokenEstimate,
+          charCount: item.chunk.charCount,
+          documentTitle: item.chunk.document.title,
+          sourceReferenceLabel: sourceReference?.label,
+        }) as Prisma.InputJsonValue,
+      };
+    });
+}
+
+function buildSemanticOfficialRagResults(input: {
+  chunks: RagSearchChunk[];
+  normalizedTerms: string[];
+  limit: number;
+}) {
+  return input.chunks.slice(0, input.limit).map((chunk, index): OfficialRagSelectedResult => {
+    const sourceReference = chunk.sourceReferences[0];
+    const semanticScore = Number((chunk.semanticScore ?? 0).toFixed(6));
+    const semanticDistance = Number((chunk.semanticDistance ?? 0).toFixed(6));
+    return {
+      knowledgeBaseId: chunk.knowledgeBaseId,
+      documentId: chunk.documentId,
+      chunkId: chunk.id,
+      sourceReferenceId: sourceReference?.id,
+      rank: index + 1,
+      score: semanticScore,
+      matchType: 'semantic_vector',
+      excerpt: safeExcerpt(chunk.content, input.normalizedTerms),
+      citationLabel: `Fonte ${index + 1}`,
+      metadata: sanitizeMetadata({
+        semanticDistance,
+        semanticScore,
+        chunkIndex: chunk.chunkIndex,
+        tokenEstimate: chunk.tokenEstimate,
+        charCount: chunk.charCount,
+        documentTitle: chunk.document.title,
+        sourceReferenceLabel: sourceReference?.label,
+      }) as Prisma.InputJsonValue,
+    };
+  });
+}
+
+async function resolveOfficialRagRetrieval(input: {
+  assistantId: string;
+  tenantId: string;
+  workspaceIds: string[];
+  query: string;
+  limit: number;
+  normalizedTerms: string[];
+  requestId: string;
+  embeddingReadiness: EmbeddingReadiness;
+  lexicalResult: NonNullable<Awaited<ReturnType<typeof knowledgeRepository.findRagRetrievalCandidates>>>;
+}): Promise<OfficialRagRetrievalResolution> {
+  const { provider, model, dimension } = embeddingReadinessMetadata(input.embeddingReadiness);
+  const priorityByKnowledgeBaseId = new Map(
+    input.lexicalResult.readiness.activeBindings.map((binding) => [binding.knowledgeBaseId, binding.priority]),
+  );
+  const localResults = () => buildLexicalOfficialRagResults({
+    chunks: input.lexicalResult.chunks,
+    normalizedTerms: input.normalizedTerms,
+    priorityByKnowledgeBaseId,
+    limit: input.limit,
+  });
+  const fallback = (reason: SemanticFallbackReason): OfficialRagRetrievalResolution => ({
+    mode: 'semantic_fallback_local_keyword',
+    retrievalMode: 'semantic_fallback_local_keyword',
+    semanticEnabled: input.embeddingReadiness.status === 'ready',
+    vectorStoreUsed: false,
+    fallbackUsed: true,
+    fallbackReason: reason,
+    provider,
+    model,
+    dimension,
+    selectedResults: localResults(),
+  });
+
+  if (input.embeddingReadiness.status !== 'ready' || !model || !dimension) {
+    return fallback('EMBEDDINGS_NOT_READY');
+  }
+
+  try {
+    const queryEmbedding = await embeddingsService.embedText({
+      text: input.query,
+      requestId: input.requestId,
+      model,
+      metadata: {
+        scope: 'rag_query',
+        assistantId: input.assistantId,
+        rawInputStored: false,
+        rawOutputStored: false,
+      },
+    });
+    if (!Array.isArray(queryEmbedding.vector) || queryEmbedding.vector.length !== dimension || !queryEmbedding.vector.every(Number.isFinite)) {
+      throw new AppError(502, 'EMBEDDING_DIMENSION_MISMATCH', 'Embedding provider returned a vector with unexpected dimension.');
+    }
+
+    const semanticResult = await knowledgeRepository.findSemanticRagRetrievalCandidates({
+      assistantId: input.assistantId,
+      tenantId: input.tenantId,
+      workspaceIds: input.workspaceIds,
+      queryVector: queryEmbedding.vector,
+      provider: input.embeddingReadiness.provider,
+      model,
+      dimension,
+      take: input.limit,
+    });
+    if (!semanticResult) {
+      throw new AppError(404, 'ASSISTANT_NOT_FOUND', 'Assistente nao encontrado.');
+    }
+    if (semanticResult.chunks.length === 0) {
+      return fallback(semanticResult.semanticCandidateCount === 0 ? 'NO_SEMANTIC_EMBEDDINGS' : 'SEMANTIC_NO_RESULTS');
+    }
+
+    return {
+      mode: 'semantic_vector',
+      retrievalMode: 'semantic_vector',
+      semanticEnabled: true,
+      vectorStoreUsed: true,
+      fallbackUsed: false,
+      fallbackReason: null,
+      provider,
+      model,
+      dimension,
+      selectedResults: buildSemanticOfficialRagResults({
+        chunks: semanticResult.chunks,
+        normalizedTerms: input.normalizedTerms,
+        limit: input.limit,
+      }),
+    };
+  } catch (error) {
+    if (error instanceof AppError && error.status === 404) {
+      throw error;
+    }
+    return fallback('SEMANTIC_RETRIEVAL_FAILED');
+  }
 }
 
 function embeddingConfigOrThrow() {
@@ -1505,6 +1727,8 @@ export const knowledgeService = {
       }
 
       const readiness = mapReadiness(result.readiness)!;
+      const embeddingReadiness = readiness.embeddings;
+      const embeddingMetadata = embeddingReadinessMetadata(embeddingReadiness);
       const warnings = [...readiness.warnings];
       if (input.includeArchived) {
         warnings.push({
@@ -1524,7 +1748,14 @@ export const knowledgeService = {
           assistantId: result.readiness.assistant.id,
           queryLength: input.query.length,
           limit: input.limit,
-          mode: 'local_keyword',
+          mode: 'semantic_first_with_local_fallback',
+          retrievalMode: 'semantic_vector',
+          semanticEnabled: embeddingReadiness.status === 'ready',
+          vectorStoreUsed: false,
+          fallbackUsed: false,
+          provider: embeddingMetadata.provider,
+          model: embeddingMetadata.model,
+          dimension: embeddingMetadata.dimension,
           requestId: context.requestId,
         },
       });
@@ -1551,6 +1782,14 @@ export const knowledgeService = {
           traceId: input.traceId,
           metadata: sanitizeMetadata({
             readiness,
+            retrievalMode: 'local_readiness',
+            semanticEnabled: embeddingReadiness.status === 'ready',
+            vectorStoreUsed: false,
+            fallbackUsed: false,
+            fallbackReason: 'RAG_NOT_READY',
+            provider: embeddingMetadata.provider,
+            model: embeddingMetadata.model,
+            dimension: embeddingMetadata.dimension,
             queryLength: input.query.length,
             includeArchived: input.includeArchived,
           }) as Prisma.InputJsonValue,
@@ -1569,6 +1808,11 @@ export const knowledgeService = {
             assistantId: result.readiness.assistant.id,
             status: 'blocked',
             blockedReason,
+            retrievalMode: 'local_readiness',
+            semanticEnabled: embeddingReadiness.status === 'ready',
+            vectorStoreUsed: false,
+            fallbackUsed: false,
+            fallbackReason: 'RAG_NOT_READY',
             requestId: context.requestId,
           },
         });
@@ -1584,63 +1828,29 @@ export const knowledgeService = {
           resultCount: 0,
           sources: [],
           warnings,
+          retrievalMode: 'local_readiness',
+          semanticEnabled: embeddingReadiness.status === 'ready',
+          vectorStoreUsed: false,
+          fallbackUsed: false,
+          fallbackReason: 'RAG_NOT_READY',
+          provider: embeddingMetadata.provider,
+          model: embeddingMetadata.model,
+          dimension: embeddingMetadata.dimension,
         };
       }
 
-      const priorityByKnowledgeBaseId = new Map(
-        result.readiness.activeBindings.map((binding) => [binding.knowledgeBaseId, binding.priority]),
-      );
-      const scoredResults: Array<{
-        chunk: (typeof result.chunks)[number];
-        score: number;
-        rawScore: number;
-        matchType: string;
-        priority: number;
-      }> = [];
-
-      for (const chunk of result.chunks) {
-        const score = scoreRagCandidate(chunk, normalizedTerms);
-        if (!score) continue;
-        scoredResults.push({
-          chunk,
-          score: score.score,
-          rawScore: score.rawScore,
-          matchType: score.matchType,
-          priority: priorityByKnowledgeBaseId.get(chunk.knowledgeBaseId) ?? 1000,
-        });
-      }
-
-      const selectedResults = scoredResults
-        .sort((left, right) =>
-          right.score - left.score ||
-          left.priority - right.priority ||
-          left.chunk.document.title.localeCompare(right.chunk.document.title) ||
-          left.chunk.chunkIndex - right.chunk.chunkIndex ||
-          left.chunk.id.localeCompare(right.chunk.id),
-        )
-        .slice(0, input.limit)
-        .map((item, index) => {
-          const sourceReference = item.chunk.sourceReferences[0];
-          return {
-            knowledgeBaseId: item.chunk.knowledgeBaseId,
-            documentId: item.chunk.documentId,
-            chunkId: item.chunk.id,
-            sourceReferenceId: sourceReference?.id,
-            rank: index + 1,
-            score: item.score,
-            matchType: item.matchType,
-            excerpt: safeExcerpt(item.chunk.content, normalizedTerms),
-            citationLabel: `Fonte ${index + 1}`,
-            metadata: sanitizeMetadata({
-              rawScore: item.rawScore,
-              chunkIndex: item.chunk.chunkIndex,
-              tokenEstimate: item.chunk.tokenEstimate,
-              charCount: item.chunk.charCount,
-              documentTitle: item.chunk.document.title,
-              sourceReferenceLabel: sourceReference?.label,
-            }) as Prisma.InputJsonValue,
-          };
-        });
+      const retrieval = await resolveOfficialRagRetrieval({
+        assistantId,
+        tenantId: user.tenant.id,
+        workspaceIds: userWorkspaceIds(user),
+        query: input.query,
+        limit: input.limit,
+        normalizedTerms,
+        requestId: context.requestId,
+        embeddingReadiness,
+        lexicalResult: result,
+      });
+      const selectedResults = retrieval.selectedResults;
 
       const status = selectedResults.length > 0 ? 'completed' : 'no_results';
       if (status === 'no_results') {
@@ -1658,7 +1868,7 @@ export const knowledgeService = {
         agentRunId: input.agentRunId,
         queryText: input.query,
         normalizedQuery,
-        mode: 'local_keyword',
+        mode: retrieval.mode,
         status,
         limit: input.limit,
         resultCount: selectedResults.length,
@@ -1666,12 +1876,17 @@ export const knowledgeService = {
         requestId: context.requestId,
         traceId: input.traceId,
         metadata: sanitizeMetadata({
+          retrievalMode: retrieval.retrievalMode,
+          semanticEnabled: retrieval.semanticEnabled,
+          vectorStoreUsed: retrieval.vectorStoreUsed,
+          fallbackUsed: retrieval.fallbackUsed,
+          fallbackReason: retrieval.fallbackReason,
+          provider: retrieval.provider,
+          model: retrieval.model,
+          dimension: retrieval.dimension,
           queryLength: input.query.length,
           includeArchived: input.includeArchived,
           terms: normalizedTerms,
-          retrievalMode: 'local_chunks_only',
-          embeddingsEnabled: false,
-          vectorStoreEnabled: false,
         }) as Prisma.InputJsonValue,
         results: selectedResults,
       });
@@ -1691,6 +1906,14 @@ export const knowledgeService = {
           documentIds: Array.from(new Set(selectedResults.map((item) => item.documentId))),
           resultCount: selectedResults.length,
           status,
+          retrievalMode: retrieval.retrievalMode,
+          semanticEnabled: retrieval.semanticEnabled,
+          vectorStoreUsed: retrieval.vectorStoreUsed,
+          fallbackUsed: retrieval.fallbackUsed,
+          fallbackReason: retrieval.fallbackReason,
+          provider: retrieval.provider,
+          model: retrieval.model,
+          dimension: retrieval.dimension,
           requestId: context.requestId,
         },
       });
@@ -1708,6 +1931,11 @@ export const knowledgeService = {
             assistantId: result.readiness.assistant.id,
             resultCount: selectedResults.length,
             documentIds: Array.from(new Set(selectedResults.map((item) => item.documentId))),
+            retrievalMode: retrieval.retrievalMode,
+            semanticEnabled: retrieval.semanticEnabled,
+            vectorStoreUsed: retrieval.vectorStoreUsed,
+            fallbackUsed: retrieval.fallbackUsed,
+            fallbackReason: retrieval.fallbackReason,
           },
         });
       }
@@ -1720,6 +1948,14 @@ export const knowledgeService = {
         resultCount: mapped.resultCount,
         sources: mapped.sources,
         warnings,
+        retrievalMode: retrieval.retrievalMode,
+        semanticEnabled: retrieval.semanticEnabled,
+        vectorStoreUsed: retrieval.vectorStoreUsed,
+        fallbackUsed: retrieval.fallbackUsed,
+        fallbackReason: retrieval.fallbackReason,
+        provider: retrieval.provider,
+        model: retrieval.model,
+        dimension: retrieval.dimension,
       };
     } catch (error) {
       if (!(error instanceof AppError)) {
