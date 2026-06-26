@@ -100,6 +100,7 @@ export interface GovernedMcpRemoteServer {
 }
 
 export interface GovernedMcpRemotePolicy {
+  allowDiscovery?: boolean | null;
   allowRuntimeExecution?: boolean | null;
   sandboxOnly?: boolean | null;
   blockedByDefault?: boolean | null;
@@ -111,7 +112,59 @@ export interface McpRemoteReadinessInput {
   policy?: GovernedMcpRemotePolicy | null;
   credentialsConfigured?: boolean;
   requiresBaseUrl?: boolean;
+  purpose?: 'execution' | 'discovery';
   config?: McpRemoteFeatureConfig;
+}
+
+export type McpRemoteDiscoveredToolRiskLevel = 'low' | 'medium' | 'high' | 'critical';
+
+export interface McpRemoteExistingToolSpec {
+  externalName: string;
+  specHash?: string | null;
+}
+
+export interface McpRemoteDiscoveryInput {
+  tenantId: string;
+  workspaceId: string;
+  server: GovernedMcpRemoteServer;
+  policy: GovernedMcpRemotePolicy;
+  credentialsConfigured: boolean;
+  requestedByUserId: string;
+  requestId: string;
+  existingTools?: McpRemoteExistingToolSpec[];
+}
+
+export interface McpRemoteDiscoveredTool {
+  externalName: string;
+  displayName: string;
+  description?: string;
+  inputSchema?: unknown;
+  outputSchema?: unknown;
+  specHash: string;
+  inferredRiskLevel: McpRemoteDiscoveredToolRiskLevel;
+  requiresApproval: boolean;
+  defaultPolicy: {
+    allowRuntimeExecution: false;
+    sandboxOnly: true;
+    blockedByDefault: true;
+  };
+}
+
+export interface McpRemoteDiscoveryOutput {
+  serverId: string;
+  status: 'completed' | 'blocked' | 'failed';
+  discoveredAt: string;
+  protocolVersion?: string;
+  specHash?: string;
+  tools: McpRemoteDiscoveredTool[];
+  diff: {
+    added: string[];
+    changed: string[];
+    removed: string[];
+  };
+  warnings: Array<{ code: string; message: string }>;
+  readiness: McpRemoteReadiness;
+  sanitizedMetadata: Record<string, unknown>;
 }
 
 export interface McpToolDiscoveryRequest {
@@ -136,7 +189,7 @@ export interface McpToolDiscoveryResult {
     description?: string;
     inputSchema?: unknown;
     outputSchema?: unknown;
-    inferredRiskLevel: 'low' | 'medium' | 'high' | 'critical';
+    inferredRiskLevel: McpRemoteDiscoveredToolRiskLevel;
     requiresApproval: boolean;
     defaultPolicy: {
       allowRuntimeExecution: false;
