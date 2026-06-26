@@ -297,6 +297,162 @@ export interface McpRemoteDiscoveryReviewInput {
   existingTools?: McpRemoteExistingToolSpec[];
 }
 
+export type McpRemoteCatalogImportPlanStatus =
+  | 'blocked'
+  | 'pending_approval'
+  | 'ready_for_manual_apply'
+  | 'no_changes';
+
+export type McpRemoteCatalogImportOperationType =
+  | 'create_tool_draft'
+  | 'update_tool_draft'
+  | 'deprecate_tool_draft'
+  | 'noop'
+  | 'blocked';
+
+export interface McpRemoteCatalogImportPolicy {
+  allowPlanForPendingReview?: boolean;
+  allowPlanForApprovedFutureImport?: boolean;
+  allowHighRiskPlan?: boolean;
+  allowCriticalRiskPlan?: boolean;
+  blockedByDefault?: boolean;
+}
+
+export interface McpRemoteCatalogToolDraft {
+  externalName: string;
+  displayName: string;
+  description?: string;
+  inputSchema?: unknown;
+  outputSchema?: unknown;
+  specHash?: string;
+  source: 'remote_discovery';
+  remote: {
+    serverId: string;
+    importedFromSnapshotId: string;
+    importedFromSnapshotHash: string;
+  };
+  metadata: Record<string, unknown>;
+}
+
+export interface McpRemoteCatalogPolicyDraft {
+  allowRuntimeExecution: false;
+  sandboxOnly: true;
+  blockedByDefault: true;
+  requiresApproval: true;
+  approvalMode: 'manual';
+  runtimeEnabled: false;
+  remoteExecutionEnabled: false;
+}
+
+export interface McpRemoteCatalogImportValidationMessage {
+  level: 'info' | 'warning' | 'error';
+  code: string;
+  message: string;
+}
+
+export interface McpRemoteCatalogImportOperation {
+  operationId: string;
+  type: McpRemoteCatalogImportOperationType;
+  externalName: string;
+  displayName?: string;
+  specHash?: string;
+  previousSpecHash?: string | null;
+  riskLevel?: McpRemoteDiscoveredToolRiskLevel;
+  requiresApproval: boolean;
+  canApply: false;
+  canApplyAutomatically: false;
+  reason: string;
+  catalogDraft?: McpRemoteCatalogToolDraft;
+  policyDraft: McpRemoteCatalogPolicyDraft;
+  validationMessages: McpRemoteCatalogImportValidationMessage[];
+}
+
+export interface McpRemoteCatalogImportPlanValidation {
+  valid: boolean;
+  errors: Array<{ code: string; message: string }>;
+  warnings: Array<{ code: string; message: string }>;
+}
+
+export type McpRemoteCatalogImportPreflightCheckName =
+  | 'snapshot'
+  | 'decision'
+  | 'operations'
+  | 'risk'
+  | 'policy'
+  | 'security'
+  | 'runtime_block';
+
+export interface McpRemoteCatalogImportPreflight {
+  canApply: false;
+  canApplyAutomatically: false;
+  requiresManualApproval: boolean;
+  checks: Array<{
+    name: McpRemoteCatalogImportPreflightCheckName;
+    status: 'pass' | 'fail' | 'warning' | 'skipped';
+    message: string;
+  }>;
+}
+
+export interface McpRemoteCatalogImportPlanAuditEvent {
+  type: 'mcp.remote.catalog_import_plan.created';
+  tenantId: string;
+  workspaceId: string;
+  serverId: string;
+  requestId: string;
+  snapshotHash: string;
+  planHash: string;
+  status: McpRemoteCatalogImportPlanStatus;
+  counts: Record<string, number>;
+  riskSummary: Record<string, number>;
+  operationTypes: string[];
+  metadata: Record<string, unknown>;
+}
+
+export interface McpRemoteCatalogImportPlan {
+  planId: string;
+  planHash: string;
+  snapshotId: string;
+  snapshotHash: string;
+  serverId: string;
+  tenantId: string;
+  workspaceId: string;
+  requestedByUserId: string;
+  requestId: string;
+  createdAt: string;
+  sourceDecisionStatus: McpRemoteDiscoveryApprovalDecisionStatus;
+  status: McpRemoteCatalogImportPlanStatus;
+  operations: McpRemoteCatalogImportOperation[];
+  summary: {
+    totalOperations: number;
+    create: number;
+    update: number;
+    deprecate: number;
+    noop: number;
+    blocked: number;
+  };
+  riskSummary: {
+    low: number;
+    medium: number;
+    high: number;
+    critical: number;
+  };
+  validation: McpRemoteCatalogImportPlanValidation;
+  preflight: McpRemoteCatalogImportPreflight;
+  auditEvent: McpRemoteCatalogImportPlanAuditEvent;
+  sanitizedMetadata: Record<string, unknown>;
+}
+
+export interface McpRemoteCatalogImportPlanInput {
+  reviewPackage: McpRemoteDiscoveryReviewPackage;
+  importPolicy?: McpRemoteCatalogImportPolicy;
+  existingCatalogTools?: Array<{
+    externalName: string;
+    specHash?: string | null;
+    status?: string | null;
+  }>;
+  createdAt?: string;
+}
+
 export interface McpToolDiscoveryRequest {
   tenantId: string;
   workspaceId: string;
