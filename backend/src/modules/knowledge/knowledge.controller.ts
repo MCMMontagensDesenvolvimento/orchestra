@@ -125,6 +125,11 @@ export const knowledgeController = {
     return res.status(200).json({ data, requestId: req.requestId });
   },
 
+  async semanticSearch(req: Request, res: Response) {
+    const data = await knowledgeService.semanticSearch(req.params.id, req.body, req.user!, requestContext(req));
+    return res.status(200).json({ data, requestId: req.requestId });
+  },
+
   async queryRag(req: Request, res: Response) {
     const data = await knowledgeService.queryRag(req.params.id, req.body, req.user!, requestContext(req));
     return res.status(201).json({ data, requestId: req.requestId });
