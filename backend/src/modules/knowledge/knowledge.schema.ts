@@ -139,6 +139,12 @@ export const ragLocalSearchSchema = z.object({
   query: z.string().trim().min(1).max(200),
 });
 
+export const ragSemanticSearchSchema = z.object({
+  query: z.string().trim().min(2).max(500),
+  limit: z.coerce.number().int().min(1).max(20).default(5),
+  fallback: z.boolean().default(true),
+});
+
 export const ragQueryRequestSchema = z.object({
   query: z.string().trim().min(2).max(500),
   limit: z.coerce.number().int().min(1).max(20).default(5),
@@ -207,6 +213,7 @@ export type KnowledgeIngestionRequestInput = z.infer<typeof knowledgeIngestionRe
 export type KnowledgeEmbeddingRequestInput = z.infer<typeof knowledgeEmbeddingRequestSchema>;
 export type KnowledgeChunksQuery = z.infer<typeof knowledgeChunksQuerySchema>;
 export type RagLocalSearchInput = z.infer<typeof ragLocalSearchSchema>;
+export type RagSemanticSearchInput = z.infer<typeof ragSemanticSearchSchema>;
 export type RagQueryRequestInput = z.infer<typeof ragQueryRequestSchema>;
 export type RagQueriesQuery = z.infer<typeof ragQueriesQuerySchema>;
 export type KnowledgeDataSourceCreateInput = z.infer<typeof knowledgeDataSourceCreateSchema>;

@@ -267,11 +267,37 @@ interface FailedChunkEmbeddingUpsertInput {
   metadata?: Prisma.InputJsonValue;
 }
 
-function embeddingVectorLiteral(vector: number[]) {
-  if (!Array.isArray(vector) || vector.length === 0 || !vector.every((item) => Number.isFinite(item))) {
+interface SemanticRagRetrievalCandidatesInput {
+  assistantId: string;
+  tenantId: string;
+  workspaceIds: string[];
+  queryVector: number[];
+  provider: string;
+  model: string;
+  dimension: number;
+  take: number;
+}
+
+interface SemanticCandidateRow {
+  chunkId: string;
+  score: Prisma.Decimal | number | string;
+  semanticDistance: Prisma.Decimal | number | string;
+}
+
+function embeddingVectorLiteral(vector: number[], expectedDimension?: number) {
+  if (
+    !Array.isArray(vector) ||
+    vector.length === 0 ||
+    !vector.every((item) => Number.isFinite(item)) ||
+    (expectedDimension !== undefined && vector.length !== expectedDimension)
+  ) {
     throw new Error('Invalid embedding vector.');
   }
   return `[${vector.join(',')}]`;
+}
+
+function uuidSqlList(ids: string[]) {
+  return Prisma.join(ids.map((id) => Prisma.sql`${id}::uuid`));
 }
 
 function jsonb(value: Prisma.InputJsonValue | undefined) {
@@ -1147,6 +1173,126 @@ export const knowledgeRepository = {
     });
 
     return { readiness, chunks: fallbackChunks };
+  },
+
+  async findSemanticRagRetrievalCandidates(input: SemanticRagRetrievalCandidatesInput) {
+    const readiness = await getRagReadinessInternal(input.assistantId, input.tenantId, input.workspaceIds);
+    if (!readiness) return null;
+    if (readiness.activeKnowledgeBaseIds.length === 0 || readiness.blockedReasons.length > 0 || input.workspaceIds.length === 0) {
+      return { readiness, chunks: [], semanticCandidateCount: 0 };
+    }
+
+    const vector = embeddingVectorLiteral(input.queryVector, input.dimension);
+    const rows = await prisma.$queryRaw<SemanticCandidateRow[]>(Prisma.sql`
+      SELECT
+        c.id::text AS "chunkId",
+        1 - (e.embedding <=> ${vector}::vector) AS "score",
+        e.embedding <=> ${vector}::vector AS "semanticDistance"
+      FROM knowledge_chunk_embeddings e
+      INNER JOIN knowledge_chunks c
+        ON c.id = e.chunk_id
+        AND c.tenant_id = e.tenant_id
+        AND c.workspace_id = e.workspace_id
+        AND c.knowledge_base_id = e.knowledge_base_id
+        AND c.document_id = e.document_id
+      INNER JOIN knowledge_documents d
+        ON d.id = c.document_id
+        AND d.tenant_id = c.tenant_id
+        AND d.workspace_id = c.workspace_id
+        AND d.knowledge_base_id = c.knowledge_base_id
+      INNER JOIN knowledge_bases kb
+        ON kb.id = c.knowledge_base_id
+        AND kb.tenant_id = c.tenant_id
+        AND kb.workspace_id = c.workspace_id
+      INNER JOIN assistant_knowledge_bindings b
+        ON b.knowledge_base_id = kb.id
+        AND b.assistant_id = ${input.assistantId}::uuid
+        AND b.tenant_id = ${input.tenantId}::uuid
+      WHERE e.tenant_id = ${input.tenantId}::uuid
+        AND e.workspace_id IN (${uuidSqlList(input.workspaceIds)})
+        AND e.knowledge_base_id IN (${uuidSqlList(readiness.activeKnowledgeBaseIds)})
+        AND e.status = 'embedded'
+        AND e.embedding IS NOT NULL
+        AND e.provider = ${input.provider}
+        AND e.model = ${input.model}
+        AND e.dimension = ${input.dimension}
+        AND e.content_hash = c.content_hash
+        AND c.status = 'active'
+        AND d.deleted_at IS NULL
+        AND d.ingestion_status = 'completed'
+        AND d.status <> 'archived'
+        AND kb.status = 'active'
+        AND kb.deleted_at IS NULL
+        AND b.workspace_id IN (${uuidSqlList(input.workspaceIds)})
+        AND b.is_enabled = true
+        AND b.retrieval_mode <> 'disabled'
+      ORDER BY
+        e.embedding <=> ${vector}::vector ASC,
+        b.priority ASC,
+        d.title ASC,
+        c.chunk_index ASC,
+        c.id ASC
+      LIMIT ${input.take}
+    `);
+
+    if (rows.length === 0) {
+      return { readiness, chunks: [], semanticCandidateCount: 0 };
+    }
+
+    const metricsByChunkId = new Map(
+      rows.map((row) => [
+        row.chunkId,
+        {
+          semanticScore: Number(Number(row.score).toFixed(6)),
+          semanticDistance: Number(Number(row.semanticDistance).toFixed(6)),
+        },
+      ]),
+    );
+    const chunks = await prisma.knowledgeChunk.findMany({
+      where: {
+        id: { in: rows.map((row) => row.chunkId) },
+        tenantId: input.tenantId,
+        workspaceId: { in: input.workspaceIds },
+      },
+      include: {
+        document: {
+          select: {
+            id: true,
+            title: true,
+            sourceType: true,
+            sourceUri: true,
+            status: true,
+            ingestionStatus: true,
+            deletedAt: true,
+          },
+        },
+        knowledgeBase: {
+          select: {
+            id: true,
+            name: true,
+            status: true,
+            deletedAt: true,
+            workspaceId: true,
+          },
+        },
+        sourceReferences: { take: 1, orderBy: { createdAt: 'asc' } },
+      },
+    });
+    const chunkById = new Map(chunks.map((chunk) => [chunk.id, chunk]));
+    const orderedChunks = rows
+      .map((row) => {
+        const chunk = chunkById.get(row.chunkId);
+        const metrics = metricsByChunkId.get(row.chunkId);
+        if (!chunk || !metrics) return null;
+        return { ...chunk, ...metrics };
+      })
+      .filter((chunk): chunk is NonNullable<typeof chunk> => Boolean(chunk));
+
+    return {
+      readiness,
+      chunks: orderedChunks,
+      semanticCandidateCount: rows.length,
+    };
   },
 
   async createRagQueryWithResults(input: RagQueryPersistenceInput) {

@@ -34,6 +34,7 @@ import type {
   RagQueriesQuery,
   RagQueryRequestInput,
   RagLocalSearchInput,
+  RagSemanticSearchInput,
 } from './knowledge.schema';
 
 interface RequestContext {
@@ -43,6 +44,12 @@ interface RequestContext {
 }
 
 type EmbeddingScope = 'document' | 'knowledge_base';
+type SemanticFallbackReason =
+  | 'EMBEDDINGS_NOT_READY'
+  | 'NO_SEMANTIC_EMBEDDINGS'
+  | 'SEMANTIC_NO_RESULTS'
+  | 'SEMANTIC_RETRIEVAL_FAILED'
+  | 'RAG_NOT_READY';
 
 interface EmbeddingFailure {
   chunkId: string;
@@ -279,6 +286,88 @@ function mapReadiness(readiness: Awaited<ReturnType<typeof knowledgeRepository.g
     embeddings,
     vectorStoreEnabled: false,
   };
+}
+
+interface RagSearchChunk {
+  id: string;
+  documentId: string;
+  knowledgeBaseId: string;
+  content: string;
+  chunkIndex: number;
+  tokenEstimate: number;
+  charCount: number;
+  document: {
+    title: string;
+    sourceUri: string | null;
+  };
+  sourceReferences: Array<{
+    label: string;
+    sourceUri: string | null;
+    sectionTitle: string | null;
+  }>;
+  semanticScore?: number;
+  semanticDistance?: number;
+}
+
+function mapRagSearchSource(chunk: RagSearchChunk) {
+  const reference = chunk.sourceReferences[0];
+  return {
+    label: reference?.label ?? chunk.document.title,
+    sourceUri: reference?.sourceUri ?? chunk.document.sourceUri ?? null,
+    sectionTitle: reference?.sectionTitle ?? null,
+  };
+}
+
+function mapSemanticSearchResults(chunks: RagSearchChunk[], normalizedTerms: string[]) {
+  return chunks.map((chunk) => ({
+    chunkId: chunk.id,
+    documentId: chunk.documentId,
+    knowledgeBaseId: chunk.knowledgeBaseId,
+    score: Number((chunk.semanticScore ?? 0).toFixed(6)),
+    semanticDistance: Number((chunk.semanticDistance ?? 0).toFixed(6)),
+    matchType: 'semantic_vector',
+    snippet: safeExcerpt(chunk.content, normalizedTerms, 360),
+    source: mapRagSearchSource(chunk),
+  }));
+}
+
+function mapLexicalFallbackResults(input: {
+  chunks: RagSearchChunk[];
+  normalizedTerms: string[];
+  priorityByKnowledgeBaseId: Map<string, number>;
+  limit: number;
+}) {
+  return input.chunks
+    .map((chunk) => {
+      const score = scoreRagCandidate(chunk, input.normalizedTerms);
+      if (!score) return null;
+      return {
+        chunk,
+        score: score.score,
+        rawScore: score.rawScore,
+        matchType: score.matchType,
+        priority: input.priorityByKnowledgeBaseId.get(chunk.knowledgeBaseId) ?? 1000,
+      };
+    })
+    .filter((item): item is NonNullable<typeof item> => Boolean(item))
+    .sort((left, right) =>
+      right.score - left.score ||
+      left.priority - right.priority ||
+      left.chunk.document.title.localeCompare(right.chunk.document.title) ||
+      left.chunk.chunkIndex - right.chunk.chunkIndex ||
+      left.chunk.id.localeCompare(right.chunk.id),
+    )
+    .slice(0, input.limit)
+    .map((item) => ({
+      chunkId: item.chunk.id,
+      documentId: item.chunk.documentId,
+      knowledgeBaseId: item.chunk.knowledgeBaseId,
+      score: item.score,
+      semanticDistance: null,
+      matchType: item.matchType,
+      snippet: safeExcerpt(item.chunk.content, input.normalizedTerms, 360),
+      source: mapRagSearchSource(item.chunk),
+    }));
 }
 
 function embeddingConfigOrThrow() {
@@ -1180,6 +1269,222 @@ export const knowledgeService = {
         };
       }),
     };
+  },
+
+  async semanticSearch(assistantId: string, input: RagSemanticSearchInput, user: AuthenticatedUser, context: RequestContext) {
+    const workspaceIds = userWorkspaceIds(user);
+    const normalizedTerms = ragTerms(input.query);
+    const ragReadiness = await knowledgeRepository.getRagReadiness(assistantId, user.tenant.id, workspaceIds);
+    if (!ragReadiness) {
+      throw new AppError(404, 'ASSISTANT_NOT_FOUND', 'Assistente nao encontrado.');
+    }
+
+    const readiness = mapReadiness(ragReadiness)!;
+    const embeddingReadiness = embeddingsService.getEmbeddingReadiness();
+    const provider = embeddingReadiness.model && embeddingReadiness.dimension ? embeddingReadiness.provider : null;
+    const model = embeddingReadiness.model;
+    const dimension = embeddingReadiness.dimension;
+
+    const baseResponse = {
+      assistantId: ragReadiness.assistant.id,
+      provider,
+      model,
+      dimension,
+    };
+
+    await audit({
+      user,
+      context,
+      action: 'rag_semantic_search_requested',
+      entity: 'assistant',
+      entityId: ragReadiness.assistant.id,
+      workspaceId: ragReadiness.assistant.workspaceId,
+      metadata: {
+        assistantId: ragReadiness.assistant.id,
+        queryLength: input.query.length,
+        limit: input.limit,
+        fallback: input.fallback,
+        embeddingStatus: embeddingReadiness.status,
+        provider,
+        model,
+        dimension,
+        requestId: context.requestId,
+      },
+    });
+
+    const fallback = async (reason: SemanticFallbackReason) => {
+      if (!input.fallback) {
+        const response = {
+          ...baseResponse,
+          status: reason === 'RAG_NOT_READY' || reason === 'EMBEDDINGS_NOT_READY' ? 'blocked' : 'no_results',
+          retrievalMode: 'semantic_vector',
+          semanticEnabled: embeddingReadiness.status === 'ready',
+          vectorStoreUsed: false,
+          fallbackUsed: false,
+          fallbackReason: reason,
+          resultCount: 0,
+          results: [],
+        };
+        await audit({
+          user,
+          context,
+          action: reason === 'SEMANTIC_RETRIEVAL_FAILED' ? 'rag_semantic_search_failed' : 'rag_semantic_search_completed',
+          entity: 'assistant',
+          entityId: ragReadiness.assistant.id,
+          workspaceId: ragReadiness.assistant.workspaceId,
+          metadata: {
+            assistantId: ragReadiness.assistant.id,
+            retrievalMode: response.retrievalMode,
+            fallbackReason: reason,
+            fallbackUsed: false,
+            resultCount: 0,
+            requestId: context.requestId,
+          },
+        });
+        return response;
+      }
+
+      const lexicalResult = await knowledgeRepository.findRagRetrievalCandidates({
+        assistantId,
+        tenantId: user.tenant.id,
+        workspaceIds,
+        queryText: input.query,
+        terms: originalSearchTerms(input.query),
+        take: Math.max(40, input.limit * 20),
+      });
+      if (!lexicalResult) {
+        throw new AppError(404, 'ASSISTANT_NOT_FOUND', 'Assistente nao encontrado.');
+      }
+      const priorityByKnowledgeBaseId = new Map(
+        lexicalResult.readiness.activeBindings.map((binding) => [binding.knowledgeBaseId, binding.priority]),
+      );
+      const results = mapLexicalFallbackResults({
+        chunks: lexicalResult.chunks,
+        normalizedTerms,
+        priorityByKnowledgeBaseId,
+        limit: input.limit,
+      });
+      await audit({
+        user,
+        context,
+        action: 'rag_semantic_search_fallback',
+        entity: 'assistant',
+        entityId: ragReadiness.assistant.id,
+        workspaceId: ragReadiness.assistant.workspaceId,
+        metadata: {
+          assistantId: ragReadiness.assistant.id,
+          fallbackReason: reason,
+          resultCount: results.length,
+          requestId: context.requestId,
+        },
+      });
+      const response = {
+        ...baseResponse,
+        status: results.length > 0 ? 'completed' : 'no_results',
+        retrievalMode: 'fallback_local_keyword',
+        semanticEnabled: embeddingReadiness.status === 'ready',
+        vectorStoreUsed: false,
+        fallbackUsed: true,
+        fallbackReason: reason,
+        resultCount: results.length,
+        results,
+      };
+      await audit({
+        user,
+        context,
+        action: 'rag_semantic_search_completed',
+        entity: 'assistant',
+        entityId: ragReadiness.assistant.id,
+        workspaceId: ragReadiness.assistant.workspaceId,
+        metadata: {
+          assistantId: ragReadiness.assistant.id,
+          retrievalMode: response.retrievalMode,
+          fallbackReason: reason,
+          fallbackUsed: true,
+          resultCount: results.length,
+          requestId: context.requestId,
+        },
+      });
+      return response;
+    };
+
+    if (!readiness.ready) {
+      return fallback('RAG_NOT_READY');
+    }
+    if (embeddingReadiness.status !== 'ready' || !model || !dimension) {
+      return fallback('EMBEDDINGS_NOT_READY');
+    }
+
+    try {
+      const queryEmbedding = await embeddingsService.embedText({
+        text: input.query,
+        requestId: context.requestId,
+        model,
+        metadata: {
+          scope: 'rag_semantic_search',
+          assistantId: ragReadiness.assistant.id,
+          rawInputStored: false,
+          rawOutputStored: false,
+        },
+      });
+      if (!Array.isArray(queryEmbedding.vector) || queryEmbedding.vector.length !== dimension || !queryEmbedding.vector.every(Number.isFinite)) {
+        throw new AppError(502, 'EMBEDDING_DIMENSION_MISMATCH', 'Embedding provider returned a vector with unexpected dimension.');
+      }
+
+      const semanticResult = await knowledgeRepository.findSemanticRagRetrievalCandidates({
+        assistantId,
+        tenantId: user.tenant.id,
+        workspaceIds,
+        queryVector: queryEmbedding.vector,
+        provider: embeddingReadiness.provider,
+        model,
+        dimension,
+        take: input.limit,
+      });
+      if (!semanticResult) {
+        throw new AppError(404, 'ASSISTANT_NOT_FOUND', 'Assistente nao encontrado.');
+      }
+      if (semanticResult.chunks.length === 0) {
+        return fallback(semanticResult.semanticCandidateCount === 0 ? 'NO_SEMANTIC_EMBEDDINGS' : 'SEMANTIC_NO_RESULTS');
+      }
+
+      const results = mapSemanticSearchResults(semanticResult.chunks, normalizedTerms);
+      const response = {
+        ...baseResponse,
+        status: 'completed',
+        retrievalMode: 'semantic_vector',
+        semanticEnabled: true,
+        vectorStoreUsed: true,
+        fallbackUsed: false,
+        fallbackReason: null,
+        resultCount: results.length,
+        results,
+      };
+      await audit({
+        user,
+        context,
+        action: 'rag_semantic_search_completed',
+        entity: 'assistant',
+        entityId: ragReadiness.assistant.id,
+        workspaceId: ragReadiness.assistant.workspaceId,
+        metadata: {
+          assistantId: ragReadiness.assistant.id,
+          retrievalMode: response.retrievalMode,
+          vectorStoreUsed: true,
+          resultCount: results.length,
+          provider: embeddingReadiness.provider,
+          model,
+          dimension,
+          requestId: context.requestId,
+        },
+      });
+      return response;
+    } catch (error) {
+      if (error instanceof AppError && error.status === 404) {
+        throw error;
+      }
+      return fallback('SEMANTIC_RETRIEVAL_FAILED');
+    }
   },
 
   async queryRag(assistantId: string, input: RagQueryRequestInput, user: AuthenticatedUser, context: RequestContext) {

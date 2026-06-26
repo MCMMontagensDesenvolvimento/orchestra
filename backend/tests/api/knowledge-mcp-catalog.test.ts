@@ -35,6 +35,7 @@ const mocks = vi.hoisted(() => {
     getRagReadiness: vi.fn(),
     localSearch: vi.fn(),
     findRagRetrievalCandidates: vi.fn(),
+    findSemanticRagRetrievalCandidates: vi.fn(),
     createRagQueryWithResults: vi.fn(),
     listRagQueries: vi.fn(),
     findRagQuery: vi.fn(),
@@ -454,6 +455,14 @@ function ragCandidateChunkFixture() {
   };
 }
 
+function semanticRagCandidateChunkFixture() {
+  return {
+    ...ragCandidateChunkFixture(),
+    semanticScore: 0.82,
+    semanticDistance: 0.18,
+  };
+}
+
 function ragQueryResultFixture(overrides: Record<string, unknown> = {}) {
   return {
     id: ragQueryResultId,
@@ -768,6 +777,11 @@ describe('knowledge and MCP catalog endpoints', () => {
     mocks.knowledgeRepository.findRagRetrievalCandidates.mockResolvedValue({
       readiness: ragReadinessFixture(),
       chunks: [ragCandidateChunkFixture()],
+    });
+    mocks.knowledgeRepository.findSemanticRagRetrievalCandidates.mockResolvedValue({
+      readiness: ragReadinessFixture(),
+      chunks: [semanticRagCandidateChunkFixture()],
+      semanticCandidateCount: 1,
     });
     mocks.knowledgeRepository.createRagQueryWithResults.mockImplementation(async (input: {
       results?: Record<string, unknown>[];
@@ -1210,6 +1224,158 @@ describe('knowledge and MCP catalog endpoints', () => {
     expect(searchResponse.body.data.mode).toBe('keyword_local_placeholder');
     expect(mocks.recordAuditEvent).toHaveBeenCalledWith(expect.objectContaining({ action: 'rag_readiness_checked' }));
     expect(mocks.recordAuditEvent).toHaveBeenCalledWith(expect.objectContaining({ action: 'rag_local_search_executed' }));
+  });
+
+  it('executes controlled semantic RAG search without returning vectors or persisting official RAG queries', async () => {
+    mocks.embeddingsService.getEmbeddingReadiness.mockReturnValue(readyEmbeddingReadinessFixture());
+
+    const response = await request(createApp())
+      .post(`/api/v1/assistants/${assistantId}/rag/semantic-search`)
+      .set('Cookie', [sessionCookie()])
+      .send({ query: 'Politica operacional', limit: 3 })
+      .expect(200);
+
+    expect(response.body.data).toMatchObject({
+      assistantId,
+      status: 'completed',
+      retrievalMode: 'semantic_vector',
+      semanticEnabled: true,
+      vectorStoreUsed: true,
+      fallbackUsed: false,
+      fallbackReason: null,
+      provider: 'openai',
+      model: 'text-embedding-3-small',
+      dimension: 3,
+      resultCount: 1,
+    });
+    expect(response.body.data.results[0]).toMatchObject({
+      chunkId,
+      documentId,
+      knowledgeBaseId,
+      score: 0.82,
+      semanticDistance: 0.18,
+      matchType: 'semantic_vector',
+      source: {
+        label: 'Governance document #1',
+        sourceUri: `knowledge-document://${documentId}`,
+        sectionTitle: 'Governance document',
+      },
+    });
+    const serialized = JSON.stringify(response.body.data);
+    expect(serialized).not.toContain('"vector"');
+    expect(serialized).not.toContain('[0.1');
+    expect(serialized).not.toContain('rawInput');
+    expect(serialized).not.toContain('rawOutput');
+    expect(mocks.embeddingsService.embedText).toHaveBeenCalledWith(expect.objectContaining({
+      text: 'Politica operacional',
+      model: 'text-embedding-3-small',
+    }));
+    expect(mocks.knowledgeRepository.findSemanticRagRetrievalCandidates).toHaveBeenCalledWith(expect.objectContaining({
+      assistantId,
+      tenantId,
+      workspaceIds: [workspaceId],
+      queryVector: [0.1, 0.2, 0.3],
+      provider: 'openai',
+      model: 'text-embedding-3-small',
+      dimension: 3,
+      take: 3,
+    }));
+    expect(mocks.knowledgeRepository.createRagQueryWithResults).not.toHaveBeenCalled();
+    expect(mocks.recordAuditEvent).toHaveBeenCalledWith(expect.objectContaining({ action: 'rag_semantic_search_requested' }));
+    expect(mocks.recordAuditEvent).toHaveBeenCalledWith(expect.objectContaining({ action: 'rag_semantic_search_completed' }));
+  });
+
+  it('falls back to lexical RAG search when embeddings are not ready', async () => {
+    const response = await request(createApp())
+      .post(`/api/v1/assistants/${assistantId}/rag/semantic-search`)
+      .set('Cookie', [sessionCookie()])
+      .send({ query: 'Politica operacional', limit: 5 })
+      .expect(200);
+
+    expect(response.body.data).toMatchObject({
+      assistantId,
+      status: 'completed',
+      retrievalMode: 'fallback_local_keyword',
+      semanticEnabled: false,
+      vectorStoreUsed: false,
+      fallbackUsed: true,
+      fallbackReason: 'EMBEDDINGS_NOT_READY',
+      resultCount: 1,
+    });
+    expect(response.body.data.results[0].matchType).toBe('content');
+    expect(mocks.embeddingsService.embedText).not.toHaveBeenCalled();
+    expect(mocks.knowledgeRepository.findSemanticRagRetrievalCandidates).not.toHaveBeenCalled();
+    expect(mocks.knowledgeRepository.findRagRetrievalCandidates).toHaveBeenCalledWith(expect.objectContaining({
+      assistantId,
+      queryText: 'Politica operacional',
+    }));
+    expect(mocks.knowledgeRepository.createRagQueryWithResults).not.toHaveBeenCalled();
+    expect(mocks.recordAuditEvent).toHaveBeenCalledWith(expect.objectContaining({ action: 'rag_semantic_search_fallback' }));
+  });
+
+  it('falls back to lexical RAG search when semantic retrieval returns no results', async () => {
+    mocks.embeddingsService.getEmbeddingReadiness.mockReturnValue(readyEmbeddingReadinessFixture());
+    mocks.knowledgeRepository.findSemanticRagRetrievalCandidates.mockResolvedValueOnce({
+      readiness: ragReadinessFixture(),
+      chunks: [],
+      semanticCandidateCount: 1,
+    });
+
+    const response = await request(createApp())
+      .post(`/api/v1/assistants/${assistantId}/rag/semantic-search`)
+      .set('Cookie', [sessionCookie()])
+      .send({ query: 'Politica operacional', limit: 5 })
+      .expect(200);
+
+    expect(response.body.data).toMatchObject({
+      retrievalMode: 'fallback_local_keyword',
+      fallbackUsed: true,
+      fallbackReason: 'SEMANTIC_NO_RESULTS',
+      resultCount: 1,
+    });
+    expect(mocks.knowledgeRepository.findRagRetrievalCandidates).toHaveBeenCalled();
+    expect(mocks.knowledgeRepository.createRagQueryWithResults).not.toHaveBeenCalled();
+  });
+
+  it('returns a controlled response when fallback is disabled and semantic search is unavailable', async () => {
+    const response = await request(createApp())
+      .post(`/api/v1/assistants/${assistantId}/rag/semantic-search`)
+      .set('Cookie', [sessionCookie()])
+      .send({ query: 'Politica operacional', fallback: false })
+      .expect(200);
+
+    expect(response.body.data).toMatchObject({
+      status: 'blocked',
+      retrievalMode: 'semantic_vector',
+      vectorStoreUsed: false,
+      fallbackUsed: false,
+      fallbackReason: 'EMBEDDINGS_NOT_READY',
+      resultCount: 0,
+      results: [],
+    });
+    expect(mocks.knowledgeRepository.findRagRetrievalCandidates).not.toHaveBeenCalled();
+    expect(mocks.knowledgeRepository.findSemanticRagRetrievalCandidates).not.toHaveBeenCalled();
+  });
+
+  it('validates semantic RAG search payload and knowledge.read permission', async () => {
+    const invalidResponse = await request(createApp())
+      .post(`/api/v1/assistants/${assistantId}/rag/semantic-search`)
+      .set('Cookie', [sessionCookie()])
+      .send({ query: 'a', limit: 99 })
+      .expect(422);
+
+    const forbiddenUser: AuthenticatedUser = {
+      ...testUser,
+      permissions: catalogPermissions.filter((permission) => permission !== 'knowledge.read'),
+    };
+    const forbiddenResponse = await request(createApp())
+      .post(`/api/v1/assistants/${assistantId}/rag/semantic-search`)
+      .set('Cookie', [sessionCookie(forbiddenUser)])
+      .send({ query: 'Politica operacional' })
+      .expect(403);
+
+    expect(invalidResponse.body.code).toBe('VALIDATION_ERROR');
+    expect(forbiddenResponse.body.code).toBe('FORBIDDEN');
   });
 
   it('executes official RAG query contract with persisted citations and history', async () => {

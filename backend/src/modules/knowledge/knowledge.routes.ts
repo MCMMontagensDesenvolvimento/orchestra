@@ -26,6 +26,7 @@ import {
   ragQueriesQuerySchema,
   ragQueryParamsSchema,
   ragQueryRequestSchema,
+  ragSemanticSearchSchema,
 } from './knowledge.schema';
 
 export function createKnowledgeRouter() {
@@ -300,6 +301,16 @@ export function registerAssistantKnowledgeBindingRoutes(router: Router) {
 }
 
 export function registerAssistantRagRoutes(router: Router) {
+  router.post(
+    '/:id/rag/semantic-search',
+    requireAuth,
+    requirePermission('knowledge.read'),
+    validateParams(idParamsSchema),
+    validateBody(ragSemanticSearchSchema),
+    (req, res, next) => {
+      void knowledgeController.semanticSearch(req, res).catch(next);
+    },
+  );
   router.post(
     '/:id/rag/query',
     requireAuth,
