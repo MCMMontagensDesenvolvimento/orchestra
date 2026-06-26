@@ -223,6 +223,61 @@ interface RagQueryPersistenceInput {
   results?: RagQueryPersistenceResultInput[];
 }
 
+interface EmbeddingChunkSelectionOptions {
+  limit: number;
+  chunkIds?: string[];
+}
+
+interface ExistingEmbeddedChunkInput {
+  chunkIds: string[];
+  provider: string;
+  model: string;
+  dimension: number;
+  contentHashes: string[];
+}
+
+interface EmbeddedChunkEmbeddingUpsertInput {
+  tenantId: string;
+  workspaceId: string;
+  knowledgeBaseId: string;
+  documentId: string;
+  chunkId: string;
+  provider: string;
+  model: string;
+  dimension: number;
+  embedding: number[];
+  contentHash: string;
+  embeddingHash: string;
+  embeddedAt: Date;
+  metadata?: Prisma.InputJsonValue;
+}
+
+interface FailedChunkEmbeddingUpsertInput {
+  tenantId: string;
+  workspaceId: string;
+  knowledgeBaseId: string;
+  documentId: string;
+  chunkId: string;
+  provider: string;
+  model: string;
+  dimension: number;
+  contentHash: string;
+  errorCode: string;
+  errorMessage: string;
+  metadata?: Prisma.InputJsonValue;
+}
+
+function embeddingVectorLiteral(vector: number[]) {
+  if (!Array.isArray(vector) || vector.length === 0 || !vector.every((item) => Number.isFinite(item))) {
+    throw new Error('Invalid embedding vector.');
+  }
+  return `[${vector.join(',')}]`;
+}
+
+function jsonb(value: Prisma.InputJsonValue | undefined) {
+  return JSON.stringify(value ?? {});
+}
+
 export const knowledgeRepository = {
   async listKnowledgeBases(tenantId: string, workspaceIds: string[], query: KnowledgeBasesQuery) {
     const where: Prisma.KnowledgeBaseWhereInput = {
@@ -764,6 +819,183 @@ export const knowledgeRepository = {
         workspaceId: { in: workspaceIds },
       },
     });
+  },
+
+  listDocumentChunksForEmbedding(documentId: string, tenantId: string, workspaceIds: string[], options: EmbeddingChunkSelectionOptions) {
+    return prisma.knowledgeChunk.findMany({
+      where: {
+        documentId,
+        tenantId,
+        workspaceId: { in: workspaceIds },
+        status: 'active',
+        ...(options.chunkIds?.length ? { id: { in: options.chunkIds } } : {}),
+        document: {
+          deletedAt: null,
+          ingestionStatus: 'completed',
+          status: { not: 'archived' },
+          knowledgeBase: {
+            deletedAt: null,
+            status: 'active',
+          },
+        },
+      },
+      orderBy: [{ chunkIndex: 'asc' }, { id: 'asc' }],
+      take: options.limit,
+    });
+  },
+
+  listKnowledgeBaseChunksForEmbedding(knowledgeBaseId: string, tenantId: string, workspaceIds: string[], options: EmbeddingChunkSelectionOptions) {
+    return prisma.knowledgeChunk.findMany({
+      where: {
+        knowledgeBaseId,
+        tenantId,
+        workspaceId: { in: workspaceIds },
+        status: 'active',
+        ...(options.chunkIds?.length ? { id: { in: options.chunkIds } } : {}),
+        document: {
+          deletedAt: null,
+          ingestionStatus: 'completed',
+          status: { not: 'archived' },
+        },
+        knowledgeBase: {
+          deletedAt: null,
+          status: 'active',
+        },
+      },
+      orderBy: [{ documentId: 'asc' }, { chunkIndex: 'asc' }, { id: 'asc' }],
+      take: options.limit,
+    });
+  },
+
+  listExistingEmbeddedChunkEmbeddings(input: ExistingEmbeddedChunkInput) {
+    return prisma.knowledgeChunkEmbedding.findMany({
+      where: {
+        chunkId: { in: input.chunkIds },
+        provider: input.provider,
+        embeddingModel: input.model,
+        dimension: input.dimension,
+        contentHash: { in: input.contentHashes },
+        status: 'embedded',
+      },
+      select: {
+        chunkId: true,
+        contentHash: true,
+        status: true,
+      },
+    });
+  },
+
+  async upsertEmbeddedChunkEmbedding(input: EmbeddedChunkEmbeddingUpsertInput) {
+    const metadata = jsonb(input.metadata);
+    const vector = embeddingVectorLiteral(input.embedding);
+    await prisma.$executeRaw(Prisma.sql`
+      INSERT INTO knowledge_chunk_embeddings (
+        tenant_id,
+        workspace_id,
+        knowledge_base_id,
+        document_id,
+        chunk_id,
+        provider,
+        model,
+        dimension,
+        embedding,
+        content_hash,
+        embedding_hash,
+        status,
+        error_code,
+        error_message,
+        embedded_at,
+        metadata,
+        created_at,
+        updated_at
+      )
+      VALUES (
+        ${input.tenantId}::uuid,
+        ${input.workspaceId}::uuid,
+        ${input.knowledgeBaseId}::uuid,
+        ${input.documentId}::uuid,
+        ${input.chunkId}::uuid,
+        ${input.provider},
+        ${input.model},
+        ${input.dimension},
+        ${vector}::vector,
+        ${input.contentHash},
+        ${input.embeddingHash},
+        'embedded',
+        NULL,
+        NULL,
+        ${input.embeddedAt},
+        ${metadata}::jsonb,
+        now(),
+        now()
+      )
+      ON CONFLICT ("chunk_id", "provider", "model", "dimension", "content_hash")
+      DO UPDATE SET
+        embedding = EXCLUDED.embedding,
+        embedding_hash = EXCLUDED.embedding_hash,
+        status = 'embedded',
+        error_code = NULL,
+        error_message = NULL,
+        embedded_at = EXCLUDED.embedded_at,
+        metadata = EXCLUDED.metadata,
+        updated_at = now()
+    `);
+  },
+
+  async upsertFailedChunkEmbedding(input: FailedChunkEmbeddingUpsertInput) {
+    const metadata = jsonb(input.metadata);
+    await prisma.$executeRaw(Prisma.sql`
+      INSERT INTO knowledge_chunk_embeddings (
+        tenant_id,
+        workspace_id,
+        knowledge_base_id,
+        document_id,
+        chunk_id,
+        provider,
+        model,
+        dimension,
+        embedding,
+        content_hash,
+        embedding_hash,
+        status,
+        error_code,
+        error_message,
+        embedded_at,
+        metadata,
+        created_at,
+        updated_at
+      )
+      VALUES (
+        ${input.tenantId}::uuid,
+        ${input.workspaceId}::uuid,
+        ${input.knowledgeBaseId}::uuid,
+        ${input.documentId}::uuid,
+        ${input.chunkId}::uuid,
+        ${input.provider},
+        ${input.model},
+        ${input.dimension},
+        NULL,
+        ${input.contentHash},
+        NULL,
+        'failed',
+        ${input.errorCode},
+        ${input.errorMessage},
+        NULL,
+        ${metadata}::jsonb,
+        now(),
+        now()
+      )
+      ON CONFLICT ("chunk_id", "provider", "model", "dimension", "content_hash")
+      DO UPDATE SET
+        embedding = NULL,
+        embedding_hash = NULL,
+        status = 'failed',
+        error_code = EXCLUDED.error_code,
+        error_message = EXCLUDED.error_message,
+        embedded_at = NULL,
+        metadata = EXCLUDED.metadata,
+        updated_at = now()
+    `);
   },
 
   listDocumentSourceReferences(documentId: string, tenantId: string, workspaceIds: string[]) {

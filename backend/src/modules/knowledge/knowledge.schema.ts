@@ -114,6 +114,13 @@ export const knowledgeIngestionRequestSchema = z.object({
   metadata: safeJsonRecord.optional(),
 }).default({});
 
+export const knowledgeEmbeddingRequestSchema = z.object({
+  limit: z.coerce.number().int().min(1).max(100).default(50),
+  force: z.boolean().default(false),
+  chunkIds: z.array(z.string().uuid()).max(100).optional(),
+  metadata: safeJsonRecord.optional(),
+}).default({});
+
 export const knowledgeChunksQuerySchema = paginationQuerySchema.extend({
   sortBy: z.enum(['chunkIndex', 'createdAt', 'updatedAt']).default('chunkIndex'),
   sortDirection: z.enum(['asc', 'desc']).default('asc'),
@@ -197,6 +204,7 @@ export type KnowledgeBaseUpdateInput = z.infer<typeof knowledgeBaseUpdateSchema>
 export type KnowledgeDocumentCreateInput = z.infer<typeof knowledgeDocumentCreateSchema>;
 export type KnowledgeDocumentUpdateInput = z.infer<typeof knowledgeDocumentUpdateSchema>;
 export type KnowledgeIngestionRequestInput = z.infer<typeof knowledgeIngestionRequestSchema>;
+export type KnowledgeEmbeddingRequestInput = z.infer<typeof knowledgeEmbeddingRequestSchema>;
 export type KnowledgeChunksQuery = z.infer<typeof knowledgeChunksQuerySchema>;
 export type RagLocalSearchInput = z.infer<typeof ragLocalSearchSchema>;
 export type RagQueryRequestInput = z.infer<typeof ragQueryRequestSchema>;

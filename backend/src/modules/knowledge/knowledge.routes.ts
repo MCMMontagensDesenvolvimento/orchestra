@@ -19,6 +19,7 @@ import {
   knowledgeDocumentCreateSchema,
   knowledgeDocumentParamsSchema,
   knowledgeDocumentUpdateSchema,
+  knowledgeEmbeddingRequestSchema,
   knowledgeIngestionJobParamsSchema,
   knowledgeIngestionRequestSchema,
   ragLocalSearchSchema,
@@ -55,6 +56,16 @@ export function createKnowledgeRouter() {
   router.post('/:id/restore', requireAuth, requirePermission('knowledge.restore'), validateParams(idParamsSchema), (req, res, next) => {
     void knowledgeController.restoreKnowledgeBase(req, res).catch(next);
   });
+  router.post(
+    '/:id/request-embeddings',
+    requireAuth,
+    requirePermission('knowledge.ingestion.manage'),
+    validateParams(knowledgeBaseChildParamsSchema),
+    validateBody(knowledgeEmbeddingRequestSchema),
+    (req, res, next) => {
+      void knowledgeController.requestKnowledgeBaseEmbeddings(req, res).catch(next);
+    },
+  );
 
   router.get('/:id/documents', requireAuth, requirePermission('knowledge.read'), validateParams(knowledgeBaseChildParamsSchema), (req, res, next) => {
     void knowledgeController.listDocuments(req, res).catch(next);
@@ -135,6 +146,16 @@ export function createKnowledgeDocumentsRouter() {
     validateBody(knowledgeIngestionRequestSchema),
     (req, res, next) => {
       void knowledgeController.requestIngestion(req, res).catch(next);
+    },
+  );
+  router.post(
+    '/:documentId/request-embeddings',
+    requireAuth,
+    requirePermission('knowledge.ingestion.manage'),
+    validateParams(knowledgeDocumentParamsSchema),
+    validateBody(knowledgeEmbeddingRequestSchema),
+    (req, res, next) => {
+      void knowledgeController.requestDocumentEmbeddings(req, res).catch(next);
     },
   );
   router.get(
