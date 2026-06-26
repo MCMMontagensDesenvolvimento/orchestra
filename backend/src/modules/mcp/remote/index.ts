@@ -1,5 +1,6 @@
 export * from './mcp-remote.client';
 export * from './mcp-remote.config';
+export * from './mcp-remote-catalog-import-apply.service';
 export * from './mcp-remote-catalog-import-plan.service';
 export * from './mcp-remote-discovery-approval.service';
 export * from './mcp-remote-discovery.service';
