@@ -453,6 +453,175 @@ export interface McpRemoteCatalogImportPlanInput {
   createdAt?: string;
 }
 
+export type McpRemoteCatalogImportApplyStatus =
+  | 'applied'
+  | 'blocked'
+  | 'no_changes'
+  | 'partially_applied'
+  | 'failed';
+
+export type McpRemoteCatalogImportApplyOperationStatus =
+  | 'applied'
+  | 'blocked'
+  | 'skipped'
+  | 'failed'
+  | 'noop'
+  | 'idempotent';
+
+export interface McpRemoteCatalogImportApplyAuthorization {
+  approvedByUserId: string;
+  approvalReason: string;
+  confirmManualApply: boolean;
+  approvedAt?: string;
+  approvalTicketId?: string;
+}
+
+export interface McpRemoteCatalogImportApplyOptions {
+  allowPendingApprovalApply?: boolean;
+  allowReadyForManualApply?: boolean;
+  dryRun?: boolean;
+}
+
+export interface McpRemoteCatalogImportApplyInput {
+  plan: McpRemoteCatalogImportPlan;
+  authorization: McpRemoteCatalogImportApplyAuthorization;
+  options?: McpRemoteCatalogImportApplyOptions;
+  appliedAt?: string;
+}
+
+export interface McpRemoteCatalogImportApplyOperationResult {
+  operationId: string;
+  type: McpRemoteCatalogImportOperationType;
+  externalName: string;
+  status: McpRemoteCatalogImportApplyOperationStatus;
+  catalogItemId?: string;
+  reason: string;
+  beforeHash?: string;
+  afterHash?: string;
+  runtimeEnabled: false;
+  remoteExecutionEnabled: false;
+}
+
+export interface McpRemoteCatalogImportApplyRollbackNote {
+  operationId?: string;
+  externalName?: string;
+  note: string;
+}
+
+export interface McpRemoteCatalogImportApplyAuditEvent {
+  type: 'mcp.remote.catalog_import_apply.executed';
+  tenantId: string;
+  workspaceId: string;
+  serverId: string;
+  planHash: string;
+  applyHash: string;
+  approvedByUserId: string;
+  status: McpRemoteCatalogImportApplyStatus;
+  counts: Record<string, number>;
+  operationTypes: string[];
+  metadata: Record<string, unknown>;
+}
+
+export interface McpRemoteCatalogImportApplyResult {
+  applyId: string;
+  applyHash: string;
+  idempotencyKey: string;
+  planId: string;
+  planHash: string;
+  snapshotHash: string;
+  serverId: string;
+  tenantId: string;
+  workspaceId: string;
+  approvedByUserId: string;
+  appliedAt: string;
+  status: McpRemoteCatalogImportApplyStatus;
+  operationResults: McpRemoteCatalogImportApplyOperationResult[];
+  summary: {
+    total: number;
+    applied: number;
+    blocked: number;
+    skipped: number;
+    failed: number;
+    noop: number;
+    idempotent: number;
+  };
+  auditEvent: McpRemoteCatalogImportApplyAuditEvent;
+  sanitizedMetadata: Record<string, unknown>;
+  rollbackNotes: McpRemoteCatalogImportApplyRollbackNote[];
+}
+
+export interface McpRemoteCatalogImportApplyCatalogItem {
+  id: string;
+  externalName: string;
+  specHash?: string | null;
+  status?: string | null;
+  catalogHash?: string | null;
+}
+
+export interface McpRemoteCatalogImportApplyTransaction {
+  findByExternalName(input: {
+    tenantId: string;
+    workspaceId: string;
+    serverId: string;
+    externalName: string;
+  }): Promise<McpRemoteCatalogImportApplyCatalogItem | null>;
+
+  createToolDraft(input: {
+    tenantId: string;
+    workspaceId: string;
+    serverId: string;
+    externalName: string;
+    displayName?: string;
+    description?: string;
+    specHash?: string;
+    catalogDraft: McpRemoteCatalogToolDraft;
+    policyDraft: McpRemoteCatalogPolicyDraft;
+  }): Promise<{ id: string; catalogHash?: string | null }>;
+
+  updateToolDraft(input: {
+    id: string;
+    tenantId: string;
+    workspaceId: string;
+    serverId: string;
+    externalName: string;
+    displayName?: string;
+    description?: string;
+    specHash?: string;
+    catalogDraft: McpRemoteCatalogToolDraft;
+    policyDraft: McpRemoteCatalogPolicyDraft;
+  }): Promise<{ id: string; catalogHash?: string | null }>;
+
+  deprecateToolDraft(input: {
+    id: string;
+    tenantId: string;
+    workspaceId: string;
+    serverId: string;
+    externalName: string;
+    reason: string;
+  }): Promise<{ id: string; catalogHash?: string | null }>;
+}
+
+export interface McpRemoteCatalogImportApplyRepository extends McpRemoteCatalogImportApplyTransaction {
+  withTransaction<T>(fn: (transaction: McpRemoteCatalogImportApplyTransaction) => Promise<T>): Promise<T>;
+
+  recordAuditEvent(input: {
+    type: string;
+    tenantId: string;
+    workspaceId: string;
+    serverId: string;
+    event: McpRemoteCatalogImportApplyAuditEvent;
+  }): Promise<void>;
+
+  findApplyByIdempotencyKey?(input: {
+    idempotencyKey: string;
+  }): Promise<McpRemoteCatalogImportApplyResult | null>;
+
+  saveApplyResult?(input: {
+    idempotencyKey: string;
+    result: McpRemoteCatalogImportApplyResult;
+  }): Promise<void>;
+}
+
 export interface McpToolDiscoveryRequest {
   tenantId: string;
   workspaceId: string;
