@@ -3,6 +3,11 @@ import { requireAuth, requirePermission } from '../../shared/middleware/auth.mid
 import { idParamsSchema } from '../../shared/validation/pagination';
 import { validateBody, validateParams, validateQuery } from '../../shared/validation/validate';
 import { mcpController } from './mcp.controller';
+import { mcpRemoteCatalogAdminController } from './remote/mcp-remote-catalog-admin.controller';
+import {
+  mcpRemoteCatalogApplyLedgersQuerySchema,
+  mcpRemoteCatalogEntriesQuerySchema,
+} from './remote/mcp-remote-catalog-admin.schema';
 import {
   assistantMcpBindingCreateSchema,
   assistantMcpBindingParamsSchema,
@@ -23,6 +28,43 @@ import {
 
 export function createMcpRouter() {
   const router = Router();
+
+  router.get(
+    '/remote-catalog/entries',
+    requireAuth,
+    requirePermission('mcp.manage'),
+    validateQuery(mcpRemoteCatalogEntriesQuerySchema),
+    (req, res, next) => {
+      void mcpRemoteCatalogAdminController.listEntries(req, res).catch(next);
+    },
+  );
+  router.get(
+    '/remote-catalog/entries/:id',
+    requireAuth,
+    requirePermission('mcp.manage'),
+    validateParams(idParamsSchema),
+    (req, res, next) => {
+      void mcpRemoteCatalogAdminController.getEntry(req, res).catch(next);
+    },
+  );
+  router.get(
+    '/remote-catalog/apply-ledgers',
+    requireAuth,
+    requirePermission('mcp.manage'),
+    validateQuery(mcpRemoteCatalogApplyLedgersQuerySchema),
+    (req, res, next) => {
+      void mcpRemoteCatalogAdminController.listApplyLedgers(req, res).catch(next);
+    },
+  );
+  router.get(
+    '/remote-catalog/apply-ledgers/:id',
+    requireAuth,
+    requirePermission('mcp.manage'),
+    validateParams(idParamsSchema),
+    (req, res, next) => {
+      void mcpRemoteCatalogAdminController.getApplyLedger(req, res).catch(next);
+    },
+  );
 
   router.get('/servers', requireAuth, requirePermission('mcp.read'), validateQuery(mcpServersQuerySchema), (req, res, next) => {
     void mcpController.listServers(req, res).catch(next);
