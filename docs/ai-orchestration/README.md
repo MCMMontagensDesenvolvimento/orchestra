@@ -8,6 +8,8 @@ A Fase 12B adiciona a fundacao backend de limites e quotas de IA com `AiUsageLim
 
 A Fase 12C adiciona API admin read-only de observabilidade com `audit.read`, scoping por tenant/workspace, eventos e summary bigint-safe, leitura de policies e simulacao de limites sem persistencia ou runtime.
 
+A Fase 12D adiciona fundacao backend de alertas governados de observabilidade com `AiObservabilityAlertRule`, evaluator read-only sobre `AiRunUsageEvent`, API admin de leitura/simulacao e garantias explicitas de ausencia de delivery real, scheduler, frontend, billing ou runtime enforcement.
+
 Esta pasta deve concentrar a estrategia de IA do Orchestra.
 
 Topicos esperados:
@@ -40,6 +42,7 @@ Topicos esperados:
 - `ORCHESTRA_OBSERVABILIDADE_USAGE_COSTS_12A.md`: fundacao backend para eventos de uso/custos de IA com `AiRunUsageEvent`, sanitizacao de metadata, tokens, latencia, status e custo estimado sem dashboard, limites ou billing.
 - `ORCHESTRA_OBSERVABILIDADE_LIMITES_QUOTAS_12B.md`: fundacao backend para policies de limite/quota, janelas UTC, metricas agregadas, bigint/minor units e evaluator monitor_only/enforce sem runtime automatico.
 - `ORCHESTRA_OBSERVABILIDADE_ADMIN_READ_API_12C.md`: API backend admin read-only para eventos, summary, policies e simulacao de limites com `audit.read`, DTOs sanitizados e scoping explicito.
+- `ORCHESTRA_OBSERVABILIDADE_ALERTAS_GOVERNADOS_12D.md`: fundacao backend para regras de alerta governadas, metricas sobre `AiRunUsageEvent`, evaluator read-only e API admin sem delivery real, scheduler ou CRUD.
 - `ORCHESTRA_AGNO_READINESS_HANDOFF.md`: stub/readiness Agno, flags e caminho para integracao futura.
 - `ORCHESTRA_RUNTIME_ADAPTER_HANDOFF.md`: boundary de runtime, resumos RAG/MCP e eventos normalizados.
 - `ORCHESTRA_AGNO_LOCAL_RUNTIME_HANDOFF.md`: handoff da integracao HTTP local Agno-compatible e mock runtime.

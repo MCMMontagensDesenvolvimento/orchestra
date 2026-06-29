@@ -1,5 +1,13 @@
 import { z } from 'zod';
 import {
+  aiObservabilityAlertMetricValues,
+  aiObservabilityAlertOperatorValues,
+  aiObservabilityAlertPeriodValues,
+  aiObservabilityAlertRuleStatusValues,
+  aiObservabilityAlertScopeValues,
+  aiObservabilityAlertSeverityValues,
+} from './ai-observability-alerts.types';
+import {
   aiUsageEventSourceValues,
   aiUsageEventStatusValues,
 } from './ai-observability.types';
@@ -126,8 +134,58 @@ export const aiUsageLimitEvaluationSchema = z.object({
   }).strict().nullable().optional(),
 }).strict();
 
+export const aiObservabilityAlertRulesQuerySchema = z.object({
+  ...pageFields,
+  workspaceId: optionalUuid,
+  assistantId: optionalUuid,
+  userId: optionalUuid,
+  scopeType: z.enum(aiObservabilityAlertScopeValues).optional(),
+  metric: z.enum(aiObservabilityAlertMetricValues).optional(),
+  period: z.enum(aiObservabilityAlertPeriodValues).optional(),
+  operator: z.enum(aiObservabilityAlertOperatorValues).optional(),
+  severity: z.enum(aiObservabilityAlertSeverityValues).optional(),
+  status: z.enum(aiObservabilityAlertRuleStatusValues).optional(),
+  source: nullableFilter(40),
+  operation: nullableFilter(80),
+  provider: nullableFilter(80),
+  model: nullableFilter(160),
+  includeDeleted: booleanQuery.default(false),
+  sort: z.enum([
+    'createdAt:desc',
+    'createdAt:asc',
+    'updatedAt:desc',
+    'updatedAt:asc',
+  ]).default('createdAt:desc'),
+}).strict();
+
+export const aiObservabilityAlertEvaluationSchema = z.object({
+  workspaceId: z.string().uuid(),
+  assistantId: z.string().uuid().nullable().optional(),
+  userId: z.string().uuid().nullable().optional(),
+  source: z.enum(aiUsageEventSourceValues).nullable().optional(),
+  operation: z.string().trim().min(1).max(80).nullable().optional(),
+  provider: z.string().trim().min(1).max(80).nullable().optional(),
+  model: z.string().trim().min(1).max(160).nullable().optional(),
+  now: z.coerce.date().optional(),
+  projectedUsage: z.object({
+    eventCount: projectedValue.nullable().optional(),
+    runCount: projectedValue.nullable().optional(),
+    inputTokens: projectedValue.nullable().optional(),
+    outputTokens: projectedValue.nullable().optional(),
+    totalTokens: projectedValue.nullable().optional(),
+    embeddingTokens: projectedValue.nullable().optional(),
+    cachedTokens: projectedValue.nullable().optional(),
+    estimatedCostMinorUnits: projectedValue.nullable().optional(),
+    avgLatencyMs: projectedValue.nullable().optional(),
+    failedRunCount: projectedValue.nullable().optional(),
+    blockedRunCount: projectedValue.nullable().optional(),
+  }).strict().nullable().optional(),
+}).strict();
+
 export type AiUsageEventsQuery = z.infer<typeof aiUsageEventsQuerySchema>;
 export type AiUsageSummaryQuery = z.infer<typeof aiUsageSummaryQuerySchema>;
 export type AiUsageSummaryGroupBy = typeof aiUsageSummaryGroupByValues[number];
 export type AiUsageLimitPoliciesQuery = z.infer<typeof aiUsageLimitPoliciesQuerySchema>;
 export type AiUsageLimitEvaluationBody = z.infer<typeof aiUsageLimitEvaluationSchema>;
+export type AiObservabilityAlertRulesQuery = z.infer<typeof aiObservabilityAlertRulesQuerySchema>;
+export type AiObservabilityAlertEvaluationBody = z.infer<typeof aiObservabilityAlertEvaluationSchema>;

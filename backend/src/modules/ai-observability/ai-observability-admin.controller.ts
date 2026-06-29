@@ -27,8 +27,23 @@ export const aiObservabilityAdminController = {
     return res.status(200).json({ data, requestId: req.requestId });
   },
 
+  async listAlertRules(req: Request, res: Response) {
+    const result = await aiObservabilityAdminService.listAlertRules(req.user!, req.query as any);
+    return res.status(200).json({ ...result, requestId: req.requestId });
+  },
+
+  async getAlertRule(req: Request, res: Response) {
+    const data = await aiObservabilityAdminService.getAlertRule(req.params.id, req.user!);
+    return res.status(200).json({ data, requestId: req.requestId });
+  },
+
   async evaluateLimits(req: Request, res: Response) {
     const data = await aiObservabilityAdminService.evaluateLimits(req.user!, req.body);
+    return res.status(200).json({ data, requestId: req.requestId });
+  },
+
+  async evaluateAlerts(req: Request, res: Response) {
+    const data = await aiObservabilityAdminService.evaluateAlerts(req.user!, req.body);
     return res.status(200).json({ data, requestId: req.requestId });
   },
 };

@@ -2,6 +2,7 @@ import { Prisma, PrismaClient } from '@prisma/client';
 import { prisma as defaultPrisma } from '../../infrastructure/prisma/prisma.service';
 import { paginationOffset } from '../../shared/validation/pagination';
 import type {
+  AiObservabilityAlertRulesQuery,
   AiUsageEventsQuery,
   AiUsageLimitPoliciesQuery,
   AiUsageSummaryGroupBy,
@@ -10,7 +11,7 @@ import type {
 
 type AiObservabilityAdminPrisma = Pick<
   PrismaClient,
-  'aiRunUsageEvent' | 'aiUsageLimitPolicy' | 'assistant' | 'user' | '$queryRaw'
+  'aiRunUsageEvent' | 'aiUsageLimitPolicy' | 'aiObservabilityAlertRule' | 'assistant' | 'user' | '$queryRaw'
 >;
 
 const usageEventListSelect = {
@@ -69,6 +70,36 @@ const limitPolicySelect = {
   deletedAt: true,
 } satisfies Prisma.AiUsageLimitPolicySelect;
 
+const alertRuleListSelect = {
+  id: true,
+  workspaceId: true,
+  assistantId: true,
+  userId: true,
+  scopeType: true,
+  metric: true,
+  period: true,
+  operator: true,
+  thresholdValue: true,
+  severity: true,
+  status: true,
+  source: true,
+  operation: true,
+  provider: true,
+  modelName: true,
+  description: true,
+  cooldownMinutes: true,
+  createdByUserId: true,
+  updatedByUserId: true,
+  createdAt: true,
+  updatedAt: true,
+  deletedAt: true,
+} satisfies Prisma.AiObservabilityAlertRuleSelect;
+
+const alertRuleDetailSelect = {
+  ...alertRuleListSelect,
+  metadata: true,
+} satisfies Prisma.AiObservabilityAlertRuleSelect;
+
 export type AiUsageEventListRecord = Prisma.AiRunUsageEventGetPayload<{
   select: typeof usageEventListSelect;
 }>;
@@ -77,6 +108,12 @@ export type AiUsageEventDetailRecord = Prisma.AiRunUsageEventGetPayload<{
 }>;
 export type AiUsageLimitPolicyRecord = Prisma.AiUsageLimitPolicyGetPayload<{
   select: typeof limitPolicySelect;
+}>;
+export type AiObservabilityAlertRuleListRecord = Prisma.AiObservabilityAlertRuleGetPayload<{
+  select: typeof alertRuleListSelect;
+}>;
+export type AiObservabilityAlertRuleDetailRecord = Prisma.AiObservabilityAlertRuleGetPayload<{
+  select: typeof alertRuleDetailSelect;
 }>;
 
 export interface AiUsageSummaryRecord {
@@ -174,6 +211,56 @@ function policiesWhere(
     ...(query.metric ? { metric: query.metric } : {}),
     ...(query.period ? { period: query.period } : {}),
     ...(query.mode ? { mode: query.mode } : {}),
+    ...(query.status ? { status: query.status } : {}),
+    ...(query.source ? { source: query.source } : {}),
+    ...(query.operation ? { operation: query.operation } : {}),
+    ...(query.provider ? { provider: query.provider } : {}),
+    ...(query.model ? { modelName: query.model } : {}),
+    ...(!query.includeDeleted ? { deletedAt: null } : {}),
+  };
+}
+
+function alertRuleScopeWhere(
+  tenantId: string,
+  workspaceIds: string[],
+): Prisma.AiObservabilityAlertRuleWhereInput {
+  return {
+    OR: [
+      { scopeType: 'tenant' },
+      { scopeType: 'workspace', workspaceId: { in: workspaceIds } },
+      {
+        scopeType: 'assistant',
+        assistant: { is: { tenantId, workspaceId: { in: workspaceIds } } },
+      },
+      {
+        scopeType: 'user',
+        user: {
+          is: {
+            tenantId,
+            memberships: { some: { workspaceId: { in: workspaceIds } } },
+          },
+        },
+      },
+    ],
+  };
+}
+
+function alertRulesWhere(
+  tenantId: string,
+  workspaceIds: string[],
+  query: AiObservabilityAlertRulesQuery,
+): Prisma.AiObservabilityAlertRuleWhereInput {
+  const visibleWorkspaceIds = query.workspaceId ? [query.workspaceId] : workspaceIds;
+  return {
+    tenantId,
+    AND: [alertRuleScopeWhere(tenantId, visibleWorkspaceIds)],
+    ...(query.assistantId ? { assistantId: query.assistantId } : {}),
+    ...(query.userId ? { userId: query.userId } : {}),
+    ...(query.scopeType ? { scopeType: query.scopeType } : {}),
+    ...(query.metric ? { metric: query.metric } : {}),
+    ...(query.period ? { period: query.period } : {}),
+    ...(query.operator ? { operator: query.operator } : {}),
+    ...(query.severity ? { severity: query.severity } : {}),
     ...(query.status ? { status: query.status } : {}),
     ...(query.source ? { source: query.source } : {}),
     ...(query.operation ? { operation: query.operation } : {}),
@@ -312,6 +399,41 @@ export class AiObservabilityAdminPersistenceRepository {
         AND: [policyScopeWhere(tenantId, workspaceIds)],
       },
       select: limitPolicySelect,
+    });
+  }
+
+  async listAlertRules(
+    tenantId: string,
+    workspaceIds: string[],
+    query: AiObservabilityAlertRulesQuery,
+  ) {
+    const where = alertRulesWhere(tenantId, workspaceIds, query);
+    const [sortBy, sortDirection] = query.sort.split(':') as [
+      'createdAt' | 'updatedAt',
+      'asc' | 'desc',
+    ];
+    const orderBy = { [sortBy]: sortDirection } satisfies Prisma.AiObservabilityAlertRuleOrderByWithRelationInput;
+    const [data, total] = await Promise.all([
+      this.db.aiObservabilityAlertRule.findMany({
+        where,
+        select: alertRuleListSelect,
+        orderBy,
+        ...paginationOffset(query),
+      }),
+      this.db.aiObservabilityAlertRule.count({ where }),
+    ]);
+    return { data, total };
+  }
+
+  findAlertRule(id: string, tenantId: string, workspaceIds: string[]) {
+    return this.db.aiObservabilityAlertRule.findFirst({
+      where: {
+        id,
+        tenantId,
+        deletedAt: null,
+        AND: [alertRuleScopeWhere(tenantId, workspaceIds)],
+      },
+      select: alertRuleDetailSelect,
     });
   }
 
