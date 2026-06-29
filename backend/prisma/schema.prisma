@@ -46,6 +46,7 @@ model Tenant {
   providerConfigs            ProviderConfig[]
   usageRecords               UsageRecord[]
   aiRunUsageEvents           AiRunUsageEvent[]
+  aiUsageLimitPolicies       AiUsageLimitPolicy[]
   agentRuns                  AgentRun[]
   agentRunEvents             AgentRunEvent[]
   ragQueries                 RagQuery[]
@@ -103,6 +104,7 @@ model Workspace {
   mcpRemoteCatalogEntries    McpRemoteCatalogEntry[]
   mcpRemoteCatalogLedgers    McpRemoteCatalogApplyLedger[]
   aiRunUsageEvents           AiRunUsageEvent[]
+  aiUsageLimitPolicies       AiUsageLimitPolicy[]
 
   @@unique([tenantId, slug])
   @@index([tenantId])
@@ -154,6 +156,9 @@ model User {
   deprecatedMcpRemoteCatalogEntries McpRemoteCatalogEntry[]       @relation("McpRemoteCatalogEntryDeprecator")
   approvedMcpRemoteCatalogLedgers   McpRemoteCatalogApplyLedger[] @relation("McpRemoteCatalogApplyLedgerApprover")
   aiRunUsageEvents                  AiRunUsageEvent[]             @relation("AiRunUsageEventUser")
+  scopedAiUsageLimitPolicies        AiUsageLimitPolicy[]          @relation("AiUsageLimitPolicyScopedUser")
+  createdAiUsageLimitPolicies       AiUsageLimitPolicy[]          @relation("AiUsageLimitPolicyCreatedBy")
+  updatedAiUsageLimitPolicies       AiUsageLimitPolicy[]          @relation("AiUsageLimitPolicyUpdatedBy")
 
   @@index([tenantId])
   @@map("users")
@@ -338,6 +343,7 @@ model Assistant {
   agentRuns         AgentRun[]
   usageRecords      UsageRecord[]
   aiRunUsageEvents  AiRunUsageEvent[]
+  aiUsageLimitPolicies AiUsageLimitPolicy[]
   knowledgeBindings AssistantKnowledgeBinding[]
   mcpBindings       AssistantMcpBinding[]
   ragQueries        RagQuery[]
@@ -1551,4 +1557,52 @@ model AiRunUsageEvent {
   @@index([startedAt])
   @@index([createdAt])
   @@map("ai_run_usage_events")
+}
+
+model AiUsageLimitPolicy {
+  id                 String     @id @default(uuid()) @db.Uuid
+  tenantId           String     @map("tenant_id") @db.Uuid
+  workspaceId        String?    @map("workspace_id") @db.Uuid
+  assistantId        String?    @map("assistant_id") @db.Uuid
+  userId             String?    @map("user_id") @db.Uuid
+  scopeType          String     @map("scope_type") @db.VarChar(20)
+  metric             String     @db.VarChar(40)
+  period             String     @db.VarChar(20)
+  mode               String     @db.VarChar(20)
+  status             String     @default("active") @db.VarChar(20)
+  limitValue         BigInt     @map("limit_value")
+  warnThresholdValue BigInt?    @map("warn_threshold_value")
+  source             String?    @db.VarChar(40)
+  operation          String?    @db.VarChar(80)
+  provider           String?    @db.VarChar(80)
+  modelName          String?    @map("model") @db.VarChar(160)
+  description        String?
+  metadata           Json?
+  createdByUserId    String?    @map("created_by_user_id") @db.Uuid
+  updatedByUserId    String?    @map("updated_by_user_id") @db.Uuid
+  createdAt          DateTime   @default(now()) @map("created_at")
+  updatedAt          DateTime   @updatedAt @map("updated_at")
+  deletedAt          DateTime?  @map("deleted_at")
+  tenant             Tenant     @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  workspace          Workspace? @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  assistant          Assistant? @relation(fields: [assistantId], references: [id], onDelete: Cascade)
+  user               User?      @relation("AiUsageLimitPolicyScopedUser", fields: [userId], references: [id], onDelete: Cascade)
+  createdByUser      User?      @relation("AiUsageLimitPolicyCreatedBy", fields: [createdByUserId], references: [id], onDelete: SetNull)
+  updatedByUser      User?      @relation("AiUsageLimitPolicyUpdatedBy", fields: [updatedByUserId], references: [id], onDelete: SetNull)
+
+  @@index([tenantId])
+  @@index([workspaceId])
+  @@index([assistantId])
+  @@index([userId])
+  @@index([scopeType])
+  @@index([metric])
+  @@index([period])
+  @@index([mode])
+  @@index([status])
+  @@index([source])
+  @@index([operation])
+  @@index([provider, modelName])
+  @@index([createdAt])
+  @@index([tenantId, status, deletedAt])
+  @@map("ai_usage_limit_policies")
 }

@@ -4,6 +4,8 @@ Status: preparado. A Sprint 14/Fase 11 foi fechada com MCP remoto governado ate 
 
 A Fase 12A adiciona a fundacao backend de observabilidade de uso/custos de IA com migration `AiRunUsageEvent`, repository/service/tipos e testes, sem dashboard, limites automaticos, billing, runtime produtivo ou tracking bruto de prompt/response.
 
+A Fase 12B adiciona a fundacao backend de limites e quotas de IA com `AiUsageLimitPolicy`, agregacao read-only sobre `AiRunUsageEvent` e evaluator para tenant/workspace/assistant/user em modos monitor_only/enforce, sem plugar enforcement no runtime.
+
 Esta pasta deve concentrar a estrategia de IA do Orchestra.
 
 Topicos esperados:
@@ -34,6 +36,7 @@ Topicos esperados:
 - `ORCHESTRA_MCP_REMOTO_CATALOG_ADMIN_READ_API_11K.md`: API interna admin read-only para entries e ledgers do catalogo MCP remoto importado, com `mcp.manage`, workspace scope, filtros allowlist e DTOs sanitizados sem mutacao/runtime.
 - `ORCHESTRA_MCP_REMOTO_SPRINT_14_FECHAMENTO_11L.md`: fechamento/hardening da Sprint 14/Fase 11, com linha do tempo, arquitetura final, checklist, riscos remanescentes e plano recomendado para Sprint 15.
 - `ORCHESTRA_OBSERVABILIDADE_USAGE_COSTS_12A.md`: fundacao backend para eventos de uso/custos de IA com `AiRunUsageEvent`, sanitizacao de metadata, tokens, latencia, status e custo estimado sem dashboard, limites ou billing.
+- `ORCHESTRA_OBSERVABILIDADE_LIMITES_QUOTAS_12B.md`: fundacao backend para policies de limite/quota, janelas UTC, metricas agregadas, bigint/minor units e evaluator monitor_only/enforce sem runtime automatico.
 - `ORCHESTRA_AGNO_READINESS_HANDOFF.md`: stub/readiness Agno, flags e caminho para integracao futura.
 - `ORCHESTRA_RUNTIME_ADAPTER_HANDOFF.md`: boundary de runtime, resumos RAG/MCP e eventos normalizados.
 - `ORCHESTRA_AGNO_LOCAL_RUNTIME_HANDOFF.md`: handoff da integracao HTTP local Agno-compatible e mock runtime.
