@@ -553,9 +553,36 @@ export interface McpRemoteCatalogImportApplyResult {
 export interface McpRemoteCatalogImportApplyCatalogItem {
   id: string;
   externalName: string;
+  displayName?: string | null;
+  description?: string | null;
   specHash?: string | null;
   status?: string | null;
+  lifecycleStatus?: string | null;
+  riskLevel?: McpRemoteDiscoveredToolRiskLevel | null;
+  requiresApproval?: boolean | null;
   catalogHash?: string | null;
+  revision?: number | null;
+  metadata?: Record<string, unknown>;
+}
+
+export interface McpRemoteCatalogApplyMutationContext {
+  planId: string;
+  planHash: string;
+  snapshotId: string;
+  snapshotHash: string;
+  applyId: string;
+  applyHash: string;
+  idempotencyKey: string;
+  approvedByUserId: string;
+  approvedAt?: string;
+  appliedAt: string;
+}
+
+export interface McpRemoteCatalogApplyReservationInput extends McpRemoteCatalogApplyMutationContext {
+  tenantId: string;
+  workspaceId: string;
+  serverId: string;
+  approvalReasonHash?: string;
 }
 
 export interface McpRemoteCatalogImportApplyTransaction {
@@ -574,6 +601,8 @@ export interface McpRemoteCatalogImportApplyTransaction {
     displayName?: string;
     description?: string;
     specHash?: string;
+    riskLevel?: McpRemoteDiscoveredToolRiskLevel;
+    applyContext?: McpRemoteCatalogApplyMutationContext;
     catalogDraft: McpRemoteCatalogToolDraft;
     policyDraft: McpRemoteCatalogPolicyDraft;
   }): Promise<{ id: string; catalogHash?: string | null }>;
@@ -587,6 +616,9 @@ export interface McpRemoteCatalogImportApplyTransaction {
     displayName?: string;
     description?: string;
     specHash?: string;
+    riskLevel?: McpRemoteDiscoveredToolRiskLevel;
+    expectedRevision?: number | null;
+    applyContext?: McpRemoteCatalogApplyMutationContext;
     catalogDraft: McpRemoteCatalogToolDraft;
     policyDraft: McpRemoteCatalogPolicyDraft;
   }): Promise<{ id: string; catalogHash?: string | null }>;
@@ -598,7 +630,25 @@ export interface McpRemoteCatalogImportApplyTransaction {
     serverId: string;
     externalName: string;
     reason: string;
+    expectedRevision?: number | null;
+    applyContext?: McpRemoteCatalogApplyMutationContext;
   }): Promise<{ id: string; catalogHash?: string | null }>;
+
+  reserveApply?(input: McpRemoteCatalogApplyReservationInput): Promise<void>;
+
+  finalizeCatalogEntriesForApply?(input: {
+    tenantId: string;
+    workspaceId: string;
+    serverId: string;
+    applyId: string;
+    applyHash: string;
+    operationResults: McpRemoteCatalogImportApplyOperationResult[];
+  }): Promise<void>;
+
+  saveApplyResult?(input: {
+    idempotencyKey: string;
+    result: McpRemoteCatalogImportApplyResult;
+  }): Promise<void>;
 }
 
 export interface McpRemoteCatalogImportApplyRepository extends McpRemoteCatalogImportApplyTransaction {
@@ -613,6 +663,9 @@ export interface McpRemoteCatalogImportApplyRepository extends McpRemoteCatalogI
   }): Promise<void>;
 
   findApplyByIdempotencyKey?(input: {
+    tenantId: string;
+    workspaceId: string;
+    serverId: string;
     idempotencyKey: string;
   }): Promise<McpRemoteCatalogImportApplyResult | null>;
 

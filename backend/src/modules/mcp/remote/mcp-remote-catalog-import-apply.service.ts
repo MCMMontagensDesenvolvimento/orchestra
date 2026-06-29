@@ -7,6 +7,7 @@ import type {
   McpRemoteCatalogImportApplyResult,
   McpRemoteCatalogImportApplyStatus,
   McpRemoteCatalogImportApplyTransaction,
+  McpRemoteCatalogApplyMutationContext,
   McpRemoteCatalogImportOperation,
   McpRemoteCatalogImportOperationType,
   McpRemoteCatalogPolicyDraft,
@@ -92,6 +93,16 @@ function applyHash(input: {
 
 function applyId(hash: string) {
   return `mcp_remote_catalog_apply_${hash.slice(0, 24)}`;
+}
+
+function startedApplyHash(input: {
+  idempotencyKey: string;
+  planHash: string;
+  snapshotHash: string;
+  appliedAt: string;
+  approvedByUserId: string;
+}) {
+  return sha256({ ...input, status: 'started' });
 }
 
 function operationTypes(operations: Array<{ type: McpRemoteCatalogImportOperationType }>) {
@@ -226,6 +237,7 @@ async function applyOperation(
   transaction: McpRemoteCatalogImportApplyTransaction,
   plan: McpRemoteCatalogImportApplyInput['plan'],
   operation: McpRemoteCatalogImportOperation,
+  applyContext: McpRemoteCatalogApplyMutationContext,
 ): Promise<McpRemoteCatalogImportApplyOperationResult> {
   if (operationOpensRuntime(operation)) {
     return operationResult({ operation, status: 'blocked', reason: 'Operation policy attempted to open runtime execution.' });
@@ -268,6 +280,8 @@ async function applyOperation(
       displayName: operation.displayName,
       description: operation.catalogDraft.description,
       specHash: operation.specHash,
+      riskLevel: operation.riskLevel,
+      applyContext,
       catalogDraft: operation.catalogDraft,
       policyDraft: operation.policyDraft,
     });
@@ -296,6 +310,9 @@ async function applyOperation(
       displayName: operation.displayName,
       description: operation.catalogDraft.description,
       specHash: operation.specHash,
+      riskLevel: operation.riskLevel,
+      expectedRevision: current.revision,
+      applyContext,
       catalogDraft: operation.catalogDraft,
       policyDraft: operation.policyDraft,
     });
@@ -320,6 +337,8 @@ async function applyOperation(
       serverId: plan.serverId,
       externalName: operation.externalName,
       reason: operation.reason,
+      expectedRevision: current.revision,
+      applyContext,
     });
     return operationResult({
       operation,
@@ -361,7 +380,12 @@ export class McpRemoteCatalogImportApplyService {
       }), { saveIdempotency: false });
     }
 
-    const existing = await this.repository.findApplyByIdempotencyKey?.({ idempotencyKey: applyKey });
+    const existing = await this.repository.findApplyByIdempotencyKey?.({
+      tenantId: input.plan.tenantId,
+      workspaceId: input.plan.workspaceId,
+      serverId: input.plan.serverId,
+      idempotencyKey: applyKey,
+    });
     if (existing) return existing;
 
     const planBlockReason = this.getPlanBlockReason(input);
@@ -409,31 +433,91 @@ export class McpRemoteCatalogImportApplyService {
       }), { saveIdempotency: false });
     }
 
-    const operationResults = await this.repository.withTransaction(async (transaction) => {
-      const results: McpRemoteCatalogImportApplyOperationResult[] = [];
-      for (const operation of input.plan.operations) {
-        try {
-          results.push(await applyOperation(transaction, input.plan, operation));
-        } catch {
-          results.push(operationResult({
-            operation,
-            status: 'failed',
-            reason: 'Repository operation failed while applying the governed import plan.',
-          }));
-        }
-      }
-      return results;
-    });
-
-    return this.finalizeResult(baseResult({
-      applyKey,
-      appliedAt,
+    const startedContext: McpRemoteCatalogApplyMutationContext = {
+      planId: input.plan.planId,
+      planHash: input.plan.planHash,
+      snapshotId: input.plan.snapshotId,
+      snapshotHash: input.plan.snapshotHash,
+      applyId: applyId(applyKey),
+      applyHash: startedApplyHash({
+        idempotencyKey: applyKey,
+        planHash: input.plan.planHash,
+        snapshotHash: input.plan.snapshotHash,
+        appliedAt,
+        approvedByUserId: input.authorization.approvedByUserId,
+      }),
+      idempotencyKey: applyKey,
       approvedByUserId: input.authorization.approvedByUserId,
-      plan: input.plan,
-      status: statusFromResults(operationResults),
-      operationResults,
-      metadata,
-    }));
+      approvedAt: input.authorization.approvedAt,
+      appliedAt,
+    };
+
+    let result: McpRemoteCatalogImportApplyResult;
+    try {
+      result = await this.repository.withTransaction(async (transaction) => {
+        await transaction.reserveApply?.({
+          ...startedContext,
+          tenantId: input.plan.tenantId,
+          workspaceId: input.plan.workspaceId,
+          serverId: input.plan.serverId,
+          approvalReasonHash: sha256(input.authorization.approvalReason),
+        });
+
+        const operationResults: McpRemoteCatalogImportApplyOperationResult[] = [];
+        for (const operation of input.plan.operations) {
+          try {
+            operationResults.push(await applyOperation(transaction, input.plan, operation, startedContext));
+          } catch {
+            operationResults.push(operationResult({
+              operation,
+              status: 'failed',
+              reason: 'Repository operation failed while applying the governed import plan.',
+            }));
+          }
+        }
+        const appliedResult = baseResult({
+          applyKey,
+          appliedAt,
+          approvedByUserId: input.authorization.approvedByUserId,
+          plan: input.plan,
+          status: statusFromResults(operationResults),
+          operationResults,
+          metadata,
+        });
+
+        await transaction.finalizeCatalogEntriesForApply?.({
+          tenantId: input.plan.tenantId,
+          workspaceId: input.plan.workspaceId,
+          serverId: input.plan.serverId,
+          applyId: appliedResult.applyId,
+          applyHash: appliedResult.applyHash,
+          operationResults,
+        });
+        await transaction.saveApplyResult?.({
+          idempotencyKey: appliedResult.idempotencyKey,
+          result: appliedResult,
+        });
+        return appliedResult;
+      });
+    } catch (error) {
+      const code = typeof error === 'object' && error !== null && 'code' in error
+        ? String((error as { code?: unknown }).code)
+        : '';
+      if (code === 'MCP_REMOTE_CATALOG_APPLY_IN_PROGRESS' || code === 'MCP_REMOTE_CATALOG_APPLY_CONFLICT') {
+        return this.finalizeResult(baseResult({
+          applyKey,
+          appliedAt,
+          approvedByUserId: input.authorization.approvedByUserId,
+          plan: input.plan,
+          status: 'blocked',
+          operationResults: blockedOperationResults(input.plan.operations, 'Apply idempotency ledger is already started or conflicted; manual reconciliation is required.'),
+          metadata,
+        }), { saveIdempotency: false });
+      }
+      throw error;
+    }
+
+    return this.finalizeResult(result, { saveIdempotency: false });
   }
 
   async applyPlan(input: McpRemoteCatalogImportApplyInput): Promise<McpRemoteCatalogImportApplyResult> {
