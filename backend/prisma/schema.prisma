@@ -45,6 +45,7 @@ model Tenant {
   assistantMcpBindings       AssistantMcpBinding[]
   providerConfigs            ProviderConfig[]
   usageRecords               UsageRecord[]
+  aiRunUsageEvents           AiRunUsageEvent[]
   agentRuns                  AgentRun[]
   agentRunEvents             AgentRunEvent[]
   ragQueries                 RagQuery[]
@@ -101,6 +102,7 @@ model Workspace {
   mcpToolCallEvents          McpToolCallEvent[]
   mcpRemoteCatalogEntries    McpRemoteCatalogEntry[]
   mcpRemoteCatalogLedgers    McpRemoteCatalogApplyLedger[]
+  aiRunUsageEvents           AiRunUsageEvent[]
 
   @@unique([tenantId, slug])
   @@index([tenantId])
@@ -151,6 +153,7 @@ model User {
   approvedMcpRemoteCatalogEntries   McpRemoteCatalogEntry[]       @relation("McpRemoteCatalogEntryApprover")
   deprecatedMcpRemoteCatalogEntries McpRemoteCatalogEntry[]       @relation("McpRemoteCatalogEntryDeprecator")
   approvedMcpRemoteCatalogLedgers   McpRemoteCatalogApplyLedger[] @relation("McpRemoteCatalogApplyLedgerApprover")
+  aiRunUsageEvents                  AiRunUsageEvent[]             @relation("AiRunUsageEventUser")
 
   @@index([tenantId])
   @@map("users")
@@ -334,6 +337,7 @@ model Assistant {
   conversations     Conversation[]
   agentRuns         AgentRun[]
   usageRecords      UsageRecord[]
+  aiRunUsageEvents  AiRunUsageEvent[]
   knowledgeBindings AssistantKnowledgeBinding[]
   mcpBindings       AssistantMcpBinding[]
   ragQueries        RagQuery[]
@@ -1499,4 +1503,52 @@ model UsageRecord {
   @@index([assistantId])
   @@index([agentRunId])
   @@map("usage_records")
+}
+
+model AiRunUsageEvent {
+  id                       String     @id @default(uuid()) @db.Uuid
+  tenantId                 String     @map("tenant_id") @db.Uuid
+  workspaceId              String     @map("workspace_id") @db.Uuid
+  assistantId              String?    @map("assistant_id") @db.Uuid
+  userId                   String?    @map("user_id") @db.Uuid
+  runId                    String     @map("run_id") @db.VarChar(160)
+  traceId                  String?    @map("trace_id") @db.VarChar(160)
+  source                   String     @db.VarChar(40)
+  operation                String     @db.VarChar(80)
+  provider                 String?    @db.VarChar(80)
+  modelName                String?    @map("model") @db.VarChar(160)
+  status                   String     @db.VarChar(40)
+  blockedReason            String?    @map("blocked_reason") @db.VarChar(160)
+  errorCode                String?    @map("error_code") @db.VarChar(120)
+  errorMessageHash         String?    @map("error_message_hash") @db.Char(64)
+  inputTokens              Int?       @map("input_tokens")
+  outputTokens             Int?       @map("output_tokens")
+  totalTokens              Int?       @map("total_tokens")
+  embeddingTokens          Int?       @map("embedding_tokens")
+  cachedTokens             Int?       @map("cached_tokens")
+  latencyMs                Int?       @map("latency_ms")
+  costCurrency             String?    @map("cost_currency") @db.Char(3)
+  estimatedCostMinorUnits  BigInt?    @map("estimated_cost_minor_units")
+  metadata                 Json?
+  startedAt                DateTime   @map("started_at")
+  completedAt              DateTime?  @map("completed_at")
+  createdAt                DateTime   @default(now()) @map("created_at")
+  tenant                   Tenant     @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  workspace                Workspace  @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  assistant                Assistant? @relation(fields: [assistantId], references: [id], onDelete: SetNull)
+  user                     User?      @relation("AiRunUsageEventUser", fields: [userId], references: [id], onDelete: SetNull)
+
+  @@index([tenantId])
+  @@index([workspaceId])
+  @@index([assistantId])
+  @@index([userId])
+  @@index([runId])
+  @@index([traceId])
+  @@index([source])
+  @@index([operation])
+  @@index([status])
+  @@index([provider, modelName])
+  @@index([startedAt])
+  @@index([createdAt])
+  @@map("ai_run_usage_events")
 }
