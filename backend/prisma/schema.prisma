@@ -47,6 +47,7 @@ model Tenant {
   usageRecords               UsageRecord[]
   aiRunUsageEvents           AiRunUsageEvent[]
   aiUsageLimitPolicies       AiUsageLimitPolicy[]
+  aiObservabilityAlertRules   AiObservabilityAlertRule[]
   agentRuns                  AgentRun[]
   agentRunEvents             AgentRunEvent[]
   ragQueries                 RagQuery[]
@@ -105,6 +106,7 @@ model Workspace {
   mcpRemoteCatalogLedgers    McpRemoteCatalogApplyLedger[]
   aiRunUsageEvents           AiRunUsageEvent[]
   aiUsageLimitPolicies       AiUsageLimitPolicy[]
+  aiObservabilityAlertRules   AiObservabilityAlertRule[]
 
   @@unique([tenantId, slug])
   @@index([tenantId])
@@ -159,6 +161,9 @@ model User {
   scopedAiUsageLimitPolicies        AiUsageLimitPolicy[]          @relation("AiUsageLimitPolicyScopedUser")
   createdAiUsageLimitPolicies       AiUsageLimitPolicy[]          @relation("AiUsageLimitPolicyCreatedBy")
   updatedAiUsageLimitPolicies       AiUsageLimitPolicy[]          @relation("AiUsageLimitPolicyUpdatedBy")
+  scopedAiObservabilityAlertRules   AiObservabilityAlertRule[]    @relation("AiObservabilityAlertRuleScopedUser")
+  createdAiObservabilityAlertRules  AiObservabilityAlertRule[]    @relation("AiObservabilityAlertRuleCreatedBy")
+  updatedAiObservabilityAlertRules  AiObservabilityAlertRule[]    @relation("AiObservabilityAlertRuleUpdatedBy")
 
   @@index([tenantId])
   @@map("users")
@@ -344,6 +349,7 @@ model Assistant {
   usageRecords      UsageRecord[]
   aiRunUsageEvents  AiRunUsageEvent[]
   aiUsageLimitPolicies AiUsageLimitPolicy[]
+  aiObservabilityAlertRules AiObservabilityAlertRule[]
   knowledgeBindings AssistantKnowledgeBinding[]
   mcpBindings       AssistantMcpBinding[]
   ragQueries        RagQuery[]
@@ -1605,4 +1611,54 @@ model AiUsageLimitPolicy {
   @@index([createdAt])
   @@index([tenantId, status, deletedAt])
   @@map("ai_usage_limit_policies")
+}
+
+model AiObservabilityAlertRule {
+  id                String     @id @default(uuid()) @db.Uuid
+  tenantId          String     @map("tenant_id") @db.Uuid
+  workspaceId       String?    @map("workspace_id") @db.Uuid
+  assistantId       String?    @map("assistant_id") @db.Uuid
+  userId            String?    @map("user_id") @db.Uuid
+  scopeType         String     @map("scope_type") @db.VarChar(20)
+  metric            String     @db.VarChar(40)
+  period            String     @db.VarChar(20)
+  operator          String     @db.VarChar(10)
+  thresholdValue    BigInt     @map("threshold_value")
+  severity          String     @db.VarChar(20)
+  status            String     @default("active") @db.VarChar(20)
+  source            String?    @db.VarChar(40)
+  operation         String?    @db.VarChar(80)
+  provider          String?    @db.VarChar(80)
+  modelName         String?    @map("model") @db.VarChar(160)
+  description       String?
+  metadata          Json?
+  cooldownMinutes   Int?       @map("cooldown_minutes")
+  createdByUserId   String?    @map("created_by_user_id") @db.Uuid
+  updatedByUserId   String?    @map("updated_by_user_id") @db.Uuid
+  createdAt         DateTime   @default(now()) @map("created_at")
+  updatedAt         DateTime   @updatedAt @map("updated_at")
+  deletedAt         DateTime?  @map("deleted_at")
+  tenant            Tenant     @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  workspace         Workspace? @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  assistant         Assistant? @relation(fields: [assistantId], references: [id], onDelete: Cascade)
+  user              User?      @relation("AiObservabilityAlertRuleScopedUser", fields: [userId], references: [id], onDelete: Cascade)
+  createdByUser     User?      @relation("AiObservabilityAlertRuleCreatedBy", fields: [createdByUserId], references: [id], onDelete: SetNull)
+  updatedByUser     User?      @relation("AiObservabilityAlertRuleUpdatedBy", fields: [updatedByUserId], references: [id], onDelete: SetNull)
+
+  @@index([tenantId])
+  @@index([workspaceId])
+  @@index([assistantId])
+  @@index([userId])
+  @@index([scopeType])
+  @@index([metric])
+  @@index([period])
+  @@index([operator])
+  @@index([severity])
+  @@index([status])
+  @@index([source])
+  @@index([operation])
+  @@index([provider, modelName])
+  @@index([createdAt])
+  @@index([tenantId, status, deletedAt])
+  @@map("ai_observability_alert_rules")
 }

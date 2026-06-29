@@ -1,6 +1,9 @@
+import type { AiObservabilityAlertEvaluation } from './ai-observability-alerts.types';
 import type { AiUsageLimitEvaluation } from './ai-usage-limits.types';
 import { sanitizeAiUsageMetadata } from './ai-observability.service';
 import type {
+  AiObservabilityAlertRuleDetailRecord,
+  AiObservabilityAlertRuleListRecord,
   AiUsageEventDetailRecord,
   AiUsageEventListRecord,
   AiUsageLimitPolicyRecord,
@@ -98,6 +101,44 @@ export function mapAiUsageLimitPolicy(policy: AiUsageLimitPolicyRecord) {
   };
 }
 
+function mapAlertRuleBase(rule: AiObservabilityAlertRuleListRecord) {
+  return {
+    id: rule.id,
+    workspaceId: rule.workspaceId,
+    assistantId: rule.assistantId,
+    userId: rule.userId,
+    scopeType: rule.scopeType,
+    metric: rule.metric,
+    period: rule.period,
+    operator: rule.operator,
+    thresholdValue: rule.thresholdValue.toString(),
+    severity: rule.severity,
+    status: rule.status,
+    source: rule.source,
+    operation: rule.operation,
+    provider: rule.provider,
+    model: rule.modelName,
+    description: rule.description,
+    cooldownMinutes: rule.cooldownMinutes,
+    createdByUserId: rule.createdByUserId,
+    updatedByUserId: rule.updatedByUserId,
+    createdAt: rule.createdAt.toISOString(),
+    updatedAt: rule.updatedAt.toISOString(),
+    deletedAt: iso(rule.deletedAt),
+  };
+}
+
+export function mapAiObservabilityAlertRuleList(rule: AiObservabilityAlertRuleListRecord) {
+  return mapAlertRuleBase(rule);
+}
+
+export function mapAiObservabilityAlertRuleDetail(rule: AiObservabilityAlertRuleDetailRecord) {
+  return {
+    ...mapAlertRuleBase(rule),
+    metadata: sanitizeAiUsageMetadata(rule.metadata) ?? null,
+  };
+}
+
 export function mapAiUsageLimitEvaluation(evaluation: AiUsageLimitEvaluation) {
   return {
     allowed: evaluation.allowed,
@@ -117,6 +158,31 @@ export function mapAiUsageLimitEvaluation(evaluation: AiUsageLimitEvaluation) {
       remainingValue: decision.remainingValue.toString(),
       wouldExceed: decision.wouldExceed,
       wouldWarn: decision.wouldWarn,
+      reason: decision.reason,
+      windowStart: decision.windowStart.toISOString(),
+      windowEnd: decision.windowEnd.toISOString(),
+    })),
+  };
+}
+
+export function mapAiObservabilityAlertEvaluation(evaluation: AiObservabilityAlertEvaluation) {
+  return {
+    status: evaluation.status,
+    triggered: evaluation.triggered,
+    maxSeverity: evaluation.maxSeverity,
+    decisions: evaluation.decisions.map((decision) => ({
+      ruleId: decision.ruleId,
+      scopeType: decision.scopeType,
+      metric: decision.metric,
+      period: decision.period,
+      operator: decision.operator,
+      severity: decision.severity,
+      status: decision.status,
+      thresholdValue: decision.thresholdValue.toString(),
+      currentValue: decision.currentValue.toString(),
+      projectedValue: decision.projectedValue.toString(),
+      evaluatedValue: decision.evaluatedValue.toString(),
+      triggered: decision.triggered,
       reason: decision.reason,
       windowStart: decision.windowStart.toISOString(),
       windowEnd: decision.windowEnd.toISOString(),

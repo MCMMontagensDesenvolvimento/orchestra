@@ -4,6 +4,8 @@ import { idParamsSchema } from '../../shared/validation/pagination';
 import { validateBody, validateParams, validateQuery } from '../../shared/validation/validate';
 import { aiObservabilityAdminController } from './ai-observability-admin.controller';
 import {
+  aiObservabilityAlertEvaluationSchema,
+  aiObservabilityAlertRulesQuerySchema,
   aiUsageEventsQuerySchema,
   aiUsageLimitEvaluationSchema,
   aiUsageLimitPoliciesQuerySchema,
@@ -59,6 +61,24 @@ export function createAiObservabilityRouter() {
       void aiObservabilityAdminController.getLimitPolicy(req, res).catch(next);
     },
   );
+  router.get(
+    '/alert-rules',
+    requireAuth,
+    readPermission,
+    validateQuery(aiObservabilityAlertRulesQuerySchema),
+    (req, res, next) => {
+      void aiObservabilityAdminController.listAlertRules(req, res).catch(next);
+    },
+  );
+  router.get(
+    '/alert-rules/:id',
+    requireAuth,
+    readPermission,
+    validateParams(idParamsSchema),
+    (req, res, next) => {
+      void aiObservabilityAdminController.getAlertRule(req, res).catch(next);
+    },
+  );
   router.post(
     '/limit-evaluation',
     requireAuth,
@@ -66,6 +86,15 @@ export function createAiObservabilityRouter() {
     validateBody(aiUsageLimitEvaluationSchema),
     (req, res, next) => {
       void aiObservabilityAdminController.evaluateLimits(req, res).catch(next);
+    },
+  );
+  router.post(
+    '/alert-evaluation',
+    requireAuth,
+    readPermission,
+    validateBody(aiObservabilityAlertEvaluationSchema),
+    (req, res, next) => {
+      void aiObservabilityAdminController.evaluateAlerts(req, res).catch(next);
     },
   );
 
