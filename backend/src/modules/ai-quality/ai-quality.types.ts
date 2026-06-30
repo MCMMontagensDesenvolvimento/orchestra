@@ -37,6 +37,12 @@ export type AiQualityAssertionType = typeof aiQualityAssertionTypeValues[number]
 export const aiQualityAssertionSeverityValues = ['required', 'warning'] as const;
 export type AiQualityAssertionSeverity = typeof aiQualityAssertionSeverityValues[number];
 
+export interface AiQualityRequestContext {
+  requestId: string;
+  ipAddress?: string;
+  userAgent?: string;
+}
+
 interface AiQualityAssertionBase {
   type: AiQualityAssertionType;
   severity?: AiQualityAssertionSeverity;

@@ -61,7 +61,7 @@ const adminUser: AuthenticatedUser = {
     role: 'admin',
   }],
   roles: ['admin_platform'],
-  permissions: ['audit.read'],
+  permissions: ['ai.quality.read', 'ai.quality.write'],
 };
 
 function sessionCookie(user: AuthenticatedUser = adminUser) {
@@ -221,13 +221,13 @@ describe('AI quality deterministic evaluation runs admin API', () => {
     });
   });
 
-  it('requires authentication and audit.read permission', async () => {
+  it('requires authentication and ai.quality.write while read is insufficient', async () => {
     const app = createApp();
     await request(app).post('/api/v1/ai-quality/evaluation-runs/deterministic').send({}).expect(401);
 
     await request(app)
       .post('/api/v1/ai-quality/evaluation-runs/deterministic')
-      .set('Cookie', sessionCookie({ ...adminUser, permissions: ['assistants.read'] }))
+      .set('Cookie', sessionCookie({ ...adminUser, permissions: ['ai.quality.read'] }))
       .send({ testSetId, caseOutputs: [] })
       .expect(403);
 
@@ -421,6 +421,12 @@ describe('AI quality deterministic evaluation runs admin API', () => {
     ]));
     expect(JSON.stringify(response.body)).not.toContain(candidateOutput);
     expect(JSON.stringify(response.body)).not.toContain('TAIL_FULL_OUTPUT_SHOULD_NOT_PERSIST');
+    expect(mocks.recordAuditEvent).toHaveBeenCalledWith(expect.objectContaining({
+      action: 'ai_quality_evaluation_run_created',
+      entityId: runId,
+      metadata: expect.objectContaining({ totalCases: 2, scoreBasisPoints: 10000 }),
+    }));
+    expect(JSON.stringify(mocks.recordAuditEvent.mock.calls)).not.toContain(candidateOutput);
     expect(fetchSpy).not.toHaveBeenCalled();
     fetchSpy.mockRestore();
   });

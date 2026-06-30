@@ -18,6 +18,13 @@ const migration13b = readFileSync(
   ),
   'utf8',
 );
+const migration13c = readFileSync(
+  path.join(
+    backendRoot,
+    'prisma/migrations/20260630190000_phase_13c_ai_quality_rbac_crud/migration.sql',
+  ),
+  'utf8',
+);
 
 function modelBlock(modelName: string) {
   const match = schema.match(new RegExp(`model ${modelName} \\{[\\s\\S]*?\\n\\}`));
@@ -104,5 +111,20 @@ describe('AI quality evaluation foundation migration 13A', () => {
     expect(migration13b).not.toMatch(/candidate_output"\s+TEXT|provider_api_key|api_key|secret_ref|headers|cookie|raw_documents/i);
     expect(migration13b).not.toMatch(/^(?:DROP|TRUNCATE|DELETE|UPDATE)\b/m);
     expect(migration13b).not.toMatch(/scheduler|worker|queue|cron|dashboard|billing|webhook/i);
+  });
+
+  it('adds governed test case authorship with non-destructive nullable foreign keys', () => {
+    const testCase = modelBlock('AiQualityTestCase');
+    expect(testCase).toContain('createdByUserId');
+    expect(testCase).toContain('updatedByUserId');
+    expect(migration13c).toContain('ADD COLUMN "created_by_user_id" UUID');
+    expect(migration13c).toContain('ADD COLUMN "updated_by_user_id" UUID');
+    expect(migration13c).toContain('REFERENCES "users"("id")');
+    expect(migration13c).toContain('ON DELETE SET NULL');
+    expect(migration13c).toContain('ai_quality_test_cases_created_by_user_id_idx');
+    expect(migration13c).toContain('ai_quality_test_cases_updated_by_user_id_idx');
+    expect(migration13c).not.toMatch(/^(?:DROP|TRUNCATE|DELETE|UPDATE)\b/m);
+    expect(migration13c).not.toMatch(/provider_api_key|api_key|secret_ref|headers|cookie|raw_documents/i);
+    expect(migration13c).not.toMatch(/scheduler|worker|queue|cron|dashboard|billing|webhook/i);
   });
 });

@@ -71,6 +71,8 @@ const permissions = [
   'mcp.tools.manage',
   'mcp.policies.manage',
   'audit.read',
+  'ai.quality.read',
+  'ai.quality.write',
   'settings.read',
   'settings.manage',
 ];
@@ -129,6 +131,8 @@ const rolePermissionKeys: Record<string, string[]> = {
     'mcp.tools.read',
     'mcp.tools.manage',
     'audit.read',
+    'ai.quality.read',
+    'ai.quality.write',
     'settings.read',
   ],
   editor: [
@@ -156,6 +160,8 @@ const rolePermissionKeys: Record<string, string[]> = {
     'mcp.read',
     'mcp.bind',
     'mcp.tools.read',
+    'ai.quality.read',
+    'ai.quality.write',
     'settings.read',
   ],
   consumer: [
@@ -184,6 +190,7 @@ const rolePermissionKeys: Record<string, string[]> = {
     'mcp.read',
     'mcp.tools.read',
     'audit.read',
+    'ai.quality.read',
     'settings.read',
   ],
 };

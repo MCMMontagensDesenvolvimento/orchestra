@@ -54,7 +54,7 @@ const adminUser: AuthenticatedUser = {
     role: 'admin',
   }],
   roles: ['admin_platform'],
-  permissions: ['audit.read'],
+  permissions: ['ai.quality.read'],
 };
 
 function sessionCookie(user: AuthenticatedUser = adminUser) {
@@ -186,13 +186,13 @@ describe('AI quality admin API', () => {
     mocks.repository.isAssistantAccessible.mockResolvedValue(true);
   });
 
-  it('requires authentication and audit.read permission', async () => {
+  it('requires authentication and ai.quality.read while audit.read is insufficient', async () => {
     const app = createApp();
     await request(app).get('/api/v1/ai-quality/test-sets').expect(401);
 
     await request(app)
       .get('/api/v1/ai-quality/test-sets')
-      .set('Cookie', sessionCookie({ ...adminUser, permissions: ['assistants.read'] }))
+      .set('Cookie', sessionCookie({ ...adminUser, permissions: ['audit.read'] }))
       .expect(403);
 
     expect(mocks.repository.listTestSets).not.toHaveBeenCalled();
@@ -434,7 +434,7 @@ describe('AI quality admin API', () => {
       .expect(404);
   });
 
-  it('does not register CRUD routes for test sets, cases, runs or results', async () => {
+  it('does not register physical delete, put, or write routes for runs/results', async () => {
     const app = createApp();
     const cookie = sessionCookie();
     const paths = [
@@ -448,10 +448,13 @@ describe('AI quality admin API', () => {
     ];
 
     for (const path of paths) {
-      await request(app).post(path).set('Cookie', cookie).send({}).expect(404);
       await request(app).put(path).set('Cookie', cookie).send({}).expect(404);
-      await request(app).patch(path).set('Cookie', cookie).send({}).expect(404);
       await request(app).delete(path).set('Cookie', cookie).expect(404);
+    }
+
+    for (const path of paths.slice(4)) {
+      await request(app).post(path).set('Cookie', cookie).send({}).expect(404);
+      await request(app).patch(path).set('Cookie', cookie).send({}).expect(404);
     }
   });
 });
