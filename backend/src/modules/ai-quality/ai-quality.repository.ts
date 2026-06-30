@@ -2,11 +2,15 @@ import { Prisma, PrismaClient } from '@prisma/client';
 import { prisma as defaultPrisma } from '../../infrastructure/prisma/prisma.service';
 import { paginationOffset } from '../../shared/validation/pagination';
 import type {
+  AiQualityCreateTestCaseBody,
+  AiQualityCreateTestSetBody,
   AiQualityEvaluationResultsQuery,
   AiQualityEvaluationRunResultsQuery,
   AiQualityEvaluationRunsQuery,
   AiQualityTestCasesQuery,
   AiQualityTestSetsQuery,
+  AiQualityUpdateTestCaseBody,
+  AiQualityUpdateTestSetBody,
 } from './ai-quality.schema';
 import type { AiQualityRunSummary } from './ai-quality.types';
 
@@ -43,6 +47,8 @@ const testCaseListSelect = {
   tags: true,
   status: true,
   sortOrder: true,
+  createdByUserId: true,
+  updatedByUserId: true,
   createdAt: true,
   updatedAt: true,
   deletedAt: true,
@@ -388,6 +394,12 @@ function jsonOrUndefined(value: unknown) {
   return value as Prisma.InputJsonValue;
 }
 
+function nullableJson(value: unknown) {
+  if (typeof value === 'undefined') return undefined;
+  if (value === null) return Prisma.DbNull;
+  return value as Prisma.InputJsonValue;
+}
+
 export class AiQualityRepository {
   constructor(private readonly db: AiQualityPrisma = defaultPrisma) {}
 
@@ -403,6 +415,47 @@ export class AiQualityRepository {
       this.db.aiQualityTestSet.count({ where }),
     ]);
     return { data, total };
+  }
+
+  createTestSet(input: AiQualityCreateTestSetBody & { tenantId: string; userId: string }) {
+    return this.db.aiQualityTestSet.create({
+      data: {
+        tenantId: input.tenantId,
+        workspaceId: input.workspaceId ?? null,
+        assistantId: input.assistantId ?? null,
+        name: input.name,
+        description: input.description ?? null,
+        status: input.status,
+        metadata: nullableJson(input.metadata),
+        createdByUserId: input.userId,
+        updatedByUserId: input.userId,
+      },
+      select: testSetDetailSelect,
+    });
+  }
+
+  updateTestSet(id: string, input: AiQualityUpdateTestSetBody & { userId: string }) {
+    return this.db.aiQualityTestSet.update({
+      where: { id },
+      data: {
+        ...(typeof input.workspaceId !== 'undefined' ? { workspaceId: input.workspaceId } : {}),
+        ...(typeof input.assistantId !== 'undefined' ? { assistantId: input.assistantId } : {}),
+        ...(typeof input.name !== 'undefined' ? { name: input.name } : {}),
+        ...(typeof input.description !== 'undefined' ? { description: input.description } : {}),
+        ...(typeof input.status !== 'undefined' ? { status: input.status } : {}),
+        ...(typeof input.metadata !== 'undefined' ? { metadata: nullableJson(input.metadata) } : {}),
+        updatedByUserId: input.userId,
+      },
+      select: testSetDetailSelect,
+    });
+  }
+
+  setTestSetStatus(id: string, status: 'active' | 'archived', userId: string) {
+    return this.db.aiQualityTestSet.update({
+      where: { id },
+      data: { status, updatedByUserId: userId },
+      select: testSetDetailSelect,
+    });
   }
 
   findTestSet(id: string, tenantId: string, workspaceIds: string[]) {
@@ -448,6 +501,58 @@ export class AiQualityRepository {
       this.db.aiQualityTestCase.count({ where }),
     ]);
     return { data, total };
+  }
+
+  createTestCase(input: AiQualityCreateTestCaseBody & { tenantId: string; userId: string }) {
+    return this.db.aiQualityTestCase.create({
+      data: {
+        tenantId: input.tenantId,
+        testSetId: input.testSetId,
+        assistantId: input.assistantId ?? null,
+        name: input.name,
+        description: input.description ?? null,
+        inputText: input.inputText,
+        expectedOutput: input.expectedOutput ?? null,
+        assertions: input.assertions as Prisma.InputJsonValue,
+        tags: nullableJson(input.tags),
+        status: input.status,
+        sortOrder: input.sortOrder,
+        metadata: nullableJson(input.metadata),
+        createdByUserId: input.userId,
+        updatedByUserId: input.userId,
+      },
+      select: testCaseDetailSelect,
+    });
+  }
+
+  updateTestCase(id: string, input: AiQualityUpdateTestCaseBody & { userId: string }) {
+    return this.db.aiQualityTestCase.update({
+      where: { id },
+      data: {
+        ...(typeof input.assistantId !== 'undefined' ? { assistantId: input.assistantId } : {}),
+        ...(typeof input.name !== 'undefined' ? { name: input.name } : {}),
+        ...(typeof input.description !== 'undefined' ? { description: input.description } : {}),
+        ...(typeof input.inputText !== 'undefined' ? { inputText: input.inputText } : {}),
+        ...(typeof input.expectedOutput !== 'undefined' ? { expectedOutput: input.expectedOutput } : {}),
+        ...(typeof input.assertions !== 'undefined'
+          ? { assertions: input.assertions as Prisma.InputJsonValue }
+          : {}),
+        ...(typeof input.tags !== 'undefined' ? { tags: nullableJson(input.tags) } : {}),
+        ...(typeof input.status !== 'undefined' ? { status: input.status } : {}),
+        ...(typeof input.sortOrder !== 'undefined' ? { sortOrder: input.sortOrder } : {}),
+        ...(typeof input.metadata !== 'undefined' ? { metadata: nullableJson(input.metadata) } : {}),
+        updatedByUserId: input.userId,
+      },
+      select: testCaseDetailSelect,
+    });
+  }
+
+  setTestCaseStatus(id: string, status: 'active' | 'archived', userId: string) {
+    return this.db.aiQualityTestCase.update({
+      where: { id },
+      data: { status, updatedByUserId: userId },
+      select: testCaseDetailSelect,
+    });
   }
 
   findTestCase(

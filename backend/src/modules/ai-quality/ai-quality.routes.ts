@@ -5,17 +5,32 @@ import { validateBody, validateParams, validateQuery } from '../../shared/valida
 import { aiQualityController } from './ai-quality.controller';
 import {
   aiQualityCreateDeterministicRunSchema,
+  aiQualityCreateTestCaseSchema,
+  aiQualityCreateTestSetSchema,
   aiQualityEvaluateTestCaseSchema,
   aiQualityEvaluationRunResultsQuerySchema,
   aiQualityEvaluationResultsQuerySchema,
   aiQualityEvaluationRunsQuerySchema,
   aiQualityTestCasesQuerySchema,
   aiQualityTestSetsQuerySchema,
+  aiQualityUpdateTestCaseSchema,
+  aiQualityUpdateTestSetSchema,
 } from './ai-quality.schema';
 
 export function createAiQualityRouter() {
   const router = Router();
-  const readPermission = requirePermission('audit.read');
+  const readPermission = requirePermission('ai.quality.read');
+  const writePermission = requirePermission('ai.quality.write');
+
+  router.post(
+    '/test-sets',
+    requireAuth,
+    writePermission,
+    validateBody(aiQualityCreateTestSetSchema),
+    (req, res, next) => {
+      void aiQualityController.createTestSet(req, res).catch(next);
+    },
+  );
 
   router.get(
     '/test-sets',
@@ -34,6 +49,35 @@ export function createAiQualityRouter() {
     validateParams(idParamsSchema),
     (req, res, next) => {
       void aiQualityController.getTestSet(req, res).catch(next);
+    },
+  );
+
+  router.patch(
+    '/test-sets/:id',
+    requireAuth,
+    writePermission,
+    validateParams(idParamsSchema),
+    validateBody(aiQualityUpdateTestSetSchema),
+    (req, res, next) => {
+      void aiQualityController.updateTestSet(req, res).catch(next);
+    },
+  );
+
+  router.post('/test-sets/:id/archive', requireAuth, writePermission, validateParams(idParamsSchema), (req, res, next) => {
+    void aiQualityController.archiveTestSet(req, res).catch(next);
+  });
+
+  router.post('/test-sets/:id/restore', requireAuth, writePermission, validateParams(idParamsSchema), (req, res, next) => {
+    void aiQualityController.restoreTestSet(req, res).catch(next);
+  });
+
+  router.post(
+    '/test-cases',
+    requireAuth,
+    writePermission,
+    validateBody(aiQualityCreateTestCaseSchema),
+    (req, res, next) => {
+      void aiQualityController.createTestCase(req, res).catch(next);
     },
   );
 
@@ -57,6 +101,25 @@ export function createAiQualityRouter() {
     },
   );
 
+  router.patch(
+    '/test-cases/:id',
+    requireAuth,
+    writePermission,
+    validateParams(idParamsSchema),
+    validateBody(aiQualityUpdateTestCaseSchema),
+    (req, res, next) => {
+      void aiQualityController.updateTestCase(req, res).catch(next);
+    },
+  );
+
+  router.post('/test-cases/:id/archive', requireAuth, writePermission, validateParams(idParamsSchema), (req, res, next) => {
+    void aiQualityController.archiveTestCase(req, res).catch(next);
+  });
+
+  router.post('/test-cases/:id/restore', requireAuth, writePermission, validateParams(idParamsSchema), (req, res, next) => {
+    void aiQualityController.restoreTestCase(req, res).catch(next);
+  });
+
   router.get(
     '/evaluation-runs',
     requireAuth,
@@ -70,7 +133,7 @@ export function createAiQualityRouter() {
   router.post(
     '/evaluation-runs/deterministic',
     requireAuth,
-    readPermission,
+    writePermission,
     validateBody(aiQualityCreateDeterministicRunSchema),
     (req, res, next) => {
       void aiQualityController.createDeterministicEvaluationRun(req, res).catch(next);

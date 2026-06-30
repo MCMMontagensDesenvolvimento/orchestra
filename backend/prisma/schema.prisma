@@ -172,6 +172,8 @@ model User {
   updatedAiObservabilityAlertRules  AiObservabilityAlertRule[]    @relation("AiObservabilityAlertRuleUpdatedBy")
   createdAiQualityTestSets          AiQualityTestSet[]            @relation("AiQualityTestSetCreatedBy")
   updatedAiQualityTestSets          AiQualityTestSet[]            @relation("AiQualityTestSetUpdatedBy")
+  createdAiQualityTestCases         AiQualityTestCase[]           @relation("AiQualityTestCaseCreatedBy")
+  updatedAiQualityTestCases         AiQualityTestCase[]           @relation("AiQualityTestCaseUpdatedBy")
   createdAiQualityEvaluationRuns    AiQualityEvaluationRun[]      @relation("AiQualityEvaluationRunCreatedBy")
 
   @@index([tenantId])
@@ -1720,17 +1722,23 @@ model AiQualityTestCase {
   status            String                      @default("active") @db.VarChar(20)
   sortOrder         Int                         @default(0) @map("sort_order")
   metadata          Json?
+  createdByUserId   String?                     @map("created_by_user_id") @db.Uuid
+  updatedByUserId   String?                     @map("updated_by_user_id") @db.Uuid
   createdAt         DateTime                    @default(now()) @map("created_at")
   updatedAt         DateTime                    @updatedAt @map("updated_at")
   deletedAt         DateTime?                   @map("deleted_at")
   tenant            Tenant                      @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   testSet           AiQualityTestSet            @relation(fields: [testSetId], references: [id], onDelete: Cascade)
   assistant         Assistant?                  @relation(fields: [assistantId], references: [id], onDelete: SetNull)
+  createdByUser     User?                       @relation("AiQualityTestCaseCreatedBy", fields: [createdByUserId], references: [id], onDelete: SetNull)
+  updatedByUser     User?                       @relation("AiQualityTestCaseUpdatedBy", fields: [updatedByUserId], references: [id], onDelete: SetNull)
   evaluationResults AiQualityEvaluationResult[]
 
   @@index([tenantId])
   @@index([testSetId])
   @@index([assistantId])
+  @@index([createdByUserId])
+  @@index([updatedByUserId])
   @@index([status])
   @@index([sortOrder])
   @@index([createdAt])

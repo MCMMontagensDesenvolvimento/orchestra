@@ -59,6 +59,8 @@ function mapTestCaseBase(testCase: AiQualityTestCaseListRecord) {
     tags: sanitizeAiQualityMetadata(testCase.tags) ?? null,
     status: testCase.status,
     sortOrder: testCase.sortOrder,
+    createdByUserId: testCase.createdByUserId,
+    updatedByUserId: testCase.updatedByUserId,
     createdAt: testCase.createdAt.toISOString(),
     updatedAt: testCase.updatedAt.toISOString(),
     deletedAt: iso(testCase.deletedAt),

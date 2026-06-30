@@ -92,6 +92,57 @@ export const aiQualityAssertionSchema = z.discriminatedUnion('type', [
 
 export const aiQualityAssertionsSchema = z.array(aiQualityAssertionSchema).min(1).max(50);
 
+const nullableUuid = z.string().uuid().nullable();
+const nameSchema = z.string().trim().min(1).max(160);
+const descriptionSchema = z.string().trim().max(2000).nullable();
+const tagsSchema = z.array(z.string().trim().min(1).max(80)).max(25)
+  .refine((tags) => new Set(tags).size === tags.length, 'tags duplicadas nao sao permitidas.');
+
+export const aiQualityCreateTestSetSchema = z.object({
+  workspaceId: nullableUuid.optional(),
+  assistantId: nullableUuid.optional(),
+  name: nameSchema,
+  description: descriptionSchema.optional(),
+  status: z.enum(aiQualityLifecycleStatusValues).default('active'),
+  metadata: aiQualitySafeMetadataSchema.nullable().optional(),
+}).strict();
+
+export const aiQualityUpdateTestSetSchema = z.object({
+  workspaceId: nullableUuid.optional(),
+  assistantId: nullableUuid.optional(),
+  name: nameSchema.optional(),
+  description: descriptionSchema.optional(),
+  status: z.enum(aiQualityLifecycleStatusValues).optional(),
+  metadata: aiQualitySafeMetadataSchema.nullable().optional(),
+}).strict().refine((value) => Object.keys(value).length > 0, 'ao menos um campo deve ser informado.');
+
+export const aiQualityCreateTestCaseSchema = z.object({
+  testSetId: z.string().uuid(),
+  assistantId: nullableUuid.optional(),
+  name: nameSchema,
+  description: descriptionSchema.optional(),
+  inputText: z.string().trim().min(1).max(8000),
+  expectedOutput: z.string().max(8000).nullable().optional(),
+  assertions: aiQualityAssertionsSchema,
+  tags: tagsSchema.nullable().optional(),
+  status: z.enum(aiQualityLifecycleStatusValues).default('active'),
+  sortOrder: z.number().int().min(0).max(1_000_000).default(0),
+  metadata: aiQualitySafeMetadataSchema.nullable().optional(),
+}).strict();
+
+export const aiQualityUpdateTestCaseSchema = z.object({
+  assistantId: nullableUuid.optional(),
+  name: nameSchema.optional(),
+  description: descriptionSchema.optional(),
+  inputText: z.string().trim().min(1).max(8000).optional(),
+  expectedOutput: z.string().max(8000).nullable().optional(),
+  assertions: aiQualityAssertionsSchema.optional(),
+  tags: tagsSchema.nullable().optional(),
+  status: z.enum(aiQualityLifecycleStatusValues).optional(),
+  sortOrder: z.number().int().min(0).max(1_000_000).optional(),
+  metadata: aiQualitySafeMetadataSchema.nullable().optional(),
+}).strict().refine((value) => Object.keys(value).length > 0, 'ao menos um campo deve ser informado.');
+
 export const aiQualityTestSetsQuerySchema = z.object({
   ...pageFields,
   workspaceId: optionalUuid,
@@ -220,3 +271,7 @@ export type AiQualityEvaluationResultsQuery = z.infer<typeof aiQualityEvaluation
 export type AiQualityEvaluationRunResultsQuery = z.infer<typeof aiQualityEvaluationRunResultsQuerySchema>;
 export type AiQualityEvaluateTestCaseBody = z.infer<typeof aiQualityEvaluateTestCaseSchema>;
 export type AiQualityCreateDeterministicRunBody = z.infer<typeof aiQualityCreateDeterministicRunSchema>;
+export type AiQualityCreateTestSetBody = z.infer<typeof aiQualityCreateTestSetSchema>;
+export type AiQualityUpdateTestSetBody = z.infer<typeof aiQualityUpdateTestSetSchema>;
+export type AiQualityCreateTestCaseBody = z.infer<typeof aiQualityCreateTestCaseSchema>;
+export type AiQualityUpdateTestCaseBody = z.infer<typeof aiQualityUpdateTestCaseSchema>;
