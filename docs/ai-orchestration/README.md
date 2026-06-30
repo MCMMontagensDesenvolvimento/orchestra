@@ -12,6 +12,8 @@ A Fase 12D adiciona fundacao backend de alertas governados de observabilidade co
 
 A Fase 12E consolida o fechamento documental da Sprint 16/Fase 12 com linha do tempo, arquitetura entregue, modelos/tabelas, API admin, seguranca, validacoes, riscos remanescentes e backlog recomendado, sem alterar codigo ou criar feature nova.
 
+A Fase 13A adiciona a fundacao backend de avaliacao simples de qualidade de assistentes de IA com test sets, test cases, evaluation runs/results, evaluator deterministico por assertions e API admin read-only/simulacao, sem LLM real, LLM-as-judge, runtime, MCP remoto, Agno produtivo, worker, scheduler, dashboard ou billing.
+
 Esta pasta deve concentrar a estrategia de IA do Orchestra.
 
 Topicos esperados:
@@ -46,6 +48,7 @@ Topicos esperados:
 - `ORCHESTRA_OBSERVABILIDADE_ADMIN_READ_API_12C.md`: API backend admin read-only para eventos, summary, policies e simulacao de limites com `audit.read`, DTOs sanitizados e scoping explicito.
 - `ORCHESTRA_OBSERVABILIDADE_ALERTAS_GOVERNADOS_12D.md`: fundacao backend para regras de alerta governadas, metricas sobre `AiRunUsageEvent`, evaluator read-only e API admin sem delivery real, scheduler ou CRUD.
 - `ORCHESTRA_OBSERVABILIDADE_SPRINT_16_FECHAMENTO_12E.md`: fechamento e handoff tecnico da Sprint 16/Fase 12, consolidando arquitetura, validacoes, riscos e backlog recomendado para observabilidade de IA.
+- `ORCHESTRA_QUALITY_EVALUATION_FOUNDATION_13A.md`: fundacao backend de avaliacao de qualidade com test sets/cases, runs/results, evaluator deterministico por assertions e API admin protegida por `audit.read`.
 - `ORCHESTRA_AGNO_READINESS_HANDOFF.md`: stub/readiness Agno, flags e caminho para integracao futura.
 - `ORCHESTRA_RUNTIME_ADAPTER_HANDOFF.md`: boundary de runtime, resumos RAG/MCP e eventos normalizados.
 - `ORCHESTRA_AGNO_LOCAL_RUNTIME_HANDOFF.md`: handoff da integracao HTTP local Agno-compatible e mock runtime.

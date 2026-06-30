@@ -22,6 +22,7 @@ import { createMcpRouter } from '../modules/mcp/mcp.routes';
 import { createRuntimeRouter } from '../modules/runtime/runtime.routes';
 import { createLlmRouter } from '../modules/llm/llm.routes';
 import { createAiObservabilityRouter } from '../modules/ai-observability/ai-observability.routes';
+import { createAiQualityRouter } from '../modules/ai-quality/ai-quality.routes';
 
 export type AppDependencies = HealthDependencies;
 
@@ -47,6 +48,7 @@ export function registerRoutes(app: express.Express, dependencies: AppDependenci
   api.use('/runtime', createRuntimeRouter());
   api.use('/llm', createLlmRouter());
   api.use('/ai-observability', createAiObservabilityRouter());
+  api.use('/ai-quality', createAiQualityRouter());
   api.use('/audit-logs', createAuditRouter());
   api.use('/settings', createSettingsRouter());
 
