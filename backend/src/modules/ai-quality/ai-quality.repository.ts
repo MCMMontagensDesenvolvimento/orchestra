@@ -3,14 +3,16 @@ import { prisma as defaultPrisma } from '../../infrastructure/prisma/prisma.serv
 import { paginationOffset } from '../../shared/validation/pagination';
 import type {
   AiQualityEvaluationResultsQuery,
+  AiQualityEvaluationRunResultsQuery,
   AiQualityEvaluationRunsQuery,
   AiQualityTestCasesQuery,
   AiQualityTestSetsQuery,
 } from './ai-quality.schema';
+import type { AiQualityRunSummary } from './ai-quality.types';
 
 type AiQualityPrisma = Pick<
   PrismaClient,
-  'aiQualityTestSet' | 'aiQualityTestCase' | 'aiQualityEvaluationRun' | 'aiQualityEvaluationResult' | 'assistant'
+  'aiQualityTestSet' | 'aiQualityTestCase' | 'aiQualityEvaluationRun' | 'aiQualityEvaluationResult' | 'assistant' | '$transaction'
 >;
 
 const testSetListSelect = {
@@ -88,6 +90,10 @@ const evaluationRunListSelect = {
 const evaluationRunDetailSelect = {
   ...evaluationRunListSelect,
   metadata: true,
+  assistantSnapshotHash: true,
+  assistantSnapshotSummary: true,
+  testSetSnapshotHash: true,
+  testSetSnapshotSummary: true,
 } satisfies Prisma.AiQualityEvaluationRunSelect;
 
 const evaluationResultSelect = {
@@ -105,6 +111,60 @@ const evaluationResultSelect = {
   createdAt: true,
   updatedAt: true,
 } satisfies Prisma.AiQualityEvaluationResultSelect;
+
+const assistantSnapshotSelect = {
+  id: true,
+  workspaceId: true,
+  name: true,
+  status: true,
+} satisfies Prisma.AssistantSelect;
+
+const testSetForRunSelect = {
+  id: true,
+  workspaceId: true,
+  assistantId: true,
+  name: true,
+  status: true,
+  deletedAt: true,
+  assistant: {
+    select: assistantSnapshotSelect,
+  },
+  testCases: {
+    where: {
+      status: 'active',
+      deletedAt: null,
+    },
+    orderBy: [
+      { sortOrder: 'asc' },
+      { createdAt: 'asc' },
+    ],
+    select: {
+      id: true,
+      assistantId: true,
+      name: true,
+      inputText: true,
+      assertions: true,
+      status: true,
+      sortOrder: true,
+      deletedAt: true,
+    },
+  },
+  _count: {
+    select: {
+      testCases: true,
+    },
+  },
+} satisfies Prisma.AiQualityTestSetSelect;
+
+const evaluationRunWithResultsSelect = {
+  ...evaluationRunDetailSelect,
+  results: {
+    select: evaluationResultSelect,
+    orderBy: {
+      createdAt: 'asc',
+    },
+  },
+} satisfies Prisma.AiQualityEvaluationRunSelect;
 
 export type AiQualityTestSetListRecord = Prisma.AiQualityTestSetGetPayload<{
   select: typeof testSetListSelect;
@@ -127,6 +187,44 @@ export type AiQualityEvaluationRunDetailRecord = Prisma.AiQualityEvaluationRunGe
 export type AiQualityEvaluationResultRecord = Prisma.AiQualityEvaluationResultGetPayload<{
   select: typeof evaluationResultSelect;
 }>;
+export type AiQualityAssistantSnapshotRecord = Prisma.AssistantGetPayload<{
+  select: typeof assistantSnapshotSelect;
+}>;
+export type AiQualityTestSetForRunRecord = Prisma.AiQualityTestSetGetPayload<{
+  select: typeof testSetForRunSelect;
+}>;
+export type AiQualityEvaluationRunWithResultsRecord = Prisma.AiQualityEvaluationRunGetPayload<{
+  select: typeof evaluationRunWithResultsSelect;
+}>;
+
+export interface AiQualityCreateEvaluationRunResultInput {
+  testCaseId: string;
+  status: string;
+  scoreBasisPoints: number;
+  assertionResults: unknown;
+  candidateOutputHash: string | null;
+  candidateOutputExcerpt: string | null;
+  errorCode?: string | null;
+  errorMessageHash?: string | null;
+  metadata?: unknown;
+}
+
+export interface AiQualityCreateEvaluationRunInput {
+  tenantId: string;
+  workspaceId?: string | null;
+  assistantId?: string | null;
+  testSetId: string;
+  summary: AiQualityRunSummary;
+  startedAt: Date;
+  completedAt: Date;
+  metadata?: unknown;
+  createdByUserId?: string | null;
+  assistantSnapshotHash?: string | null;
+  assistantSnapshotSummary?: unknown;
+  testSetSnapshotHash: string;
+  testSetSnapshotSummary: unknown;
+  results: AiQualityCreateEvaluationRunResultInput[];
+}
 
 function visibleWorkspaceIds(queryWorkspaceId: string | undefined, workspaceIds: string[]) {
   return queryWorkspaceId ? [queryWorkspaceId] : workspaceIds;
@@ -285,6 +383,11 @@ function orderBy<TSort extends string>(sort: TSort) {
   return { [sortBy]: sortDirection };
 }
 
+function jsonOrUndefined(value: unknown) {
+  if (value === null || typeof value === 'undefined') return undefined;
+  return value as Prisma.InputJsonValue;
+}
+
 export class AiQualityRepository {
   constructor(private readonly db: AiQualityPrisma = defaultPrisma) {}
 
@@ -311,6 +414,25 @@ export class AiQualityRepository {
         AND: [testSetScopeWhere(tenantId, workspaceIds)],
       },
       select: testSetDetailSelect,
+    });
+  }
+
+  findActiveTestSetForRun(
+    id: string,
+    tenantId: string,
+    workspaceIds: string[],
+    workspaceId?: string,
+  ) {
+    const scopedWorkspaceIds = visibleWorkspaceIds(workspaceId, workspaceIds);
+    return this.db.aiQualityTestSet.findFirst({
+      where: {
+        id,
+        tenantId,
+        status: 'active',
+        deletedAt: null,
+        AND: [testSetScopeWhere(tenantId, scopedWorkspaceIds)],
+      },
+      select: testSetForRunSelect,
     });
   }
 
@@ -386,6 +508,62 @@ export class AiQualityRepository {
     return { data, total };
   }
 
+  async listEvaluationResultsForRun(
+    tenantId: string,
+    workspaceIds: string[],
+    runId: string,
+    query: AiQualityEvaluationRunResultsQuery,
+  ) {
+    return this.listEvaluationResults(tenantId, workspaceIds, {
+      ...query,
+      runId,
+    });
+  }
+
+  async createEvaluationRunWithResults(input: AiQualityCreateEvaluationRunInput) {
+    const run = await this.db.$transaction((tx) => tx.aiQualityEvaluationRun.create({
+      data: {
+        tenantId: input.tenantId,
+        workspaceId: input.workspaceId ?? null,
+        assistantId: input.assistantId ?? null,
+        testSetId: input.testSetId,
+        status: 'completed',
+        mode: 'deterministic',
+        startedAt: input.startedAt,
+        completedAt: input.completedAt,
+        totalCases: input.summary.totalCases,
+        passedCases: input.summary.passedCases,
+        failedCases: input.summary.failedCases,
+        warningCases: input.summary.warningCases,
+        errorCases: input.summary.errorCases,
+        skippedCases: input.summary.skippedCases,
+        scoreBasisPoints: input.summary.scoreBasisPoints,
+        metadata: jsonOrUndefined(input.metadata),
+        createdByUserId: input.createdByUserId ?? null,
+        assistantSnapshotHash: input.assistantSnapshotHash ?? null,
+        assistantSnapshotSummary: jsonOrUndefined(input.assistantSnapshotSummary),
+        testSetSnapshotHash: input.testSetSnapshotHash,
+        testSetSnapshotSummary: jsonOrUndefined(input.testSetSnapshotSummary),
+        results: {
+          create: input.results.map((result) => ({
+            tenantId: input.tenantId,
+            testCaseId: result.testCaseId,
+            status: result.status,
+            scoreBasisPoints: result.scoreBasisPoints,
+            assertionResults: result.assertionResults as Prisma.InputJsonValue,
+            candidateOutputHash: result.candidateOutputHash,
+            candidateOutputExcerpt: result.candidateOutputExcerpt,
+            errorCode: result.errorCode ?? null,
+            errorMessageHash: result.errorMessageHash ?? null,
+            metadata: jsonOrUndefined(result.metadata),
+          })),
+        },
+      },
+      select: evaluationRunWithResultsSelect,
+    }));
+    return run;
+  }
+
   async isAssistantAccessible(input: {
     tenantId: string;
     workspaceIds: string[];
@@ -406,6 +584,26 @@ export class AiQualityRepository {
       select: { id: true },
     });
     return Boolean(assistant);
+  }
+
+  async findAssistantForRun(input: {
+    tenantId: string;
+    workspaceIds: string[];
+    workspaceId?: string;
+    assistantId: string;
+  }) {
+    const scopedWorkspaceIds = visibleWorkspaceIds(input.workspaceId, input.workspaceIds);
+    if (scopedWorkspaceIds.length === 0) return null;
+
+    return this.db.assistant.findFirst({
+      where: {
+        id: input.assistantId,
+        tenantId: input.tenantId,
+        workspaceId: { in: scopedWorkspaceIds },
+        deletedAt: null,
+      },
+      select: assistantSnapshotSelect,
+    });
   }
 }
 

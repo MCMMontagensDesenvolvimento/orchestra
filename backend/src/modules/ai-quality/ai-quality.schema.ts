@@ -157,6 +157,17 @@ export const aiQualityEvaluationResultsQuerySchema = z.object({
   ]).default('createdAt:desc'),
 }).strict();
 
+export const aiQualityEvaluationRunResultsQuerySchema = z.object({
+  ...pageFields,
+  status: z.enum(aiQualityEvaluationResultStatusValues).optional(),
+  sort: z.enum([
+    'createdAt:desc',
+    'createdAt:asc',
+    'updatedAt:desc',
+    'updatedAt:asc',
+  ]).default('createdAt:desc'),
+}).strict();
+
 export const aiQualityEvaluateTestCaseSchema = z.object({
   workspaceId: optionalUuid,
   assistantId: z.string().uuid().nullable().optional(),
@@ -175,8 +186,37 @@ export const aiQualityEvaluateTestCaseSchema = z.object({
   }
 });
 
+const aiQualityCaseOutputSchema = z.object({
+  testCaseId: z.string().uuid(),
+  candidateOutput: z.string().max(16000),
+  metadata: aiQualitySafeMetadataSchema.nullable().optional(),
+}).strict();
+
+export const aiQualityCreateDeterministicRunSchema = z.object({
+  workspaceId: optionalUuid,
+  assistantId: z.string().uuid().nullable().optional(),
+  testSetId: z.string().uuid(),
+  mode: z.literal('deterministic').default('deterministic'),
+  metadata: aiQualitySafeMetadataSchema.nullable().optional(),
+  caseOutputs: z.array(aiQualityCaseOutputSchema).min(1).max(100),
+}).strict().superRefine((value, ctx) => {
+  const seen = new Set<string>();
+  value.caseOutputs.forEach((caseOutput, index) => {
+    if (seen.has(caseOutput.testCaseId)) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['caseOutputs', index, 'testCaseId'],
+        message: 'testCaseId duplicado em caseOutputs.',
+      });
+    }
+    seen.add(caseOutput.testCaseId);
+  });
+});
+
 export type AiQualityTestSetsQuery = z.infer<typeof aiQualityTestSetsQuerySchema>;
 export type AiQualityTestCasesQuery = z.infer<typeof aiQualityTestCasesQuerySchema>;
 export type AiQualityEvaluationRunsQuery = z.infer<typeof aiQualityEvaluationRunsQuerySchema>;
 export type AiQualityEvaluationResultsQuery = z.infer<typeof aiQualityEvaluationResultsQuerySchema>;
+export type AiQualityEvaluationRunResultsQuery = z.infer<typeof aiQualityEvaluationRunResultsQuerySchema>;
 export type AiQualityEvaluateTestCaseBody = z.infer<typeof aiQualityEvaluateTestCaseSchema>;
+export type AiQualityCreateDeterministicRunBody = z.infer<typeof aiQualityCreateDeterministicRunSchema>;

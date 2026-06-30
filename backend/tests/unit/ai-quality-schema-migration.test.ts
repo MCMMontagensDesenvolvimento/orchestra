@@ -11,6 +11,13 @@ const migration = readFileSync(
   ),
   'utf8',
 );
+const migration13b = readFileSync(
+  path.join(
+    backendRoot,
+    'prisma/migrations/20260630160000_phase_13b_ai_quality_evaluation_runs_snapshots/migration.sql',
+  ),
+  'utf8',
+);
 
 function modelBlock(modelName: string) {
   const match = schema.match(new RegExp(`model ${modelName} \\{[\\s\\S]*?\\n\\}`));
@@ -73,5 +80,29 @@ describe('AI quality evaluation foundation migration 13A', () => {
   it('does not introduce scheduler, worker, dashboard, billing or provider execution surfaces', () => {
     expect(migration).not.toMatch(/scheduler|worker|queue|cron|dashboard|invoice|billing|webhook|slack|teams|whatsapp|provider_api_key|api_key|secret_ref|headers|cookie|raw_documents/i);
     expect(schema).not.toMatch(/AiQuality.*(Scheduler|Worker|Queue|Dashboard|Billing)/);
+  });
+
+  it('adds 13B snapshot fields to evaluation runs with SHA-256 checks', () => {
+    const run = modelBlock('AiQualityEvaluationRun');
+    expect(run).toContain('assistantSnapshotHash');
+    expect(run).toContain('assistantSnapshotSummary Json?');
+    expect(run).toContain('testSetSnapshotHash');
+    expect(run).toContain('testSetSnapshotSummary Json?');
+    expect(migration13b).toContain('ADD COLUMN "assistant_snapshot_hash" CHAR(64)');
+    expect(migration13b).toContain('ADD COLUMN "assistant_snapshot_summary" JSONB');
+    expect(migration13b).toContain('ADD COLUMN "test_set_snapshot_hash" CHAR(64)');
+    expect(migration13b).toContain('ADD COLUMN "test_set_snapshot_summary" JSONB');
+    expect(migration13b).toContain('"assistant_snapshot_hash" ~ \'^[a-f0-9]{64}$\'');
+    expect(migration13b).toContain('"test_set_snapshot_hash" ~ \'^[a-f0-9]{64}$\'');
+  });
+
+  it('keeps 13B migration non-destructive and avoids full candidate output storage', () => {
+    const result = modelBlock('AiQualityEvaluationResult');
+    expect(result).toContain('candidateOutputHash');
+    expect(result).toContain('candidateOutputExcerpt');
+    expect(result).not.toMatch(/\bcandidateOutput\s+String\b/);
+    expect(migration13b).not.toMatch(/candidate_output"\s+TEXT|provider_api_key|api_key|secret_ref|headers|cookie|raw_documents/i);
+    expect(migration13b).not.toMatch(/^(?:DROP|TRUNCATE|DELETE|UPDATE)\b/m);
+    expect(migration13b).not.toMatch(/scheduler|worker|queue|cron|dashboard|billing|webhook/i);
   });
 });
