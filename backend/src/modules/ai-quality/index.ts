@@ -3,6 +3,7 @@ export * from './ai-quality-evaluator.service';
 export * from './ai-quality.mapper';
 export * from './ai-quality.repository';
 export * from './ai-quality.routes';
+export * from './ai-quality-runner.service';
 export * from './ai-quality.sanitizer';
 export * from './ai-quality.schema';
 export * from './ai-quality.service';

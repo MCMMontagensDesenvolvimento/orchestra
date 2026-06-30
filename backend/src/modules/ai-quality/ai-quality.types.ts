@@ -98,3 +98,32 @@ export interface AiQualityTestCaseEvaluation {
   candidateOutputExcerpt: string | null;
   evaluatedAt: Date;
 }
+
+export interface AiQualityRunSummary {
+  totalCases: number;
+  passedCases: number;
+  failedCases: number;
+  warningCases: number;
+  errorCases: number;
+  skippedCases: number;
+  scoreBasisPoints: number | null;
+}
+
+export interface AiQualityAssistantSnapshotSummary {
+  assistantId: string;
+  name?: string;
+  status?: string;
+  workspaceId?: string;
+  capturedAt: string;
+}
+
+export interface AiQualityTestSetSnapshotSummary {
+  testSetId: string;
+  name: string;
+  status: string;
+  workspaceId: string | null;
+  assistantId: string | null;
+  testCaseCount: number;
+  activeTestCaseCount: number;
+  capturedAt: string;
+}

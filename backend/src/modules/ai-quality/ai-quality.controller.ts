@@ -32,6 +32,11 @@ export const aiQualityController = {
     return res.status(200).json({ data, requestId: req.requestId });
   },
 
+  async getEvaluationRunResults(req: Request, res: Response) {
+    const result = await aiQualityService.getEvaluationRunResults(req.params.id, req.user!, req.query as any);
+    return res.status(200).json({ ...result, requestId: req.requestId });
+  },
+
   async listEvaluationResults(req: Request, res: Response) {
     const result = await aiQualityService.listEvaluationResults(req.user!, req.query as any);
     return res.status(200).json({ ...result, requestId: req.requestId });
@@ -40,5 +45,10 @@ export const aiQualityController = {
   async evaluateTestCase(req: Request, res: Response) {
     const data = await aiQualityService.evaluateTestCase(req.user!, req.body);
     return res.status(200).json({ data, requestId: req.requestId });
+  },
+
+  async createDeterministicEvaluationRun(req: Request, res: Response) {
+    const data = await aiQualityService.createDeterministicEvaluationRun(req.user!, req.body);
+    return res.status(201).json({ data, requestId: req.requestId });
   },
 };

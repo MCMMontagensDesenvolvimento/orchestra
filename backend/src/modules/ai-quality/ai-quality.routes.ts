@@ -4,7 +4,9 @@ import { idParamsSchema } from '../../shared/validation/pagination';
 import { validateBody, validateParams, validateQuery } from '../../shared/validation/validate';
 import { aiQualityController } from './ai-quality.controller';
 import {
+  aiQualityCreateDeterministicRunSchema,
   aiQualityEvaluateTestCaseSchema,
+  aiQualityEvaluationRunResultsQuerySchema,
   aiQualityEvaluationResultsQuerySchema,
   aiQualityEvaluationRunsQuerySchema,
   aiQualityTestCasesQuerySchema,
@@ -62,6 +64,27 @@ export function createAiQualityRouter() {
     validateQuery(aiQualityEvaluationRunsQuerySchema),
     (req, res, next) => {
       void aiQualityController.listEvaluationRuns(req, res).catch(next);
+    },
+  );
+
+  router.post(
+    '/evaluation-runs/deterministic',
+    requireAuth,
+    readPermission,
+    validateBody(aiQualityCreateDeterministicRunSchema),
+    (req, res, next) => {
+      void aiQualityController.createDeterministicEvaluationRun(req, res).catch(next);
+    },
+  );
+
+  router.get(
+    '/evaluation-runs/:id/results',
+    requireAuth,
+    readPermission,
+    validateParams(idParamsSchema),
+    validateQuery(aiQualityEvaluationRunResultsQuerySchema),
+    (req, res, next) => {
+      void aiQualityController.getEvaluationRunResults(req, res).catch(next);
     },
   );
 

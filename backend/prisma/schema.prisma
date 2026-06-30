@@ -1756,6 +1756,10 @@ model AiQualityEvaluationRun {
   skippedCases          Int                         @default(0) @map("skipped_cases")
   scoreBasisPoints      Int?                        @map("score_basis_points")
   metadata              Json?
+  assistantSnapshotHash String?                     @map("assistant_snapshot_hash") @db.Char(64)
+  assistantSnapshotSummary Json?                    @map("assistant_snapshot_summary")
+  testSetSnapshotHash   String?                     @map("test_set_snapshot_hash") @db.Char(64)
+  testSetSnapshotSummary Json?                      @map("test_set_snapshot_summary")
   createdByUserId       String?                     @map("created_by_user_id") @db.Uuid
   createdAt             DateTime                    @default(now()) @map("created_at")
   updatedAt             DateTime                    @updatedAt @map("updated_at")

@@ -4,6 +4,7 @@ import type {
   AiQualityEvaluationResultRecord,
   AiQualityEvaluationRunDetailRecord,
   AiQualityEvaluationRunListRecord,
+  AiQualityEvaluationRunWithResultsRecord,
   AiQualityTestCaseDetailRecord,
   AiQualityTestCaseListRecord,
   AiQualityTestSetDetailRecord,
@@ -117,6 +118,10 @@ export function mapAiQualityEvaluationRunDetail(run: AiQualityEvaluationRunDetai
   return {
     ...mapEvaluationRunBase(run),
     metadata: sanitizeAiQualityMetadata(run.metadata) ?? null,
+    assistantSnapshotHash: run.assistantSnapshotHash,
+    assistantSnapshotSummary: sanitizeAiQualityMetadata(run.assistantSnapshotSummary) ?? null,
+    testSetSnapshotHash: run.testSetSnapshotHash,
+    testSetSnapshotSummary: sanitizeAiQualityMetadata(run.testSetSnapshotSummary) ?? null,
   };
 }
 
@@ -148,5 +153,12 @@ export function mapAiQualityTestCaseEvaluation(evaluation: AiQualityTestCaseEval
     candidateOutputHash: evaluation.candidateOutputHash,
     candidateOutputExcerpt: evaluation.candidateOutputExcerpt,
     evaluatedAt: evaluation.evaluatedAt.toISOString(),
+  };
+}
+
+export function mapAiQualityEvaluationRunWithResults(run: AiQualityEvaluationRunWithResultsRecord) {
+  return {
+    ...mapAiQualityEvaluationRunDetail(run),
+    results: run.results.map(mapAiQualityEvaluationResult),
   };
 }
