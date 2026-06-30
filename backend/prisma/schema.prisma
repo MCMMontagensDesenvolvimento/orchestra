@@ -48,6 +48,10 @@ model Tenant {
   aiRunUsageEvents           AiRunUsageEvent[]
   aiUsageLimitPolicies       AiUsageLimitPolicy[]
   aiObservabilityAlertRules   AiObservabilityAlertRule[]
+  aiQualityTestSets          AiQualityTestSet[]
+  aiQualityTestCases         AiQualityTestCase[]
+  aiQualityEvaluationRuns    AiQualityEvaluationRun[]
+  aiQualityEvaluationResults AiQualityEvaluationResult[]
   agentRuns                  AgentRun[]
   agentRunEvents             AgentRunEvent[]
   ragQueries                 RagQuery[]
@@ -107,6 +111,8 @@ model Workspace {
   aiRunUsageEvents           AiRunUsageEvent[]
   aiUsageLimitPolicies       AiUsageLimitPolicy[]
   aiObservabilityAlertRules   AiObservabilityAlertRule[]
+  aiQualityTestSets          AiQualityTestSet[]
+  aiQualityEvaluationRuns    AiQualityEvaluationRun[]
 
   @@unique([tenantId, slug])
   @@index([tenantId])
@@ -164,6 +170,9 @@ model User {
   scopedAiObservabilityAlertRules   AiObservabilityAlertRule[]    @relation("AiObservabilityAlertRuleScopedUser")
   createdAiObservabilityAlertRules  AiObservabilityAlertRule[]    @relation("AiObservabilityAlertRuleCreatedBy")
   updatedAiObservabilityAlertRules  AiObservabilityAlertRule[]    @relation("AiObservabilityAlertRuleUpdatedBy")
+  createdAiQualityTestSets          AiQualityTestSet[]            @relation("AiQualityTestSetCreatedBy")
+  updatedAiQualityTestSets          AiQualityTestSet[]            @relation("AiQualityTestSetUpdatedBy")
+  createdAiQualityEvaluationRuns    AiQualityEvaluationRun[]      @relation("AiQualityEvaluationRunCreatedBy")
 
   @@index([tenantId])
   @@map("users")
@@ -350,6 +359,9 @@ model Assistant {
   aiRunUsageEvents  AiRunUsageEvent[]
   aiUsageLimitPolicies AiUsageLimitPolicy[]
   aiObservabilityAlertRules AiObservabilityAlertRule[]
+  aiQualityTestSets AiQualityTestSet[]
+  aiQualityTestCases AiQualityTestCase[]
+  aiQualityEvaluationRuns AiQualityEvaluationRun[]
   knowledgeBindings AssistantKnowledgeBinding[]
   mcpBindings       AssistantMcpBinding[]
   ragQueries        RagQuery[]
@@ -1661,4 +1673,135 @@ model AiObservabilityAlertRule {
   @@index([createdAt])
   @@index([tenantId, status, deletedAt])
   @@map("ai_observability_alert_rules")
+}
+
+model AiQualityTestSet {
+  id                     String                   @id @default(uuid()) @db.Uuid
+  tenantId               String                   @map("tenant_id") @db.Uuid
+  workspaceId            String?                  @map("workspace_id") @db.Uuid
+  assistantId            String?                  @map("assistant_id") @db.Uuid
+  name                   String                   @db.VarChar(160)
+  description            String?
+  status                 String                   @default("active") @db.VarChar(20)
+  metadata               Json?
+  createdByUserId        String?                  @map("created_by_user_id") @db.Uuid
+  updatedByUserId        String?                  @map("updated_by_user_id") @db.Uuid
+  createdAt              DateTime                 @default(now()) @map("created_at")
+  updatedAt              DateTime                 @updatedAt @map("updated_at")
+  deletedAt              DateTime?                @map("deleted_at")
+  tenant                 Tenant                   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  workspace              Workspace?               @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  assistant              Assistant?               @relation(fields: [assistantId], references: [id], onDelete: Cascade)
+  createdByUser          User?                    @relation("AiQualityTestSetCreatedBy", fields: [createdByUserId], references: [id], onDelete: SetNull)
+  updatedByUser          User?                    @relation("AiQualityTestSetUpdatedBy", fields: [updatedByUserId], references: [id], onDelete: SetNull)
+  testCases              AiQualityTestCase[]
+  evaluationRuns         AiQualityEvaluationRun[]
+
+  @@index([tenantId])
+  @@index([workspaceId])
+  @@index([assistantId])
+  @@index([status])
+  @@index([createdAt])
+  @@index([tenantId, status, deletedAt])
+  @@map("ai_quality_test_sets")
+}
+
+model AiQualityTestCase {
+  id                String                      @id @default(uuid()) @db.Uuid
+  tenantId          String                      @map("tenant_id") @db.Uuid
+  testSetId         String                      @map("test_set_id") @db.Uuid
+  assistantId       String?                     @map("assistant_id") @db.Uuid
+  name              String                      @db.VarChar(160)
+  description       String?
+  inputText         String                      @map("input_text")
+  expectedOutput    String?                     @map("expected_output")
+  assertions        Json
+  tags              Json?
+  status            String                      @default("active") @db.VarChar(20)
+  sortOrder         Int                         @default(0) @map("sort_order")
+  metadata          Json?
+  createdAt         DateTime                    @default(now()) @map("created_at")
+  updatedAt         DateTime                    @updatedAt @map("updated_at")
+  deletedAt         DateTime?                   @map("deleted_at")
+  tenant            Tenant                      @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  testSet           AiQualityTestSet            @relation(fields: [testSetId], references: [id], onDelete: Cascade)
+  assistant         Assistant?                  @relation(fields: [assistantId], references: [id], onDelete: SetNull)
+  evaluationResults AiQualityEvaluationResult[]
+
+  @@index([tenantId])
+  @@index([testSetId])
+  @@index([assistantId])
+  @@index([status])
+  @@index([sortOrder])
+  @@index([createdAt])
+  @@index([tenantId, status, deletedAt])
+  @@map("ai_quality_test_cases")
+}
+
+model AiQualityEvaluationRun {
+  id                    String                      @id @default(uuid()) @db.Uuid
+  tenantId              String                      @map("tenant_id") @db.Uuid
+  workspaceId           String?                     @map("workspace_id") @db.Uuid
+  assistantId           String?                     @map("assistant_id") @db.Uuid
+  testSetId             String                      @map("test_set_id") @db.Uuid
+  status                String                      @default("created") @db.VarChar(20)
+  mode                  String                      @default("deterministic") @db.VarChar(40)
+  startedAt             DateTime?                   @map("started_at")
+  completedAt           DateTime?                   @map("completed_at")
+  totalCases            Int                         @default(0) @map("total_cases")
+  passedCases           Int                         @default(0) @map("passed_cases")
+  failedCases           Int                         @default(0) @map("failed_cases")
+  warningCases          Int                         @default(0) @map("warning_cases")
+  errorCases            Int                         @default(0) @map("error_cases")
+  skippedCases          Int                         @default(0) @map("skipped_cases")
+  scoreBasisPoints      Int?                        @map("score_basis_points")
+  metadata              Json?
+  createdByUserId       String?                     @map("created_by_user_id") @db.Uuid
+  createdAt             DateTime                    @default(now()) @map("created_at")
+  updatedAt             DateTime                    @updatedAt @map("updated_at")
+  deletedAt             DateTime?                   @map("deleted_at")
+  tenant                Tenant                      @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  workspace             Workspace?                  @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  assistant             Assistant?                  @relation(fields: [assistantId], references: [id], onDelete: SetNull)
+  testSet               AiQualityTestSet            @relation(fields: [testSetId], references: [id], onDelete: Cascade)
+  createdByUser         User?                       @relation("AiQualityEvaluationRunCreatedBy", fields: [createdByUserId], references: [id], onDelete: SetNull)
+  results               AiQualityEvaluationResult[]
+
+  @@index([tenantId])
+  @@index([workspaceId])
+  @@index([assistantId])
+  @@index([testSetId])
+  @@index([status])
+  @@index([mode])
+  @@index([createdAt])
+  @@index([tenantId, status, deletedAt])
+  @@map("ai_quality_evaluation_runs")
+}
+
+model AiQualityEvaluationResult {
+  id                     String                 @id @default(uuid()) @db.Uuid
+  tenantId               String                 @map("tenant_id") @db.Uuid
+  runId                  String                 @map("run_id") @db.Uuid
+  testCaseId             String                 @map("test_case_id") @db.Uuid
+  status                 String                 @db.VarChar(20)
+  scoreBasisPoints       Int                    @map("score_basis_points")
+  assertionResults       Json                   @map("assertion_results")
+  candidateOutputHash    String?                @map("candidate_output_hash") @db.Char(64)
+  candidateOutputExcerpt String?                @map("candidate_output_excerpt") @db.VarChar(512)
+  errorCode              String?                @map("error_code") @db.VarChar(120)
+  errorMessageHash       String?                @map("error_message_hash") @db.Char(64)
+  metadata               Json?
+  createdAt              DateTime               @default(now()) @map("created_at")
+  updatedAt              DateTime               @updatedAt @map("updated_at")
+  tenant                 Tenant                 @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  run                    AiQualityEvaluationRun @relation(fields: [runId], references: [id], onDelete: Cascade)
+  testCase               AiQualityTestCase      @relation(fields: [testCaseId], references: [id], onDelete: Cascade)
+
+  @@unique([runId, testCaseId])
+  @@index([tenantId])
+  @@index([runId])
+  @@index([testCaseId])
+  @@index([status])
+  @@index([createdAt])
+  @@map("ai_quality_evaluation_results")
 }
