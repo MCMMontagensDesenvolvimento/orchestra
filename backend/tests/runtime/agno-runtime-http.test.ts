@@ -272,7 +272,16 @@ describe('Agno-compatible minimal runtime HTTP service', () => {
       .expect(200);
 
     expect(response.body.output.metadata.ragSourceCount).toBe(1);
-    expect(JSON.stringify(response.body.events)).toContain('rag.context.attached');
+    expect(response.body.events).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        type: 'rag.context.attached',
+        metadata: expect.objectContaining({
+          ragSourceCount: 1,
+          ragMode: 'resolved_context',
+        }),
+      }),
+    ]));
+    expect(JSON.stringify(response.body.events)).not.toContain('Governed excerpt already resolved by Orquestra.');
   });
 
   it('rejects rawDocuments in RAG payloads', async () => {

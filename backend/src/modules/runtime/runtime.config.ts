@@ -33,5 +33,9 @@ export function getRuntimeConfig(): RuntimeFeatureConfig {
     agnoHttpBaseUrlConfigured: Boolean(env.AGNO_RUNTIME_HTTP_BASE_URL),
     agnoHttpSecurityKeyConfigured: Boolean(env.AGNO_RUNTIME_HTTP_SECURITY_KEY),
     agnoHttpTimeoutMs: env.AGNO_RUNTIME_HTTP_TIMEOUT_MS,
+    agnoHttpRagContextEnabled: env.AGNO_RUNTIME_HTTP_RAG_CONTEXT_ENABLED,
+    agnoHttpMaxRagSources: env.AGNO_RUNTIME_HTTP_MAX_RAG_SOURCES,
+    agnoHttpMaxRagExcerptChars: env.AGNO_RUNTIME_HTTP_MAX_RAG_EXCERPT_CHARS,
+    agnoHttpMaxRagContextChars: env.AGNO_RUNTIME_HTTP_MAX_RAG_CONTEXT_CHARS,
   };
 }

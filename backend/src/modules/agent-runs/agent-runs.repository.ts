@@ -118,6 +118,8 @@ export const agentRunsRepository = {
           select: {
             id: true,
             label: true,
+            documentId: true,
+            chunkId: true,
             sourceUri: true,
             document: {
               select: {

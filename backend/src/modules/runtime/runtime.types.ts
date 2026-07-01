@@ -89,6 +89,10 @@ export interface RuntimeFeatureConfig {
   agnoHttpBaseUrlConfigured: boolean;
   agnoHttpSecurityKeyConfigured: boolean;
   agnoHttpTimeoutMs: number;
+  agnoHttpRagContextEnabled: boolean;
+  agnoHttpMaxRagSources: number;
+  agnoHttpMaxRagExcerptChars: number;
+  agnoHttpMaxRagContextChars: number;
 }
 
 export interface RuntimeRagSummary {
@@ -101,8 +105,11 @@ export interface RuntimeRagSummary {
     id: string;
     label: string;
     sourceUri?: string | null;
+    documentId?: string | null;
+    chunkId?: string | null;
     documentTitle?: string | null;
     excerpt?: string | null;
+    score?: number | null;
   }>;
 }
 

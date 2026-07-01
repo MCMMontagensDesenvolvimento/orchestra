@@ -28,6 +28,8 @@ A Fase 14C adiciona o adapter backend `agno_http`, client HTTP server-to-server 
 
 A Fase 14D conecta o endpoint real de `AgentRun` ao provider `agno_http` via runtime registry, preservando o default local, validacao dos contratos V1, fail-closed, eventos/metadata sanitizados e isolamento completo do frontend, sem provider externo, RAG/MCP real ou migration.
 
+A Fase 14E adiciona RAG governado no runtime Agno HTTP, enviando ao `agno_http` somente `rag.mode=resolved_context` com fontes ja resolvidas, sanitizadas e limitadas pelo Orquestra, atras de flag desligada por padrao e sem retrieval livre no runtime.
+
 Esta pasta deve concentrar a estrategia de IA do Orchestra.
 
 Topicos esperados:
@@ -73,6 +75,7 @@ Topicos esperados:
 - `ORCHESTRA_AGNO_RUNTIME_HTTP_MINIMO_14B.md`: servico HTTP minimo Agno-compatible com health, capabilities, execute sandbox, erros normalizados, smoke local e handoff para a 14C.
 - `ORCHESTRA_BACKEND_AGNO_RUNTIME_ADAPTER_14C.md`: adapter backend `agno_http`, client HTTP server-to-server, builder de AssistantRuntimeSpecV1, fail-closed, flags/envs e handoff para chat real futuro.
 - `ORCHESTRA_CHAT_AGNO_RUNTIME_14D.md`: fluxo real de AgentRun pelo `agno_http`, contratos V1, fail-closed, output/eventos sanitizados, modelo dinamico e fronteira backend-only.
+- `ORCHESTRA_RAG_GOVERNADO_AGNO_RUNTIME_14E.md`: contexto RAG governado no `agno_http` como `resolved_context`, com flags, limites, sanitizacao e ausencia de retrieval livre no runtime.
 - `ORCHESTRA_LLM_PROVIDER_INTEGRATION.md`: catalogo LLM, provider local deterministico, providers externos fail-closed e eventos LLM em AgentRun.
 - `ORCHESTRA_RAG_SEMANTICO_DISCOVERY.md`: discovery tecnico da Fase 10A para RAG semantico, embeddings e vector store.
 - `ORCHESTRA_VECTOR_STORE_EMBEDDING_CONTRACT.md`: decisao tecnica da Fase 10B para pgvector, tabela de embeddings, readiness semantico e fail-closed.

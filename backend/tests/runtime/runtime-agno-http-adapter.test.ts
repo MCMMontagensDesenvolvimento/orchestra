@@ -30,6 +30,10 @@ function applyBaseEnv(overrides: Record<string, string | undefined> = {}) {
     AGNO_RUNTIME_HTTP_BASE_URL: '',
     AGNO_RUNTIME_HTTP_TIMEOUT_MS: '15000',
     AGNO_RUNTIME_HTTP_SECURITY_KEY: '',
+    AGNO_RUNTIME_HTTP_RAG_CONTEXT_ENABLED: 'false',
+    AGNO_RUNTIME_HTTP_MAX_RAG_SOURCES: '5',
+    AGNO_RUNTIME_HTTP_MAX_RAG_EXCERPT_CHARS: '1200',
+    AGNO_RUNTIME_HTTP_MAX_RAG_CONTEXT_CHARS: '6000',
     ...overrides,
   };
 }
@@ -238,6 +242,75 @@ describe('Agno HTTP runtime adapter', () => {
     expect(body.assistantRuntimeSpec.rag.mode).toBe('none');
     expect(body.assistantRuntimeSpec.tools.mode).toBe('none');
     expect(JSON.stringify(calls[0].body)).not.toMatch(/Authorization|apiKey|secret|token|headers|baseUrl|providerApiKey|secretRef|rawPrompt|rawResponse/i);
+  });
+
+  it('sends governed RAG resolved_context to /execute when the 14E flag is enabled', async () => {
+    const adapter = await agnoHttpAdapter({
+      AGNO_RUNTIME_HTTP_ENABLED: 'true',
+      AGNO_RUNTIME_HTTP_BASE_URL: 'http://127.0.0.1:8091',
+      AGNO_RUNTIME_HTTP_RAG_CONTEXT_ENABLED: 'true',
+      AGNO_RUNTIME_HTTP_MAX_RAG_SOURCES: '2',
+      AGNO_RUNTIME_HTTP_MAX_RAG_EXCERPT_CHARS: '20',
+      AGNO_RUNTIME_HTTP_MAX_RAG_CONTEXT_CHARS: '40',
+    });
+    const calls: Array<{ url: string; body?: Record<string, unknown> }> = [];
+    vi.stubGlobal('fetch', vi.fn(async (url: string, init?: RequestInit) => {
+      calls.push({
+        url,
+        body: typeof init?.body === 'string' ? JSON.parse(init.body) as Record<string, unknown> : undefined,
+      });
+      return new Response(JSON.stringify(runtimeResponse()), { status: 200 });
+    }));
+
+    const result = await adapter.execute(context({
+      rag: {
+        ragReady: true,
+        knowledgeBindingsCount: 1,
+        chunkCount: 2,
+        sourceReferenceCount: 2,
+        lastRagQueryId: 'rag-adapter-1',
+        sourceReferences: [
+          {
+            id: 'source-1',
+            label: '[1]',
+            documentId: 'document-1',
+            chunkId: 'chunk-1',
+            sourceUri: 'internal://must-not-leak',
+            documentTitle: 'Governed Policy',
+            excerpt: '012345678901234567890123456789',
+            score: 0.8,
+          },
+          {
+            id: 'unsafe-source',
+            label: '[unsafe]',
+            documentTitle: 'Unsafe Source',
+            excerpt: 'Bearer must-not-leak',
+          },
+        ],
+      },
+    }));
+
+    const body = calls[0].body as { assistantRuntimeSpec: { rag: { mode: string; sources: Array<{ sourceId: string; excerpt: string }> } } };
+    expect(body.assistantRuntimeSpec.rag.mode).toBe('resolved_context');
+    expect(body.assistantRuntimeSpec.rag.sources).toEqual([
+      expect.objectContaining({
+        sourceId: 'source-1',
+        excerpt: '01234567890123456789',
+      }),
+    ]);
+    expect(JSON.stringify(calls[0].body)).not.toMatch(/must-not-leak|internal:\/\/|rawDocuments|Authorization|headers|secret|token|apiKey|baseUrl/i);
+    expect(result.events).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        type: 'rag_context_attached',
+        metadata: expect.objectContaining({
+          ragMode: 'resolved_context',
+          ragSourceCount: 1,
+          ragContextChars: 20,
+          sourceIds: ['source-1'],
+        }),
+      }),
+    ]));
+    expect(JSON.stringify(result.events)).not.toContain('01234567890123456789');
   });
 
   it('keeps security key in Authorization header and out of body', async () => {
