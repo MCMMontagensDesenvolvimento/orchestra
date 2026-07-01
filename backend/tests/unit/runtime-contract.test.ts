@@ -285,11 +285,51 @@ describe('runtime contract schemas', () => {
     expect(result.success).toBe(true);
   });
 
+
+  it('accepts governed descriptors with maxToolCalls zero for context only', () => {
+    const result = assistantRuntimeSpecV1Schema.safeParse(validSpec({
+      policy: {
+        ...validSpec().policy,
+        maxToolCalls: 0,
+      },
+      tools: {
+        enabled: true,
+        mode: 'gateway',
+        descriptors: [
+          {
+            toolId: 'tool-context-only',
+            name: 'lookup_policy',
+            riskLevel: 'low',
+            approvalRequired: false,
+            inputSchema: {
+              type: 'object',
+              properties: {
+                query: { type: 'string' },
+              },
+            },
+            metadata: {
+              source: 'orchestra_mcp_catalog',
+            },
+            gatewayRef: {
+              type: 'orchestra_tool_gateway',
+              action: 'mcp.tool.execute',
+            },
+          },
+        ],
+      },
+    }));
+
+    expect(result.success).toBe(true);
+  });
+
   it.each([
     { url: 'https://mcp.example.invalid' },
     { inputSchema: { headers: { Authorization: 'Bearer forbidden' } } },
     { inputSchema: { token: 'forbidden' } },
     { inputSchema: { baseUrl: 'https://mcp.example.invalid' } },
+    { inputSchema: { endpoint: 'https://mcp.example.invalid/execute' } },
+    { metadata: { rawToolManifest: 'full manifest' } },
+    { metadata: { rawMcpServerConfig: 'server config' } },
   ])('rejects unsafe tool descriptor payload %#', (descriptorPatch) => {
     const spec = validSpec() as unknown as Record<string, unknown>;
     spec.tools = {
@@ -327,6 +367,29 @@ describe('runtime contract schemas', () => {
         outputTokens: 24,
         totalTokens: 36,
       },
+    });
+
+    expect(result.success).toBe(true);
+  });
+
+
+  it('accepts the tool.descriptors.attached normalized runtime event', () => {
+    const result = runtimeExecuteResponseV1Schema.safeParse({
+      specVersion: runtimeExecuteResponseSpecVersionV1,
+      trace: {
+        traceId: 'trace-runtime-contract',
+        runId: 'run-runtime-contract',
+      },
+      status: 'succeeded',
+      events: [{
+        ...validEvent(),
+        type: 'tool.descriptors.attached',
+        metadata: {
+          toolDescriptorCount: 1,
+          toolMode: 'gateway',
+          maxToolCalls: 0,
+        },
+      }],
     });
 
     expect(result.success).toBe(true);

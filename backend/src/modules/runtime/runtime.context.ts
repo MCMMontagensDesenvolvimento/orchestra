@@ -138,6 +138,8 @@ function buildMcpSummary(summary: RuntimeSummary): RuntimeMcpSummary {
       serverId: binding.server.id,
       toolId: tool.id,
       name: tool.name,
+      description: previewText(tool.description, 1000) || null,
+      inputSchema: tool.inputSchema ?? null,
       riskLevel: tool.riskLevel,
       requiresApproval: requiresApprovalForTool,
       executionMode: binding.mode,

@@ -37,5 +37,9 @@ export function getRuntimeConfig(): RuntimeFeatureConfig {
     agnoHttpMaxRagSources: env.AGNO_RUNTIME_HTTP_MAX_RAG_SOURCES,
     agnoHttpMaxRagExcerptChars: env.AGNO_RUNTIME_HTTP_MAX_RAG_EXCERPT_CHARS,
     agnoHttpMaxRagContextChars: env.AGNO_RUNTIME_HTTP_MAX_RAG_CONTEXT_CHARS,
+    agnoHttpToolsEnabled: env.AGNO_RUNTIME_HTTP_TOOLS_ENABLED,
+    agnoHttpMaxToolDescriptors: env.AGNO_RUNTIME_HTTP_MAX_TOOL_DESCRIPTORS,
+    agnoHttpMaxToolCalls: env.AGNO_RUNTIME_HTTP_MAX_TOOL_CALLS,
+    agnoHttpMaxToolSchemaChars: env.AGNO_RUNTIME_HTTP_MAX_TOOL_SCHEMA_CHARS,
   };
 }

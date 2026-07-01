@@ -29,13 +29,18 @@ import type {
 const maxOutputPreviewChars = 800;
 const unsafeMetadataFragments = ['authorization', 'apikey', 'api_key', 'baseurl', 'content', 'credential', 'header', 'input', 'instruction', 'output', 'password', 'prompt', 'secret', 'text', 'token'];
 const allowedMetadataKeys = new Set([
+  'descriptorschemahashes',
   'inputtokens',
+  'maxtoolcalls',
   'outputmetadata',
   'outputtokens',
   'ragcontextchars',
   'ragmode',
   'ragsourcecount',
   'sourceids',
+  'tooldescriptorcount',
+  'toolids',
+  'toolmode',
   'totaltokens',
 ]);
 
@@ -134,12 +139,25 @@ export class AgnoHttpRuntimeAdapter implements RuntimeAdapter {
     }
 
     const ragSummary = summarizeRagSpec(requestBody.assistantRuntimeSpec.rag);
+    const toolSummary = summarizeToolSpec(
+      requestBody.assistantRuntimeSpec.tools,
+      requestBody.assistantRuntimeSpec.policy.maxToolCalls,
+    );
     if (ragSummary) {
       events.push({
         type: 'rag_context_attached',
         status: 'completed',
         message: 'Contexto RAG governado anexado a AssistantRuntimeSpecV1.',
         metadata: jsonMetadata(ragSummary),
+      });
+    }
+
+    if (toolSummary) {
+      events.push({
+        type: 'mcp_tools_attached',
+        status: 'completed',
+        message: 'Descriptors de tools governados anexados a AssistantRuntimeSpecV1.',
+        metadata: jsonMetadata(toolSummary),
       });
     }
 
@@ -153,6 +171,7 @@ export class AgnoHttpRuntimeAdapter implements RuntimeAdapter {
         timeoutMs: config.agnoHttpTimeoutMs,
         inputHash: context.input.hash,
         ...(ragSummary ?? {}),
+        ...(toolSummary ?? {}),
       },
     });
 
@@ -273,6 +292,7 @@ export class AgnoHttpRuntimeAdapter implements RuntimeAdapter {
 }
 
 type AssistantRuntimeRagSpec = ReturnType<typeof buildAssistantRuntimeSpecV1>['rag'];
+type AssistantRuntimeToolSpec = ReturnType<typeof buildAssistantRuntimeSpecV1>['tools'];
 
 function summarizeRagSpec(rag: AssistantRuntimeRagSpec): Record<string, unknown> | undefined {
   if (rag.mode !== 'resolved_context' || rag.sources.length === 0) return undefined;
@@ -282,6 +302,25 @@ function summarizeRagSpec(rag: AssistantRuntimeRagSpec): Record<string, unknown>
     ragContextChars: rag.sources.reduce((total, source) => total + source.excerpt.length, 0),
     sourceIds: rag.sources.map((source) => source.sourceId).slice(0, 10),
   };
+}
+
+function summarizeToolSpec(tools: AssistantRuntimeToolSpec, maxToolCalls: number): Record<string, unknown> | undefined {
+  if (tools.mode !== 'gateway' || tools.descriptors.length === 0) return undefined;
+
+  return {
+    toolMode: tools.mode,
+    toolDescriptorCount: tools.descriptors.length,
+    maxToolCalls,
+    toolIds: tools.descriptors.map((descriptor) => descriptor.toolId).slice(0, 20),
+    descriptorSchemaHashes: tools.descriptors
+      .map((descriptor) => descriptor.inputSchema ? stableHash(descriptor.inputSchema) : undefined)
+      .filter((hash): hash is string => Boolean(hash))
+      .slice(0, 20),
+  };
+}
+
+function stableHash(value: unknown) {
+  return createHash('sha256').update(JSON.stringify(value)).digest('hex');
 }
 
 function normalizeHealth(provider: RuntimeProvider, response: RuntimeHealthResponseV1): RuntimeHealth {
@@ -389,7 +428,7 @@ function normalizeContractEventType(type: RuntimeNormalizedEventV1['type']): Run
   if (type === 'model.requested') return 'model_started';
   if (type === 'model.completed') return 'model_completed';
   if (type === 'rag.context.attached') return 'rag_context_attached';
-  if (type === 'tool.requested' || type === 'tool.completed' || type === 'tool.blocked') return 'mcp_tools_attached';
+  if (type === 'tool.descriptors.attached' || type === 'tool.requested' || type === 'tool.completed' || type === 'tool.blocked') return 'mcp_tools_attached';
   if (type === 'run.completed') return 'run_completed';
   if (type === 'run.failed') return 'run_failed';
   return 'adapter_warning';

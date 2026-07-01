@@ -4,11 +4,12 @@ import {
   parseAssistantRuntimeSpecV1,
   sanitizeRuntimeContractMetadata,
 } from './runtime-contract.schema';
-import type { AssistantRuntimeSpecV1, RuntimeRagSource } from './runtime-contract.types';
+import type { AssistantRuntimeSpecV1, RuntimeRagSource, RuntimeToolDescriptor } from './runtime-contract.types';
 import { getRuntimeConfig } from './runtime.config';
 import type { RuntimeExecutionContext, RuntimeFeatureConfig } from './runtime.types';
 
 type RuntimeRagSourceReference = RuntimeExecutionContext['rag']['sourceReferences'][number];
+type RuntimeMcpToolReference = RuntimeExecutionContext['mcp']['allowedSandboxTools'][number];
 
 interface BuildAssistantRuntimeSpecInput {
   context: RuntimeExecutionContext;
@@ -23,6 +24,10 @@ const defaultMaxRagSources = 5;
 const defaultMaxRagExcerptChars = 1200;
 const defaultMaxRagContextChars = 6000;
 const contractMaxRagExcerptChars = 4000;
+const defaultMaxToolDescriptors = 8;
+const defaultMaxToolSchemaChars = 6000;
+const contractMaxToolDescriptionChars = 1000;
+const contractMaxToolSchemaChars = 8000;
 
 export function buildAssistantRuntimeSpecV1(input: BuildAssistantRuntimeSpecInput): AssistantRuntimeSpecV1 {
   const context = input.context;
@@ -38,6 +43,7 @@ export function buildAssistantRuntimeSpecV1(input: BuildAssistantRuntimeSpecInpu
   });
   const config = getRuntimeConfig();
   const governedRag = buildGovernedRagSpec(context.rag, config);
+  const governedTools = buildGovernedToolSpec(context.mcp, config);
 
   const spec: Record<string, unknown> = {
     specVersion: assistantRuntimeSpecVersionV1,
@@ -76,18 +82,14 @@ export function buildAssistantRuntimeSpecV1(input: BuildAssistantRuntimeSpecInpu
       executionMode: 'sync',
       streaming: false,
       timeoutMs: input.timeoutMs,
-      maxToolCalls: 0,
+      maxToolCalls: governedTools.maxToolCalls,
       maxRagResults: governedRag.maxRagResults,
       maxContextChars: governedRag.maxContextChars,
       failClosed: true,
     },
     instructions: instructions ? { system: instructions } : {},
     rag: governedRag.spec,
-    tools: {
-      enabled: false,
-      mode: 'none',
-      descriptors: [],
-    },
+    tools: governedTools.spec,
     observability: {
       usageEventEnabled: true,
       auditEnabled: true,
@@ -236,6 +238,131 @@ function buildGovernedRagSource(
   if (metadata) source.metadata = metadata as RuntimeRagSource['metadata'];
 
   return containsUnsafeRuntimeContractPayload(source) ? null : source;
+}
+
+
+interface GovernedToolSpec {
+  spec: AssistantRuntimeSpecV1['tools'];
+  maxToolCalls: number;
+}
+
+function disabledToolSpec(): GovernedToolSpec {
+  return {
+    spec: {
+      enabled: false,
+      mode: 'none',
+      descriptors: [],
+    },
+    maxToolCalls: 0,
+  };
+}
+
+function buildGovernedToolSpec(
+  mcp: RuntimeExecutionContext['mcp'],
+  config: RuntimeFeatureConfig,
+): GovernedToolSpec {
+  if (!config.agnoHttpToolsEnabled || mcp.allowedSandboxTools.length === 0) {
+    return disabledToolSpec();
+  }
+
+  const maxDescriptors = boundedPositiveInteger(
+    config.agnoHttpMaxToolDescriptors,
+    defaultMaxToolDescriptors,
+    50,
+  );
+  const maxToolCalls = boundedNonNegativeInteger(config.agnoHttpMaxToolCalls, 0, 50);
+  const maxSchemaChars = boundedPositiveInteger(
+    config.agnoHttpMaxToolSchemaChars,
+    defaultMaxToolSchemaChars,
+    contractMaxToolSchemaChars,
+  );
+  const descriptors: RuntimeToolDescriptor[] = [];
+
+  for (const [index, tool] of mcp.allowedSandboxTools.entries()) {
+    if (descriptors.length >= maxDescriptors) break;
+
+    const descriptor = buildGovernedToolDescriptor(tool, index + 1, maxSchemaChars);
+    if (!descriptor) continue;
+
+    descriptors.push(descriptor);
+  }
+
+  if (descriptors.length === 0) return disabledToolSpec();
+
+  return {
+    spec: {
+      enabled: true,
+      mode: 'gateway',
+      descriptors,
+    },
+    maxToolCalls,
+  };
+}
+
+function buildGovernedToolDescriptor(
+  tool: RuntimeMcpToolReference,
+  descriptorIndex: number,
+  maxSchemaChars: number,
+): RuntimeToolDescriptor | null {
+  const toolId = safeId(tool.toolId) ?? safeId(tool.id);
+  const name = safeOptionalText(tool.name, 120);
+  if (!toolId || !name) return null;
+
+  const inputSchema = safeToolInputSchema(tool.inputSchema, maxSchemaChars);
+  if (inputSchema === null) return null;
+
+  const descriptor: RuntimeToolDescriptor = {
+    toolId,
+    name,
+    riskLevel: normalizeToolRiskLevel(tool.riskLevel),
+    approvalRequired: Boolean(tool.requiresApproval),
+    gatewayRef: {
+      type: 'orchestra_tool_gateway',
+      action: 'mcp.tool.execute',
+    },
+  };
+
+  const description = safeOptionalText(tool.description, contractMaxToolDescriptionChars);
+  if (description) descriptor.description = description;
+  if (inputSchema) descriptor.inputSchema = inputSchema as RuntimeToolDescriptor['inputSchema'];
+
+  const metadata = safeMetadataRecord({
+    bindingId: safeId(tool.id),
+    descriptorIndex,
+    executionMode: safeOptionalText(tool.executionMode, 80),
+    source: 'orchestra_mcp_catalog',
+  });
+  if (metadata) descriptor.metadata = metadata as RuntimeToolDescriptor['metadata'];
+
+  return containsUnsafeRuntimeContractPayload(descriptor) ? null : descriptor;
+}
+
+function normalizeToolRiskLevel(value: string): RuntimeToolDescriptor['riskLevel'] {
+  return value === 'low' || value === 'medium' || value === 'high' ? value : 'medium';
+}
+
+function safeToolInputSchema(value: unknown, maxSchemaChars: number): Record<string, unknown> | null | undefined {
+  if (value == null) return undefined;
+
+  const sanitized = sanitizeRuntimeContractMetadata(value);
+  if (!isRecord(sanitized)) return null;
+  if (containsUnsafeRuntimeContractPayload(sanitized)) return null;
+  if (approximateJsonSize(sanitized) > maxSchemaChars) return null;
+
+  return sanitized;
+}
+
+function boundedNonNegativeInteger(value: number, fallback: number, max: number) {
+  if (!Number.isInteger(value) || value < 0) return fallback;
+  return Math.min(value, max);
+}
+
+function approximateJsonSize(value: unknown) {
+  try {
+    return JSON.stringify(value).length;
+  } catch {
+    return Number.POSITIVE_INFINITY;
+  }
 }
 
 function boundedPositiveInteger(value: number, fallback: number, max: number) {

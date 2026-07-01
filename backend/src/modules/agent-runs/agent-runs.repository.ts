@@ -147,6 +147,7 @@ export const agentRunsRepository = {
               id: true,
               name: true,
               description: true,
+              inputSchema: true,
               riskLevel: true,
               requiresApproval: true,
               isEnabled: true,
