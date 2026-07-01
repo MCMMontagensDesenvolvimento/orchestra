@@ -97,6 +97,8 @@ function buildRagSummary(summary: RuntimeSummary): RuntimeRagSummary {
       id: reference.id,
       label: reference.label,
       sourceUri: reference.sourceUri,
+      documentId: reference.documentId,
+      chunkId: reference.chunkId,
       documentTitle: reference.document.title,
       excerpt: previewText(reference.chunk?.content, 500),
     })),

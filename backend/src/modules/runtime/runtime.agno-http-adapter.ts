@@ -32,6 +32,10 @@ const allowedMetadataKeys = new Set([
   'inputtokens',
   'outputmetadata',
   'outputtokens',
+  'ragcontextchars',
+  'ragmode',
+  'ragsourcecount',
+  'sourceids',
   'totaltokens',
 ]);
 
@@ -129,6 +133,16 @@ export class AgnoHttpRuntimeAdapter implements RuntimeAdapter {
       });
     }
 
+    const ragSummary = summarizeRagSpec(requestBody.assistantRuntimeSpec.rag);
+    if (ragSummary) {
+      events.push({
+        type: 'rag_context_attached',
+        status: 'completed',
+        message: 'Contexto RAG governado anexado a AssistantRuntimeSpecV1.',
+        metadata: jsonMetadata(ragSummary),
+      });
+    }
+
     events.push({
       type: 'agno_request_started',
       status: 'running',
@@ -138,6 +152,7 @@ export class AgnoHttpRuntimeAdapter implements RuntimeAdapter {
         assistantSpecVersion: requestBody.assistantRuntimeSpec.specVersion,
         timeoutMs: config.agnoHttpTimeoutMs,
         inputHash: context.input.hash,
+        ...(ragSummary ?? {}),
       },
     });
 
@@ -255,6 +270,18 @@ export class AgnoHttpRuntimeAdapter implements RuntimeAdapter {
       maxOutputPreviewChars,
     };
   }
+}
+
+type AssistantRuntimeRagSpec = ReturnType<typeof buildAssistantRuntimeSpecV1>['rag'];
+
+function summarizeRagSpec(rag: AssistantRuntimeRagSpec): Record<string, unknown> | undefined {
+  if (rag.mode !== 'resolved_context' || rag.sources.length === 0) return undefined;
+  return {
+    ragMode: rag.mode,
+    ragSourceCount: rag.sources.length,
+    ragContextChars: rag.sources.reduce((total, source) => total + source.excerpt.length, 0),
+    sourceIds: rag.sources.map((source) => source.sourceId).slice(0, 10),
+  };
 }
 
 function normalizeHealth(provider: RuntimeProvider, response: RuntimeHealthResponseV1): RuntimeHealth {

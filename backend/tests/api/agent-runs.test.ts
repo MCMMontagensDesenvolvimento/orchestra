@@ -54,6 +54,10 @@ const originalRuntimeEnv = {
   AGNO_RUNTIME_HTTP_ENABLED: env.AGNO_RUNTIME_HTTP_ENABLED,
   AGNO_RUNTIME_HTTP_BASE_URL: env.AGNO_RUNTIME_HTTP_BASE_URL,
   AGNO_RUNTIME_HTTP_SECURITY_KEY: env.AGNO_RUNTIME_HTTP_SECURITY_KEY,
+  AGNO_RUNTIME_HTTP_RAG_CONTEXT_ENABLED: env.AGNO_RUNTIME_HTTP_RAG_CONTEXT_ENABLED,
+  AGNO_RUNTIME_HTTP_MAX_RAG_SOURCES: env.AGNO_RUNTIME_HTTP_MAX_RAG_SOURCES,
+  AGNO_RUNTIME_HTTP_MAX_RAG_EXCERPT_CHARS: env.AGNO_RUNTIME_HTTP_MAX_RAG_EXCERPT_CHARS,
+  AGNO_RUNTIME_HTTP_MAX_RAG_CONTEXT_CHARS: env.AGNO_RUNTIME_HTTP_MAX_RAG_CONTEXT_CHARS,
 };
 
 function configureRuntime(overrides: Partial<typeof originalRuntimeEnv> = {}) {
@@ -64,6 +68,10 @@ function configureRuntime(overrides: Partial<typeof originalRuntimeEnv> = {}) {
     AGNO_RUNTIME_HTTP_ENABLED: false,
     AGNO_RUNTIME_HTTP_BASE_URL: undefined,
     AGNO_RUNTIME_HTTP_SECURITY_KEY: undefined,
+    AGNO_RUNTIME_HTTP_RAG_CONTEXT_ENABLED: false,
+    AGNO_RUNTIME_HTTP_MAX_RAG_SOURCES: 5,
+    AGNO_RUNTIME_HTTP_MAX_RAG_EXCERPT_CHARS: 1200,
+    AGNO_RUNTIME_HTTP_MAX_RAG_CONTEXT_CHARS: 6000,
     ...overrides,
   });
 }
@@ -265,6 +273,8 @@ describe('agent run governance endpoints', () => {
           id: '00000000-0000-0000-0000-000000000932',
           label: 'Fonte 1',
           sourceUri: 'manual://runtime-test',
+          documentId: '00000000-0000-0000-0000-000000000942',
+          chunkId: '00000000-0000-0000-0000-000000000943',
           document: { title: 'Runtime test document' },
           chunk: { content: 'Runtime test governed excerpt.' },
         },
@@ -428,6 +438,92 @@ describe('agent run governance endpoints', () => {
       expect.objectContaining({ type: 'runtime.run_completed' }),
     ]));
     expect(JSON.stringify(response.body)).not.toMatch(/runtime-test-security-key|127\.0\.0\.1:8091|Authorization|baseUrl|headers/i);
+  });
+
+  it('sends governed RAG resolved_context through AgentRun when explicitly enabled', async () => {
+    configureRuntime({
+      RUNTIME_PROVIDER: 'agno_http',
+      AGNO_RUNTIME_HTTP_ENABLED: true,
+      AGNO_RUNTIME_HTTP_BASE_URL: 'http://127.0.0.1:8091',
+      AGNO_RUNTIME_HTTP_SECURITY_KEY: 'runtime-test-security-key',
+      AGNO_RUNTIME_HTTP_RAG_CONTEXT_ENABLED: true,
+      AGNO_RUNTIME_HTTP_MAX_RAG_SOURCES: 2,
+      AGNO_RUNTIME_HTTP_MAX_RAG_EXCERPT_CHARS: 24,
+      AGNO_RUNTIME_HTTP_MAX_RAG_CONTEXT_CHARS: 48,
+    });
+    mocks.agentRunsRepository.getRuntimeContextSummary.mockResolvedValueOnce({
+      knowledgeBindingsCount: 1,
+      chunkCount: 2,
+      sourceReferenceCount: 2,
+      lastRagQuery: { id: '00000000-0000-0000-0000-000000000951', status: 'completed', resultCount: 2 },
+      sourceReferences: [
+        {
+          id: '00000000-0000-0000-0000-000000000952',
+          label: 'Fonte segura',
+          sourceUri: 'internal://must-not-leak',
+          documentId: '00000000-0000-0000-0000-000000000953',
+          chunkId: '00000000-0000-0000-0000-000000000954',
+          document: { title: 'Governed Runtime Policy' },
+          chunk: { content: 'Resolved governed context excerpt with more than twenty four chars.' },
+        },
+        {
+          id: '00000000-0000-0000-0000-000000000955',
+          label: 'Fonte insegura',
+          sourceUri: 'internal://must-not-leak-unsafe',
+          documentId: '00000000-0000-0000-0000-000000000956',
+          chunkId: '00000000-0000-0000-0000-000000000957',
+          document: { title: 'Unsafe Runtime Policy' },
+          chunk: { content: 'Bearer must-not-leak' },
+        },
+      ],
+      mcpBindings: [],
+      lastToolCallIds: [],
+    });
+    const calls: Array<{ url: string; init?: RequestInit; body?: unknown }> = [];
+    vi.stubGlobal('fetch', vi.fn(async (url: string, init?: RequestInit) => {
+      const body = typeof init?.body === 'string' ? JSON.parse(init.body) as unknown : undefined;
+      calls.push({ url, init, body });
+      if (url.endsWith('/health')) {
+        return new Response(JSON.stringify(runtimeHealthResponse()), { status: 200 });
+      }
+      return new Response(JSON.stringify(runtimeExecuteResponse(body)), { status: 200 });
+    }));
+
+    const response = await request(createApp())
+      .post(`/api/v1/assistants/${assistantId}/runs`)
+      .set('Cookie', [sessionCookie()])
+      .send({ mode: 'sandbox', input: 'Use governed RAG context.', source: 'api-test' })
+      .expect(201);
+
+    const executeCall = calls.find((call) => call.url.endsWith('/execute'));
+    const parsedRequest = runtimeExecuteRequestV1Schema.parse(executeCall?.body);
+    expect(parsedRequest.assistantRuntimeSpec.rag.mode).toBe('resolved_context');
+    expect(parsedRequest.assistantRuntimeSpec.rag.sources).toEqual([
+      expect.objectContaining({
+        sourceId: '00000000-0000-0000-0000-000000000952',
+        documentId: '00000000-0000-0000-0000-000000000953',
+        chunkId: '00000000-0000-0000-0000-000000000954',
+        title: 'Governed Runtime Policy',
+        excerpt: 'Resolved governed contex',
+      }),
+    ]);
+    expect(parsedRequest.assistantRuntimeSpec.tools).toEqual({ enabled: false, mode: 'none', descriptors: [] });
+    expect(executeCall?.init?.headers).toEqual(expect.objectContaining({
+      Authorization: 'Bearer runtime-test-security-key',
+    }));
+    expect(response.body.data.status).toBe('completed');
+    expect(response.body.data.events).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        type: 'runtime.rag_context_attached',
+        metadata: expect.objectContaining({
+          ragMode: 'resolved_context',
+          ragSourceCount: 1,
+          ragContextChars: 24,
+        }),
+      }),
+    ]));
+    expect(JSON.stringify(executeCall?.body)).not.toMatch(/must-not-leak|internal:\/\/|rawDocuments|rawPrompt|rawResponse|rawProviderResponse|headers|apiKey|token|secret|baseUrl|providerApiKey/i);
+    expect(JSON.stringify(response.body)).not.toMatch(/runtime-test-security-key|must-not-leak|internal:\/\/|Authorization|headers|baseUrl|rawDocuments|rawPrompt|rawResponse|rawProviderResponse/i);
   });
 
   it('fails closed without an HTTP call when agno_http is selected but disabled', async () => {
@@ -744,6 +840,20 @@ function runtimeExecuteResponse(
       ? { inputTokens: 3, outputTokens: 7, totalTokens: 10, latencyMs: 2 }
       : undefined,
     events: [
+      ...(request.assistantRuntimeSpec.rag.sources.length > 0
+        ? [{
+          eventId: 'runtime-event-rag-1',
+          traceId: trace.traceId,
+          runId: trace.runId,
+          type: 'rag.context.attached' as const,
+          timestamp: '2026-07-01T12:00:00.000Z',
+          status: 'completed' as const,
+          metadata: {
+            ragMode: request.assistantRuntimeSpec.rag.mode,
+            ragSourceCount: request.assistantRuntimeSpec.rag.sources.length,
+          },
+        }]
+        : []),
       {
         eventId: 'runtime-event-1',
         traceId: trace.traceId,
