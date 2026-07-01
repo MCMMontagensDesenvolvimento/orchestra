@@ -3,7 +3,7 @@ import type { AgentRunMode } from '../agent-runs/agent-runs.schema';
 import type { AgentRunEventInput, AgentRunPrecheckSnapshot } from '../agent-runs/agent-runs.types';
 import type { LlmProviderName } from '../llm/llm.types';
 
-export const runtimeProviderValues = ['local', 'agno_stub', 'agno'] as const;
+export const runtimeProviderValues = ['local', 'agno_stub', 'agno', 'agno_http'] as const;
 export const runtimeHealthStatusValues = ['healthy', 'degraded', 'disabled', 'misconfigured', 'unavailable'] as const;
 export const runtimeExecutionStatusValues = ['completed', 'failed', 'blocked', 'cancelled'] as const;
 export const runtimeEventTypeValues = [
@@ -84,6 +84,11 @@ export interface RuntimeFeatureConfig {
   agnoSendMcpToolDescriptors: boolean;
   agnoMaxInputPreviewChars: number;
   agnoMaxOutputPreviewChars: number;
+  agnoHttpEnabled: boolean;
+  agnoHttpConfigured: boolean;
+  agnoHttpBaseUrlConfigured: boolean;
+  agnoHttpSecurityKeyConfigured: boolean;
+  agnoHttpTimeoutMs: number;
 }
 
 export interface RuntimeRagSummary {

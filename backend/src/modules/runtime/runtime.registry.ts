@@ -1,3 +1,4 @@
+import { agnoHttpRuntimeAdapter } from './runtime.agno-http-adapter';
 import { agnoRuntimeAdapter, agnoStubRuntimeAdapter } from './runtime.agno-adapter';
 import { getRuntimeConfig } from './runtime.config';
 import { localDeterministicRuntimeAdapter } from './runtime.local-adapter';
@@ -7,6 +8,7 @@ const adapters = new Map<RuntimeProvider, RuntimeAdapter>([
   ['local', localDeterministicRuntimeAdapter],
   ['agno_stub', agnoStubRuntimeAdapter],
   ['agno', agnoRuntimeAdapter],
+  ['agno_http', agnoHttpRuntimeAdapter],
 ]);
 
 export const runtimeAdapterRegistry = {

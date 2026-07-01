@@ -28,5 +28,10 @@ export function getRuntimeConfig(): RuntimeFeatureConfig {
     agnoSendMcpToolDescriptors: env.AGNO_SEND_MCP_TOOL_DESCRIPTORS,
     agnoMaxInputPreviewChars: env.AGNO_MAX_INPUT_PREVIEW_CHARS,
     agnoMaxOutputPreviewChars: env.AGNO_MAX_OUTPUT_PREVIEW_CHARS,
+    agnoHttpEnabled: env.AGNO_RUNTIME_HTTP_ENABLED,
+    agnoHttpConfigured: Boolean(env.AGNO_RUNTIME_HTTP_BASE_URL),
+    agnoHttpBaseUrlConfigured: Boolean(env.AGNO_RUNTIME_HTTP_BASE_URL),
+    agnoHttpSecurityKeyConfigured: Boolean(env.AGNO_RUNTIME_HTTP_SECURITY_KEY),
+    agnoHttpTimeoutMs: env.AGNO_RUNTIME_HTTP_TIMEOUT_MS,
   };
 }

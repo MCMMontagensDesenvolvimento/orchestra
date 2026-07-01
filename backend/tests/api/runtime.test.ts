@@ -55,9 +55,10 @@ describe('runtime adapter boundary endpoints', () => {
       .set('Cookie', [sessionCookie()])
       .expect(200);
 
-    expect(response.body.data.map((provider: { provider: string }) => provider.provider)).toEqual(['local', 'agno_stub', 'agno']);
+    expect(response.body.data.map((provider: { provider: string }) => provider.provider)).toEqual(['local', 'agno_stub', 'agno', 'agno_http']);
     expect(response.body.data.find((provider: { provider: string; current: boolean }) => provider.provider === 'local').current).toBe(true);
     expect(response.body.data.find((provider: { provider: string; health: { status: string } }) => provider.provider === 'agno_stub').health.status).toBe('disabled');
+    expect(response.body.data.find((provider: { provider: string; health: { status: string } }) => provider.provider === 'agno_http').health.status).toBe('disabled');
     expect(mocks.recordAuditEvent).toHaveBeenCalledWith(expect.objectContaining({ action: 'agno_adapter_readiness_checked' }));
   });
 
@@ -86,7 +87,11 @@ describe('runtime adapter boundary endpoints', () => {
     expect(response.body.data.provider).toBe('local');
     expect(response.body.data.agnoEnabled).toBe(false);
     expect(response.body.data.agnoConfigured).toBe(false);
+    expect(response.body.data.agnoHttpEnabled).toBe(false);
+    expect(response.body.data.agnoHttpConfigured).toBe(false);
     expect(JSON.stringify(response.body.data)).not.toContain('AGNO_API_KEY');
+    expect(JSON.stringify(response.body.data)).not.toContain('AGNO_RUNTIME_HTTP_SECURITY_KEY');
+    expect(JSON.stringify(response.body.data)).not.toContain('127.0.0.1:8091');
     expect(JSON.stringify(response.body.data).toLowerCase()).not.toContain('secret');
   });
 
