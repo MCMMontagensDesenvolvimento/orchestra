@@ -221,7 +221,65 @@ describe('Agno-compatible minimal runtime HTTP service', () => {
     expect(response.body.status).toBe('failed');
   });
 
-  it('blocks tool descriptors because tools are not supported by the 14B runtime', async () => {
+  it('accepts governed tool descriptors without executing external MCP', async () => {
+    const fetchMock = vi.fn();
+    vi.stubGlobal('fetch', fetchMock);
+
+    const response = await request(app())
+      .post('/execute')
+      .send(validExecuteRequest(validSpec({
+        policy: {
+          ...validSpec().policy,
+          maxToolCalls: 0,
+        },
+        tools: {
+          enabled: true,
+          mode: 'gateway',
+          descriptors: [
+            {
+              toolId: 'tool-1',
+              name: 'lookup_policy',
+              riskLevel: 'low',
+              approvalRequired: false,
+              inputSchema: {
+                type: 'object',
+                properties: { query: { type: 'string' } },
+              },
+              gatewayRef: {
+                type: 'orchestra_tool_gateway',
+                action: 'mcp.tool.execute',
+              },
+            },
+          ],
+        },
+      })))
+      .expect(200);
+
+    expect(runtimeExecuteResponseV1Schema.safeParse(response.body).success).toBe(true);
+    expect(response.body.status).toBe('succeeded');
+    expect(response.body.output.metadata).toEqual(expect.objectContaining({
+      toolDescriptorCount: 1,
+      externalMcpCalled: false,
+      toolCallsExecuted: 0,
+    }));
+    expect(response.body.events).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        type: 'tool.descriptors.attached',
+        metadata: expect.objectContaining({ toolDescriptorCount: 1, toolMode: 'gateway', maxToolCalls: 0 }),
+      }),
+      expect.objectContaining({
+        type: 'tool.blocked',
+        metadata: expect.objectContaining({ reason: 'max_tool_calls_zero', externalMcpCalled: false, toolCallsExecuted: 0 }),
+      }),
+    ]));
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(response.text).not.toMatch(
+      /rawToolManifest|rawMcpServerConfig|Authorization|"headers"|"apiKey"|"token"|"secret"|"baseUrl"|"endpoint"|"providerApiKey"|"secretRef"/i,
+    );
+  });
+
+
+  it('rejects unsafe governed tool descriptors without leaking raw MCP payloads', async () => {
     const response = await request(app())
       .post('/execute')
       .send(validExecuteRequest(validSpec({
@@ -234,6 +292,10 @@ describe('Agno-compatible minimal runtime HTTP service', () => {
               name: 'lookup_policy',
               riskLevel: 'low',
               approvalRequired: false,
+              metadata: {
+                rawToolManifest: 'must-not-leak',
+                rawMcpServerConfig: 'must-not-leak',
+              },
               gatewayRef: {
                 type: 'orchestra_tool_gateway',
                 action: 'mcp.tool.execute',
@@ -242,12 +304,12 @@ describe('Agno-compatible minimal runtime HTTP service', () => {
           ],
         },
       })))
-      .expect(403);
+      .expect(400);
 
-    expect(runtimeExecuteResponseV1Schema.safeParse(response.body).success).toBe(true);
-    expect(response.body.status).toBe('blocked');
-    expect(response.body.error.code).toBe('RUNTIME_POLICY_BLOCKED');
-    expect(JSON.stringify(response.body.events)).toContain('tool.blocked');
+    expect(response.body.error.code).toBe('RUNTIME_BAD_REQUEST');
+    expect(response.text).not.toContain('rawToolManifest');
+    expect(response.text).not.toContain('rawMcpServerConfig');
+    expect(response.text).not.toContain('must-not-leak');
   });
 
   it('accepts safe RAG resolved_context without doing retrieval', async () => {

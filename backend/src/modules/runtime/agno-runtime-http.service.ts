@@ -90,14 +90,11 @@ export function executeAgnoRuntimeHttpContract(input: unknown, now = new Date())
       retryable: false,
       details: {
         mode: 'sandbox',
-        toolsSupported: false,
+        toolsExecuted: false,
       },
       events: [
         ...events,
-        runtimeEvent(2, responseTrace(spec), 'tool.blocked', 'blocked', now, {
-          reason: 'tools_not_supported',
-        }),
-        runtimeEvent(3, responseTrace(spec), 'run.failed', 'blocked', now, {
+        runtimeEvent(2, responseTrace(spec), 'run.failed', 'blocked', now, {
           mode: 'sandbox',
         }),
       ],
@@ -119,15 +116,42 @@ export function executeAgnoRuntimeHttpContract(input: unknown, now = new Date())
     }),
   ];
 
+  let eventSequence = 4;
+
   if (ragSourceCount > 0) {
-    completedEvents.push(runtimeEvent(4, spec.trace, 'rag.context.attached', 'completed', now, {
+    completedEvents.push(runtimeEvent(eventSequence, spec.trace, 'rag.context.attached', 'completed', now, {
       ragSourceCount,
       ragMode: spec.rag.mode,
     }));
+    eventSequence += 1;
   }
 
-  completedEvents.push(runtimeEvent(ragSourceCount > 0 ? 5 : 4, spec.trace, 'run.completed', 'completed', now, {
+  if (toolDescriptorCount > 0) {
+    completedEvents.push(runtimeEvent(eventSequence, spec.trace, 'tool.descriptors.attached', 'completed', now, {
+      toolDescriptorCount,
+      toolMode: spec.tools.mode,
+      maxToolCalls: spec.policy.maxToolCalls,
+      toolIds: spec.tools.descriptors.map((descriptor) => descriptor.toolId).slice(0, 20),
+    }));
+    eventSequence += 1;
+  }
+
+  if (toolDescriptorCount > 0 && spec.policy.maxToolCalls === 0) {
+    completedEvents.push(runtimeEvent(eventSequence, spec.trace, 'tool.blocked', 'blocked', now, {
+      reason: 'max_tool_calls_zero',
+      toolDescriptorCount,
+      maxToolCalls: spec.policy.maxToolCalls,
+      externalMcpCalled: false,
+      toolCallsExecuted: 0,
+    }));
+    eventSequence += 1;
+  }
+
+  completedEvents.push(runtimeEvent(eventSequence, spec.trace, 'run.completed', 'completed', now, {
     mode: 'sandbox',
+    externalProviderCalled: false,
+    externalMcpCalled: false,
+    toolCallsExecuted: 0,
   }));
 
   const response: RuntimeExecuteResponseV1 = {
@@ -145,6 +169,8 @@ export function executeAgnoRuntimeHttpContract(input: unknown, now = new Date())
         inputChars: spec.input.message.length,
         ragSourceCount,
         toolDescriptorCount,
+        externalMcpCalled: false,
+        toolCallsExecuted: 0,
       },
     },
     usage: {
@@ -206,9 +232,6 @@ function responseTrace(spec: AssistantRuntimeSpecV1): RuntimeTrace {
 
 function evaluate14BPolicy(spec: AssistantRuntimeSpecV1) {
   if (spec.limits.blockedBeforeRuntime) return 'Request was marked blocked before runtime execution.';
-  if (spec.tools.enabled || spec.tools.mode !== 'none' || spec.tools.descriptors.length > 0) {
-    return 'Tool execution is not supported by the 14B minimal runtime.';
-  }
   return null;
 }
 

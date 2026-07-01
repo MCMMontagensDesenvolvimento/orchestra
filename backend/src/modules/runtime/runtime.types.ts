@@ -93,6 +93,10 @@ export interface RuntimeFeatureConfig {
   agnoHttpMaxRagSources: number;
   agnoHttpMaxRagExcerptChars: number;
   agnoHttpMaxRagContextChars: number;
+  agnoHttpToolsEnabled: boolean;
+  agnoHttpMaxToolDescriptors: number;
+  agnoHttpMaxToolCalls: number;
+  agnoHttpMaxToolSchemaChars: number;
 }
 
 export interface RuntimeRagSummary {
@@ -120,6 +124,8 @@ export interface RuntimeMcpSummary {
     serverId: string;
     toolId: string;
     name: string;
+    description?: string | null;
+    inputSchema?: Prisma.InputJsonValue | null;
     riskLevel: string;
     requiresApproval: boolean;
     executionMode: string;

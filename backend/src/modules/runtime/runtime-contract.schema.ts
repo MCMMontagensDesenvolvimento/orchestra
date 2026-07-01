@@ -14,6 +14,7 @@ export const runtimeContractEventTypeValues = [
   'model.requested',
   'model.completed',
   'rag.context.attached',
+  'tool.descriptors.attached',
   'tool.requested',
   'tool.completed',
   'tool.blocked',
@@ -54,13 +55,17 @@ const unsafeContractKeyFragments = new Set([
   'baseurl',
   'cookie',
   'credential',
+  'connectionstring',
+  'endpoint',
   'headers',
   'password',
   'providerapikey',
   'rawdocuments',
+  'rawmcpserverconfig',
   'rawprompt',
   'rawproviderresponse',
   'rawresponse',
+  'rawtoolmanifest',
   'secret',
   'secretref',
   'token',
@@ -169,6 +174,7 @@ export const runtimeToolDescriptorSchema = z.object({
   riskLevel: z.enum(runtimeContractToolRiskLevelValues).default('medium'),
   approvalRequired: z.boolean(),
   inputSchema: runtimeContractSafeObjectSchema.optional(),
+  metadata: runtimeContractSafeObjectSchema.optional(),
   gatewayRef: z.object({
     type: z.literal('orchestra_tool_gateway'),
     action: textSchema(160),
@@ -292,9 +298,6 @@ export const assistantRuntimeSpecV1Schema = z.object({
   }
   if (!value.tools.enabled && value.tools.mode !== 'none') {
     ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['tools', 'mode'], message: 'tools desabilitadas exigem mode none.' });
-  }
-  if (value.tools.descriptors.length > value.policy.maxToolCalls) {
-    ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['tools', 'descriptors'], message: 'descriptors excedem maxToolCalls.' });
   }
 });
 

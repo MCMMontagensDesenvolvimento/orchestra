@@ -34,6 +34,10 @@ function applyBaseEnv(overrides: Record<string, string | undefined> = {}) {
     AGNO_RUNTIME_HTTP_MAX_RAG_SOURCES: '5',
     AGNO_RUNTIME_HTTP_MAX_RAG_EXCERPT_CHARS: '1200',
     AGNO_RUNTIME_HTTP_MAX_RAG_CONTEXT_CHARS: '6000',
+    AGNO_RUNTIME_HTTP_TOOLS_ENABLED: 'false',
+    AGNO_RUNTIME_HTTP_MAX_TOOL_DESCRIPTORS: '8',
+    AGNO_RUNTIME_HTTP_MAX_TOOL_CALLS: '0',
+    AGNO_RUNTIME_HTTP_MAX_TOOL_SCHEMA_CHARS: '6000',
     ...overrides,
   };
 }
@@ -311,6 +315,77 @@ describe('Agno HTTP runtime adapter', () => {
       }),
     ]));
     expect(JSON.stringify(result.events)).not.toContain('01234567890123456789');
+  });
+
+
+  it('sends governed tool descriptors to /execute when the 14F flag is enabled', async () => {
+    const adapter = await agnoHttpAdapter({
+      AGNO_RUNTIME_HTTP_ENABLED: 'true',
+      AGNO_RUNTIME_HTTP_BASE_URL: 'http://127.0.0.1:8091',
+      AGNO_RUNTIME_HTTP_TOOLS_ENABLED: 'true',
+      AGNO_RUNTIME_HTTP_MAX_TOOL_DESCRIPTORS: '2',
+      AGNO_RUNTIME_HTTP_MAX_TOOL_CALLS: '0',
+      AGNO_RUNTIME_HTTP_MAX_TOOL_SCHEMA_CHARS: '6000',
+    });
+    const calls: Array<{ url: string; body?: Record<string, unknown> }> = [];
+    vi.stubGlobal('fetch', vi.fn(async (url: string, init?: RequestInit) => {
+      calls.push({
+        url,
+        body: typeof init?.body === 'string' ? JSON.parse(init.body) as Record<string, unknown> : undefined,
+      });
+      return new Response(JSON.stringify(runtimeResponse()), { status: 200 });
+    }));
+
+    const result = await adapter.execute(context({
+      mcp: {
+        mcpBindingsCount: 1,
+        allowedSandboxTools: [
+          {
+            id: 'binding-1',
+            serverId: 'server-1',
+            toolId: 'tool-1',
+            name: 'lookup_policy',
+            description: 'Consulta politica autorizada.',
+            inputSchema: {
+              type: 'object',
+              properties: {
+                query: { type: 'string' },
+              },
+            },
+            riskLevel: 'low',
+            requiresApproval: false,
+            executionMode: 'sandbox_only',
+          },
+        ],
+        blockedTools: [],
+        requiresApproval: [],
+        lastToolCallIds: [],
+      },
+    }));
+
+    const body = calls[0].body as { assistantRuntimeSpec: { policy: { maxToolCalls: number }; tools: { mode: string; descriptors: Array<{ toolId: string; inputSchema?: unknown }> } } };
+    expect(body.assistantRuntimeSpec.tools.mode).toBe('gateway');
+    expect(body.assistantRuntimeSpec.policy.maxToolCalls).toBe(0);
+    expect(body.assistantRuntimeSpec.tools.descriptors).toEqual([
+      expect.objectContaining({
+        toolId: 'tool-1',
+        inputSchema: expect.objectContaining({ type: 'object' }),
+      }),
+    ]);
+    expect(result.events).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        type: 'mcp_tools_attached',
+        metadata: expect.objectContaining({
+          toolMode: 'gateway',
+          toolDescriptorCount: 1,
+          maxToolCalls: 0,
+          toolIds: ['tool-1'],
+          descriptorSchemaHashes: [expect.any(String)],
+        }),
+      }),
+    ]));
+    expect(JSON.stringify(calls[0].body)).not.toMatch(/rawToolManifest|rawMcpServerConfig|Authorization|headers|credentials|apiKey|token|secret|baseUrl|endpoint|providerApiKey|secretRef/i);
+    expect(JSON.stringify(result.events)).not.toContain('query');
   });
 
   it('keeps security key in Authorization header and out of body', async () => {

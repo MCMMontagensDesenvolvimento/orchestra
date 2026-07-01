@@ -13,6 +13,10 @@ const originalRuntimeEnv = {
   AGNO_RUNTIME_HTTP_MAX_RAG_SOURCES: env.AGNO_RUNTIME_HTTP_MAX_RAG_SOURCES,
   AGNO_RUNTIME_HTTP_MAX_RAG_EXCERPT_CHARS: env.AGNO_RUNTIME_HTTP_MAX_RAG_EXCERPT_CHARS,
   AGNO_RUNTIME_HTTP_MAX_RAG_CONTEXT_CHARS: env.AGNO_RUNTIME_HTTP_MAX_RAG_CONTEXT_CHARS,
+  AGNO_RUNTIME_HTTP_TOOLS_ENABLED: env.AGNO_RUNTIME_HTTP_TOOLS_ENABLED,
+  AGNO_RUNTIME_HTTP_MAX_TOOL_DESCRIPTORS: env.AGNO_RUNTIME_HTTP_MAX_TOOL_DESCRIPTORS,
+  AGNO_RUNTIME_HTTP_MAX_TOOL_CALLS: env.AGNO_RUNTIME_HTTP_MAX_TOOL_CALLS,
+  AGNO_RUNTIME_HTTP_MAX_TOOL_SCHEMA_CHARS: env.AGNO_RUNTIME_HTTP_MAX_TOOL_SCHEMA_CHARS,
 };
 
 function configureRagRuntime(overrides: Partial<typeof originalRuntimeEnv> = {}) {
@@ -22,6 +26,10 @@ function configureRagRuntime(overrides: Partial<typeof originalRuntimeEnv> = {})
     AGNO_RUNTIME_HTTP_MAX_RAG_SOURCES: 5,
     AGNO_RUNTIME_HTTP_MAX_RAG_EXCERPT_CHARS: 1200,
     AGNO_RUNTIME_HTTP_MAX_RAG_CONTEXT_CHARS: 6000,
+    AGNO_RUNTIME_HTTP_TOOLS_ENABLED: false,
+    AGNO_RUNTIME_HTTP_MAX_TOOL_DESCRIPTORS: 8,
+    AGNO_RUNTIME_HTTP_MAX_TOOL_CALLS: 0,
+    AGNO_RUNTIME_HTTP_MAX_TOOL_SCHEMA_CHARS: 6000,
     ...overrides,
   });
 }
@@ -100,6 +108,11 @@ function context(overrides: Partial<RuntimeExecutionContext> = {}): RuntimeExecu
           serverId: 'server-1',
           toolId: 'tool-1',
           name: 'lookup_policy',
+          description: 'Consulta uma politica ja autorizada pelo Orquestra.',
+          inputSchema: {
+            type: 'object',
+            properties: { query: { type: 'string' } },
+          },
           riskLevel: 'low',
           requiresApproval: false,
           executionMode: 'sandbox_only',
@@ -313,6 +326,167 @@ describe('AssistantRuntimeSpecV1 builder for Agno HTTP', () => {
     expect(spec.rag.sources).toHaveLength(1);
     expect(spec.rag.sources[0].sourceId).toBe('safe-source');
     expect(serialized).not.toMatch(/must-not-leak|rawDocuments|rawPrompt|rawResponse|rawProviderResponse|Authorization|headers|apiKey|token|secret|baseUrl|providerApiKey/i);
+  });
+
+
+  it('keeps tools disabled when the 14F flag is false even with MCP context', () => {
+    configureRagRuntime({ AGNO_RUNTIME_HTTP_TOOLS_ENABLED: false });
+
+    const spec = buildAssistantRuntimeSpecV1({ context: context(), timeoutMs: 15000 });
+
+    expect(spec.tools).toEqual({ enabled: false, mode: 'none', descriptors: [] });
+    expect(spec.policy.maxToolCalls).toBe(0);
+  });
+
+  it('attaches governed tool descriptors when the 14F flag is enabled', () => {
+    configureRagRuntime({ AGNO_RUNTIME_HTTP_TOOLS_ENABLED: true });
+
+    const spec = buildAssistantRuntimeSpecV1({ context: context(), timeoutMs: 15000 });
+
+    expect(assistantRuntimeSpecV1Schema.safeParse(spec).success).toBe(true);
+    expect(spec.tools.enabled).toBe(true);
+    expect(spec.tools.mode).toBe('gateway');
+    expect(spec.policy.maxToolCalls).toBe(0);
+    expect(spec.tools.descriptors).toEqual([
+      expect.objectContaining({
+        toolId: 'tool-1',
+        name: 'lookup_policy',
+        description: 'Consulta uma politica ja autorizada pelo Orquestra.',
+        riskLevel: 'low',
+        approvalRequired: false,
+        inputSchema: expect.objectContaining({ type: 'object' }),
+        gatewayRef: { type: 'orchestra_tool_gateway', action: 'mcp.tool.execute' },
+      }),
+    ]);
+  });
+
+  it('only increases maxToolCalls with explicit config', () => {
+    configureRagRuntime({ AGNO_RUNTIME_HTTP_TOOLS_ENABLED: true, AGNO_RUNTIME_HTTP_MAX_TOOL_CALLS: 2 });
+
+    const spec = buildAssistantRuntimeSpecV1({ context: context(), timeoutMs: 15000 });
+
+    expect(spec.policy.maxToolCalls).toBe(2);
+  });
+
+  it('limits governed tool descriptors by configured quantity', () => {
+    configureRagRuntime({ AGNO_RUNTIME_HTTP_TOOLS_ENABLED: true, AGNO_RUNTIME_HTTP_MAX_TOOL_DESCRIPTORS: 1 });
+
+    const spec = buildAssistantRuntimeSpecV1({
+      context: context({
+        mcp: {
+          ...context().mcp,
+          allowedSandboxTools: [
+            ...context().mcp.allowedSandboxTools,
+            {
+              id: 'binding-2',
+              serverId: 'server-1',
+              toolId: 'tool-2',
+              name: 'second_lookup',
+              description: 'Second governed descriptor.',
+              inputSchema: { type: 'object' },
+              riskLevel: 'low',
+              requiresApproval: false,
+              executionMode: 'sandbox_only',
+            },
+          ],
+        },
+      }),
+      timeoutMs: 15000,
+    });
+
+    expect(spec.tools.descriptors).toHaveLength(1);
+    expect(spec.tools.descriptors[0].toolId).toBe('tool-1');
+  });
+
+  it('truncates tool description and removes descriptors with oversized schemas', () => {
+    configureRagRuntime({
+      AGNO_RUNTIME_HTTP_TOOLS_ENABLED: true,
+      AGNO_RUNTIME_HTTP_MAX_TOOL_SCHEMA_CHARS: 80,
+    });
+
+    const spec = buildAssistantRuntimeSpecV1({
+      context: context({
+        mcp: {
+          ...context().mcp,
+          allowedSandboxTools: [
+            {
+              id: 'binding-long-description',
+              serverId: 'server-1',
+              toolId: 'tool-long-description',
+              name: 'safe_tool',
+              description: 'x'.repeat(1200),
+              inputSchema: { type: 'object' },
+              riskLevel: 'low',
+              requiresApproval: false,
+              executionMode: 'sandbox_only',
+            },
+            {
+              id: 'binding-large-schema',
+              serverId: 'server-1',
+              toolId: 'tool-large-schema',
+              name: 'large_schema_tool',
+              description: 'Schema too large.',
+              inputSchema: { type: 'object', description: 'y'.repeat(500) },
+              riskLevel: 'low',
+              requiresApproval: false,
+              executionMode: 'sandbox_only',
+            },
+          ],
+        },
+      }),
+      timeoutMs: 15000,
+    });
+
+    expect(spec.tools.descriptors).toHaveLength(1);
+    expect(spec.tools.descriptors[0].toolId).toBe('tool-long-description');
+    expect(spec.tools.descriptors[0].description).toHaveLength(1000);
+  });
+
+  it('sanitizes dangerous tool metadata and never serializes raw manifests or credentials', () => {
+    configureRagRuntime({ AGNO_RUNTIME_HTTP_TOOLS_ENABLED: true });
+
+    const spec = buildAssistantRuntimeSpecV1({
+      context: context({
+        mcp: {
+          ...context().mcp,
+          allowedSandboxTools: [
+            {
+              id: 'binding-unsafe-schema',
+              serverId: 'server-1',
+              toolId: 'tool-unsafe-schema',
+              name: 'unsafe_schema_tool',
+              description: 'Descriptor with unsafe fields removed from schema.',
+              inputSchema: {
+                type: 'object',
+                rawToolManifest: 'must-not-leak',
+                rawMcpServerConfig: 'must-not-leak',
+                headers: { Authorization: 'Bearer must-not-leak' },
+                credentials: 'must-not-leak',
+                apiKey: 'must-not-leak',
+                token: 'must-not-leak',
+                secret: 'must-not-leak',
+                baseUrl: 'https://internal.example.invalid',
+                endpoint: 'https://internal.example.invalid/execute',
+                providerApiKey: 'must-not-leak',
+                secretRef: 'must-not-leak',
+                properties: { query: { type: 'string' } },
+              },
+              riskLevel: 'low',
+              requiresApproval: false,
+              executionMode: 'sandbox_only',
+              rawToolManifest: 'must-not-leak',
+              rawMcpServerConfig: 'must-not-leak',
+            } as RuntimeExecutionContext['mcp']['allowedSandboxTools'][number],
+          ],
+        },
+      }),
+      timeoutMs: 15000,
+    });
+    const serialized = JSON.stringify(spec);
+
+    expect(assistantRuntimeSpecV1Schema.safeParse(spec).success).toBe(true);
+    expect(spec.tools.descriptors).toHaveLength(1);
+    expect(serialized).not.toMatch(/must-not-leak|rawToolManifest|rawMcpServerConfig|Authorization|headers|credentials|apiKey|token|secret|baseUrl|endpoint|providerApiKey|secretRef/i);
   });
 
   it('uses provider and model from authorized context without hardcoded defaults', () => {

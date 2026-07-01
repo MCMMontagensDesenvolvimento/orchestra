@@ -17,6 +17,12 @@ const safePositiveInteger = (defaultValue: number) =>
     const parsed = Number(value);
     return Number.isInteger(parsed) && parsed > 0 ? parsed : defaultValue;
   }, z.number().int().positive());
+const safeNonNegativeInteger = (defaultValue: number) =>
+  z.preprocess((value) => {
+    if (value === undefined || value === '') return defaultValue;
+    const parsed = Number(value);
+    return Number.isInteger(parsed) && parsed >= 0 ? parsed : defaultValue;
+  }, z.number().int().nonnegative());
 const optionalUrl = z.preprocess((value) => {
   const normalized = blankToUndefined(value);
   if (typeof normalized !== 'string') return undefined;
@@ -83,6 +89,10 @@ const envSchema = z.object({
   AGNO_RUNTIME_HTTP_MAX_RAG_SOURCES: safePositiveInteger(5),
   AGNO_RUNTIME_HTTP_MAX_RAG_EXCERPT_CHARS: safePositiveInteger(1200),
   AGNO_RUNTIME_HTTP_MAX_RAG_CONTEXT_CHARS: safePositiveInteger(6000),
+  AGNO_RUNTIME_HTTP_TOOLS_ENABLED: booleanString('false'),
+  AGNO_RUNTIME_HTTP_MAX_TOOL_DESCRIPTORS: safePositiveInteger(8),
+  AGNO_RUNTIME_HTTP_MAX_TOOL_CALLS: safeNonNegativeInteger(0),
+  AGNO_RUNTIME_HTTP_MAX_TOOL_SCHEMA_CHARS: safePositiveInteger(6000),
   MCP_REMOTE_ENABLED: booleanString('false'),
   MCP_REMOTE_EXECUTION_ENABLED: booleanString('false'),
   MCP_REMOTE_DISCOVERY_ENABLED: booleanString('false'),
