@@ -28,6 +28,12 @@ import type {
 
 const maxOutputPreviewChars = 800;
 const unsafeMetadataFragments = ['authorization', 'apikey', 'api_key', 'baseurl', 'content', 'credential', 'header', 'input', 'instruction', 'output', 'password', 'prompt', 'secret', 'text', 'token'];
+const allowedMetadataKeys = new Set([
+  'inputtokens',
+  'outputmetadata',
+  'outputtokens',
+  'totaltokens',
+]);
 
 export class AgnoHttpRuntimeAdapter implements RuntimeAdapter {
   readonly provider: RuntimeProvider = 'agno_http';
@@ -448,7 +454,10 @@ function sanitizeMetadata(value: unknown, depth = 0): Prisma.InputJsonValue | un
   const sanitized: Record<string, Prisma.InputJsonValue> = {};
   for (const [key, item] of Object.entries(value as Record<string, unknown>).slice(0, 40)) {
     const normalizedKey = key.replace(/[-_\s]/g, '').toLowerCase();
-    if (unsafeMetadataFragments.some((fragment) => normalizedKey.includes(fragment))) {
+    if (
+      !allowedMetadataKeys.has(normalizedKey)
+      && unsafeMetadataFragments.some((fragment) => normalizedKey.includes(fragment))
+    ) {
       sanitized[key] = '[redacted]';
       continue;
     }

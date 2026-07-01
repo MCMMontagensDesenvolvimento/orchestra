@@ -1,8 +1,13 @@
 import request from 'supertest';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { createApp } from '../../src/app/app';
 import { env } from '../../src/config/env';
 import { llmService } from '../../src/modules/llm/llm.service';
+import {
+  assistantRuntimeSpecVersionV1,
+  runtimeExecuteRequestV1Schema,
+  runtimeExecuteResponseSpecVersionV1,
+} from '../../src/modules/runtime';
 import { signSession } from '../../src/shared/security/session';
 import type { AuthenticatedUser } from '../../src/shared/types/auth';
 
@@ -42,6 +47,26 @@ const assistantId = '00000000-0000-0000-0000-000000000101';
 const versionId = '00000000-0000-0000-0000-000000000201';
 const publicationId = '00000000-0000-0000-0000-000000000301';
 const runId = '00000000-0000-0000-0000-000000000401';
+
+const originalRuntimeEnv = {
+  RUNTIME_PROVIDER: env.RUNTIME_PROVIDER,
+  RUNTIME_ADAPTER_ENABLED: env.RUNTIME_ADAPTER_ENABLED,
+  AGNO_RUNTIME_HTTP_ENABLED: env.AGNO_RUNTIME_HTTP_ENABLED,
+  AGNO_RUNTIME_HTTP_BASE_URL: env.AGNO_RUNTIME_HTTP_BASE_URL,
+  AGNO_RUNTIME_HTTP_SECURITY_KEY: env.AGNO_RUNTIME_HTTP_SECURITY_KEY,
+};
+
+function configureRuntime(overrides: Partial<typeof originalRuntimeEnv> = {}) {
+  Object.assign(env, {
+    ...originalRuntimeEnv,
+    RUNTIME_PROVIDER: 'local',
+    RUNTIME_ADAPTER_ENABLED: true,
+    AGNO_RUNTIME_HTTP_ENABLED: false,
+    AGNO_RUNTIME_HTTP_BASE_URL: undefined,
+    AGNO_RUNTIME_HTTP_SECURITY_KEY: undefined,
+    ...overrides,
+  });
+}
 
 const agentRunPermissions = [
   'assistants.read',
@@ -224,6 +249,8 @@ function eventInputsToFixtures(events: Array<{ type: string; status?: string; me
 describe('agent run governance endpoints', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    vi.unstubAllGlobals();
+    configureRuntime();
     mocks.recordAuditEvent.mockResolvedValue(undefined);
     mocks.agentRunsRepository.findAssistantForRun.mockResolvedValue(assistantFixture('draft'));
     mocks.agentRunsRepository.getExecutionPolicy.mockResolvedValue(executionPolicyFixture());
@@ -296,6 +323,11 @@ describe('agent run governance endpoints', () => {
     mocks.agentRunsRepository.appendEvents.mockResolvedValue([eventFixture('run.cancelled', 2, 'cancelled')]);
   });
 
+  afterAll(() => {
+    configureRuntime(originalRuntimeEnv);
+    vi.unstubAllGlobals();
+  });
+
   it('creates a sandbox run through the local runtime adapter boundary', async () => {
     const response = await request(createApp())
       .post(`/api/v1/assistants/${assistantId}/runs`)
@@ -342,6 +374,155 @@ describe('agent run governance endpoints', () => {
     expect(mocks.recordAuditEvent).toHaveBeenCalledWith(expect.objectContaining({ action: 'agent_run_completed' }));
   });
 
+  it('routes an authorized AgentRun through agno_http and returns only sanitized runtime output', async () => {
+    configureRuntime({
+      RUNTIME_PROVIDER: 'agno_http',
+      AGNO_RUNTIME_HTTP_ENABLED: true,
+      AGNO_RUNTIME_HTTP_BASE_URL: 'http://127.0.0.1:8091',
+      AGNO_RUNTIME_HTTP_SECURITY_KEY: 'runtime-test-security-key',
+    });
+    const assistant = assistantFixture('draft');
+    assistant.versions[0].modelProvider = 'governed-provider';
+    assistant.versions[0].modelName = 'governed-chat-model';
+    mocks.agentRunsRepository.findAssistantForRun.mockResolvedValueOnce(assistant);
+    const calls: Array<{ url: string; init?: RequestInit; body?: unknown }> = [];
+    vi.stubGlobal('fetch', vi.fn(async (url: string, init?: RequestInit) => {
+      const body = typeof init?.body === 'string' ? JSON.parse(init.body) as unknown : undefined;
+      calls.push({ url, init, body });
+      if (url.endsWith('/health')) {
+        return new Response(JSON.stringify(runtimeHealthResponse()), { status: 200 });
+      }
+      return new Response(JSON.stringify(runtimeExecuteResponse(body)), { status: 200 });
+    }));
+
+    const response = await request(createApp())
+      .post(`/api/v1/assistants/${assistantId}/runs`)
+      .set('Cookie', [sessionCookie()])
+      .send({ mode: 'sandbox', input: 'Use the governed HTTP runtime.', source: 'api-test' })
+      .expect(201);
+
+    const executeCall = calls.find((call) => call.url.endsWith('/execute'));
+    expect(executeCall).toBeDefined();
+    const parsedRequest = runtimeExecuteRequestV1Schema.parse(executeCall?.body);
+    expect(parsedRequest.assistantRuntimeSpec.model).toEqual(expect.objectContaining({
+      provider: 'governed-provider',
+      model: 'governed-chat-model',
+    }));
+    expect(parsedRequest.assistantRuntimeSpec.rag).toEqual({ enabled: false, mode: 'none', sources: [] });
+    expect(parsedRequest.assistantRuntimeSpec.tools).toEqual({ enabled: false, mode: 'none', descriptors: [] });
+    expect(executeCall?.init?.headers).toEqual(expect.objectContaining({
+      Authorization: 'Bearer runtime-test-security-key',
+    }));
+    expect(JSON.stringify(executeCall?.body)).not.toMatch(/runtime-test-security-key|Authorization|baseUrl|headers/i);
+    expect(response.body.data.status).toBe('completed');
+    expect(response.body.data.metadata.runtime).toEqual(expect.objectContaining({
+      provider: 'agno_http',
+      outputPreview: 'Runtime HTTP response through the Orchestra control plane.',
+      adapterMetadata: expect.objectContaining({
+        responseStatus: 'succeeded',
+        usage: expect.objectContaining({ totalTokens: 10 }),
+      }),
+    }));
+    expect(response.body.data.events).toEqual(expect.arrayContaining([
+      expect.objectContaining({ type: 'agno.request_completed' }),
+      expect.objectContaining({ type: 'runtime.run_completed' }),
+    ]));
+    expect(JSON.stringify(response.body)).not.toMatch(/runtime-test-security-key|127\.0\.0\.1:8091|Authorization|baseUrl|headers/i);
+  });
+
+  it('fails closed without an HTTP call when agno_http is selected but disabled', async () => {
+    configureRuntime({
+      RUNTIME_PROVIDER: 'agno_http',
+      AGNO_RUNTIME_HTTP_ENABLED: false,
+      AGNO_RUNTIME_HTTP_BASE_URL: 'http://127.0.0.1:8091',
+    });
+    const fetchSpy = vi.fn();
+    vi.stubGlobal('fetch', fetchSpy);
+
+    const response = await request(createApp())
+      .post(`/api/v1/assistants/${assistantId}/runs`)
+      .set('Cookie', [sessionCookie()])
+      .send({ mode: 'sandbox', input: 'Do not fall back to another runtime.' })
+      .expect(201);
+
+    expect(fetchSpy).not.toHaveBeenCalled();
+    expect(response.body.data.status).toBe('failed');
+    expect(response.body.data.errorCode).toBe('RUNTIME_UNAVAILABLE');
+    expect(response.body.data.metadata.runtime.provider).toBe('agno_http');
+  });
+
+  it('persists a safe failure when the selected HTTP runtime is unavailable', async () => {
+    configureRuntime({
+      RUNTIME_PROVIDER: 'agno_http',
+      AGNO_RUNTIME_HTTP_ENABLED: true,
+      AGNO_RUNTIME_HTTP_BASE_URL: 'http://127.0.0.1:8091',
+    });
+    vi.stubGlobal('fetch', vi.fn(async () => {
+      throw new TypeError('connection details must not escape');
+    }));
+
+    const response = await request(createApp())
+      .post(`/api/v1/assistants/${assistantId}/runs`)
+      .set('Cookie', [sessionCookie()])
+      .send({ mode: 'sandbox', input: 'Fail closed on network errors.' })
+      .expect(201);
+
+    expect(response.body.data.status).toBe('failed');
+    expect(response.body.data.errorCode).toBe('RUNTIME_UNAVAILABLE');
+    expect(response.body.data.errorMessage).toBe('Agno HTTP runtime is unavailable.');
+    expect(JSON.stringify(response.body)).not.toMatch(/connection details|127\.0\.0\.1:8091|baseUrl|stack/i);
+  });
+
+  it('fails closed when the HTTP runtime returns an invalid response', async () => {
+    configureRuntime({
+      RUNTIME_PROVIDER: 'agno_http',
+      AGNO_RUNTIME_HTTP_ENABLED: true,
+      AGNO_RUNTIME_HTTP_BASE_URL: 'http://127.0.0.1:8091',
+    });
+    vi.stubGlobal('fetch', vi.fn(async (url: string) => new Response(JSON.stringify(
+      url.endsWith('/health') ? runtimeHealthResponse() : { rawResponse: 'must not be persisted' },
+    ), { status: 200 })));
+
+    const response = await request(createApp())
+      .post(`/api/v1/assistants/${assistantId}/runs`)
+      .set('Cookie', [sessionCookie()])
+      .send({ mode: 'sandbox', input: 'Reject an invalid runtime response.' })
+      .expect(201);
+
+    expect(response.body.data.status).toBe('failed');
+    expect(response.body.data.errorCode).toBe('RUNTIME_INVALID_RESPONSE');
+    expect(JSON.stringify(response.body)).not.toContain('must not be persisted');
+  });
+
+  it('maps a runtime policy block to a controlled blocked AgentRun', async () => {
+    configureRuntime({
+      RUNTIME_PROVIDER: 'agno_http',
+      AGNO_RUNTIME_HTTP_ENABLED: true,
+      AGNO_RUNTIME_HTTP_BASE_URL: 'http://127.0.0.1:8091',
+    });
+    vi.stubGlobal('fetch', vi.fn(async (url: string, init?: RequestInit) => {
+      if (url.endsWith('/health')) {
+        return new Response(JSON.stringify(runtimeHealthResponse()), { status: 200 });
+      }
+      const body = typeof init?.body === 'string' ? JSON.parse(init.body) as unknown : undefined;
+      return new Response(JSON.stringify(runtimeExecuteResponse(body, 'blocked')), { status: 403 });
+    }));
+
+    const response = await request(createApp())
+      .post(`/api/v1/assistants/${assistantId}/runs`)
+      .set('Cookie', [sessionCookie()])
+      .send({ mode: 'sandbox', input: 'Respect runtime policy.' })
+      .expect(201);
+
+    expect(response.body.data.status).toBe('blocked');
+    expect(response.body.data.blockedAt).toBeTruthy();
+    expect(response.body.data.errorCode).toBe('RUNTIME_POLICY_BLOCKED');
+    expect(response.body.data.events).toEqual(expect.arrayContaining([
+      expect.objectContaining({ type: 'agno.request_failed', status: 'blocked' }),
+      expect.objectContaining({ type: 'runtime.run_failed', status: 'blocked' }),
+    ]));
+    expect(mocks.recordAuditEvent).toHaveBeenCalledWith(expect.objectContaining({ action: 'runtime_execution_blocked' }));
+  });
   it('fails closed without an external call when OpenAI is allowed by policy but disabled globally', async () => {
     const fetchSpy = vi.spyOn(globalThis, 'fetch');
     vi.spyOn(llmService, 'generateForRuntime').mockResolvedValueOnce({
@@ -528,3 +709,58 @@ describe('agent run governance endpoints', () => {
     expect(response.body.code).toBe('AGENT_RUN_NOT_FOUND');
   });
 });
+
+function runtimeHealthResponse() {
+  return {
+    provider: 'agno',
+    protocolVersion: assistantRuntimeSpecVersionV1,
+    status: 'healthy',
+    checkedAt: '2026-07-01T12:00:00.000Z',
+    message: 'Runtime ready.',
+  };
+}
+
+function runtimeExecuteResponse(
+  requestBody: unknown,
+  status: 'succeeded' | 'blocked' = 'succeeded',
+) {
+  const request = runtimeExecuteRequestV1Schema.parse(requestBody);
+  const trace = request.assistantRuntimeSpec.trace;
+  return {
+    specVersion: runtimeExecuteResponseSpecVersionV1,
+    trace: {
+      traceId: trace.traceId,
+      runId: trace.runId,
+    },
+    status,
+    output: status === 'succeeded'
+      ? {
+        text: 'Runtime HTTP response through the Orchestra control plane.',
+        format: 'text',
+        metadata: { mode: 'sandbox', externalProviderCalled: false },
+      }
+      : undefined,
+    usage: status === 'succeeded'
+      ? { inputTokens: 3, outputTokens: 7, totalTokens: 10, latencyMs: 2 }
+      : undefined,
+    events: [
+      {
+        eventId: 'runtime-event-1',
+        traceId: trace.traceId,
+        runId: trace.runId,
+        type: status === 'succeeded' ? 'run.completed' : 'run.failed',
+        timestamp: '2026-07-01T12:00:00.000Z',
+        status: status === 'succeeded' ? 'completed' : 'blocked',
+        metadata: { mode: 'sandbox' },
+      },
+    ],
+    error: status === 'blocked'
+      ? {
+        code: 'RUNTIME_POLICY_BLOCKED',
+        message: 'Runtime policy blocked this execution.',
+        retryable: false,
+        httpStatus: 403,
+      }
+      : undefined,
+  };
+}
