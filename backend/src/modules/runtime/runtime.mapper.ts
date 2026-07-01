@@ -22,6 +22,11 @@ export function mapRuntimeConfig(config: RuntimeFeatureConfig) {
     agnoSendMcpToolDescriptors: config.agnoSendMcpToolDescriptors,
     agnoMaxInputPreviewChars: config.agnoMaxInputPreviewChars,
     agnoMaxOutputPreviewChars: config.agnoMaxOutputPreviewChars,
+    agnoHttpEnabled: config.agnoHttpEnabled,
+    agnoHttpConfigured: config.agnoHttpConfigured,
+    agnoHttpBaseUrlConfigured: config.agnoHttpBaseUrlConfigured,
+    agnoHttpSecurityKeyConfigured: config.agnoHttpSecurityKeyConfigured,
+    agnoHttpTimeoutMs: config.agnoHttpTimeoutMs,
   };
 }
 

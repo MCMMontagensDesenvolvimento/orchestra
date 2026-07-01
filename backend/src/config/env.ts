@@ -11,6 +11,21 @@ const booleanString = (defaultValue: 'true' | 'false') =>
     .string()
     .default(defaultValue)
     .transform((value) => value === 'true');
+const safePositiveInteger = (defaultValue: number) =>
+  z.preprocess((value) => {
+    if (value === undefined || value === '') return defaultValue;
+    const parsed = Number(value);
+    return Number.isInteger(parsed) && parsed > 0 ? parsed : defaultValue;
+  }, z.number().int().positive());
+const optionalUrl = z.preprocess((value) => {
+  const normalized = blankToUndefined(value);
+  if (typeof normalized !== 'string') return undefined;
+  try {
+    return new URL(normalized).toString().replace(/\/$/, '');
+  } catch {
+    return undefined;
+  }
+}, z.string().url().optional());
 
 const envSchema = z.object({
   NODE_ENV: z.enum(['development', 'test', 'production']).default('development'),
@@ -37,7 +52,7 @@ const envSchema = z.object({
   MICROSOFT_ALLOWED_TENANT_IDS: z.preprocess(blankToUndefined, z.string().optional()),
   MICROSOFT_POST_LOGOUT_REDIRECT_URI: z.preprocess(blankToUndefined, z.string().url().optional()),
   MICROSOFT_SSO_AUTO_LINK_BY_EMAIL: booleanString('false'),
-  RUNTIME_PROVIDER: z.enum(['local', 'agno_stub', 'agno']).default('local'),
+  RUNTIME_PROVIDER: z.enum(['local', 'agno_stub', 'agno', 'agno_http']).default('local'),
   RUNTIME_ADAPTER_ENABLED: booleanString('true'),
   RUNTIME_DEFAULT_TIMEOUT_MS: z.coerce.number().int().positive().default(15000),
   RUNTIME_REQUEST_TIMEOUT_MS: z.coerce.number().int().positive().optional(),
@@ -60,6 +75,10 @@ const envSchema = z.object({
   AGNO_SEND_MCP_TOOL_DESCRIPTORS: booleanString('true'),
   AGNO_MAX_INPUT_PREVIEW_CHARS: z.coerce.number().int().positive().default(500),
   AGNO_MAX_OUTPUT_PREVIEW_CHARS: z.coerce.number().int().positive().default(800),
+  AGNO_RUNTIME_HTTP_ENABLED: booleanString('false'),
+  AGNO_RUNTIME_HTTP_BASE_URL: optionalUrl,
+  AGNO_RUNTIME_HTTP_TIMEOUT_MS: safePositiveInteger(15000),
+  AGNO_RUNTIME_HTTP_SECURITY_KEY: z.preprocess(blankToUndefined, z.string().optional()),
   MCP_REMOTE_ENABLED: booleanString('false'),
   MCP_REMOTE_EXECUTION_ENABLED: booleanString('false'),
   MCP_REMOTE_DISCOVERY_ENABLED: booleanString('false'),

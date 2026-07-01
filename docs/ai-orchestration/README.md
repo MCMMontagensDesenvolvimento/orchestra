@@ -24,6 +24,8 @@ A Fase 14A adiciona o contrato versionado `AssistantRuntimeSpecV1` e schemas Zod
 
 A Fase 14B adiciona um servico HTTP minimo Agno-compatible com `/health`, `/capabilities` e `/execute`, validacao pelo contrato 14A, resposta sandbox deterministica e erros normalizados. A entrega nao pluga o backend principal no runtime, nao chama provider externo, nao executa RAG/MCP real e nao habilita Agno por padrao.
 
+A Fase 14C adiciona o adapter backend `agno_http`, client HTTP server-to-server e builder de `AssistantRuntimeSpecV1` para conectar o backend principal ao runtime HTTP minimo da 14B de forma governada, fail-closed e desligada por padrao, sem frontend, migration, provider externo real ou RAG/MCP real dentro do runtime.
+
 Esta pasta deve concentrar a estrategia de IA do Orchestra.
 
 Topicos esperados:
@@ -67,6 +69,7 @@ Topicos esperados:
 - `ORCHESTRA_AGNO_LOCAL_RUNTIME_HANDOFF.md`: handoff da integracao HTTP local Agno-compatible e mock runtime.
 - `ORCHESTRA_AGNO_RUNTIME_CONTRACT_14A.md`: contrato versionado da Assistant Runtime Spec v1, request/response, eventos, erros, health/capabilities e regras de seguranca para runtime Agno-compatible futuro.
 - `ORCHESTRA_AGNO_RUNTIME_HTTP_MINIMO_14B.md`: servico HTTP minimo Agno-compatible com health, capabilities, execute sandbox, erros normalizados, smoke local e handoff para a 14C.
+- `ORCHESTRA_BACKEND_AGNO_RUNTIME_ADAPTER_14C.md`: adapter backend `agno_http`, client HTTP server-to-server, builder de AssistantRuntimeSpecV1, fail-closed, flags/envs e handoff para chat real futuro.
 - `ORCHESTRA_LLM_PROVIDER_INTEGRATION.md`: catalogo LLM, provider local deterministico, providers externos fail-closed e eventos LLM em AgentRun.
 - `ORCHESTRA_RAG_SEMANTICO_DISCOVERY.md`: discovery tecnico da Fase 10A para RAG semantico, embeddings e vector store.
 - `ORCHESTRA_VECTOR_STORE_EMBEDDING_CONTRACT.md`: decisao tecnica da Fase 10B para pgvector, tabela de embeddings, readiness semantico e fail-closed.
