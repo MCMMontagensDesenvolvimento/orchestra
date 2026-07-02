@@ -309,4 +309,3 @@ Proximas fases recomendadas:
 - gateway governado para execucao de tools, se aprovado;
 - dashboards ou consultas operacionais sobre usage/auditoria;
 - eventual streaming, mantendo contrato versionado e sanitizacao.
-
