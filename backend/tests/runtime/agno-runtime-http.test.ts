@@ -142,9 +142,15 @@ describe('Agno-compatible minimal runtime HTTP service', () => {
       expect(parsed.data.status).toBe('succeeded');
       expect(parsed.data.output?.metadata).toEqual(expect.objectContaining({
         mode: 'sandbox',
+        runtimeLatencyMs: 0,
         ragSourceCount: 0,
+        ragContextChars: 0,
         toolDescriptorCount: 0,
+        externalProviderCalled: false,
+        externalMcpCalled: false,
+        toolCallsExecuted: 0,
       }));
+      expect(parsed.data.usage?.latencyMs).toBe(0);
       expect(parsed.data.output?.text).toContain('runtime Agno-compatible minimo');
     }
   });
@@ -334,11 +340,13 @@ describe('Agno-compatible minimal runtime HTTP service', () => {
       .expect(200);
 
     expect(response.body.output.metadata.ragSourceCount).toBe(1);
+    expect(response.body.output.metadata.ragContextChars).toBe('Governed excerpt already resolved by Orquestra.'.length);
     expect(response.body.events).toEqual(expect.arrayContaining([
       expect.objectContaining({
         type: 'rag.context.attached',
         metadata: expect.objectContaining({
           ragSourceCount: 1,
+          ragContextChars: 'Governed excerpt already resolved by Orquestra.'.length,
           ragMode: 'resolved_context',
         }),
       }),

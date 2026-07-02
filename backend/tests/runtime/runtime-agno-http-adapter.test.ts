@@ -407,6 +407,43 @@ describe('Agno HTTP runtime adapter', () => {
     expect(calls[0].body).not.toContain('Authorization');
   });
 
+  it('normalizes agno_http trace, latency and invalid usage fields safely', async () => {
+    const adapter = await agnoHttpAdapter({
+      AGNO_RUNTIME_HTTP_ENABLED: 'true',
+      AGNO_RUNTIME_HTTP_BASE_URL: 'http://127.0.0.1:8091',
+    });
+    vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify({
+      ...runtimeResponse(),
+      usage: {
+        inputTokens: -1,
+        outputTokens: 'invalid',
+        totalTokens: 10,
+        latencyMs: Number.MAX_SAFE_INTEGER + 1,
+        apiKey: 'must-not-leak',
+      },
+    }), { status: 200 })));
+
+    const result = await adapter.execute(context());
+    const metadata = result.metadata as Record<string, unknown>;
+
+    expect(result.status).toBe('completed');
+    expect(metadata).toEqual(expect.objectContaining({
+      runtimeProvider: 'agno_http',
+      runtimeStatus: 'completed',
+      traceId: 'trace-adapter-1',
+      runId: 'run-adapter-1',
+      requestId: 'req-adapter-1',
+      inputHash: 'input-hash',
+      totalTokens: 10,
+      latencyMs: expect.any(Number),
+      externalMcpCalled: false,
+      externalProviderCalled: false,
+      toolCallsExecuted: 0,
+    }));
+    expect(metadata.usage).toEqual({ totalTokens: 10 });
+    expect(JSON.stringify(result)).not.toMatch(/apiKey|must-not-leak|invalid/);
+  });
+
   it('fails closed when runtime returns a payload outside the contract', async () => {
     const adapter = await agnoHttpAdapter({
       AGNO_RUNTIME_HTTP_ENABLED: 'true',

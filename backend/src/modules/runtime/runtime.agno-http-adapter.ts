@@ -29,19 +29,62 @@ import type {
 const maxOutputPreviewChars = 800;
 const unsafeMetadataFragments = ['authorization', 'apikey', 'api_key', 'baseurl', 'content', 'credential', 'header', 'input', 'instruction', 'output', 'password', 'prompt', 'secret', 'text', 'token'];
 const allowedMetadataKeys = new Set([
+  'adapterlatencyms',
+  'assistantid',
+  'assistantpublicationid',
+  'assistantspecversion',
+  'assistantversionid',
+  'blockedbeforeruntime',
+  'costcurrency',
   'descriptorschemahashes',
+  'estimatedcostminorunits',
+  'externalmcpcalled',
+  'externalprovidercalled',
+  'failclosed',
+  'healthstatus',
+  'httpstatus',
+  'inputchars',
+  'inputhash',
   'inputtokens',
+  'latencyms',
+  'limitsenforce',
+  'maxcontextchars',
+  'maxragresults',
   'maxtoolcalls',
-  'outputmetadata',
+  'outputhash',
   'outputtokens',
+  'policyfailclosed',
+  'policymaxcontextchars',
+  'policymaxragresults',
+  'policymaxtoolcalls',
+  'protocolversion',
   'ragcontextchars',
   'ragmode',
   'ragsourcecount',
+  'requestid',
+  'requestsent',
+  'requestspecversion',
+  'responsestatus',
+  'retryable',
+  'runid',
+  'runtimeerrorcode',
+  'runtimeeventid',
+  'runtimeeventstatus',
+  'runtimeeventtype',
+  'runtimelatencyms',
+  'runtimeprotocolversion',
+  'runtimeprovider',
+  'runtimespecversion',
+  'runtimestatus',
   'sourceids',
+  'tenantid',
   'tooldescriptorcount',
+  'toolcallsexecuted',
   'toolids',
   'toolmode',
   'totaltokens',
+  'traceid',
+  'workspaceid',
 ]);
 
 export class AgnoHttpRuntimeAdapter implements RuntimeAdapter {
@@ -143,6 +186,7 @@ export class AgnoHttpRuntimeAdapter implements RuntimeAdapter {
       requestBody.assistantRuntimeSpec.tools,
       requestBody.assistantRuntimeSpec.policy.maxToolCalls,
     );
+    const invocationSummary = buildInvocationSummary(this.provider, requestBody, context, config, ragSummary, toolSummary);
     if (ragSummary) {
       events.push({
         type: 'rag_context_attached',
@@ -165,44 +209,54 @@ export class AgnoHttpRuntimeAdapter implements RuntimeAdapter {
       type: 'agno_request_started',
       status: 'running',
       message: 'Chamada HTTP ao runtime Agno-compatible minimo iniciada.',
-      metadata: {
-        requestSpecVersion: requestBody.specVersion,
-        assistantSpecVersion: requestBody.assistantRuntimeSpec.specVersion,
-        timeoutMs: config.agnoHttpTimeoutMs,
-        inputHash: context.input.hash,
-        ...(ragSummary ?? {}),
-        ...(toolSummary ?? {}),
-      },
+      metadata: jsonMetadata({
+        ...invocationSummary,
+        requestSent: false,
+      }),
     });
 
+    const requestStartedAt = Date.now();
     try {
       const response = await client.execute(requestBody);
-      return normalizeExecutionResponse(this.provider, response, [
+      const runtimeLatencyMs = Date.now() - requestStartedAt;
+      return normalizeExecutionResponse(this.provider, response, invocationSummary, runtimeLatencyMs, [
         ...events,
         {
           type: 'agno_request_completed',
           status: response.status === 'succeeded' ? 'completed' : normalizeRuntimeStatus(response.status),
           message: 'Chamada HTTP ao runtime Agno-compatible minimo concluida.',
-          metadata: {
+          metadata: jsonMetadata({
+            ...invocationSummary,
             requestSent: true,
             runtimeStatus: response.status,
-          },
+            runtimeLatencyMs,
+          }),
         },
       ]);
     } catch (error) {
-      return failedResult(this.provider, errorCode(error), errorMessage(error), [
+      const runtimeLatencyMs = Date.now() - requestStartedAt;
+      const code = errorCode(error);
+      const message = errorMessage(error);
+      return failedResult(this.provider, code, message, [
         ...events,
         {
           type: 'agno_request_failed',
-          status: errorCode(error) === 'RUNTIME_POLICY_BLOCKED' ? 'blocked' : 'failed',
-          message: errorMessage(error),
-          metadata: {
+          status: code === 'RUNTIME_POLICY_BLOCKED' ? 'blocked' : 'failed',
+          message,
+          metadata: jsonMetadata({
+            ...invocationSummary,
             ...errorDetails(error),
             requestSent: true,
-          },
+            runtimeStatus: code === 'RUNTIME_POLICY_BLOCKED' ? 'blocked' : 'failed',
+            runtimeLatencyMs,
+            runtimeErrorCode: code,
+          }),
         },
       ], {
+        ...invocationSummary,
         requestSent: true,
+        runtimeLatencyMs,
+        runtimeErrorCode: code,
       });
     }
   }
@@ -293,6 +347,51 @@ export class AgnoHttpRuntimeAdapter implements RuntimeAdapter {
 
 type AssistantRuntimeRagSpec = ReturnType<typeof buildAssistantRuntimeSpecV1>['rag'];
 type AssistantRuntimeToolSpec = ReturnType<typeof buildAssistantRuntimeSpecV1>['tools'];
+type RuntimeExecuteRequestBody = {
+  specVersion: typeof runtimeExecuteRequestSpecVersionV1;
+  assistantRuntimeSpec: ReturnType<typeof buildAssistantRuntimeSpecV1>;
+};
+
+function buildInvocationSummary(
+  provider: RuntimeProvider,
+  requestBody: RuntimeExecuteRequestBody,
+  context: RuntimeExecutionContext,
+  config: RuntimeFeatureConfig,
+  ragSummary: Record<string, unknown> | undefined,
+  toolSummary: Record<string, unknown> | undefined,
+): Record<string, unknown> {
+  const spec = requestBody.assistantRuntimeSpec;
+
+  return {
+    runtimeProvider: provider,
+    runtimeProtocolVersion: spec.specVersion,
+    runtimeSpecVersion: spec.specVersion,
+    requestSpecVersion: requestBody.specVersion,
+    assistantSpecVersion: spec.specVersion,
+    traceId: spec.trace.traceId,
+    runId: spec.trace.runId,
+    requestId: spec.trace.requestId ?? context.requestId,
+    tenantId: context.tenantId,
+    workspaceId: context.workspaceId,
+    assistantId: context.assistantId,
+    assistantVersionId: context.assistantVersionId,
+    assistantPublicationId: context.assistantPublicationId,
+    timeoutMs: config.agnoHttpTimeoutMs,
+    inputHash: context.input.hash,
+    policyMaxToolCalls: spec.policy.maxToolCalls,
+    policyMaxRagResults: spec.policy.maxRagResults,
+    policyMaxContextChars: spec.policy.maxContextChars,
+    policyFailClosed: spec.policy.failClosed,
+    limitsEnforce: spec.limits.enforce,
+    blockedBeforeRuntime: Boolean(spec.limits.blockedBeforeRuntime),
+    ragMode: ragSummary?.ragMode ?? 'none',
+    ragSourceCount: ragSummary?.ragSourceCount ?? 0,
+    ragContextChars: ragSummary?.ragContextChars ?? 0,
+    toolMode: toolSummary?.toolMode ?? 'none',
+    toolDescriptorCount: toolSummary?.toolDescriptorCount ?? 0,
+    maxToolCalls: spec.policy.maxToolCalls,
+  };
+}
 
 function summarizeRagSpec(rag: AssistantRuntimeRagSpec): Record<string, unknown> | undefined {
   if (rag.mode !== 'resolved_context' || rag.sources.length === 0) return undefined;
@@ -363,6 +462,8 @@ function normalizeCapabilities(
 function normalizeExecutionResponse(
   provider: RuntimeProvider,
   response: RuntimeExecuteResponseV1,
+  invocationSummary: Record<string, unknown>,
+  runtimeLatencyMs: number,
   existingEvents: RuntimeNormalizedEvent[],
 ): RuntimeExecutionResult {
   const parsed = runtimeExecuteResponseV1Schema.parse(response);
@@ -370,6 +471,8 @@ function normalizeExecutionResponse(
   const outputText = parsed.output?.text;
   const outputPreview = outputText?.slice(0, maxOutputPreviewChars);
   const outputHash = outputText ? createHash('sha256').update(outputText).digest('hex') : undefined;
+  const usage = normalizeUsage(parsed.usage);
+  const metrics = normalizeRuntimeMetrics(parsed, invocationSummary, runtimeLatencyMs);
 
   return {
     provider,
@@ -383,10 +486,15 @@ function normalizeExecutionResponse(
     errorCode: status === 'completed' ? undefined : parsed.error?.code,
     errorMessage: status === 'completed' ? undefined : parsed.error?.message,
     metadata: jsonMetadata({
+      ...invocationSummary,
       responseStatus: parsed.status,
-      usage: parsed.usage,
-      outputMetadata: parsed.output?.metadata,
-      externalProviderCalled: false,
+      runtimeStatus: status,
+      runtimeErrorCode: parsed.error?.code,
+      runtimeLatencyMs,
+      usage,
+      runtimeUsage: usage,
+      ...metrics,
+      outputHash,
     }),
     events: [
       ...existingEvents,
@@ -398,14 +506,67 @@ function normalizeExecutionResponse(
           ? 'Run finalizado pelo runtime Agno HTTP.'
           : 'Run nao foi concluido pelo runtime Agno HTTP.',
         metadata: jsonMetadata({
+          ...invocationSummary,
           provider,
           runtimeStatus: parsed.status,
-          errorCode: parsed.error?.code,
+          runtimeErrorCode: parsed.error?.code,
+          runtimeLatencyMs,
           outputHash,
+          usage,
+          ...metrics,
         }),
       },
     ],
   };
+}
+
+function normalizeUsage(usage: RuntimeExecuteResponseV1['usage']): Record<string, unknown> | undefined {
+  if (!usage) return undefined;
+  const normalized: Record<string, unknown> = {};
+  if (typeof usage.inputTokens === 'number') normalized.inputTokens = usage.inputTokens;
+  if (typeof usage.outputTokens === 'number') normalized.outputTokens = usage.outputTokens;
+  if (typeof usage.totalTokens === 'number') normalized.totalTokens = usage.totalTokens;
+  if (typeof usage.latencyMs === 'number') normalized.latencyMs = usage.latencyMs;
+  if (usage.estimatedCostMinorUnits) normalized.estimatedCostMinorUnits = usage.estimatedCostMinorUnits;
+  if (usage.costCurrency) normalized.costCurrency = usage.costCurrency;
+  return Object.keys(normalized).length > 0 ? normalized : undefined;
+}
+
+function normalizeRuntimeMetrics(
+  parsed: RuntimeExecuteResponseV1,
+  invocationSummary: Record<string, unknown>,
+  adapterLatencyMs: number,
+): Record<string, unknown> {
+  const outputMetadata = parsed.output?.metadata;
+  return {
+    inputTokens: parsed.usage?.inputTokens,
+    outputTokens: parsed.usage?.outputTokens,
+    totalTokens: parsed.usage?.totalTokens,
+    latencyMs: parsed.usage?.latencyMs ?? adapterLatencyMs,
+    adapterLatencyMs,
+    ragSourceCount: numberValue(invocationSummary.ragSourceCount) ?? 0,
+    ragContextChars: numberValue(invocationSummary.ragContextChars) ?? 0,
+    toolDescriptorCount: numberValue(invocationSummary.toolDescriptorCount) ?? 0,
+    maxToolCalls: numberValue(invocationSummary.maxToolCalls) ?? 0,
+    toolCallsExecuted: metadataNumber(outputMetadata, 'toolCallsExecuted') ?? 0,
+    externalMcpCalled: metadataBoolean(outputMetadata, 'externalMcpCalled') ?? false,
+    externalProviderCalled: metadataBoolean(outputMetadata, 'externalProviderCalled') ?? false,
+  };
+}
+
+function metadataNumber(metadata: unknown, key: string) {
+  if (!metadata || typeof metadata !== 'object' || Array.isArray(metadata)) return undefined;
+  return numberValue((metadata as Record<string, unknown>)[key]);
+}
+
+function metadataBoolean(metadata: unknown, key: string) {
+  if (!metadata || typeof metadata !== 'object' || Array.isArray(metadata)) return undefined;
+  const value = (metadata as Record<string, unknown>)[key];
+  return typeof value === 'boolean' ? value : undefined;
+}
+
+function numberValue(value: unknown) {
+  return typeof value === 'number' && Number.isFinite(value) ? value : undefined;
 }
 
 function normalizeContractEvents(events: RuntimeNormalizedEventV1[] | undefined): RuntimeNormalizedEvent[] {
@@ -518,7 +679,7 @@ function sanitizeMetadata(value: unknown, depth = 0): Prisma.InputJsonValue | un
   if (typeof value !== 'object') return undefined;
 
   const sanitized: Record<string, Prisma.InputJsonValue> = {};
-  for (const [key, item] of Object.entries(value as Record<string, unknown>).slice(0, 40)) {
+  for (const [key, item] of Object.entries(value as Record<string, unknown>).slice(0, 80)) {
     const normalizedKey = key.replace(/[-_\s]/g, '').toLowerCase();
     if (
       !allowedMetadataKeys.has(normalizedKey)
