@@ -306,7 +306,6 @@ export class LocalDeterministicRuntimeAdapter implements RuntimeAdapter {
             llmProvider: llmResult.provider,
             model: llmResult.model,
             outputHash: llmResult.outputHash,
-            outputPreview: outputPreview.slice(0, 180),
             latencyMs: llmResult.latencyMs,
           },
         },

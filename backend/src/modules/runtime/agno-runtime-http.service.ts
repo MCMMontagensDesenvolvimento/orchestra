@@ -58,7 +58,7 @@ export function agnoRuntimeHttpCapabilities(): RuntimeCapabilitiesResponseV1 {
 }
 
 export function executeAgnoRuntimeHttpContract(input: unknown, now = new Date()): RuntimeHttpResult {
-  const startedAt = Date.now();
+  const runtimeLatencyMs = 0;
   const parsed = runtimeExecuteRequestV1Schema.safeParse(input);
   if (!parsed.success) {
     return runtimeErrorResult({
@@ -90,7 +90,9 @@ export function executeAgnoRuntimeHttpContract(input: unknown, now = new Date())
       retryable: false,
       details: {
         mode: 'sandbox',
-        toolsExecuted: false,
+        externalProviderCalled: false,
+        externalMcpCalled: false,
+        toolCallsExecuted: 0,
       },
       events: [
         ...events,
@@ -102,6 +104,7 @@ export function executeAgnoRuntimeHttpContract(input: unknown, now = new Date())
   }
 
   const ragSourceCount = spec.rag.sources.length;
+  const ragContextChars = spec.rag.sources.reduce((total, source) => total + source.excerpt.length, 0);
   const toolDescriptorCount = spec.tools.descriptors.length;
   const completedEvents: RuntimeNormalizedEventV1[] = [
     ...events,
@@ -121,6 +124,7 @@ export function executeAgnoRuntimeHttpContract(input: unknown, now = new Date())
   if (ragSourceCount > 0) {
     completedEvents.push(runtimeEvent(eventSequence, spec.trace, 'rag.context.attached', 'completed', now, {
       ragSourceCount,
+      ragContextChars,
       ragMode: spec.rag.mode,
     }));
     eventSequence += 1;
@@ -149,6 +153,10 @@ export function executeAgnoRuntimeHttpContract(input: unknown, now = new Date())
 
   completedEvents.push(runtimeEvent(eventSequence, spec.trace, 'run.completed', 'completed', now, {
     mode: 'sandbox',
+    runtimeLatencyMs,
+    ragSourceCount,
+    ragContextChars,
+    toolDescriptorCount,
     externalProviderCalled: false,
     externalMcpCalled: false,
     toolCallsExecuted: 0,
@@ -166,9 +174,12 @@ export function executeAgnoRuntimeHttpContract(input: unknown, now = new Date())
       format: 'text',
       metadata: {
         mode: 'sandbox',
+        runtimeLatencyMs,
         inputChars: spec.input.message.length,
         ragSourceCount,
+        ragContextChars,
         toolDescriptorCount,
+        externalProviderCalled: false,
         externalMcpCalled: false,
         toolCallsExecuted: 0,
       },
@@ -177,7 +188,7 @@ export function executeAgnoRuntimeHttpContract(input: unknown, now = new Date())
       inputTokens: 0,
       outputTokens: 0,
       totalTokens: 0,
-      latencyMs: Math.max(0, Date.now() - startedAt),
+      latencyMs: runtimeLatencyMs,
       estimatedCostMinorUnits: '0',
       costCurrency: 'BRL',
     },

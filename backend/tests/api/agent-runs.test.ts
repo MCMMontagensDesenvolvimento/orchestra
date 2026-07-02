@@ -29,6 +29,7 @@ const mocks = vi.hoisted(() => {
   return {
     agentRunsRepository,
     recordAuditEvent: vi.fn().mockResolvedValue(undefined),
+    recordAiUsageEvent: vi.fn().mockResolvedValue(undefined),
   };
 });
 
@@ -38,6 +39,10 @@ vi.mock('../../src/modules/agent-runs/agent-runs.repository', () => ({
 
 vi.mock('../../src/modules/audit/audit.service', () => ({
   recordAuditEvent: mocks.recordAuditEvent,
+}));
+
+vi.mock('../../src/modules/ai-observability/ai-observability.service', () => ({
+  recordAiUsageEvent: mocks.recordAiUsageEvent,
 }));
 
 const workspaceId = '00000000-0000-0000-0000-000000000020';
@@ -268,6 +273,7 @@ describe('agent run governance endpoints', () => {
     vi.unstubAllGlobals();
     configureRuntime();
     mocks.recordAuditEvent.mockResolvedValue(undefined);
+    mocks.recordAiUsageEvent.mockResolvedValue(undefined);
     mocks.agentRunsRepository.findAssistantForRun.mockResolvedValue(assistantFixture('draft'));
     mocks.agentRunsRepository.getExecutionPolicy.mockResolvedValue(executionPolicyFixture());
     mocks.agentRunsRepository.countPendingApprovals.mockResolvedValue(0);
@@ -440,17 +446,38 @@ describe('agent run governance endpoints', () => {
     expect(response.body.data.status).toBe('completed');
     expect(response.body.data.metadata.runtime).toEqual(expect.objectContaining({
       provider: 'agno_http',
-      outputPreview: 'Runtime HTTP response through the Orchestra control plane.',
-      adapterMetadata: expect.objectContaining({
-        responseStatus: 'succeeded',
-        usage: expect.objectContaining({ totalTokens: 10 }),
-      }),
+      status: 'completed',
+      traceId: response.body.data.traceId,
+      runId: response.body.data.id,
+      requestId: response.body.data.requestId,
+      protocolVersion: assistantRuntimeSpecVersionV1,
+      specVersion: assistantRuntimeSpecVersionV1,
+      usage: expect.objectContaining({ inputTokens: 3, outputTokens: 7, totalTokens: 10, latencyMs: 2 }),
+      latencyMs: expect.any(Number),
+      ragSourceCount: 0,
+      toolDescriptorCount: 0,
+      toolCallsExecuted: 0,
+      externalMcpCalled: false,
+      externalProviderCalled: false,
+      policy: expect.objectContaining({ maxToolCalls: 0 }),
+    }));
+    expect(response.body.data.metadata.runtime).not.toHaveProperty('outputPreview');
+    expect(response.body.data.metadata.runtime).not.toHaveProperty('adapterMetadata');
+    expect(mocks.recordAiUsageEvent).toHaveBeenCalledWith(expect.objectContaining({
+      source: 'runtime_adapter',
+      operation: 'agent_run.runtime_execute',
+      provider: 'agno_http',
+      status: 'succeeded',
+      inputTokens: 3,
+      outputTokens: 7,
+      totalTokens: 10,
+      latencyMs: 2,
     }));
     expect(response.body.data.events).toEqual(expect.arrayContaining([
       expect.objectContaining({ type: 'agno.request_completed' }),
       expect.objectContaining({ type: 'runtime.run_completed' }),
     ]));
-    expect(JSON.stringify(response.body)).not.toMatch(/runtime-test-security-key|127\.0\.0\.1:8091|Authorization|baseUrl|headers/i);
+    expect(JSON.stringify(response.body)).not.toMatch(/Runtime HTTP response through|runtime-test-security-key|127\.0\.0\.1:8091|Authorization|baseUrl|headers/i);
   });
 
   it('sends governed RAG resolved_context through AgentRun when explicitly enabled', async () => {

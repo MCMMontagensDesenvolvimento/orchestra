@@ -74,7 +74,7 @@ export class AgnoHttpRuntimeClient {
 
   async execute(payload: RuntimeExecuteRequestV1): Promise<RuntimeExecuteResponseV1> {
     const request = runtimeExecuteRequestV1Schema.parse(payload);
-    return this.request('POST', this.executePath, request, runtimeExecuteResponseV1Schema);
+    return this.request('POST', this.executePath, request, runtimeExecuteResponseV1Schema, sanitizeRuntimeExecuteResponsePayload);
   }
 
   private endpoint(path: string) {
@@ -82,7 +82,13 @@ export class AgnoHttpRuntimeClient {
     return `${this.baseUrl}${normalizedPath}`;
   }
 
-  private async request<T>(method: AgnoHttpMethod, path: string, body: unknown, schema: ZodType<T>): Promise<T> {
+  private async request<T>(
+    method: AgnoHttpMethod,
+    path: string,
+    body: unknown,
+    schema: ZodType<T>,
+    sanitizeResponse?: (value: unknown) => unknown,
+  ): Promise<T> {
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), this.timeoutMs);
     const headers: Record<string, string> = {
@@ -104,7 +110,7 @@ export class AgnoHttpRuntimeClient {
         throw errorFromHttpResponse(response.status, json);
       }
 
-      const parsed = schema.safeParse(json);
+      const parsed = schema.safeParse(sanitizeResponse ? sanitizeResponse(json) : json);
       if (!parsed.success) {
         throw new AgnoHttpRuntimeClientError({
           code: 'RUNTIME_INVALID_RESPONSE',
@@ -182,4 +188,52 @@ function parseJson(text: string): unknown {
 
 function isAbortError(error: unknown) {
   return error instanceof Error && error.name === 'AbortError';
+}
+
+function sanitizeRuntimeExecuteResponsePayload(value: unknown): unknown {
+  if (!isRecord(value)) return value;
+  const sanitized: Record<string, unknown> = { ...value };
+
+  if (isRecord(value.usage)) {
+    const usage = sanitizeUsage(value.usage);
+    if (Object.keys(usage).length > 0) {
+      sanitized.usage = usage;
+    } else {
+      delete sanitized.usage;
+    }
+  }
+
+  return sanitized;
+}
+
+function sanitizeUsage(value: Record<string, unknown>) {
+  const usage: Record<string, unknown> = {};
+  const inputTokens = safeNonNegativeInteger(value.inputTokens);
+  const outputTokens = safeNonNegativeInteger(value.outputTokens);
+  const totalTokens = safeNonNegativeInteger(value.totalTokens);
+  const latencyMs = safeNonNegativeInteger(value.latencyMs);
+
+  if (typeof inputTokens === 'number') usage.inputTokens = inputTokens;
+  if (typeof outputTokens === 'number') usage.outputTokens = outputTokens;
+  if (typeof totalTokens === 'number') usage.totalTokens = totalTokens;
+  if (typeof latencyMs === 'number') usage.latencyMs = latencyMs;
+
+  if (typeof value.estimatedCostMinorUnits === 'string' && /^\d+$/.test(value.estimatedCostMinorUnits)) {
+    usage.estimatedCostMinorUnits = value.estimatedCostMinorUnits.slice(0, 30);
+  }
+  if (typeof value.costCurrency === 'string' && /^[A-Z]{3}$/.test(value.costCurrency)) {
+    usage.costCurrency = value.costCurrency;
+  }
+
+  return usage;
+}
+
+function safeNonNegativeInteger(value: unknown) {
+  if (typeof value !== 'number') return undefined;
+  if (!Number.isSafeInteger(value) || value < 0) return undefined;
+  return value;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value) && typeof value === 'object' && !Array.isArray(value);
 }

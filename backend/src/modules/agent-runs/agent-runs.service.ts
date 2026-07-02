@@ -5,7 +5,9 @@ import { AppError } from '../../shared/errors/app-error';
 import type { AuthenticatedUser } from '../../shared/types/auth';
 import { paginationMeta } from '../../shared/validation/pagination';
 import { recordAuditEvent } from '../audit/audit.service';
+import { recordAiUsageEvent } from '../ai-observability/ai-observability.service';
 import { buildRuntimeExecutionContext } from '../runtime/runtime.context';
+import type { RuntimeExecutionContext, RuntimeExecutionResult } from '../runtime/runtime.types';
 import { normalizeRuntimeEvents } from '../runtime/runtime.events';
 import { runtimeAdapterRegistry } from '../runtime/runtime.registry';
 import { runtimeService } from '../runtime/runtime.service';
@@ -19,29 +21,58 @@ type AssistantForRun = NonNullable<Awaited<ReturnType<typeof agentRunsRepository
 type PolicyForRun = Awaited<ReturnType<typeof agentRunsRepository.getExecutionPolicy>>;
 
 const userWorkspaceIds = (user: AuthenticatedUser) => user.workspaces.map((workspace) => workspace.id);
-const unsafeMetadataKeys = new Set(['instructions', 'prompt', 'content', 'secret', 'token', 'password', 'apikey', 'apiKey', 'authorization']);
+const unsafeMetadataFragments = [
+  'apikey',
+  'api_key',
+  'authorization',
+  'baseurl',
+  'connectionstring',
+  'content',
+  'cookie',
+  'credential',
+  'endpoint',
+  'header',
+  'password',
+  'prompt',
+  'providerapikey',
+  'rawdocuments',
+  'rawmcpserverconfig',
+  'rawprompt',
+  'rawproviderresponse',
+  'rawresponse',
+  'rawtoolmanifest',
+  'instructions',
+  'secret',
+  'secretref',
+  'token',
+];
 const cancellableStatuses = new Set(['queued', 'prechecking', 'running']);
+const allowedTokenMetricKeys = new Set(['inputtokens', 'outputtokens', 'totaltokens', 'maxtokens']);
+
+function isUnsafeMetadataKey(key: string) {
+  const normalizedKey = key.replace(/[-_\s]/g, '').toLowerCase();
+  if (allowedTokenMetricKeys.has(normalizedKey)) return false;
+  return unsafeMetadataFragments.some((fragment) => normalizedKey.includes(fragment));
+}
 
 function sanitizeMetadata(value: unknown, depth = 0): unknown {
   if (value == null || typeof value === 'boolean' || typeof value === 'number') return value;
   if (typeof value === 'string') return value.slice(0, 300);
-  if (depth >= 3) return '[truncated]';
+  if (depth >= 4) return '[truncated]';
   if (Array.isArray(value)) return value.slice(0, 20).map((item) => sanitizeMetadata(item, depth + 1));
   if (typeof value !== 'object') return undefined;
 
-  return Object.fromEntries(
-    Object.entries(value as Record<string, unknown>)
-      .slice(0, 30)
-      .map(([key, item]) => {
-        const normalizedKey = key.toLowerCase();
-        return [
-          key,
-          unsafeMetadataKeys.has(key) || unsafeMetadataKeys.has(normalizedKey)
-            ? '[redacted]'
-            : sanitizeMetadata(item, depth + 1),
-        ];
-      }),
-  );
+  const entries = Object.entries(value as Record<string, unknown>)
+    .slice(0, 60)
+    .map(([key, item]) => [
+      key,
+      isUnsafeMetadataKey(key)
+        ? '[redacted]'
+        : sanitizeMetadata(item, depth + 1),
+    ] as const)
+    .filter(([, item]) => typeof item !== 'undefined');
+
+  return Object.fromEntries(entries);
 }
 
 function summarizeInput(input: string) {
@@ -52,9 +83,18 @@ function mergeRuntimeMetadata(input: {
   metadata?: Prisma.InputJsonValue;
   provider: string;
   runtimeStatus: string;
+  requestId: string;
+  traceId: string;
+  runId: string;
+  tenantId: string;
+  workspaceId: string;
+  assistantId: string;
+  assistantVersionId: string | null;
+  assistantPublicationId: string | null;
+  actorUserId: string;
   inputHash: string;
   outputHash?: string;
-  outputPreview?: string;
+  errorCode?: string;
   runtimeMetadata?: Prisma.InputJsonValue;
   ragSummary?: { ragReady: boolean; knowledgeBindingsCount: number; chunkCount: number; sourceReferenceCount: number; lastRagQueryId: string | null };
   mcpSummary?: { mcpBindingsCount: number; allowedSandboxTools: unknown[]; blockedTools: unknown[]; requiresApproval: unknown[]; lastToolCallIds: string[] };
@@ -62,16 +102,44 @@ function mergeRuntimeMetadata(input: {
   const base = typeof input.metadata === 'object' && input.metadata && !Array.isArray(input.metadata)
     ? input.metadata as Record<string, unknown>
     : {};
+  const adapterMetadata = asRecord(input.runtimeMetadata);
+  const usage = runtimeUsage(adapterMetadata);
+  const summary = runtimeObservationSummary(adapterMetadata);
 
-  return {
+  return sanitizeMetadata({
     ...base,
     runtime: {
       provider: input.provider,
       status: input.runtimeStatus,
+      protocolVersion: stringValue(adapterMetadata?.runtimeProtocolVersion ?? adapterMetadata?.protocolVersion),
+      specVersion: stringValue(adapterMetadata?.runtimeSpecVersion ?? adapterMetadata?.assistantSpecVersion),
+      traceId: input.traceId,
+      runId: input.runId,
+      requestId: input.requestId,
+      tenantId: input.tenantId,
+      workspaceId: input.workspaceId,
+      assistantId: input.assistantId,
+      assistantVersionId: input.assistantVersionId,
+      assistantPublicationId: input.assistantPublicationId,
+      actorUserId: input.actorUserId,
       inputHash: input.inputHash,
       outputHash: input.outputHash,
-      outputPreview: input.outputPreview,
-      adapterMetadata: input.runtimeMetadata,
+      errorCode: input.errorCode,
+      latencyMs: numberValue(adapterMetadata?.runtimeLatencyMs ?? adapterMetadata?.latencyMs),
+      usage,
+      ...summary,
+      policy: {
+        maxContextChars: numberValue(adapterMetadata?.policyMaxContextChars),
+        maxRagResults: numberValue(adapterMetadata?.policyMaxRagResults),
+        maxToolCalls: numberValue(adapterMetadata?.policyMaxToolCalls ?? adapterMetadata?.maxToolCalls),
+        failClosed: booleanValue(adapterMetadata?.policyFailClosed),
+      },
+      limits: {
+        enforce: booleanValue(adapterMetadata?.limitsEnforce),
+        blockedBeforeRuntime: booleanValue(adapterMetadata?.blockedBeforeRuntime),
+        timeoutMs: numberValue(adapterMetadata?.timeoutMs),
+      },
+      adapterMetadata: input.provider === 'agno_http' ? undefined : input.runtimeMetadata,
       rag: input.ragSummary,
       mcp: input.mcpSummary
         ? {
@@ -83,7 +151,49 @@ function mergeRuntimeMetadata(input: {
         }
         : undefined,
     },
-  } as Prisma.InputJsonValue;
+  }) as Prisma.InputJsonValue;
+}
+
+function runtimeObservationSummary(metadata: Record<string, unknown> | undefined) {
+  return {
+    ragSourceCount: numberValue(metadata?.ragSourceCount),
+    ragContextChars: numberValue(metadata?.ragContextChars),
+    toolDescriptorCount: numberValue(metadata?.toolDescriptorCount),
+    maxToolCalls: numberValue(metadata?.maxToolCalls ?? metadata?.policyMaxToolCalls),
+    toolCallsExecuted: numberValue(metadata?.toolCallsExecuted),
+    externalMcpCalled: booleanValue(metadata?.externalMcpCalled),
+    externalProviderCalled: booleanValue(metadata?.externalProviderCalled),
+  };
+}
+
+function runtimeUsage(metadata: Record<string, unknown> | undefined) {
+  const usage = asRecord(metadata?.runtimeUsage) ?? asRecord(metadata?.usage);
+  if (!usage) return undefined;
+  const normalized = {
+    inputTokens: numberValue(usage.inputTokens),
+    outputTokens: numberValue(usage.outputTokens),
+    totalTokens: numberValue(usage.totalTokens),
+    latencyMs: numberValue(usage.latencyMs),
+  };
+  return Object.values(normalized).some((value) => typeof value !== 'undefined') ? normalized : undefined;
+}
+
+function asRecord(value: unknown): Record<string, unknown> | undefined {
+  return Boolean(value) && typeof value === 'object' && !Array.isArray(value)
+    ? value as Record<string, unknown>
+    : undefined;
+}
+
+function numberValue(value: unknown) {
+  return typeof value === 'number' && Number.isFinite(value) ? value : undefined;
+}
+
+function booleanValue(value: unknown) {
+  return typeof value === 'boolean' ? value : undefined;
+}
+
+function stringValue(value: unknown) {
+  return typeof value === 'string' && value.trim() ? value.slice(0, 160) : undefined;
 }
 
 async function recordDenied(
@@ -231,17 +341,83 @@ async function recordRunAudit(input: {
     action: input.action,
     entity: 'agent_run',
     entityId: input.runId,
-    metadata: {
+    metadata: sanitizeMetadata({
       assistantId: input.assistant.id,
       mode: input.mode,
       status: input.status,
       traceId: input.traceId,
       ...(typeof input.metadata === 'object' && input.metadata ? input.metadata : {}),
-    },
+    }) as Prisma.InputJsonValue,
     requestId: input.context.requestId,
     ipAddress: input.context.ipAddress,
     userAgent: input.context.userAgent,
   });
+}
+
+async function recordRuntimeUsageEvent(input: {
+  user: AuthenticatedUser;
+  assistant: Pick<AssistantForRun, 'id' | 'workspaceId'>;
+  runId: string;
+  traceId: string;
+  requestId: string;
+  runtimeContext: RuntimeExecutionContext;
+  runtimeResult: RuntimeExecutionResult;
+  startedAt: Date;
+  completedAt: Date;
+}) {
+  const runtimeMetadata = asRecord(input.runtimeResult.metadata);
+  const usage = runtimeUsage(runtimeMetadata) as Record<string, unknown> | undefined;
+  const summary = runtimeObservationSummary(runtimeMetadata);
+
+  try {
+    await recordAiUsageEvent({
+      tenantId: input.user.tenant.id,
+      workspaceId: input.assistant.workspaceId,
+      assistantId: input.assistant.id,
+      userId: input.user.id,
+      runId: input.runId,
+      traceId: input.traceId,
+      source: 'runtime_adapter',
+      operation: 'agent_run.runtime_execute',
+      provider: input.runtimeResult.provider,
+      model: input.runtimeContext.compiledPrompt.modelName,
+      status: usageStatus(input.runtimeResult.status),
+      blockedReason: input.runtimeResult.status === 'blocked' ? input.runtimeResult.errorCode : undefined,
+      errorCode: input.runtimeResult.errorCode,
+      errorMessage: input.runtimeResult.errorMessage,
+      inputTokens: numberValue(usage?.inputTokens),
+      outputTokens: numberValue(usage?.outputTokens),
+      totalTokens: numberValue(usage?.totalTokens),
+      latencyMs: numberValue(usage?.latencyMs) ?? numberValue(runtimeMetadata?.runtimeLatencyMs ?? runtimeMetadata?.latencyMs),
+      metadata: {
+        runtimeProvider: input.runtimeResult.provider,
+        runtimeStatus: input.runtimeResult.status,
+        requestId: input.requestId,
+        traceId: input.traceId,
+        runId: input.runId,
+        inputHash: input.runtimeContext.input.hash,
+        ...summary,
+        policy: {
+          maxContextChars: numberValue(runtimeMetadata?.policyMaxContextChars),
+          maxRagResults: numberValue(runtimeMetadata?.policyMaxRagResults),
+          maxToolCalls: numberValue(runtimeMetadata?.policyMaxToolCalls ?? runtimeMetadata?.maxToolCalls),
+        },
+      },
+      startedAt: input.startedAt,
+      completedAt: input.completedAt,
+    });
+  } catch (error) {
+    logger.warn({
+      traceId: input.traceId,
+      runId: input.runId,
+      error: error instanceof Error ? error.message : 'unknown',
+    }, 'failed to record runtime usage event');
+  }
+}
+
+function usageStatus(status: RuntimeExecutionResult['status']) {
+  if (status === 'completed') return 'succeeded';
+  return status;
 }
 
 function selectedVersionId(assistant: AssistantForRun, mode: AgentRunMode) {
@@ -328,7 +504,17 @@ export const agentRunsService = {
           metadata: sanitizedMetadata,
           provider: runtimeProvider,
           runtimeStatus: 'blocked',
+          requestId: context.requestId,
+          traceId,
+          runId,
+          tenantId: user.tenant.id,
+          workspaceId: assistant.workspaceId,
+          assistantId: assistant.id,
+          assistantVersionId,
+          assistantPublicationId,
+          actorUserId: user.id,
           inputHash: 'not_computed_precheck_blocked',
+          errorCode: firstReason?.code,
         }),
         events: [
           ...requestedEvents,
@@ -347,6 +533,17 @@ export const agentRunsService = {
         ],
       });
 
+      await recordRunAudit({
+        user,
+        assistant,
+        runId,
+        traceId,
+        action: 'runtime_policy_blocked',
+        mode: input.mode,
+        status: 'blocked',
+        context,
+        metadata: { provider: runtimeProvider, reasons: precheck.reasons.map((reason) => reason.code) },
+      });
       await recordRunAudit({
         user,
         assistant,
@@ -444,9 +641,18 @@ export const agentRunsService = {
         metadata: sanitizedMetadata,
         provider: runtimeResult.provider,
         runtimeStatus: runtimeResult.status,
+        requestId: context.requestId,
+        traceId,
+        runId,
+        tenantId: user.tenant.id,
+        workspaceId: assistant.workspaceId,
+        assistantId: assistant.id,
+        assistantVersionId,
+        assistantPublicationId,
+        actorUserId: user.id,
         inputHash: runtimeContext.input.hash,
         outputHash: runtimeResult.outputHash,
-        outputPreview: runtimeResult.outputPreview,
+        errorCode: runtimeResult.errorCode,
         runtimeMetadata: runtimeResult.metadata,
         ragSummary: {
           ragReady: runtimeContext.rag.ragReady,
@@ -468,6 +674,68 @@ export const agentRunsService = {
         ...normalizedRuntimeEvents,
       ],
     });
+
+    await recordRuntimeUsageEvent({
+      user,
+      assistant,
+      runId,
+      traceId,
+      requestId: context.requestId,
+      runtimeContext,
+      runtimeResult,
+      startedAt: now,
+      completedAt: now,
+    });
+
+    const runtimeMetadata = asRecord(runtimeResult.metadata);
+    const runtimeSummary = runtimeObservationSummary(runtimeMetadata);
+    if (runtimeResult.provider === 'agno_http' && numberValue(runtimeSummary.ragSourceCount) && numberValue(runtimeSummary.ragSourceCount)! > 0) {
+      await recordRunAudit({
+        user,
+        assistant,
+        runId,
+        traceId,
+        action: 'runtime_rag_context_attached',
+        mode: input.mode,
+        status: runtimeResult.status,
+        context,
+        metadata: {
+          provider: runtimeResult.provider,
+          ragSourceCount: runtimeSummary.ragSourceCount,
+          ragContextChars: runtimeSummary.ragContextChars,
+        },
+      });
+    }
+    if (runtimeResult.provider === 'agno_http' && numberValue(runtimeSummary.toolDescriptorCount) && numberValue(runtimeSummary.toolDescriptorCount)! > 0) {
+      await recordRunAudit({
+        user,
+        assistant,
+        runId,
+        traceId,
+        action: 'runtime_tool_descriptors_attached',
+        mode: input.mode,
+        status: runtimeResult.status,
+        context,
+        metadata: {
+          provider: runtimeResult.provider,
+          toolDescriptorCount: runtimeSummary.toolDescriptorCount,
+          maxToolCalls: runtimeSummary.maxToolCalls,
+        },
+      });
+    }
+    if (isBlocked && runtimeResult.errorCode === 'RUNTIME_POLICY_BLOCKED') {
+      await recordRunAudit({
+        user,
+        assistant,
+        runId,
+        traceId,
+        action: 'runtime_policy_blocked',
+        mode: input.mode,
+        status: 'blocked',
+        context,
+        metadata: { provider: runtimeResult.provider, errorCode: runtimeResult.errorCode },
+      });
+    }
 
     await recordRunAudit({ user, assistant, runId, traceId, action: 'agent_run_started', mode: input.mode, status: 'running', context });
     await recordRunAudit({
