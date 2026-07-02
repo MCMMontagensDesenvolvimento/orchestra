@@ -34,6 +34,8 @@ A Fase 14F adiciona descriptors governados de tools/MCP ao runtime Agno HTTP, us
 
 A Fase 14G adiciona observabilidade, limites e auditoria ponta a ponta no caminho `AgentRun -> agno_http -> runtime HTTP`, com traceId/runId/requestId, usage, latencia, status, erro, summaries de RAG/tools e audit metadata sanitizada, sem payload bruto, provider externo, MCP remoto direto ou tool execution nova.
 
+A Fase 14H consolida o MVP tecnico da integracao com Agno Runtime, adicionando handoff operacional, checklist de homologacao/rollback e smoke seguro de MVP para runtime HTTP minimo e fronteira de frontend, sem feature nova, migration, frontend ou mudanca de defaults.
+
 Esta pasta deve concentrar a estrategia de IA do Orchestra.
 
 Topicos esperados:
@@ -82,6 +84,7 @@ Topicos esperados:
 - `ORCHESTRA_RAG_GOVERNADO_AGNO_RUNTIME_14E.md`: contexto RAG governado no `agno_http` como `resolved_context`, com flags, limites, sanitizacao e ausencia de retrieval livre no runtime.
 - `ORCHESTRA_MCP_TOOLS_GOVERNADOS_AGNO_RUNTIME_14F.md`: descriptors governados de tools/MCP no `agno_http`, com allowlist, limites, sanitizacao, eventos seguros e ausencia de execucao externa direta.
 - `ORCHESTRA_OBSERVABILIDADE_LIMITES_AUDITORIA_RUNTIME_AGNO_14G.md`: observabilidade, limites e auditoria do caminho `AgentRun -> agno_http`, com trace/usage/latencia/status/erro, summaries seguros e ausencia de payload bruto.
+- `ORCHESTRA_MVP_AGNO_RUNTIME_HANDOFF_14H.md`: handoff do MVP Agno Runtime, com arquitetura final, flags, defaults seguros, smoke, homologacao, rollback, limites, riscos e proximos passos pos-MVP.
 - `ORCHESTRA_LLM_PROVIDER_INTEGRATION.md`: catalogo LLM, provider local deterministico, providers externos fail-closed e eventos LLM em AgentRun.
 - `ORCHESTRA_RAG_SEMANTICO_DISCOVERY.md`: discovery tecnico da Fase 10A para RAG semantico, embeddings e vector store.
 - `ORCHESTRA_VECTOR_STORE_EMBEDDING_CONTRACT.md`: decisao tecnica da Fase 10B para pgvector, tabela de embeddings, readiness semantico e fail-closed.
