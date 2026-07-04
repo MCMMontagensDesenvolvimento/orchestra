@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { endpoints } from '@/services/api/endpoints';
 
 const apiGet = vi.hoisted(() => vi.fn());
+const apiPost = vi.hoisted(() => vi.fn());
 
 vi.mock('@/lib/env', () => ({
   env: {
@@ -19,7 +20,7 @@ vi.mock('@/lib/env', () => ({
 vi.mock('@/services/api/api-client', () => ({
   apiClient: {
     get: apiGet,
-    post: vi.fn(),
+    post: apiPost,
     patch: vi.fn(),
     delete: vi.fn(),
   },
@@ -85,5 +86,36 @@ describe('services in real API mode', () => {
     await expect(chatService.conversations()).rejects.toThrow(/API real ainda/i);
     await expect(chatService.messages('conversation-1')).rejects.toThrow(/API real ainda/i);
     expect(apiGet).not.toHaveBeenCalled();
+  });
+
+  it('creates assistant runs through the backend AgentRun endpoint', async () => {
+    const run = {
+      id: 'run-1',
+      tenantId: 'tenant-1',
+      workspaceId: 'workspace-1',
+      assistantId: 'assistant-1',
+      requestedById: 'user-1',
+      status: 'completed',
+      mode: 'published',
+      source: 'frontend-chat',
+      traceId: 'trace-1',
+      createdAt: '2026-07-03T12:00:00.000Z',
+      updatedAt: '2026-07-03T12:00:01.000Z',
+    };
+    apiPost.mockResolvedValueOnce({ data: { data: run } });
+
+    await expect(agentRunsService.createForAssistant('assistant-1', {
+      mode: 'published',
+      input: 'Ola',
+      source: 'frontend-chat',
+      metadata: { origin: 'chat-ui' },
+    })).resolves.toBe(run);
+
+    expect(apiPost).toHaveBeenCalledWith(endpoints.assistants.runs('assistant-1'), {
+      mode: 'published',
+      input: 'Ola',
+      source: 'frontend-chat',
+      metadata: { origin: 'chat-ui' },
+    });
   });
 });
