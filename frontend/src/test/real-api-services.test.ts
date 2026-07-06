@@ -118,4 +118,40 @@ describe('services in real API mode', () => {
       metadata: { origin: 'chat-ui' },
     });
   });
+
+  it('lists assistant runs and run events through backend AgentRun endpoints', async () => {
+    const run = {
+      id: 'run-1',
+      tenantId: 'tenant-1',
+      workspaceId: 'workspace-1',
+      assistantId: 'assistant-1',
+      requestedById: 'user-1',
+      status: 'completed',
+      mode: 'published',
+      source: 'frontend-chat',
+      traceId: 'trace-1',
+      createdAt: '2026-07-03T12:00:00.000Z',
+      updatedAt: '2026-07-03T12:00:01.000Z',
+    };
+    const event = {
+      id: 'event-1',
+      agentRunId: 'run-1',
+      type: 'run.precheck_passed',
+      sequence: 2,
+      status: 'running',
+      message: 'Precheck aprovado.',
+      metadata: { provider: 'local' },
+      createdAt: '2026-07-03T12:00:00.000Z',
+    };
+
+    apiGet
+      .mockResolvedValueOnce({ data: { data: [run], pagination: paginatedEmpty.pagination } })
+      .mockResolvedValueOnce({ data: { data: [event] } });
+
+    await expect(agentRunsService.listForAssistant('assistant-1')).resolves.toEqual([run]);
+    await expect(agentRunsService.events('run-1')).resolves.toEqual([event]);
+
+    expect(apiGet).toHaveBeenCalledWith(endpoints.assistants.runs('assistant-1'));
+    expect(apiGet).toHaveBeenCalledWith(endpoints.agentRuns.events('run-1'));
+  });
 });
