@@ -427,7 +427,13 @@ function selectedVersionId(assistant: AssistantForRun, mode: AgentRunMode) {
 }
 
 export const agentRunsService = {
-  async createForAssistant(assistantId: string, input: CreateAgentRunInput, user: AuthenticatedUser, context: RequestContext) {
+  async createForAssistant(
+    assistantId: string,
+    input: CreateAgentRunInput,
+    user: AuthenticatedUser,
+    context: RequestContext,
+    options: { conversationId?: string | null; onRuntimeResult?: (result: RuntimeExecutionResult) => void } = {},
+  ) {
     const assistant = await getAssistantOrThrow(assistantId, user);
     await assertAllowed(
       agentRunPolicies.canCreateAgentRun(user, assistant),
@@ -489,6 +495,7 @@ export const agentRunsService = {
         assistantId: assistant.id,
         assistantVersionId,
         assistantPublicationId,
+        conversationId: options.conversationId,
         requestedById: user.id,
         status: 'blocked',
         mode: input.mode,
@@ -612,6 +619,7 @@ export const agentRunsService = {
       metadata: { provider: runtimeProvider },
     });
     const runtimeResult = await runtimeService.execute(runtimeContext);
+    options.onRuntimeResult?.(runtimeResult);
     const normalizedRuntimeEvents = normalizeRuntimeEvents(runtimeResult);
     const now = new Date();
     const isFailed = runtimeResult.status === 'failed';
@@ -623,6 +631,7 @@ export const agentRunsService = {
       assistantId: assistant.id,
       assistantVersionId,
       assistantPublicationId,
+      conversationId: options.conversationId,
       requestedById: user.id,
       status: runtimeResult.status,
       mode: input.mode,

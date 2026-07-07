@@ -58,7 +58,9 @@ export const queryKeys = {
     toolCallEvents: (toolCallId: string) => [...queryKeys.mcp.all, 'tool-call-events', toolCallId] as const,
   },
   chat: {
-    conversations: (assistantId?: string) => ['chat', 'conversations', assistantId ?? 'all'] as const,
+    all: ['chat'] as const,
+    conversations: (assistantId?: string, includeArchived = false) => [...queryKeys.chat.all, 'conversations', assistantId ?? 'all', includeArchived ? 'with-archived' : 'active'] as const,
+    conversation: (conversationId: string) => [...queryKeys.chat.all, 'conversation', conversationId] as const,
     messages: (conversationId: string) => ['chat', 'messages', conversationId] as const,
   },
   analytics: {

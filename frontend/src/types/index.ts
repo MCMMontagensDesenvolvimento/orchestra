@@ -885,6 +885,47 @@ export interface ToolExecutionLog {
   output?: string;
 }
 
+export type ChatConversationVisibility = 'private' | 'workspace' | 'team' | 'shared';
+export type ChatMessageRole = 'user' | 'assistant' | 'system';
+
+export interface ChatMessage {
+  id: string;
+  tenantId: string;
+  workspaceId: string;
+  conversationId: string;
+  assistantId: string;
+  userId?: string | null;
+  role: ChatMessageRole;
+  content: string;
+  agentRunId?: string | null;
+  createdAt: string;
+  agentRun?: AgentRun | null;
+}
+
+export interface ChatConversation {
+  id: string;
+  tenantId: string;
+  workspaceId: string;
+  assistantId: string;
+  ownerUserId: string;
+  title: string;
+  visibility: ChatConversationVisibility;
+  archivedAt?: string | null;
+  createdAt: string;
+  updatedAt: string;
+  messageCount: number;
+  lastMessage?: string | null;
+  lastMessageAt?: string | null;
+  messages?: ChatMessage[];
+}
+
+export interface SendChatMessageResponse {
+  conversation: ChatConversation;
+  userMessage: ChatMessage;
+  assistantMessage: ChatMessage;
+  run: AgentRun;
+}
+
 export interface Conversation {
   id: string;
   assistantId: string;

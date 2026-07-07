@@ -194,6 +194,7 @@ export const agentRunsRepository = {
     assistantId: string;
     assistantVersionId?: string | null;
     assistantPublicationId?: string | null;
+    conversationId?: string | null;
     requestedById: string;
     status: string;
     mode: string;
@@ -221,6 +222,7 @@ export const agentRunsRepository = {
           assistantId: input.assistantId,
           assistantVersionId: input.assistantVersionId,
           assistantPublicationId: input.assistantPublicationId,
+          conversationId: input.conversationId,
           requestedById: input.requestedById,
           status: input.status,
           mode: input.mode,

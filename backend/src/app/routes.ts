@@ -8,6 +8,7 @@ import { createRolesRouter } from '../modules/roles/roles.routes';
 import { createPermissionsRouter } from '../modules/permissions/permissions.routes';
 import { createAssistantsRouter } from '../modules/assistants/assistants.routes';
 import { createAgentRunsRouter } from '../modules/agent-runs/agent-runs.routes';
+import { createChatConversationsRouter } from '../modules/chat-conversations/chat-conversations.routes';
 import { createAuditRouter } from '../modules/audit/audit.routes';
 import { createSettingsRouter } from '../modules/settings/settings.routes';
 import {
@@ -38,6 +39,7 @@ export function registerRoutes(app: express.Express, dependencies: AppDependenci
   api.use('/permissions', createPermissionsRouter());
   api.use('/assistants', createAssistantsRouter());
   api.use('/agent-runs', createAgentRunsRouter());
+  api.use('/chat', createChatConversationsRouter());
   api.use('/knowledge-bases', createKnowledgeRouter());
   api.use('/knowledge-documents', createKnowledgeDocumentsRouter());
   api.use('/knowledge-ingestion-jobs', createKnowledgeIngestionJobsRouter());

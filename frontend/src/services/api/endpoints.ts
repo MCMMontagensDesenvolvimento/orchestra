@@ -51,6 +51,7 @@ export const endpoints = {
     ragReadiness: (id: string) => `/assistants/${id}/rag-readiness`,
     ragLocalSearch: (id: string) => `/assistants/${id}/rag-local-search`,
     runs: (id: string) => `/assistants/${id}/runs`,
+    conversations: (id: string) => `/assistants/${id}/conversations`,
     feedback: (id: string) => `/assistants/${id}/feedback`,
     testResults: (id: string) => `/assistants/${id}/test-results`,
     shares: (id: string) => `/assistants/${id}/shares`,
@@ -136,6 +137,8 @@ export const endpoints = {
   },
   chat: {
     conversations: '/chat/conversations',
+    conversation: (conversationId: string) => `/chat/conversations/${conversationId}`,
+    archive: (conversationId: string) => `/chat/conversations/${conversationId}/archive`,
     messages: (conversationId: string) => `/chat/conversations/${conversationId}/messages`,
     send: (conversationId: string) => `/chat/conversations/${conversationId}/messages`,
   },
