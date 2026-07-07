@@ -82,10 +82,85 @@ describe('services in real API mode', () => {
     expect(apiGet).not.toHaveBeenCalled();
   });
 
-  it('keeps chat unavailable instead of returning demo conversations', async () => {
-    await expect(chatService.conversations()).rejects.toThrow(/API real ainda/i);
-    await expect(chatService.messages('conversation-1')).rejects.toThrow(/API real ainda/i);
-    expect(apiGet).not.toHaveBeenCalled();
+  it('uses backend chat conversation endpoints when mocks are disabled', async () => {
+    const conversation = {
+      id: 'conversation-1',
+      tenantId: 'tenant-1',
+      workspaceId: 'workspace-1',
+      assistantId: 'assistant-1',
+      ownerUserId: 'user-1',
+      title: 'Minha conversa',
+      visibility: 'private',
+      archivedAt: null,
+      createdAt: '2026-07-03T12:00:00.000Z',
+      updatedAt: '2026-07-03T12:00:00.000Z',
+      messageCount: 0,
+      lastMessage: null,
+      lastMessageAt: null,
+      messages: [],
+    };
+    const sendResponse = {
+      conversation,
+      userMessage: {
+        id: 'message-user-1',
+        tenantId: 'tenant-1',
+        workspaceId: 'workspace-1',
+        conversationId: 'conversation-1',
+        assistantId: 'assistant-1',
+        userId: 'user-1',
+        role: 'user',
+        content: 'Ola',
+        agentRunId: null,
+        createdAt: '2026-07-03T12:00:00.000Z',
+        agentRun: null,
+      },
+      assistantMessage: {
+        id: 'message-assistant-1',
+        tenantId: 'tenant-1',
+        workspaceId: 'workspace-1',
+        conversationId: 'conversation-1',
+        assistantId: 'assistant-1',
+        userId: null,
+        role: 'assistant',
+        content: 'Resposta',
+        agentRunId: 'run-1',
+        createdAt: '2026-07-03T12:00:01.000Z',
+        agentRun: null,
+      },
+      run: {
+        id: 'run-1',
+        tenantId: 'tenant-1',
+        workspaceId: 'workspace-1',
+        assistantId: 'assistant-1',
+        requestedById: 'user-1',
+        status: 'completed',
+        mode: 'published',
+        source: 'chat-conversation',
+        traceId: 'trace-1',
+        createdAt: '2026-07-03T12:00:00.000Z',
+        updatedAt: '2026-07-03T12:00:01.000Z',
+      },
+    };
+
+    apiGet
+      .mockResolvedValueOnce({ data: { data: [conversation] } })
+      .mockResolvedValueOnce({ data: { data: conversation } });
+    apiPost
+      .mockResolvedValueOnce({ data: { data: conversation } })
+      .mockResolvedValueOnce({ data: { data: sendResponse } })
+      .mockResolvedValueOnce({ data: { data: { ...conversation, archivedAt: '2026-07-03T12:10:00.000Z' } } });
+
+    await expect(chatService.conversations('assistant-1')).resolves.toEqual([conversation]);
+    await expect(chatService.getConversation('conversation-1')).resolves.toEqual(conversation);
+    await expect(chatService.createConversation('assistant-1', { title: 'Minha conversa' })).resolves.toEqual(conversation);
+    await expect(chatService.sendMessage('conversation-1', 'Ola')).resolves.toEqual(sendResponse);
+    await expect(chatService.archiveConversation('conversation-1')).resolves.toEqual({ ...conversation, archivedAt: '2026-07-03T12:10:00.000Z' });
+
+    expect(apiGet).toHaveBeenCalledWith(endpoints.assistants.conversations('assistant-1'), { params: { includeArchived: false } });
+    expect(apiGet).toHaveBeenCalledWith(endpoints.chat.conversation('conversation-1'));
+    expect(apiPost).toHaveBeenCalledWith(endpoints.assistants.conversations('assistant-1'), { title: 'Minha conversa' });
+    expect(apiPost).toHaveBeenCalledWith(endpoints.chat.send('conversation-1'), { input: 'Ola' });
+    expect(apiPost).toHaveBeenCalledWith(endpoints.chat.archive('conversation-1'));
   });
 
   it('creates assistant runs through the backend AgentRun endpoint', async () => {

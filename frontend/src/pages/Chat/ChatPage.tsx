@@ -1,11 +1,12 @@
 import { FormEvent, useMemo, useState } from 'react';
-import { Link, useParams } from 'react-router-dom';
+import { Link, useParams, useSearchParams } from 'react-router-dom';
 import {
   AlertCircle,
+  Archive,
   Bot,
-  History,
   Loader2,
   MessageSquare,
+  Plus,
   RefreshCw,
   RotateCcw,
   Send,
@@ -22,9 +23,14 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { Textarea } from '@/components/ui/textarea';
 import {
   useAgentRunEvents,
-  useAssistantRuns,
-  useCreateAgentRunMutation,
 } from '@/hooks/queries/useAgentRuns';
+import {
+  useArchiveChatConversationMutation,
+  useChatConversation,
+  useChatConversations,
+  useCreateChatConversationMutation,
+  useSendChatMessageMutation,
+} from '@/hooks/queries/useChatConversations';
 import {
   useAssistant,
   useAssistantActivePublication,
@@ -35,9 +41,10 @@ import { HttpStatus } from '@/services/api/http-status';
 import type {
   AgentRun,
   AgentRunEvent,
-  AgentRunStatus,
   Assistant,
   AssistantPublication,
+  ChatConversation,
+  ChatMessage,
 } from '@/types';
 
 type ChatMessageTone = 'default' | 'blocked' | 'error' | 'pending';
@@ -143,17 +150,25 @@ function ChatAssistantCatalog() {
 }
 
 function AssistantRunChat({ assistantId }: { assistantId: string }) {
+  const [searchParams, setSearchParams] = useSearchParams();
   const assistantQuery = useAssistant(assistantId);
   const activePublicationQuery = useAssistantActivePublication(assistantId);
-  const assistantRunsQuery = useAssistantRuns(assistantId);
-  const createRunMutation = useCreateAgentRunMutation();
+  const conversationsQuery = useChatConversations(assistantId);
+  const selectedConversationId = searchParams.get('conversationId') ?? undefined;
+  const conversationQuery = useChatConversation(selectedConversationId);
+  const createConversationMutation = useCreateChatConversationMutation();
+  const sendMessageMutation = useSendChatMessageMutation();
+  const archiveConversationMutation = useArchiveChatConversationMutation();
 
   const [inputValue, setInputValue] = useState('');
-  const [messages, setMessages] = useState<LocalChatMessage[]>([]);
+  const [sendError, setSendError] = useState<string | null>(null);
 
-  const historyRuns = useMemo(
-    () => (assistantRunsQuery.data ?? []).filter((run) => run.assistantId === assistantId).slice(0, 8),
-    [assistantId, assistantRunsQuery.data],
+  const conversations = conversationsQuery.data ?? [];
+  const selectedConversation = conversationQuery.data;
+  const selectedConversationArchived = Boolean(selectedConversation?.archivedAt);
+  const messages = useMemo(
+    () => toLocalMessages(selectedConversation?.messages ?? []),
+    [selectedConversation?.messages],
   );
 
   if (assistantQuery.isLoading) {
@@ -229,58 +244,17 @@ function AssistantRunChat({ assistantId }: { assistantId: string }) {
   const sendInput = async (rawInput: string, options?: { retry?: boolean }) => {
     const input = rawInput.trim();
 
-    if (!input || createRunMutation.isPending) return;
-
-    const userMessage: LocalChatMessage = {
-      id: `user-${Date.now()}-${messages.length}`,
-      role: 'user',
-      content: input,
-      createdAt: new Date().toISOString(),
-      isRetry: Boolean(options?.retry),
-    };
-
-    setMessages((current) => [...current, userMessage]);
+    if (!input || !selectedConversationId || selectedConversationArchived || sendMessageMutation.isPending) return;
     if (!options?.retry) setInputValue('');
+    setSendError(null);
 
     try {
-      const run = await createRunMutation.mutateAsync({
-        assistantId,
-        input: {
-          mode: 'published',
-          input,
-          source: 'frontend-chat',
-          metadata: {
-            origin: 'chat-ui',
-            assistantId,
-            route: chatRoute(assistantId),
-          },
-        },
+      await sendMessageMutation.mutateAsync({
+        conversationId: selectedConversationId,
+        input,
       });
-
-      setMessages((current) => [
-        ...current,
-        {
-          id: `assistant-${run.id}-${Date.now()}`,
-          role: 'assistant',
-          content: assistantMessageFromRun(run),
-          createdAt: new Date().toISOString(),
-          retryInput: canRetryRun(run) ? input : undefined,
-          tone: toneFromRun(run),
-          run,
-        },
-      ]);
     } catch (error) {
-      setMessages((current) => [
-        ...current,
-        {
-          id: `assistant-error-${Date.now()}`,
-          role: 'assistant',
-          content: apiErrorMessage(error),
-          createdAt: new Date().toISOString(),
-          retryInput: input,
-          tone: 'error',
-        },
-      ]);
+      setSendError(apiErrorMessage(error));
     }
   };
 
@@ -289,15 +263,61 @@ function AssistantRunChat({ assistantId }: { assistantId: string }) {
     void sendInput(inputValue);
   };
 
+  const selectConversation = (conversationId: string | null) => {
+    const next = new URLSearchParams(searchParams);
+    if (conversationId) {
+      next.set('conversationId', conversationId);
+    } else {
+      next.delete('conversationId');
+    }
+    setSearchParams(next, { replace: true });
+    setSendError(null);
+  };
+
+  const createConversation = async () => {
+    const conversation = await createConversationMutation.mutateAsync({ assistantId });
+    selectConversation(conversation.id);
+  };
+
+  const archiveSelectedConversation = async () => {
+    if (!selectedConversationId) return;
+    await archiveConversationMutation.mutateAsync(selectedConversationId);
+    selectConversation(null);
+  };
+
   return (
     <AppShell>
-      <div className="grid min-h-[34rem] gap-4 lg:h-[calc(100dvh-7.5rem)] lg:grid-cols-[minmax(0,1fr)_20rem]">
+      <div className="grid min-h-[34rem] gap-4 lg:h-[calc(100dvh-7.5rem)] lg:grid-cols-[20rem_minmax(0,1fr)]">
+        <ConversationsPanel
+          conversations={conversations}
+          selectedConversationId={selectedConversationId}
+          isError={conversationsQuery.isError}
+          isFetching={conversationsQuery.isFetching}
+          isLoading={conversationsQuery.isLoading}
+          isCreating={createConversationMutation.isPending}
+          isArchiving={archiveConversationMutation.isPending}
+          onRefresh={() => conversationsQuery.refetch()}
+          onNew={() => { void createConversation(); }}
+          onSelect={selectConversation}
+          onArchiveSelected={() => { void archiveSelectedConversation(); }}
+        />
+
         <div className="flex min-h-[34rem] flex-col overflow-hidden rounded-lg border bg-card animate-fade-in">
           <ChatHeader assistant={assistant} activePublication={activePublication} />
 
           <ScrollArea className="flex-1 bg-background/50">
             <div className="p-3 sm:p-5">
-              {messages.length === 0 ? (
+              {!selectedConversationId ? (
+                <NoConversationSelected
+                  assistant={assistant}
+                  isCreating={createConversationMutation.isPending}
+                  onNew={() => { void createConversation(); }}
+                />
+              ) : conversationQuery.isLoading ? (
+                <ListLoading rows={4} />
+              ) : conversationQuery.isError ? (
+                <ConversationLoadError onRetry={() => conversationQuery.refetch()} />
+              ) : messages.length === 0 ? (
                 <ChatEmptyState assistant={assistant} />
               ) : (
                 <div className="space-y-4">
@@ -305,18 +325,26 @@ function AssistantRunChat({ assistantId }: { assistantId: string }) {
                     <ChatMessageBubble
                       key={message.id}
                       message={message}
-                      isSending={createRunMutation.isPending}
+                      isSending={sendMessageMutation.isPending}
                       onRetry={(retryInput) => { void sendInput(retryInput, { retry: true }); }}
                     />
                   ))}
                 </div>
               )}
 
-              {createRunMutation.isPending && (
+              {sendMessageMutation.isPending && (
                 <div className="mt-4 flex justify-start">
                   <div className="max-w-[85%] rounded-lg border bg-card px-4 py-3 text-sm text-muted-foreground shadow-sm">
                     <Loader2 className="mr-2 inline h-4 w-4 animate-spin" />
                     Enviando para o backend Orchestra e aguardando o AgentRun...
+                  </div>
+                </div>
+              )}
+
+              {sendError && (
+                <div className="mt-4 flex justify-start">
+                  <div className="max-w-[85%] rounded-lg border border-destructive/30 bg-destructive/10 px-4 py-3 text-sm text-destructive shadow-sm">
+                    {sendError}
                   </div>
                 </div>
               )}
@@ -331,17 +359,17 @@ function AssistantRunChat({ assistantId }: { assistantId: string }) {
                 placeholder="Mensagem para o assistente"
                 aria-label="Mensagem"
                 className="max-h-40 min-h-[44px] resize-none"
-                disabled={createRunMutation.isPending}
+                disabled={!selectedConversationId || selectedConversationArchived || sendMessageMutation.isPending}
               />
 
               <Button
                 type="submit"
                 size="icon"
                 className="h-11 w-11 shrink-0"
-                disabled={!inputValue.trim() || createRunMutation.isPending}
+                disabled={!selectedConversationId || selectedConversationArchived || !inputValue.trim() || sendMessageMutation.isPending}
                 aria-label="Enviar mensagem"
               >
-                {createRunMutation.isPending ? (
+                {sendMessageMutation.isPending ? (
                   <Loader2 className="h-4 w-4 animate-spin" />
                 ) : (
                   <Send className="h-4 w-4" />
@@ -350,14 +378,6 @@ function AssistantRunChat({ assistantId }: { assistantId: string }) {
             </div>
           </form>
         </div>
-
-        <AssistantRunsPanel
-          runs={historyRuns}
-          isError={assistantRunsQuery.isError}
-          isFetching={assistantRunsQuery.isFetching}
-          isLoading={assistantRunsQuery.isLoading}
-          onRefresh={() => assistantRunsQuery.refetch()}
-        />
       </div>
     </AppShell>
   );
@@ -404,11 +424,49 @@ function ChatEmptyState({ assistant }: { assistant: Assistant }) {
       <div className="flex h-14 w-14 items-center justify-center rounded-lg bg-primary/10 text-primary">
         <MessageSquare className="h-6 w-6" />
       </div>
-      <h2 className="mt-4 text-lg font-semibold">Conversa pronta para homologacao</h2>
+      <h2 className="mt-4 text-lg font-semibold">Conversa pronta</h2>
       <p className="mt-2 max-w-lg text-sm text-muted-foreground">
-        Envie uma mensagem para executar {assistant.name} pelo contrato real de AgentRun.
-        O resultado e os identificadores tecnicos ficarao disponiveis na resposta.
+        Envie uma mensagem para conversar com {assistant.name}.
       </p>
+    </div>
+  );
+}
+
+function NoConversationSelected({
+  assistant,
+  isCreating,
+  onNew,
+}: {
+  assistant: Assistant;
+  isCreating: boolean;
+  onNew: () => void;
+}) {
+  return (
+    <div className="flex min-h-[22rem] flex-col items-center justify-center px-4 py-12 text-center">
+      <div className="flex h-14 w-14 items-center justify-center rounded-lg bg-primary/10 text-primary">
+        <MessageSquare className="h-6 w-6" />
+      </div>
+      <h2 className="mt-4 text-lg font-semibold">Inicie uma conversa</h2>
+      <p className="mt-2 max-w-lg text-sm text-muted-foreground">
+        Crie uma conversa privada com {assistant.name} ou abra uma conversa existente no painel lateral.
+      </p>
+      <Button type="button" className="mt-4 gap-2" onClick={onNew} disabled={isCreating}>
+        {isCreating ? <Loader2 className="h-4 w-4 animate-spin" /> : <Plus className="h-4 w-4" />}
+        Nova conversa
+      </Button>
+    </div>
+  );
+}
+
+function ConversationLoadError({ onRetry }: { onRetry: () => void }) {
+  return (
+    <div className="flex min-h-[22rem] flex-col items-center justify-center px-4 py-12 text-center">
+      <AlertCircle className="h-6 w-6 text-destructive" />
+      <h2 className="mt-4 text-lg font-semibold">Nao foi possivel abrir a conversa</h2>
+      <Button type="button" variant="outline" className="mt-4 gap-2" onClick={onRetry}>
+        <RefreshCw className="h-4 w-4" />
+        Tentar novamente
+      </Button>
     </div>
   );
 }
@@ -566,37 +624,72 @@ function RunEventItem({ event }: { event: AgentRunEvent }) {
   );
 }
 
-function AssistantRunsPanel({
-  runs,
+function ConversationsPanel({
+  conversations,
+  selectedConversationId,
   isError,
   isFetching,
   isLoading,
+  isCreating,
+  isArchiving,
   onRefresh,
+  onNew,
+  onSelect,
+  onArchiveSelected,
 }: {
-  runs: AgentRun[];
+  conversations: ChatConversation[];
+  selectedConversationId?: string;
   isError: boolean;
   isFetching: boolean;
   isLoading: boolean;
+  isCreating: boolean;
+  isArchiving: boolean;
   onRefresh: () => unknown;
+  onNew: () => void;
+  onSelect: (conversationId: string | null) => void;
+  onArchiveSelected: () => void;
 }) {
   return (
     <aside className="flex min-h-[22rem] flex-col rounded-lg border bg-card">
       <div className="flex items-center justify-between gap-2 border-b px-4 py-3">
         <div className="flex items-center gap-2">
-          <History className="h-4 w-4 text-muted-foreground" />
-          <h2 className="text-sm font-semibold">Ultimos runs</h2>
+          <MessageSquare className="h-4 w-4 text-muted-foreground" />
+          <h2 className="text-sm font-semibold">Conversas</h2>
         </div>
 
-        <Button
-          type="button"
-          variant="ghost"
-          size="icon"
-          className="h-8 w-8"
-          onClick={() => { void onRefresh(); }}
-          disabled={isFetching}
-          aria-label="Recarregar runs"
-        >
-          <RefreshCw className={`h-4 w-4 ${isFetching ? 'animate-spin' : ''}`} />
+        <div className="flex items-center gap-1">
+          {selectedConversationId && (
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon"
+              className="h-8 w-8"
+              onClick={onArchiveSelected}
+              disabled={isArchiving}
+              aria-label="Arquivar conversa"
+            >
+              {isArchiving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Archive className="h-4 w-4" />}
+            </Button>
+          )}
+
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon"
+            className="h-8 w-8"
+            onClick={() => { void onRefresh(); }}
+            disabled={isFetching}
+            aria-label="Recarregar conversas"
+          >
+            <RefreshCw className={`h-4 w-4 ${isFetching ? 'animate-spin' : ''}`} />
+          </Button>
+        </div>
+      </div>
+
+      <div className="border-b p-3">
+        <Button type="button" variant="outline" className="w-full gap-2" onClick={onNew} disabled={isCreating}>
+          {isCreating ? <Loader2 className="h-4 w-4 animate-spin" /> : <Plus className="h-4 w-4" />}
+          Nova conversa
         </Button>
       </div>
 
@@ -606,30 +699,41 @@ function AssistantRunsPanel({
 
           {isError && (
             <div className="rounded-lg border border-destructive/30 bg-destructive/10 p-3 text-sm text-destructive">
-              Nao foi possivel carregar o historico de runs.
+              Nao foi possivel carregar as conversas.
             </div>
           )}
 
-          {!isLoading && !isError && runs.length === 0 && (
+          {!isLoading && !isError && conversations.length === 0 && (
             <div className="rounded-lg border bg-background p-3 text-sm text-muted-foreground">
-              Nenhum run recente retornado pelo backend.
+              Nenhuma conversa ativa.
             </div>
           )}
 
-          {!isLoading && !isError && runs.map((run) => (
-            <div key={run.id} className="rounded-lg border bg-background p-3">
+          {!isLoading && !isError && conversations.map((conversation) => (
+            <button
+              key={conversation.id}
+              type="button"
+              className={`w-full rounded-lg border p-3 text-left transition-colors hover:border-primary/40 ${
+                conversation.id === selectedConversationId
+                  ? 'border-primary/50 bg-primary/5'
+                  : 'bg-background'
+              }`}
+              onClick={() => onSelect(conversation.id)}
+            >
               <div className="flex items-center justify-between gap-2">
-                <StatusBadge status={run.status} />
-                <span className="text-[11px] text-muted-foreground">{formatDateTime(run.createdAt)}</span>
+                <h3 className="min-w-0 truncate text-sm font-medium">{conversation.title}</h3>
+                <span className="shrink-0 text-[11px] text-muted-foreground">{formatDateTime(conversation.updatedAt)}</span>
               </div>
               <div className="mt-2 flex flex-wrap items-center gap-2 text-[11px] text-muted-foreground">
-                <Badge variant="outline">{run.mode}</Badge>
-                <span>{run.source}</span>
+                <Badge variant="outline">{conversation.visibility}</Badge>
+                <span>{conversation.messageCount} mensagens</span>
               </div>
-              <p className="mt-2 line-clamp-2 text-xs text-muted-foreground">
-                {run.inputSummary || `runId=${run.id}`}
-              </p>
-            </div>
+              {conversation.lastMessage && (
+                <p className="mt-2 line-clamp-2 text-xs text-muted-foreground">
+                  {conversation.lastMessage}
+                </p>
+              )}
+            </button>
           ))}
         </div>
       </ScrollArea>
@@ -753,47 +857,26 @@ function ChatLoadingState({ assistant }: { assistant?: Assistant }) {
   );
 }
 
-function assistantMessageFromRun(run: AgentRun) {
-  if (run.status === 'completed') {
-    return extractAssistantText(run)
-      ?? `Run concluido pelo backend Orchestra. Nao houve campo textual publico claro para exibir. runId=${run.id}${run.requestId ? ` requestId=${run.requestId}` : ''}`;
-  }
+function toLocalMessages(messages: ChatMessage[]): LocalChatMessage[] {
+  return messages.map((message, index) => {
+    const run = message.agentRun ?? undefined;
+    const previousUserMessage = messages
+      .slice(0, index)
+      .reverse()
+      .find((item) => item.role === 'user');
 
-  if (run.status === 'blocked') {
-    const code = run.errorCode ?? firstPrecheckReason(run)?.code ?? 'POLICY_BLOCKED';
-    const message = run.errorMessage ?? firstPrecheckReason(run)?.message ?? 'Execucao bloqueada por policy.';
-    const reasons = (run.precheckSnapshot?.reasons ?? [])
-      .slice(0, 4)
-      .map((reason) => `- ${reason.code}: ${reason.message}`)
-      .join('\n');
-
-    return [
-      'Execucao bloqueada por policy governada.',
-      `Codigo: ${code}`,
-      `Mensagem: ${message}`,
-      reasons ? `Motivos:\n${reasons}` : undefined,
-    ].filter(Boolean).join('\n');
-  }
-
-  if (run.status === 'failed') {
-    return [
-      'Nao foi possivel concluir a execucao.',
-      run.errorCode ? `Codigo: ${run.errorCode}` : undefined,
-      run.errorMessage ? `Mensagem: ${safeString(run.errorMessage, 220)}` : undefined,
-      run.requestId ? `requestId=${run.requestId}` : undefined,
-    ].filter(Boolean).join('\n');
-  }
-
-  if (run.status === 'cancelled') {
-    return `Run cancelado pelo backend Orchestra. runId=${run.id}${run.requestId ? ` requestId=${run.requestId}` : ''}`;
-  }
-
-  return [
-    `Run retornou status ${statusLabel(run.status)}.`,
-    'A execucao ainda nao chegou a um estado final na resposta recebida.',
-    `runId=${run.id}`,
-    run.requestId ? `requestId=${run.requestId}` : undefined,
-  ].filter(Boolean).join('\n');
+    return {
+      id: message.id,
+      role: message.role === 'user' ? 'user' : 'assistant',
+      content: message.content,
+      createdAt: message.createdAt,
+      retryInput: message.role !== 'user' && run && canRetryRun(run)
+        ? previousUserMessage?.content
+        : undefined,
+      tone: run ? toneFromRun(run) : undefined,
+      run,
+    };
+  });
 }
 
 function apiErrorMessage(error: unknown) {
@@ -806,38 +889,10 @@ function apiErrorMessage(error: unknown) {
   }
 
   if (error.status === HttpStatus.NOT_FOUND) {
-    return `Assistente ou run nao encontrado.${requestId}`;
+    return `Conversa ou assistente nao encontrado.${requestId}`;
   }
 
-  return `Nao foi possivel executar o assistente.${error.code ? ` codigo=${error.code}` : ''}${requestId}`;
-}
-
-function extractAssistantText(run: AgentRun) {
-  const runRecord = run as unknown as Record<string, unknown>;
-  const metadata = asRecord(run.metadata);
-  const runtime = runtimeMetadata(run);
-  const result = asRecord(runRecord.result);
-  const output = asRecord(runRecord.output);
-  const response = asRecord(runRecord.response);
-
-  return firstSafeText(
-    runtime?.outputPreview,
-    runRecord.outputPreview,
-    runRecord.outputText,
-    runRecord.responseText,
-    runRecord.answer,
-    runRecord.content,
-    runRecord.text,
-    result?.outputPreview,
-    result?.outputText,
-    result?.response,
-    result?.answer,
-    output?.text,
-    output?.content,
-    response?.text,
-    response?.content,
-    metadata?.outputPreview,
-  );
+  return `Nao foi possivel enviar a mensagem.${error.code ? ` codigo=${error.code}` : ''}${requestId}`;
 }
 
 function technicalRows(run: AgentRun): TechnicalRow[] {
@@ -898,10 +953,6 @@ function row(label: string, value: unknown): TechnicalRow | undefined {
   return { label, value: formatted };
 }
 
-function firstPrecheckReason(run: AgentRun) {
-  return run.precheckSnapshot?.reasons?.[0];
-}
-
 function runtimeMetadata(run: AgentRun) {
   return asRecord(asRecord(run.metadata)?.runtime);
 }
@@ -914,16 +965,6 @@ function asRecord(value: unknown): Record<string, unknown> | undefined {
 
 function firstValue(...values: unknown[]) {
   return values.find((value) => isPresent(value));
-}
-
-function firstSafeText(...values: unknown[]) {
-  for (const value of values) {
-    const text = safeString(value, 4000);
-
-    if (text) return text;
-  }
-
-  return undefined;
 }
 
 function safeValue(value: unknown) {
@@ -969,18 +1010,4 @@ function formatDateTime(value: string) {
     hour: '2-digit',
     minute: '2-digit',
   }).format(date);
-}
-
-function statusLabel(status: AgentRunStatus) {
-  const labels: Record<AgentRunStatus, string> = {
-    queued: 'na fila',
-    prechecking: 'em precheck',
-    blocked: 'bloqueado',
-    running: 'em execucao',
-    completed: 'concluido',
-    failed: 'falhou',
-    cancelled: 'cancelado',
-  };
-
-  return labels[status] ?? status;
 }

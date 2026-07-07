@@ -60,6 +60,8 @@ model Tenant {
   mcpToolCallEvents          McpToolCallEvent[]
   mcpRemoteCatalogEntries    McpRemoteCatalogEntry[]
   mcpRemoteCatalogLedgers    McpRemoteCatalogApplyLedger[]
+  conversations              Conversation[]
+  conversationMessages       ConversationMessage[]
 
   @@map("tenants")
 }
@@ -113,6 +115,8 @@ model Workspace {
   aiObservabilityAlertRules   AiObservabilityAlertRule[]
   aiQualityTestSets          AiQualityTestSet[]
   aiQualityEvaluationRuns    AiQualityEvaluationRun[]
+  conversations              Conversation[]
+  conversationMessages       ConversationMessage[]
 
   @@unique([tenantId, slug])
   @@index([tenantId])
@@ -146,7 +150,7 @@ model User {
   assistantShares                   AssistantShare[]              @relation("AssistantShareCreator")
   assistantFeedbacks                AssistantFeedback[]           @relation("AssistantFeedbackUser")
   assistantTestResults              AssistantTestResult[]         @relation("AssistantTestResultTester")
-  conversations                     Conversation[]
+  conversations                     Conversation[]                  @relation("ConversationOwner")
   messages                          ConversationMessage[]
   agentRuns                         AgentRun[]                    @relation("AgentRunRequester")
   toolCalls                         ToolCall[]
@@ -356,6 +360,7 @@ model Assistant {
   approvalRequests  AssistantApprovalRequest[]
   executionPolicy   AssistantExecutionPolicy?
   conversations     Conversation[]
+  conversationMessages ConversationMessage[]
   agentRuns         AgentRun[]
   usageRecords      UsageRecord[]
   aiRunUsageEvents  AiRunUsageEvent[]
@@ -1203,33 +1208,57 @@ model McpRemoteCatalogApplyLedger {
 
 model Conversation {
   id          String                @id @default(uuid()) @db.Uuid
+  tenantId    String                @map("tenant_id") @db.Uuid
+  workspaceId String                @map("workspace_id") @db.Uuid
   assistantId String                @map("assistant_id") @db.Uuid
-  userId      String                @map("user_id") @db.Uuid
+  ownerUserId String                @map("owner_user_id") @db.Uuid
   title       String
+  visibility  String                @default("private")
+  archivedAt  DateTime?             @map("archived_at")
   createdAt   DateTime              @default(now()) @map("created_at")
   updatedAt   DateTime              @updatedAt @map("updated_at")
+  tenant      Tenant                @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  workspace   Workspace             @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
   assistant   Assistant             @relation(fields: [assistantId], references: [id], onDelete: Cascade)
-  user        User                  @relation(fields: [userId], references: [id], onDelete: Cascade)
+  owner       User                  @relation("ConversationOwner", fields: [ownerUserId], references: [id], onDelete: Cascade)
   messages    ConversationMessage[]
   agentRuns   AgentRun[]
 
+  @@index([tenantId])
+  @@index([workspaceId])
   @@index([assistantId])
-  @@index([userId])
+  @@index([ownerUserId])
+  @@index([archivedAt])
+  @@index([tenantId, workspaceId, assistantId, ownerUserId, archivedAt], map: "conversations_scope_owner_archived_idx")
   @@map("conversations")
 }
 
 model ConversationMessage {
   id             String       @id @default(uuid()) @db.Uuid
+  tenantId       String       @map("tenant_id") @db.Uuid
+  workspaceId    String       @map("workspace_id") @db.Uuid
   conversationId String       @map("conversation_id") @db.Uuid
+  assistantId    String       @map("assistant_id") @db.Uuid
   userId         String?      @map("user_id") @db.Uuid
   role           String
   content        String
+  agentRunId     String?      @map("agent_run_id") @db.Uuid
   metadata       Json?
   createdAt      DateTime     @default(now()) @map("created_at")
+  tenant         Tenant       @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  workspace      Workspace    @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
   conversation   Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  assistant      Assistant    @relation(fields: [assistantId], references: [id], onDelete: Cascade)
   user           User?        @relation(fields: [userId], references: [id], onDelete: SetNull)
+  agentRun       AgentRun?    @relation(fields: [agentRunId], references: [id], onDelete: SetNull)
 
+  @@index([tenantId])
+  @@index([workspaceId])
   @@index([conversationId])
+  @@index([assistantId])
+  @@index([userId])
+  @@index([agentRunId])
+  @@index([createdAt])
   @@map("conversation_messages")
 }
 
@@ -1267,6 +1296,7 @@ model AgentRun {
   conversation           Conversation?         @relation(fields: [conversationId], references: [id], onDelete: SetNull)
   requestedBy            User                  @relation("AgentRunRequester", fields: [requestedById], references: [id], onDelete: Restrict)
   events                 AgentRunEvent[]
+  messages               ConversationMessage[]
   toolCalls              ToolCall[]
   mcpToolCalls           McpToolCall[]
   mcpToolCallEvents      McpToolCallEvent[]

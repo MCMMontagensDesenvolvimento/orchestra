@@ -4,6 +4,7 @@ import { idParamsSchema } from '../../shared/validation/pagination';
 import { validateBody, validateParams, validateQuery } from '../../shared/validation/validate';
 import { agentRunsController } from '../agent-runs/agent-runs.controller';
 import { assistantRunParamsSchema, agentRunsQuerySchema, createAgentRunSchema } from '../agent-runs/agent-runs.schema';
+import { registerAssistantChatConversationRoutes } from '../chat-conversations/chat-conversations.routes';
 import { registerAssistantKnowledgeBindingRoutes, registerAssistantRagRoutes } from '../knowledge/knowledge.routes';
 import { registerAssistantMcpBindingRoutes } from '../mcp/mcp.routes';
 import { assistantsController } from './assistants.controller';
@@ -172,6 +173,7 @@ export function createAssistantsRouter() {
       void assistantsController.executionPrecheck(req, res).catch(next);
     },
   );
+  registerAssistantChatConversationRoutes(router);
   router.get(
     '/:id/runs',
     requireAuth,
