@@ -4,7 +4,13 @@ import { agentRunsRepository } from '../agent-runs/agent-runs.repository';
 import type { AgentRunMode } from '../agent-runs/agent-runs.schema';
 import type { AgentRunPrecheckSnapshot } from '../agent-runs/agent-runs.types';
 import type { LlmProviderName } from '../llm/llm.types';
-import type { RuntimeExecutionContext, RuntimeMcpSummary, RuntimeProvider, RuntimeRagSummary } from './runtime.types';
+import type {
+  RuntimeConversationContext,
+  RuntimeExecutionContext,
+  RuntimeMcpSummary,
+  RuntimeProvider,
+  RuntimeRagSummary,
+} from './runtime.types';
 
 type RuntimeSummary = Awaited<ReturnType<typeof agentRunsRepository.getRuntimeContextSummary>>;
 
@@ -37,6 +43,7 @@ interface BuildRuntimeContextInput {
   executionPolicy: Record<string, unknown>;
   precheckSnapshot: AgentRunPrecheckSnapshot;
   metadata?: Prisma.InputJsonValue;
+  conversationContext?: RuntimeConversationContext;
 }
 
 function previewInput(value: string) {
@@ -200,6 +207,7 @@ export async function buildRuntimeExecutionContext(input: BuildRuntimeContextInp
     precheckSnapshot: input.precheckSnapshot,
     rag: buildRagSummary(summary),
     mcp: buildMcpSummary(summary),
+    conversationContext: input.conversationContext,
     input: {
       hash: hashInput(input.input),
       preview: previewInput(input.input),

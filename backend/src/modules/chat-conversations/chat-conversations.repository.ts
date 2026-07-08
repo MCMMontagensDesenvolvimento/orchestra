@@ -110,6 +110,40 @@ export const chatConversationsRepository = {
     });
   },
 
+  listContextMessagesForConversation(input: {
+    tenantId: string;
+    workspaceId: string;
+    assistantId: string;
+    conversationId: string;
+    ownerUserId: string;
+    excludeMessageId?: string | null;
+    limit: number;
+  }) {
+    if (input.limit <= 0) return Promise.resolve([]);
+
+    return prisma.conversationMessage.findMany({
+      where: {
+        tenantId: input.tenantId,
+        workspaceId: input.workspaceId,
+        assistantId: input.assistantId,
+        conversationId: input.conversationId,
+        role: { in: ['user', 'assistant'] },
+        ...(input.excludeMessageId ? { id: { not: input.excludeMessageId } } : {}),
+        conversation: {
+          tenantId: input.tenantId,
+          workspaceId: input.workspaceId,
+          assistantId: input.assistantId,
+          ownerUserId: input.ownerUserId,
+        },
+      },
+      orderBy: [
+        { createdAt: 'desc' },
+        { id: 'desc' },
+      ],
+      take: input.limit,
+    });
+  },
+
   createMessage(input: {
     tenantId: string;
     workspaceId: string;

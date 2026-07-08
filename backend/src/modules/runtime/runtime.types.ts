@@ -67,6 +67,10 @@ export interface RuntimeFeatureConfig {
   requirePrecheck: boolean;
   allowProviderFallback: boolean;
   externalToolsAllowed: boolean;
+  chatContextEnabled: boolean;
+  chatContextMaxMessages: number;
+  chatContextMaxMessageChars: number;
+  chatContextMaxTotalChars: number;
   agnoEnabled: boolean;
   agnoConfigured: boolean;
   agnoExecutionEnabled: boolean;
@@ -143,6 +147,29 @@ export interface RuntimeMcpSummary {
   lastToolCallIds: string[];
 }
 
+export interface RuntimeConversationContextSummary {
+  enabled: boolean;
+  included: boolean;
+  messageCount: number;
+  totalChars: number;
+  truncated: boolean;
+  maxMessages: number;
+  maxMessageChars: number;
+  maxTotalChars: number;
+}
+
+export interface RuntimeConversationContextMessage {
+  messageId: string;
+  role: 'user' | 'assistant';
+  content: string;
+  createdAt: string;
+}
+
+export interface RuntimeConversationContext {
+  messages: RuntimeConversationContextMessage[];
+  summary: RuntimeConversationContextSummary;
+}
+
 export interface RuntimeExecutionContext {
   requestId: string;
   traceId: string;
@@ -180,6 +207,7 @@ export interface RuntimeExecutionContext {
   precheckSnapshot: AgentRunPrecheckSnapshot;
   rag: RuntimeRagSummary;
   mcp: RuntimeMcpSummary;
+  conversationContext?: RuntimeConversationContext;
   input: {
     hash: string;
     preview: string;

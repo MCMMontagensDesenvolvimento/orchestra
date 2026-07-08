@@ -309,6 +309,9 @@ describe('critical pages in real API mode', () => {
     await waitFor(() => {
       expect(mutateAsync).toHaveBeenCalledWith({ conversationId: 'conversation-1', input: 'Ola' });
     });
+    expect(mutateAsync.mock.calls[0][0]).not.toHaveProperty('messages');
+    expect(mutateAsync.mock.calls[0][0]).not.toHaveProperty('history');
+    expect(mutateAsync.mock.calls[0][0]).not.toHaveProperty('conversationContext');
     expect(useCreateAgentRunMutation).not.toHaveBeenCalled();
   });
 

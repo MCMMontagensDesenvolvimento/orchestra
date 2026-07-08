@@ -2,6 +2,8 @@ import type { z } from 'zod';
 import type {
   assistantRuntimeSpecV1Schema,
   runtimeCapabilitiesResponseV1Schema,
+  runtimeConversationContextMessageSchema,
+  runtimeConversationContextSchema,
   runtimeExecuteRequestV1Schema,
   runtimeExecuteResponseV1Schema,
   runtimeHealthResponseV1Schema,
@@ -13,6 +15,8 @@ import type {
 } from './runtime-contract.schema';
 
 export type RuntimeInputAttachment = z.infer<typeof runtimeInputAttachmentSchema>;
+export type RuntimeConversationContextMessageV1 = z.infer<typeof runtimeConversationContextMessageSchema>;
+export type RuntimeConversationContextV1 = z.infer<typeof runtimeConversationContextSchema>;
 export type RuntimeRagSource = z.infer<typeof runtimeRagSourceSchema>;
 export type RuntimeToolDescriptor = z.infer<typeof runtimeToolDescriptorSchema>;
 export type RuntimeNormalizedEventV1 = z.infer<typeof runtimeNormalizedEventV1Schema>;

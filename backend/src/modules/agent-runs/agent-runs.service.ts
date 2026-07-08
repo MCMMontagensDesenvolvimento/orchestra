@@ -7,7 +7,7 @@ import { paginationMeta } from '../../shared/validation/pagination';
 import { recordAuditEvent } from '../audit/audit.service';
 import { recordAiUsageEvent } from '../ai-observability/ai-observability.service';
 import { buildRuntimeExecutionContext } from '../runtime/runtime.context';
-import type { RuntimeExecutionContext, RuntimeExecutionResult } from '../runtime/runtime.types';
+import type { RuntimeConversationContext, RuntimeExecutionContext, RuntimeExecutionResult } from '../runtime/runtime.types';
 import { normalizeRuntimeEvents } from '../runtime/runtime.events';
 import { runtimeAdapterRegistry } from '../runtime/runtime.registry';
 import { runtimeService } from '../runtime/runtime.service';
@@ -158,6 +158,10 @@ function runtimeObservationSummary(metadata: Record<string, unknown> | undefined
   return {
     ragSourceCount: numberValue(metadata?.ragSourceCount),
     ragContextChars: numberValue(metadata?.ragContextChars),
+    conversationContextIncluded: booleanValue(metadata?.conversationContextIncluded),
+    conversationContextMessageCount: numberValue(metadata?.conversationContextMessageCount),
+    conversationContextChars: numberValue(metadata?.conversationContextChars),
+    conversationContextTruncated: booleanValue(metadata?.conversationContextTruncated),
     toolDescriptorCount: numberValue(metadata?.toolDescriptorCount),
     maxToolCalls: numberValue(metadata?.maxToolCalls ?? metadata?.policyMaxToolCalls),
     toolCallsExecuted: numberValue(metadata?.toolCallsExecuted),
@@ -323,6 +327,32 @@ function baseEvents(input: {
   ];
 }
 
+function conversationContextEvents(metadata: Prisma.InputJsonValue | undefined): AgentRunEventInput[] {
+  const summary = asRecord(asRecord(metadata)?.conversationContextSummary);
+  if (!summary) return [];
+
+  return [
+    {
+      type: 'run.conversation_context_selected',
+      status: 'queued',
+      message: 'Contexto conversacional governado avaliado pelo backend.',
+      metadata: {
+        conversationContext: {
+          included: booleanValue(summary.included) ?? false,
+          messageCount: numberValue(summary.messageCount) ?? 0,
+          totalChars: numberValue(summary.totalChars) ?? 0,
+          truncated: booleanValue(summary.truncated) ?? false,
+          limits: {
+            maxMessages: numberValue(summary.maxMessages),
+            maxMessageChars: numberValue(summary.maxMessageChars),
+            maxTotalChars: numberValue(summary.maxTotalChars),
+          },
+        },
+      },
+    },
+  ];
+}
+
 async function recordRunAudit(input: {
   user: AuthenticatedUser;
   assistant: Pick<AssistantForRun, 'id' | 'workspaceId'>;
@@ -432,7 +462,11 @@ export const agentRunsService = {
     input: CreateAgentRunInput,
     user: AuthenticatedUser,
     context: RequestContext,
-    options: { conversationId?: string | null; onRuntimeResult?: (result: RuntimeExecutionResult) => void } = {},
+    options: {
+      conversationId?: string | null;
+      conversationContext?: RuntimeConversationContext;
+      onRuntimeResult?: (result: RuntimeExecutionResult) => void;
+    } = {},
   ) {
     const assistant = await getAssistantOrThrow(assistantId, user);
     await assertAllowed(
@@ -480,7 +514,10 @@ export const agentRunsService = {
     const assistantVersionId = selectedVersionId(assistant, input.mode);
     const assistantPublicationId = input.mode === 'published' ? publication?.id ?? null : null;
     const sanitizedMetadata = sanitizeMetadata(input.metadata) as Prisma.InputJsonValue | undefined;
-    const requestedEvents = baseEvents({ mode: input.mode, source: input.source, traceId, assistantId: assistant.id });
+    const requestedEvents = [
+      ...baseEvents({ mode: input.mode, source: input.source, traceId, assistantId: assistant.id }),
+      ...conversationContextEvents(sanitizedMetadata),
+    ];
     const runtimeProvider = runtimeAdapterRegistry.currentProvider();
 
     await recordRunAudit({ user, assistant, runId, traceId, action: 'agent_run_requested', mode: input.mode, status: 'queued', context });
@@ -594,6 +631,7 @@ export const agentRunsService = {
       executionPolicy: policy as unknown as Record<string, unknown>,
       precheckSnapshot: precheck,
       metadata: sanitizedMetadata,
+      conversationContext: options.conversationContext,
     });
     const adapterHealth = await runtimeService.health(user, context);
     await recordRunAudit({

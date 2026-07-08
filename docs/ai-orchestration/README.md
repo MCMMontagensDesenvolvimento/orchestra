@@ -36,6 +36,10 @@ A Fase 14G adiciona observabilidade, limites e auditoria ponta a ponta no caminh
 
 A Fase 14H consolida o MVP tecnico da integracao com Agno Runtime, adicionando handoff operacional, checklist de homologacao/rollback e smoke seguro de MVP para runtime HTTP minimo e fronteira de frontend, sem feature nova, migration, frontend ou mudanca de defaults.
 
+A Fase 15C adiciona conversas persistentes privadas por usuario no Chat, mensagens persistidas, arquivamento logico, envio de mensagem pelo backend de conversa e resposta do assistente vinculada ao `AgentRun`.
+
+A Fase 15D adiciona contexto conversacional governado para runtime: o backend seleciona mensagens anteriores da conversa persistente, aplica limites e sanitizacao, mantem a nova mensagem como `AgentRun.input` e envia o historico apenas em campo separado e seguro do runtime.
+
 Esta pasta deve concentrar a estrategia de IA do Orchestra.
 
 Topicos esperados:
@@ -85,6 +89,8 @@ Topicos esperados:
 - `ORCHESTRA_MCP_TOOLS_GOVERNADOS_AGNO_RUNTIME_14F.md`: descriptors governados de tools/MCP no `agno_http`, com allowlist, limites, sanitizacao, eventos seguros e ausencia de execucao externa direta.
 - `ORCHESTRA_OBSERVABILIDADE_LIMITES_AUDITORIA_RUNTIME_AGNO_14G.md`: observabilidade, limites e auditoria do caminho `AgentRun -> agno_http`, com trace/usage/latencia/status/erro, summaries seguros e ausencia de payload bruto.
 - `ORCHESTRA_MVP_AGNO_RUNTIME_HANDOFF_14H.md`: handoff do MVP Agno Runtime, com arquitetura final, flags, defaults seguros, smoke, homologacao, rollback, limites, riscos e proximos passos pos-MVP.
+- `ORCHESTRA_CHAT_CONVERSAS_PERSISTENTES_15C.md`: conversas persistentes privadas por usuario, mensagens persistidas, arquivamento logico e resposta do assistente vinculada ao `AgentRun`.
+- `ORCHESTRA_CHAT_CONTEXTO_CONVERSACIONAL_15D.md`: contexto conversacional governado para runtime, selecionado pelo backend, limitado, sanitizado, auditado e separado do `input` atual.
 - `ORCHESTRA_LLM_PROVIDER_INTEGRATION.md`: catalogo LLM, provider local deterministico, providers externos fail-closed e eventos LLM em AgentRun.
 - `ORCHESTRA_RAG_SEMANTICO_DISCOVERY.md`: discovery tecnico da Fase 10A para RAG semantico, embeddings e vector store.
 - `ORCHESTRA_VECTOR_STORE_EMBEDDING_CONTRACT.md`: decisao tecnica da Fase 10B para pgvector, tabela de embeddings, readiness semantico e fail-closed.
