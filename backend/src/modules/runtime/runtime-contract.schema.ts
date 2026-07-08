@@ -157,6 +157,51 @@ export const runtimeInputAttachmentSchema = z.object({
   metadata: runtimeContractSafeObjectSchema.optional(),
 }).strict();
 
+export const runtimeConversationContextMessageSchema = z.object({
+  messageId: idSchema,
+  role: z.enum(['user', 'assistant']),
+  content: textSchema(4000),
+  createdAt: z.string().datetime(),
+}).strict();
+
+export const runtimeConversationContextSchema = z.object({
+  messages: z.array(runtimeConversationContextMessageSchema).max(50),
+  summary: z.object({
+    enabled: z.literal(true),
+    included: z.literal(true),
+    messageCount: z.number().int().positive().max(50),
+    totalChars: z.number().int().positive().max(20000),
+    truncated: z.boolean(),
+    maxMessages: z.number().int().positive().max(50),
+    maxMessageChars: z.number().int().positive().max(4000),
+    maxTotalChars: z.number().int().positive().max(20000),
+  }).strict(),
+}).strict().superRefine((value, ctx) => {
+  const totalChars = value.messages.reduce((sum, message) => sum + message.content.length, 0);
+
+  if (value.messages.length === 0) {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['messages'], message: 'contexto conversacional incluido exige mensagens.' });
+  }
+  if (value.messages.length !== value.summary.messageCount) {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['summary', 'messageCount'], message: 'messageCount diverge das mensagens.' });
+  }
+  if (value.messages.length > value.summary.maxMessages) {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['messages'], message: 'mensagens excedem maxMessages.' });
+  }
+  if (totalChars !== value.summary.totalChars) {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['summary', 'totalChars'], message: 'totalChars diverge das mensagens.' });
+  }
+  if (totalChars > value.summary.maxTotalChars) {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['summary', 'maxTotalChars'], message: 'contexto excede maxTotalChars.' });
+  }
+  if (value.messages.some((message) => message.content.length > value.summary.maxMessageChars)) {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['messages'], message: 'mensagem excede maxMessageChars.' });
+  }
+  if (containsUnsafeRuntimeContractPayload(value)) {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'contexto conversacional contem campos ou valores sensiveis.' });
+  }
+});
+
 export const runtimeRagSourceSchema = z.object({
   sourceId: idSchema,
   documentId: idSchema.optional(),
@@ -238,6 +283,7 @@ export const assistantRuntimeSpecV1Schema = z.object({
     attachments: z.array(runtimeInputAttachmentSchema).max(20).optional(),
     metadata: runtimeContractSafeObjectSchema.optional(),
   }).strict(),
+  conversationContext: runtimeConversationContextSchema.optional(),
   model: z.object({
     provider: textSchema(80),
     model: textSchema(160),

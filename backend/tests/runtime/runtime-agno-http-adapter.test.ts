@@ -182,7 +182,7 @@ describe('Agno HTTP runtime adapter', () => {
   it('keeps default runtime provider local and registers agno_http as disabled', async () => {
     restoreEnv();
     applyBaseEnv();
-    delete process.env.RUNTIME_PROVIDER;
+    process.env.RUNTIME_PROVIDER = 'local';
     vi.resetModules();
     const { runtimeAdapterRegistry } = await import('../../src/modules/runtime/runtime.registry');
 
@@ -246,6 +246,88 @@ describe('Agno HTTP runtime adapter', () => {
     expect(body.assistantRuntimeSpec.rag.mode).toBe('none');
     expect(body.assistantRuntimeSpec.tools.mode).toBe('none');
     expect(JSON.stringify(calls[0].body)).not.toMatch(/Authorization|apiKey|secret|token|headers|baseUrl|providerApiKey|secretRef|rawPrompt|rawResponse/i);
+  });
+
+  it('sends governed conversation context to /execute and exposes only safe summary metadata', async () => {
+    const adapter = await agnoHttpAdapter({
+      AGNO_RUNTIME_HTTP_ENABLED: 'true',
+      AGNO_RUNTIME_HTTP_BASE_URL: 'http://127.0.0.1:8091',
+    });
+    const calls: Array<{ url: string; body?: Record<string, unknown> }> = [];
+    vi.stubGlobal('fetch', vi.fn(async (url: string, init?: RequestInit) => {
+      calls.push({
+        url,
+        body: typeof init?.body === 'string' ? JSON.parse(init.body) as Record<string, unknown> : undefined,
+      });
+      return new Response(JSON.stringify(runtimeResponse()), { status: 200 });
+    }));
+
+    const previousUser = 'Pergunta anterior';
+    const previousAssistant = 'Resposta anterior';
+    const result = await adapter.execute(context({
+      conversationContext: {
+        messages: [
+          {
+            messageId: 'message-1',
+            role: 'user',
+            content: previousUser,
+            createdAt: '2026-07-06T12:00:00.000Z',
+          },
+          {
+            messageId: 'message-2',
+            role: 'assistant',
+            content: previousAssistant,
+            createdAt: '2026-07-06T12:00:01.000Z',
+          },
+        ],
+        summary: {
+          enabled: true,
+          included: true,
+          messageCount: 2,
+          totalChars: previousUser.length + previousAssistant.length,
+          truncated: false,
+          maxMessages: 12,
+          maxMessageChars: 1200,
+          maxTotalChars: 6000,
+        },
+      },
+    }));
+
+    const body = calls[0].body as {
+      assistantRuntimeSpec: {
+        input: { message: string };
+        conversationContext: { messages: Array<{ role: string; content: string }>; summary: { messageCount: number } };
+      };
+    };
+    expect(body.assistantRuntimeSpec.input.message).toBe('Run the adapter against the minimal runtime.');
+    expect(body.assistantRuntimeSpec.conversationContext.messages.map((message) => ({
+      role: message.role,
+      content: message.content,
+    }))).toEqual([
+      { role: 'user', content: previousUser },
+      { role: 'assistant', content: previousAssistant },
+    ]);
+    expect(body.assistantRuntimeSpec.conversationContext.summary.messageCount).toBe(2);
+    expect(result.metadata).toEqual(expect.objectContaining({
+      conversationContextIncluded: true,
+      conversationContextMessageCount: 2,
+      conversationContextChars: previousUser.length + previousAssistant.length,
+      conversationContextTruncated: false,
+    }));
+    expect(result.events).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        type: 'runtime_llm_context_attached',
+        metadata: expect.objectContaining({
+          conversationContextIncluded: true,
+          conversationContextMessageCount: 2,
+          conversationContextChars: previousUser.length + previousAssistant.length,
+        }),
+      }),
+    ]));
+    expect(JSON.stringify(result.events)).not.toContain(previousUser);
+    expect(JSON.stringify(result.events)).not.toContain(previousAssistant);
+    expect(JSON.stringify(result.events)).not.toContain('message-1');
+    expect(JSON.stringify(result.events)).not.toContain('message-2');
   });
 
   it('sends governed RAG resolved_context to /execute when the 14E flag is enabled', async () => {

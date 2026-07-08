@@ -36,6 +36,13 @@ const allowedMetadataKeys = new Set([
   'assistantversionid',
   'blockedbeforeruntime',
   'costcurrency',
+  'conversationcontextchars',
+  'conversationcontextincluded',
+  'conversationcontextmaxmessagechars',
+  'conversationcontextmaxmessages',
+  'conversationcontextmaxtotalchars',
+  'conversationcontextmessagecount',
+  'conversationcontexttruncated',
   'descriptorschemahashes',
   'estimatedcostminorunits',
   'externalmcpcalled',
@@ -186,7 +193,16 @@ export class AgnoHttpRuntimeAdapter implements RuntimeAdapter {
       requestBody.assistantRuntimeSpec.tools,
       requestBody.assistantRuntimeSpec.policy.maxToolCalls,
     );
-    const invocationSummary = buildInvocationSummary(this.provider, requestBody, context, config, ragSummary, toolSummary);
+    const conversationContextSummary = summarizeConversationContextSpec(requestBody.assistantRuntimeSpec.conversationContext);
+    const invocationSummary = buildInvocationSummary(
+      this.provider,
+      requestBody,
+      context,
+      config,
+      ragSummary,
+      toolSummary,
+      conversationContextSummary,
+    );
     if (ragSummary) {
       events.push({
         type: 'rag_context_attached',
@@ -202,6 +218,15 @@ export class AgnoHttpRuntimeAdapter implements RuntimeAdapter {
         status: 'completed',
         message: 'Descriptors de tools governados anexados a AssistantRuntimeSpecV1.',
         metadata: jsonMetadata(toolSummary),
+      });
+    }
+
+    if (conversationContextSummary) {
+      events.push({
+        type: 'runtime_llm_context_attached',
+        status: 'completed',
+        message: 'Contexto conversacional governado anexado a AssistantRuntimeSpecV1.',
+        metadata: jsonMetadata(conversationContextSummary),
       });
     }
 
@@ -347,6 +372,7 @@ export class AgnoHttpRuntimeAdapter implements RuntimeAdapter {
 
 type AssistantRuntimeRagSpec = ReturnType<typeof buildAssistantRuntimeSpecV1>['rag'];
 type AssistantRuntimeToolSpec = ReturnType<typeof buildAssistantRuntimeSpecV1>['tools'];
+type AssistantRuntimeConversationContextSpec = ReturnType<typeof buildAssistantRuntimeSpecV1>['conversationContext'];
 type RuntimeExecuteRequestBody = {
   specVersion: typeof runtimeExecuteRequestSpecVersionV1;
   assistantRuntimeSpec: ReturnType<typeof buildAssistantRuntimeSpecV1>;
@@ -359,6 +385,7 @@ function buildInvocationSummary(
   config: RuntimeFeatureConfig,
   ragSummary: Record<string, unknown> | undefined,
   toolSummary: Record<string, unknown> | undefined,
+  conversationContextSummary: Record<string, unknown> | undefined,
 ): Record<string, unknown> {
   const spec = requestBody.assistantRuntimeSpec;
 
@@ -387,9 +414,32 @@ function buildInvocationSummary(
     ragMode: ragSummary?.ragMode ?? 'none',
     ragSourceCount: ragSummary?.ragSourceCount ?? 0,
     ragContextChars: ragSummary?.ragContextChars ?? 0,
+    conversationContextIncluded: conversationContextSummary?.conversationContextIncluded ?? false,
+    conversationContextMessageCount: conversationContextSummary?.conversationContextMessageCount ?? 0,
+    conversationContextChars: conversationContextSummary?.conversationContextChars ?? 0,
+    conversationContextTruncated: conversationContextSummary?.conversationContextTruncated ?? false,
+    conversationContextMaxMessages: conversationContextSummary?.conversationContextMaxMessages ?? 0,
+    conversationContextMaxMessageChars: conversationContextSummary?.conversationContextMaxMessageChars ?? 0,
+    conversationContextMaxTotalChars: conversationContextSummary?.conversationContextMaxTotalChars ?? 0,
     toolMode: toolSummary?.toolMode ?? 'none',
     toolDescriptorCount: toolSummary?.toolDescriptorCount ?? 0,
     maxToolCalls: spec.policy.maxToolCalls,
+  };
+}
+
+function summarizeConversationContextSpec(
+  conversationContext: AssistantRuntimeConversationContextSpec,
+): Record<string, unknown> | undefined {
+  if (!conversationContext || conversationContext.messages.length === 0) return undefined;
+
+  return {
+    conversationContextIncluded: true,
+    conversationContextMessageCount: conversationContext.messages.length,
+    conversationContextChars: conversationContext.summary.totalChars,
+    conversationContextTruncated: conversationContext.summary.truncated,
+    conversationContextMaxMessages: conversationContext.summary.maxMessages,
+    conversationContextMaxMessageChars: conversationContext.summary.maxMessageChars,
+    conversationContextMaxTotalChars: conversationContext.summary.maxTotalChars,
   };
 }
 
@@ -546,6 +596,10 @@ function normalizeRuntimeMetrics(
     adapterLatencyMs,
     ragSourceCount: numberValue(invocationSummary.ragSourceCount) ?? 0,
     ragContextChars: numberValue(invocationSummary.ragContextChars) ?? 0,
+    conversationContextIncluded: metadataBoolean(invocationSummary, 'conversationContextIncluded') ?? false,
+    conversationContextMessageCount: numberValue(invocationSummary.conversationContextMessageCount) ?? 0,
+    conversationContextChars: numberValue(invocationSummary.conversationContextChars) ?? 0,
+    conversationContextTruncated: metadataBoolean(invocationSummary, 'conversationContextTruncated') ?? false,
     toolDescriptorCount: numberValue(invocationSummary.toolDescriptorCount) ?? 0,
     maxToolCalls: numberValue(invocationSummary.maxToolCalls) ?? 0,
     toolCallsExecuted: metadataNumber(outputMetadata, 'toolCallsExecuted') ?? 0,

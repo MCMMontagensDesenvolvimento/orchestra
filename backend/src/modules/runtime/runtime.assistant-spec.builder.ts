@@ -4,7 +4,12 @@ import {
   parseAssistantRuntimeSpecV1,
   sanitizeRuntimeContractMetadata,
 } from './runtime-contract.schema';
-import type { AssistantRuntimeSpecV1, RuntimeRagSource, RuntimeToolDescriptor } from './runtime-contract.types';
+import type {
+  AssistantRuntimeSpecV1,
+  RuntimeConversationContextV1,
+  RuntimeRagSource,
+  RuntimeToolDescriptor,
+} from './runtime-contract.types';
 import { getRuntimeConfig } from './runtime.config';
 import type { RuntimeExecutionContext, RuntimeFeatureConfig } from './runtime.types';
 
@@ -40,10 +45,13 @@ export function buildAssistantRuntimeSpecV1(input: BuildAssistantRuntimeSpecInpu
     inputHash: context.input.hash,
     executionMode: context.executionMode,
     requestMetadata: context.metadata,
+    conversationContextSummary: context.conversationContext?.summary,
   });
   const config = getRuntimeConfig();
   const governedRag = buildGovernedRagSpec(context.rag, config);
   const governedTools = buildGovernedToolSpec(context.mcp, config);
+  const governedConversationContext = buildGovernedConversationContextSpec(context.conversationContext);
+  const maxConversationContextChars = governedConversationContext?.summary.maxTotalChars ?? 0;
 
   const spec: Record<string, unknown> = {
     specVersion: assistantRuntimeSpecVersionV1,
@@ -73,6 +81,7 @@ export function buildAssistantRuntimeSpecV1(input: BuildAssistantRuntimeSpecInpu
         inputHash: context.input.hash,
       },
     },
+    ...(governedConversationContext ? { conversationContext: governedConversationContext } : {}),
     model: {
       provider: resolveModelProvider(context),
       model: resolveModelName(context),
@@ -84,7 +93,7 @@ export function buildAssistantRuntimeSpecV1(input: BuildAssistantRuntimeSpecInpu
       timeoutMs: input.timeoutMs,
       maxToolCalls: governedTools.maxToolCalls,
       maxRagResults: governedRag.maxRagResults,
-      maxContextChars: governedRag.maxContextChars,
+      maxContextChars: Math.max(governedRag.maxContextChars, maxConversationContextChars),
       failClosed: true,
     },
     instructions: instructions ? { system: instructions } : {},
@@ -130,6 +139,63 @@ function textOrUndefined(value: string | null | undefined) {
 
 function validTemperature(value: number | null | undefined): value is number {
   return typeof value === 'number' && Number.isFinite(value) && value >= 0 && value <= 2;
+}
+
+function buildGovernedConversationContextSpec(
+  context: RuntimeExecutionContext['conversationContext'],
+): RuntimeConversationContextV1 | undefined {
+  if (!context?.summary.included || context.messages.length === 0) return undefined;
+
+  const maxMessages = boundedPositiveInteger(context.summary.maxMessages, 12, 50);
+  const maxMessageChars = boundedPositiveInteger(context.summary.maxMessageChars, 1200, 4000);
+  const maxTotalChars = boundedPositiveInteger(context.summary.maxTotalChars, 6000, 20000);
+  const messages: RuntimeConversationContextV1['messages'] = [];
+  let totalChars = 0;
+  let truncated = context.summary.truncated || context.messages.length > maxMessages;
+
+  for (const message of context.messages.slice(-maxMessages)) {
+    const remainingChars = maxTotalChars - totalChars;
+    if (remainingChars <= 0) {
+      truncated = true;
+      break;
+    }
+
+    const messageId = safeId(message.messageId);
+    const content = safeConversationContextContent(message.content, Math.min(maxMessageChars, remainingChars));
+    if (!messageId || !content || (message.role !== 'user' && message.role !== 'assistant')) continue;
+
+    if (content.length < textOrFallback(message.content).length) truncated = true;
+    messages.push({
+      messageId,
+      role: message.role,
+      content,
+      createdAt: message.createdAt,
+    });
+    totalChars += content.length;
+  }
+
+  if (messages.length === 0 || totalChars === 0) return undefined;
+
+  return {
+    messages,
+    summary: {
+      enabled: true,
+      included: true,
+      messageCount: messages.length,
+      totalChars,
+      truncated,
+      maxMessages,
+      maxMessageChars,
+      maxTotalChars,
+    },
+  };
+}
+
+function safeConversationContextContent(value: string | null | undefined, maxChars: number) {
+  const normalized = textOrUndefined(value);
+  if (!normalized || containsUnsafeRuntimeContractPayload(normalized)) return undefined;
+  const truncated = truncateText(normalized, maxChars);
+  return truncated && !containsUnsafeRuntimeContractPayload(truncated) ? truncated : undefined;
 }
 
 interface GovernedRagSpec {

@@ -61,6 +61,20 @@ function actualExternalProviderCalled(
   return selectedExternalProvider;
 }
 
+function conversationContextSummary(context: RuntimeExecutionContext) {
+  const summary = context.conversationContext?.summary;
+
+  return {
+    conversationContextIncluded: Boolean(summary?.included),
+    conversationContextMessageCount: summary?.messageCount ?? 0,
+    conversationContextChars: summary?.totalChars ?? 0,
+    conversationContextTruncated: Boolean(summary?.truncated),
+    conversationContextMaxMessages: summary?.maxMessages ?? 0,
+    conversationContextMaxMessageChars: summary?.maxMessageChars ?? 0,
+    conversationContextMaxTotalChars: summary?.maxTotalChars ?? 0,
+  };
+}
+
 export class LocalDeterministicRuntimeAdapter implements RuntimeAdapter {
   readonly provider = 'local' as const;
 
@@ -127,6 +141,7 @@ export class LocalDeterministicRuntimeAdapter implements RuntimeAdapter {
     }
 
     const llmSelection = resolveRuntimeLlmProvider(context);
+    const governedConversationContext = conversationContextSummary(context);
 
     const llmResult = await llmService.generateForRuntime({
       requestId: context.requestId,
@@ -162,6 +177,7 @@ export class LocalDeterministicRuntimeAdapter implements RuntimeAdapter {
           llmModel: llmResult.model,
           externalProviderCalled,
           llmSelectionReason: llmSelection.reason,
+          ...governedConversationContext,
           llm: llmResult.metadata,
         },
         events: [
@@ -203,6 +219,7 @@ export class LocalDeterministicRuntimeAdapter implements RuntimeAdapter {
         llmLatencyMs: llmResult.latencyMs,
         externalProviderCalled: llmSelection.externalProviderCalled,
         llmSelectionReason: llmSelection.reason,
+        ...governedConversationContext,
         llm: llmResult.metadata,
       },
       events: [
@@ -279,6 +296,7 @@ export class LocalDeterministicRuntimeAdapter implements RuntimeAdapter {
             instructionPreviewChars: context.compiledPrompt.instructionsPreview?.length ?? 0,
             rawPromptStored: false,
             rawOutputStored: false,
+            ...governedConversationContext,
           },
         },
         {

@@ -73,9 +73,16 @@ export function executeAgnoRuntimeHttpContract(input: unknown, now = new Date())
   }
 
   const spec = parsed.data.assistantRuntimeSpec;
+  const conversationContextMessageCount = spec.conversationContext?.messages.length ?? 0;
+  const conversationContextChars = spec.conversationContext?.summary.totalChars ?? 0;
+  const conversationContextTruncated = spec.conversationContext?.summary.truncated ?? false;
   const events: RuntimeNormalizedEventV1[] = [
     runtimeEvent(1, spec.trace, 'run.started', 'running', now, {
       mode: 'sandbox',
+      conversationContextIncluded: conversationContextMessageCount > 0,
+      conversationContextMessageCount,
+      conversationContextChars,
+      conversationContextTruncated,
     }),
   ];
 
@@ -156,6 +163,10 @@ export function executeAgnoRuntimeHttpContract(input: unknown, now = new Date())
     runtimeLatencyMs,
     ragSourceCount,
     ragContextChars,
+    conversationContextIncluded: conversationContextMessageCount > 0,
+    conversationContextMessageCount,
+    conversationContextChars,
+    conversationContextTruncated,
     toolDescriptorCount,
     externalProviderCalled: false,
     externalMcpCalled: false,
@@ -178,6 +189,10 @@ export function executeAgnoRuntimeHttpContract(input: unknown, now = new Date())
         inputChars: spec.input.message.length,
         ragSourceCount,
         ragContextChars,
+        conversationContextIncluded: conversationContextMessageCount > 0,
+        conversationContextMessageCount,
+        conversationContextChars,
+        conversationContextTruncated,
         toolDescriptorCount,
         externalProviderCalled: false,
         externalMcpCalled: false,

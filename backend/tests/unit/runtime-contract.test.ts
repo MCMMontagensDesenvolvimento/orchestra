@@ -128,6 +128,91 @@ describe('runtime contract schemas', () => {
     expect(result.success).toBe(false);
   });
 
+  it('accepts governed conversation context as a separate additive field', () => {
+    const contextText = 'Pergunta anterior';
+    const result = assistantRuntimeSpecV1Schema.safeParse(validSpec({
+      conversationContext: {
+        messages: [
+          {
+            messageId: 'message-1',
+            role: 'user',
+            content: contextText,
+            createdAt: '2026-07-06T12:00:00.000Z',
+          },
+        ],
+        summary: {
+          enabled: true,
+          included: true,
+          messageCount: 1,
+          totalChars: contextText.length,
+          truncated: false,
+          maxMessages: 12,
+          maxMessageChars: 1200,
+          maxTotalChars: 6000,
+        },
+      },
+    }));
+
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.data.input.message).toBe('Responda usando apenas o contexto governado.');
+      expect(result.data.conversationContext?.messages[0]).toEqual(expect.objectContaining({
+        role: 'user',
+        content: contextText,
+      }));
+    }
+  });
+
+  it('rejects unsafe or inconsistent conversation context payloads', () => {
+    const inconsistent = assistantRuntimeSpecV1Schema.safeParse(validSpec({
+      conversationContext: {
+        messages: [
+          {
+            messageId: 'message-1',
+            role: 'assistant',
+            content: 'Resposta anterior',
+            createdAt: '2026-07-06T12:00:00.000Z',
+          },
+        ],
+        summary: {
+          enabled: true,
+          included: true,
+          messageCount: 2,
+          totalChars: 999,
+          truncated: false,
+          maxMessages: 12,
+          maxMessageChars: 1200,
+          maxTotalChars: 6000,
+        },
+      },
+    }));
+    const unsafe = assistantRuntimeSpecV1Schema.safeParse(validSpec({
+      conversationContext: {
+        messages: [
+          {
+            messageId: 'message-1',
+            role: 'user',
+            content: 'Bearer must-not-enter-runtime',
+            createdAt: '2026-07-06T12:00:00.000Z',
+          },
+        ],
+        summary: {
+          enabled: true,
+          included: true,
+          messageCount: 1,
+          totalChars: 'Bearer must-not-enter-runtime'.length,
+          truncated: false,
+          maxMessages: 12,
+          maxMessageChars: 1200,
+          maxTotalChars: 6000,
+        },
+      },
+    }));
+
+    expect(inconsistent.success).toBe(false);
+    expect(unsafe.success).toBe(false);
+  });
+
   it('rejects dangerous metadata before runtime validation can pass', () => {
     const result = assistantRuntimeSpecV1Schema.safeParse(validSpec({
       metadata: {

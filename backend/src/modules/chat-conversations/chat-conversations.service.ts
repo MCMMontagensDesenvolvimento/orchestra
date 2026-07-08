@@ -2,6 +2,12 @@ import { AppError } from '../../shared/errors/app-error';
 import type { AuthenticatedUser } from '../../shared/types/auth';
 import { agentRunsService } from '../agent-runs/agent-runs.service';
 import {
+  buildGovernedChatConversationContext,
+  chatConversationContextQueryLimit,
+  getChatConversationContextConfig,
+  toRuntimeConversationContext,
+} from './chat-conversation-context';
+import {
   mapChatConversation,
   mapChatConversationListItem,
   mapChatMessage,
@@ -196,6 +202,29 @@ export const chatConversationsService = {
       conversationUpdate: shouldUpdateTitle ? { title: titleFromFirstMessage(input.input) } : undefined,
     });
 
+    const contextConfig = getChatConversationContextConfig();
+    const contextMessages = await chatConversationsRepository.listContextMessagesForConversation({
+      tenantId: conversation.tenantId,
+      workspaceId: conversation.workspaceId,
+      assistantId: conversation.assistantId,
+      conversationId: conversation.id,
+      ownerUserId: conversation.ownerUserId,
+      excludeMessageId: userMessage.id,
+      limit: chatConversationContextQueryLimit(contextConfig),
+    });
+    const conversationContext = buildGovernedChatConversationContext({
+      conversation: {
+        id: conversation.id,
+        tenantId: conversation.tenantId,
+        workspaceId: conversation.workspaceId,
+        assistantId: conversation.assistantId,
+        ownerUserId: conversation.ownerUserId,
+      },
+      currentMessageId: userMessage.id,
+      messages: contextMessages,
+      config: contextConfig,
+    });
+
     let runtimeOutputPreview: string | undefined;
     const run = await agentRunsService.createForAssistant(
       conversation.assistantId,
@@ -207,12 +236,14 @@ export const chatConversationsService = {
           origin: 'chat-conversation',
           conversationId: conversation.id,
           assistantId: conversation.assistantId,
+          conversationContextSummary: conversationContext.summary,
         },
       },
       user,
       context,
       {
         conversationId: conversation.id,
+        conversationContext: toRuntimeConversationContext(conversationContext),
         onRuntimeResult: (runtimeResult) => {
           runtimeOutputPreview = runtimeResult.outputPreview;
         },

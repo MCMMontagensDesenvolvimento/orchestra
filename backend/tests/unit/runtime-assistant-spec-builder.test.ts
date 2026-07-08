@@ -160,6 +160,64 @@ describe('AssistantRuntimeSpecV1 builder for Agno HTTP', () => {
     }));
   });
 
+  it('adds governed conversation context without changing the current input message', () => {
+    const previousUser = 'Pergunta anterior';
+    const previousAssistant = 'Resposta anterior';
+    const spec = buildAssistantRuntimeSpecV1({
+      context: context({
+        input: {
+          hash: 'current-input-hash',
+          preview: 'Pergunta atual',
+          raw: 'Pergunta atual completa',
+        },
+        conversationContext: {
+          messages: [
+            {
+              messageId: 'message-1',
+              role: 'user',
+              content: previousUser,
+              createdAt: '2026-07-06T12:00:00.000Z',
+            },
+            {
+              messageId: 'message-2',
+              role: 'assistant',
+              content: previousAssistant,
+              createdAt: '2026-07-06T12:00:01.000Z',
+            },
+          ],
+          summary: {
+            enabled: true,
+            included: true,
+            messageCount: 2,
+            totalChars: previousUser.length + previousAssistant.length,
+            truncated: false,
+            maxMessages: 12,
+            maxMessageChars: 1200,
+            maxTotalChars: 6000,
+          },
+        },
+      }),
+      timeoutMs: 15000,
+    });
+
+    expect(assistantRuntimeSpecV1Schema.safeParse(spec).success).toBe(true);
+    expect(spec.input.message).toBe('Pergunta atual completa');
+    expect(spec.conversationContext?.messages.map((message) => ({
+      role: message.role,
+      content: message.content,
+    }))).toEqual([
+      { role: 'user', content: previousUser },
+      { role: 'assistant', content: previousAssistant },
+    ]);
+    expect(spec.metadata).toEqual(expect.objectContaining({
+      conversationContextSummary: expect.objectContaining({
+        included: true,
+        messageCount: 2,
+        totalChars: previousUser.length + previousAssistant.length,
+      }),
+    }));
+  });
+
   it('sanitizes dangerous metadata before building the spec', () => {
     const spec = buildAssistantRuntimeSpecV1({
       context: context({

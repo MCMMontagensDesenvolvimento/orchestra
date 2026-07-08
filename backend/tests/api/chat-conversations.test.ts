@@ -11,6 +11,7 @@ const mocks = vi.hoisted(() => {
     listForAssistant: vi.fn(),
     createConversation: vi.fn(),
     findConversationForOwner: vi.fn(),
+    listContextMessagesForConversation: vi.fn(),
     createMessage: vi.fn(),
     updateConversation: vi.fn(),
     archiveConversation: vi.fn(),
@@ -180,6 +181,7 @@ describe('chat conversation endpoints', () => {
     ]);
     mocks.chatConversationsRepository.createConversation.mockResolvedValue(conversationFixture());
     mocks.chatConversationsRepository.findConversationForOwner.mockResolvedValue(conversationFixture());
+    mocks.chatConversationsRepository.listContextMessagesForConversation.mockResolvedValue([]);
     mocks.chatConversationsRepository.createMessage.mockImplementation(async (input) =>
       messageFixture({
         id: input.role === 'assistant'
@@ -329,13 +331,32 @@ describe('chat conversation endpoints', () => {
           origin: 'chat-conversation',
           conversationId,
           assistantId,
+          conversationContextSummary: expect.objectContaining({
+            enabled: true,
+            included: false,
+            messageCount: 0,
+            totalChars: 0,
+          }),
         },
       }),
       expect.objectContaining({ id: userId }),
       expect.objectContaining({ requestId: expect.any(String) }),
       expect.objectContaining({ conversationId, onRuntimeResult: expect.any(Function) }),
     );
-    expect(JSON.stringify(mocks.agentRunsService.createForAssistant.mock.calls[0][1])).not.toMatch(/history|messages/i);
+    expect(mocks.chatConversationsRepository.listContextMessagesForConversation).toHaveBeenCalledWith(expect.objectContaining({
+      tenantId,
+      workspaceId,
+      assistantId,
+      conversationId,
+      ownerUserId: userId,
+      excludeMessageId: userMessage.id,
+      limit: 13,
+    }));
+    expect(mocks.agentRunsService.createForAssistant.mock.calls[0][4]).toEqual(expect.objectContaining({
+      conversationId,
+      conversationContext: undefined,
+    }));
+    expect(JSON.stringify(mocks.agentRunsService.createForAssistant.mock.calls[0][1])).not.toMatch(/fullContext|rawPayload|systemPrompt|previousMessages|messagesToRuntime/i);
     expect(mocks.chatConversationsRepository.createMessage).toHaveBeenCalledWith(expect.objectContaining({
       role: 'assistant',
       content: 'Resposta persistida do assistente',
@@ -343,6 +364,84 @@ describe('chat conversation endpoints', () => {
     }));
     expect(response.body.data.assistantMessage.agentRunId).toBe(runId);
     expect(response.body.data.run.id).toBe(runId);
+  });
+
+  it('sends a second message with backend-governed conversation context only in AgentRun options', async () => {
+    const previousUserMessage = messageFixture({
+      id: '00000000-0000-0000-0000-000000000711',
+      role: 'user',
+      content: 'Primeira pergunta',
+      createdAt: new Date('2026-07-06T12:00:00.000Z'),
+    });
+    const previousAssistantMessage = messageFixture({
+      id: '00000000-0000-0000-0000-000000000712',
+      role: 'assistant',
+      userId: null,
+      content: 'Primeira resposta',
+      createdAt: new Date('2026-07-06T12:00:01.000Z'),
+    });
+    const currentUserMessage = messageFixture({
+      id: '00000000-0000-0000-0000-000000000713',
+      role: 'user',
+      content: 'Segunda pergunta',
+      createdAt: new Date('2026-07-06T12:01:00.000Z'),
+    });
+    const assistantMessage = messageFixture({
+      id: '00000000-0000-0000-0000-000000000714',
+      role: 'assistant',
+      userId: null,
+      content: 'Resposta persistida do assistente',
+      agentRunId: runId,
+      agentRun: prismaRunFixture(),
+      createdAt: new Date('2026-07-06T12:01:01.000Z'),
+    });
+
+    mocks.chatConversationsRepository.findConversationForOwner
+      .mockResolvedValueOnce(conversationFixture({
+        title: 'Primeira pergunta',
+        messages: [previousUserMessage, previousAssistantMessage],
+        _count: { messages: 2 },
+      }))
+      .mockResolvedValueOnce(conversationFixture({
+        title: 'Primeira pergunta',
+        messages: [previousUserMessage, previousAssistantMessage, currentUserMessage, assistantMessage],
+        _count: { messages: 4 },
+      }));
+    mocks.chatConversationsRepository.createMessage.mockImplementation(async (input) => (
+      input.role === 'user'
+        ? { ...currentUserMessage, ...input, agentRun: null }
+        : { ...assistantMessage, ...input, userId: null, agentRun: prismaRunFixture() }
+    ));
+    mocks.chatConversationsRepository.listContextMessagesForConversation.mockResolvedValue([
+      previousAssistantMessage,
+      previousUserMessage,
+    ]);
+
+    await request(createApp())
+      .post(`/api/v1/chat/conversations/${conversationId}/messages`)
+      .set('Cookie', [sessionCookie()])
+      .send({ input: 'Segunda pergunta' })
+      .expect(201);
+
+    const runInput = mocks.agentRunsService.createForAssistant.mock.calls[0][1];
+    const runOptions = mocks.agentRunsService.createForAssistant.mock.calls[0][4];
+
+    expect(runInput.input).toBe('Segunda pergunta');
+    expect(runInput.metadata.conversationContextSummary).toEqual(expect.objectContaining({
+      included: true,
+      messageCount: 2,
+      totalChars: 'Primeira pergunta'.length + 'Primeira resposta'.length,
+      truncated: false,
+    }));
+    expect(runOptions.conversationContext.messages.map((message: { role: string; content: string }) => ({
+      role: message.role,
+      content: message.content,
+    }))).toEqual([
+      { role: 'user', content: 'Primeira pergunta' },
+      { role: 'assistant', content: 'Primeira resposta' },
+    ]);
+    expect(runOptions.conversationContext.messages.map((message: { messageId: string }) => message.messageId)).not.toContain(currentUserMessage.id);
+    expect(JSON.stringify(runOptions.conversationContext)).not.toMatch(/metadata|agentRun|rawPayload|systemPrompt/i);
   });
 
   it('does not accept new messages in archived conversations', async () => {

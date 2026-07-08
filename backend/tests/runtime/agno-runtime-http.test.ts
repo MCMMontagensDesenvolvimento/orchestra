@@ -155,6 +155,61 @@ describe('Agno-compatible minimal runtime HTTP service', () => {
     }
   });
 
+  it('accepts governed conversation context and returns only safe quantitative metadata', async () => {
+    const previousUser = 'Pergunta anterior';
+    const previousAssistant = 'Resposta anterior';
+    const response = await request(app())
+      .post('/execute')
+      .send(validExecuteRequest(validSpec({
+        conversationContext: {
+          messages: [
+            {
+              messageId: 'message-1',
+              role: 'user',
+              content: previousUser,
+              createdAt: '2026-07-06T12:00:00.000Z',
+            },
+            {
+              messageId: 'message-2',
+              role: 'assistant',
+              content: previousAssistant,
+              createdAt: '2026-07-06T12:00:01.000Z',
+            },
+          ],
+          summary: {
+            enabled: true,
+            included: true,
+            messageCount: 2,
+            totalChars: previousUser.length + previousAssistant.length,
+            truncated: false,
+            maxMessages: 12,
+            maxMessageChars: 1200,
+            maxTotalChars: 6000,
+          },
+        },
+      })))
+      .expect(200);
+
+    expect(runtimeExecuteResponseV1Schema.safeParse(response.body).success).toBe(true);
+    expect(response.body.output.metadata).toEqual(expect.objectContaining({
+      conversationContextIncluded: true,
+      conversationContextMessageCount: 2,
+      conversationContextChars: previousUser.length + previousAssistant.length,
+      conversationContextTruncated: false,
+    }));
+    expect(response.body.events).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        type: 'run.started',
+        metadata: expect.objectContaining({
+          conversationContextIncluded: true,
+          conversationContextMessageCount: 2,
+        }),
+      }),
+    ]));
+    expect(response.text).not.toContain(previousUser);
+    expect(response.text).not.toContain(previousAssistant);
+  });
+
   it('preserves traceId and runId on execute', async () => {
     const response = await request(app())
       .post('/execute')
