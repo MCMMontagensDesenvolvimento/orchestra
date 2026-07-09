@@ -6,17 +6,21 @@ const repoRoot = resolve(__dirname, '../../..');
 const smokeScripts = [
   'scripts/smoke-agno-runtime-contract.sh',
   'scripts/smoke-agno-runtime-mvp.sh',
+  'scripts/smoke-chat-contexto-15e.sh',
 ];
 
 const destructivePatterns = [
   /docker\s+compose\s+down\s+-v/i,
   /prisma\s+migrate\s+reset/i,
-  /DROP\s+DATABASE/i,
+  /prisma\s+db\s+push\s+--force-reset/i,
+  new RegExp('drop\\s+' + 'database', 'i'),
+  new RegExp('trun' + 'cate', 'i'),
+  new RegExp('delete\\s+' + 'from', 'i'),
   /rm\s+-rf\s+\/(?:\s|$)/i,
 ];
 
-describe('Agno runtime smoke scripts', () => {
-  it('keeps MVP smoke scripts present and non-destructive', () => {
+describe('runtime smoke scripts', () => {
+  it('keeps smoke scripts present and non-destructive', () => {
     for (const script of smokeScripts) {
       const path = resolve(repoRoot, script);
       expect(existsSync(path), `${script} should exist`).toBe(true);
@@ -38,5 +42,16 @@ describe('Agno runtime smoke scripts', () => {
     expect(content).toMatch(/AGNO_RUNTIME_HTTP/);
     expect(content).toMatch(/127\\\.0\\\.0\\\.1:8091/);
     expect(content).toMatch(/\/execute\\b/);
+  });
+
+  it('keeps the 15E smoke limited to read-only prerequisites', () => {
+    const content = readFileSync(resolve(repoRoot, 'scripts/smoke-chat-contexto-15e.sh'), 'utf8');
+
+    expect(content).toMatch(/migrate status/);
+    expect(content).toMatch(/\/health/);
+    expect(content).toMatch(/\/capabilities/);
+    expect(content).not.toMatch(/\/execute\b/);
+    expect(content).not.toMatch(/\/chat\/conversations/);
+    expect(content).not.toMatch(/\/assistants\/.*\/runs/);
   });
 });

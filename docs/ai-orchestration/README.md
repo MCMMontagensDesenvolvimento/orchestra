@@ -40,6 +40,8 @@ A Fase 15C adiciona conversas persistentes privadas por usuario no Chat, mensage
 
 A Fase 15D adiciona contexto conversacional governado para runtime: o backend seleciona mensagens anteriores da conversa persistente, aplica limites e sanitizacao, mantem a nova mensagem como `AgentRun.input` e envia o historico apenas em campo separado e seguro do runtime.
 
+A Fase 15E formaliza a homologacao funcional local do Chat persistente com contexto conversacional governado, documentando pre-condicoes, comandos, evidencias, consultas SQL e criterios de aceite para o fluxo `Chat -> AgentRun -> agno_http`, sem adicionar feature produtiva.
+
 Esta pasta deve concentrar a estrategia de IA do Orchestra.
 
 Topicos esperados:
@@ -91,6 +93,7 @@ Topicos esperados:
 - `ORCHESTRA_MVP_AGNO_RUNTIME_HANDOFF_14H.md`: handoff do MVP Agno Runtime, com arquitetura final, flags, defaults seguros, smoke, homologacao, rollback, limites, riscos e proximos passos pos-MVP.
 - `ORCHESTRA_CHAT_CONVERSAS_PERSISTENTES_15C.md`: conversas persistentes privadas por usuario, mensagens persistidas, arquivamento logico e resposta do assistente vinculada ao `AgentRun`.
 - `ORCHESTRA_CHAT_CONTEXTO_CONVERSACIONAL_15D.md`: contexto conversacional governado para runtime, selecionado pelo backend, limitado, sanitizado, auditado e separado do `input` atual.
+- `ORCHESTRA_CHAT_HOMOLOGACAO_CONTEXTO_15E.md`: homologacao funcional local do Chat persistente com contexto conversacional governado, cobrindo pre-condicoes, comandos, evidencias, consultas SQL e criterios de aceite do fluxo `Chat -> AgentRun -> agno_http`.
 - `ORCHESTRA_LLM_PROVIDER_INTEGRATION.md`: catalogo LLM, provider local deterministico, providers externos fail-closed e eventos LLM em AgentRun.
 - `ORCHESTRA_RAG_SEMANTICO_DISCOVERY.md`: discovery tecnico da Fase 10A para RAG semantico, embeddings e vector store.
 - `ORCHESTRA_VECTOR_STORE_EMBEDDING_CONTRACT.md`: decisao tecnica da Fase 10B para pgvector, tabela de embeddings, readiness semantico e fail-closed.
