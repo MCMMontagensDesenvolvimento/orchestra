@@ -61,6 +61,7 @@ export class LocalLlmProvider implements LlmProvider {
       `RAG pronto: ${request.context?.ragReady ? 'sim' : 'nao'}.`,
       `Fontes RAG anexadas: ${request.context?.ragSourceCount ?? 0}.`,
       `Descriptors MCP anexados: ${request.context?.mcpToolDescriptorCount ?? 0}.`,
+      `Mensagens de contexto conversacional: ${request.conversationContext?.summary.messageCount ?? 0}.`,
       `Input hash: ${request.input.hash.slice(0, 12)}.`,
     ].join(' ');
 
@@ -78,6 +79,10 @@ export class LocalLlmProvider implements LlmProvider {
         externalProviderCalled: false,
         rawPromptStored: false,
         rawOutputStored: false,
+        conversationContextIncluded: Boolean(request.conversationContext?.summary.included),
+        conversationContextMessageCount: request.conversationContext?.summary.messageCount ?? 0,
+        conversationContextChars: request.conversationContext?.summary.totalChars ?? 0,
+        conversationContextTruncated: Boolean(request.conversationContext?.summary.truncated),
       },
     };
   }
