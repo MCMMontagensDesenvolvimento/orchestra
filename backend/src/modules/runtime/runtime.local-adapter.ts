@@ -75,6 +75,27 @@ function conversationContextSummary(context: RuntimeExecutionContext) {
   };
 }
 
+function llmConversationContext(context: RuntimeExecutionContext): Parameters<typeof llmService.generateForRuntime>[0]['conversationContext'] {
+  const conversationContext = context.conversationContext;
+  if (!conversationContext?.summary.included || conversationContext.messages.length === 0) return undefined;
+
+  return {
+    messages: conversationContext.messages.map((message) => ({
+      role: message.role,
+      content: message.content,
+    })),
+    summary: {
+      included: conversationContext.summary.included,
+      messageCount: conversationContext.summary.messageCount,
+      totalChars: conversationContext.summary.totalChars,
+      truncated: conversationContext.summary.truncated,
+      maxMessages: conversationContext.summary.maxMessages,
+      maxMessageChars: conversationContext.summary.maxMessageChars,
+      maxTotalChars: conversationContext.summary.maxTotalChars,
+    },
+  };
+}
+
 export class LocalDeterministicRuntimeAdapter implements RuntimeAdapter {
   readonly provider = 'local' as const;
 
@@ -142,6 +163,7 @@ export class LocalDeterministicRuntimeAdapter implements RuntimeAdapter {
 
     const llmSelection = resolveRuntimeLlmProvider(context);
     const governedConversationContext = conversationContextSummary(context);
+    const governedLlmConversationContext = llmConversationContext(context);
 
     const llmResult = await llmService.generateForRuntime({
       requestId: context.requestId,
@@ -158,6 +180,7 @@ export class LocalDeterministicRuntimeAdapter implements RuntimeAdapter {
         ragSourceCount: context.rag.sourceReferences.length,
         mcpToolDescriptorCount: context.mcp.allowedSandboxTools.length,
       },
+      conversationContext: governedLlmConversationContext,
     });
 
     if (llmResult.status !== 'completed') {
@@ -191,6 +214,7 @@ export class LocalDeterministicRuntimeAdapter implements RuntimeAdapter {
               inputHash: llmResult.inputHash,
               externalProviderCalled,
               reason: llmSelection.reason,
+              ...governedConversationContext,
             },
           },
           {
@@ -244,6 +268,7 @@ export class LocalDeterministicRuntimeAdapter implements RuntimeAdapter {
             model: llmResult.model,
             externalProviderCalled: llmSelection.externalProviderCalled,
             reason: llmSelection.reason,
+            ...governedConversationContext,
           },
         },
         {
@@ -308,8 +333,10 @@ export class LocalDeterministicRuntimeAdapter implements RuntimeAdapter {
           metadata: {
             simulated: !llmSelection.externalProviderCalled,
             externalProvidersCalled: llmSelection.externalProviderCalled,
+            externalProviderCalled: llmSelection.externalProviderCalled,
             llmProvider: llmSelection.provider,
             inputHash: context.input.hash,
+            ...governedConversationContext,
           },
         },
         {
@@ -321,10 +348,12 @@ export class LocalDeterministicRuntimeAdapter implements RuntimeAdapter {
           metadata: {
             simulated: !llmSelection.externalProviderCalled,
             externalProvidersCalled: llmSelection.externalProviderCalled,
+            externalProviderCalled: llmSelection.externalProviderCalled,
             llmProvider: llmResult.provider,
             model: llmResult.model,
             outputHash: llmResult.outputHash,
             latencyMs: llmResult.latencyMs,
+            ...governedConversationContext,
           },
         },
         {
@@ -336,9 +365,11 @@ export class LocalDeterministicRuntimeAdapter implements RuntimeAdapter {
           metadata: {
             simulated: !llmSelection.externalProviderCalled,
             externalProvidersCalled: llmSelection.externalProviderCalled,
+            externalProviderCalled: llmSelection.externalProviderCalled,
             llmProvider: llmResult.provider,
             model: llmResult.model,
             outputHash: llmResult.outputHash,
+            ...governedConversationContext,
           },
         },
         {

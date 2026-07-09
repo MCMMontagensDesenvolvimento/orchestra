@@ -31,6 +31,14 @@ type OpenAiResponseBody = {
   };
 };
 
+type OpenAiInputMessage = {
+  role: 'system' | 'user' | 'assistant';
+  content: Array<{
+    type: 'input_text' | 'output_text';
+    text: string;
+  }>;
+};
+
 function hashText(value: string) {
   return createHash('sha256').update(value).digest('hex');
 }
@@ -103,6 +111,7 @@ function blockedResult(
       providerStatus: status,
       externalProviderCalled: false,
       failedClosed: true,
+      ...conversationContextMetadata(request),
     },
   };
 }
@@ -133,6 +142,15 @@ function extractOpenAiText(body: OpenAiResponseBody) {
   return parts.join('\n').trim();
 }
 
+function conversationContextMetadata(request: LlmGenerateTextRequest) {
+  return {
+    conversationContextIncluded: Boolean(request.conversationContext?.summary.included),
+    conversationContextMessageCount: request.conversationContext?.summary.messageCount ?? 0,
+    conversationContextChars: request.conversationContext?.summary.totalChars ?? 0,
+    conversationContextTruncated: Boolean(request.conversationContext?.summary.truncated),
+  };
+}
+
 function buildOpenAiInput(request: LlmGenerateTextRequest) {
   const userInput = request.input.raw ?? request.input.preview;
   const systemParts = [
@@ -154,7 +172,16 @@ function buildOpenAiInput(request: LlmGenerateTextRequest) {
     systemParts.push(`Modo de execução: ${request.context.executionMode}`);
   }
 
-  return [
+  if (request.conversationContext?.summary.included) {
+    systemParts.push([
+      'Contexto conversacional anterior foi anexado pelo backend do Orchestra.',
+      `Mensagens: ${request.conversationContext.summary.messageCount}.`,
+      `Caracteres: ${request.conversationContext.summary.totalChars}.`,
+      `Truncado: ${request.conversationContext.summary.truncated ? 'sim' : 'nao'}.`,
+    ].join(' '));
+  }
+
+  const inputMessages: OpenAiInputMessage[] = [
     {
       role: 'system',
       content: [
@@ -164,16 +191,31 @@ function buildOpenAiInput(request: LlmGenerateTextRequest) {
         },
       ],
     },
-    {
-      role: 'user',
+  ];
+
+  for (const message of request.conversationContext?.messages ?? []) {
+    inputMessages.push({
+      role: message.role,
       content: [
         {
-          type: 'input_text',
-          text: userInput,
+          type: message.role === 'assistant' ? 'output_text' : 'input_text',
+          text: message.content,
         },
       ],
-    },
-  ];
+    });
+  }
+
+  inputMessages.push({
+    role: 'user',
+    content: [
+      {
+        type: 'input_text',
+        text: userInput,
+      },
+    ],
+  });
+
+  return inputMessages;
 }
 
 async function readResponseBody(response: Response): Promise<unknown> {
@@ -311,6 +353,7 @@ export const openAiRealLlmProvider: LlmProvider = {
             errorCode: error.error?.code,
             externalProviderCalled: true,
             failedClosed: true,
+            ...conversationContextMetadata(request),
           },
         };
       }
@@ -333,6 +376,7 @@ export const openAiRealLlmProvider: LlmProvider = {
             responseId: data.id,
             externalProviderCalled: true,
             failedClosed: true,
+            ...conversationContextMetadata(request),
           },
         };
       }
@@ -357,6 +401,7 @@ export const openAiRealLlmProvider: LlmProvider = {
           inputTokens: data.usage?.input_tokens,
           outputTokens: data.usage?.output_tokens,
           totalTokens: data.usage?.total_tokens,
+          ...conversationContextMetadata(request),
         },
       };
     } catch (error) {
@@ -377,6 +422,7 @@ export const openAiRealLlmProvider: LlmProvider = {
           externalProviderCalled: true,
           failedClosed: true,
           timeoutMs: config.providerTimeoutMs,
+          ...conversationContextMetadata(request),
         },
       };
     } finally {

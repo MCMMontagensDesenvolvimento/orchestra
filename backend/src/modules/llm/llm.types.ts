@@ -61,6 +61,21 @@ export interface LlmGenerateTextRequest {
     ragSourceCount?: number;
     mcpToolDescriptorCount?: number;
   };
+  conversationContext?: {
+    messages: Array<{
+      role: 'user' | 'assistant';
+      content: string;
+    }>;
+    summary: {
+      included: boolean;
+      messageCount: number;
+      totalChars: number;
+      truncated: boolean;
+      maxMessages: number;
+      maxMessageChars: number;
+      maxTotalChars: number;
+    };
+  };
   model?: string | null;
   metadata?: Prisma.InputJsonValue;
 }
