@@ -158,10 +158,8 @@ export const runtimeInputAttachmentSchema = z.object({
 }).strict();
 
 export const runtimeConversationContextMessageSchema = z.object({
-  messageId: idSchema,
   role: z.enum(['user', 'assistant']),
   content: textSchema(4000),
-  createdAt: z.string().datetime(),
 }).strict();
 
 export const runtimeConversationContextSchema = z.object({
@@ -403,6 +401,7 @@ export const runtimeCapabilitiesResponseV1Schema = z.object({
   supportsStreaming: z.boolean(),
   supportsTools: z.boolean(),
   supportsRagContext: z.boolean(),
+  supportsExternalProviders: z.boolean().optional(),
   supportsFileInputs: z.boolean(),
   maxInputChars: z.number().int().positive().safe().optional(),
   maxToolCalls: z.number().int().nonnegative().max(50).optional(),

@@ -55,6 +55,9 @@ const allowedMetadataKeys = new Set([
   'inputtokens',
   'latencyms',
   'limitsenforce',
+  'llmmodel',
+  'llmprovider',
+  'llmselectionreason',
   'maxcontextchars',
   'maxragresults',
   'maxtoolcalls',
@@ -65,6 +68,7 @@ const allowedMetadataKeys = new Set([
   'policymaxragresults',
   'policymaxtoolcalls',
   'protocolversion',
+  'providerstatus',
   'ragcontextchars',
   'ragmode',
   'ragsourcecount',
@@ -233,7 +237,7 @@ export class AgnoHttpRuntimeAdapter implements RuntimeAdapter {
     events.push({
       type: 'agno_request_started',
       status: 'running',
-      message: 'Chamada HTTP ao runtime Agno-compatible minimo iniciada.',
+      message: 'Chamada HTTP ao runtime Agno-compatible iniciada.',
       metadata: jsonMetadata({
         ...invocationSummary,
         requestSent: false,
@@ -249,7 +253,7 @@ export class AgnoHttpRuntimeAdapter implements RuntimeAdapter {
         {
           type: 'agno_request_completed',
           status: response.status === 'succeeded' ? 'completed' : normalizeRuntimeStatus(response.status),
-          message: 'Chamada HTTP ao runtime Agno-compatible minimo concluida.',
+          message: 'Chamada HTTP ao runtime Agno-compatible concluida.',
           metadata: jsonMetadata({
             ...invocationSummary,
             requestSent: true,
@@ -405,6 +409,9 @@ function buildInvocationSummary(
     assistantPublicationId: context.assistantPublicationId,
     timeoutMs: config.agnoHttpTimeoutMs,
     inputHash: context.input.hash,
+    llmProvider: spec.model.provider,
+    llmModel: spec.model.model,
+    llmSelectionReason: modelSelectionReason(context),
     policyMaxToolCalls: spec.policy.maxToolCalls,
     policyMaxRagResults: spec.policy.maxRagResults,
     policyMaxContextChars: spec.policy.maxContextChars,
@@ -425,6 +432,19 @@ function buildInvocationSummary(
     toolDescriptorCount: toolSummary?.toolDescriptorCount ?? 0,
     maxToolCalls: spec.policy.maxToolCalls,
   };
+}
+
+function modelSelectionReason(context: RuntimeExecutionContext) {
+  const policy = context.llmPolicySnapshot;
+  if (context.executionMode === 'sandbox') return 'sandbox_blocks_real_providers';
+  if (
+    policy.allowExternalLlmProviders
+    && policy.defaultLlmProvider !== null
+    && policy.allowedLlmProviders.includes(policy.defaultLlmProvider)
+  ) {
+    return 'assistant_policy_opt_in';
+  }
+  return 'assistant_policy_default_local';
 }
 
 function summarizeConversationContextSpec(
@@ -501,7 +521,7 @@ function normalizeCapabilities(
     supportsMcpTools: false,
     supportsToolCalling: false,
     supportsSandbox: true,
-    supportsExternalProviders: false,
+    supportsExternalProviders: response.supportsExternalProviders ?? false,
     supportsCitations: response.supportsRagContext,
     supportsTraceEvents: true,
     maxInputPreviewChars: response.maxInputChars ?? config.agnoMaxInputPreviewChars,
@@ -588,12 +608,25 @@ function normalizeRuntimeMetrics(
   adapterLatencyMs: number,
 ): Record<string, unknown> {
   const outputMetadata = parsed.output?.metadata;
+  const llmProvider = metadataString(outputMetadata, 'llmProvider')
+    ?? metadataString(outputMetadata, 'provider')
+    ?? stringValue(invocationSummary.llmProvider);
+  const llmModel = metadataString(outputMetadata, 'model')
+    ?? metadataString(outputMetadata, 'llmModel')
+    ?? stringValue(invocationSummary.llmModel);
   return {
     inputTokens: parsed.usage?.inputTokens,
     outputTokens: parsed.usage?.outputTokens,
     totalTokens: parsed.usage?.totalTokens,
     latencyMs: parsed.usage?.latencyMs ?? adapterLatencyMs,
     adapterLatencyMs,
+    llmProvider,
+    llmModel,
+    model: llmModel,
+    llmSelectionReason: stringValue(invocationSummary.llmSelectionReason),
+    providerStatus: metadataString(outputMetadata, 'providerStatus'),
+    failedClosed: metadataBoolean(outputMetadata, 'failedClosed') ?? false,
+    simulated: metadataBoolean(outputMetadata, 'simulated'),
     ragSourceCount: numberValue(invocationSummary.ragSourceCount) ?? 0,
     ragContextChars: numberValue(invocationSummary.ragContextChars) ?? 0,
     conversationContextIncluded: metadataBoolean(invocationSummary, 'conversationContextIncluded') ?? false,
@@ -606,6 +639,11 @@ function normalizeRuntimeMetrics(
     externalMcpCalled: metadataBoolean(outputMetadata, 'externalMcpCalled') ?? false,
     externalProviderCalled: metadataBoolean(outputMetadata, 'externalProviderCalled') ?? false,
   };
+}
+
+function metadataString(metadata: unknown, key: string) {
+  if (!metadata || typeof metadata !== 'object' || Array.isArray(metadata)) return undefined;
+  return stringValue((metadata as Record<string, unknown>)[key]);
 }
 
 function metadataNumber(metadata: unknown, key: string) {
@@ -621,6 +659,12 @@ function metadataBoolean(metadata: unknown, key: string) {
 
 function numberValue(value: unknown) {
   return typeof value === 'number' && Number.isFinite(value) ? value : undefined;
+}
+
+function stringValue(value: unknown) {
+  if (typeof value !== 'string') return undefined;
+  const normalized = value.replace(/\s+/g, ' ').trim();
+  return normalized ? normalized.slice(0, 160) : undefined;
 }
 
 function normalizeContractEvents(events: RuntimeNormalizedEventV1[] | undefined): RuntimeNormalizedEvent[] {
@@ -674,7 +718,10 @@ function failedResult(
     message,
     errorCode,
     errorMessage: message,
-    metadata: jsonMetadata(metadata),
+    metadata: jsonMetadata({
+      ...metadata,
+      failedClosed: true,
+    }),
     events: [
       ...events,
       {
@@ -685,6 +732,7 @@ function failedResult(
           provider,
           errorCode,
           ...metadata,
+          failedClosed: true,
         }),
       },
     ],

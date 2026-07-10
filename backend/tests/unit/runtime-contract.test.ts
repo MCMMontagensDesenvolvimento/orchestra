@@ -134,10 +134,8 @@ describe('runtime contract schemas', () => {
       conversationContext: {
         messages: [
           {
-            messageId: 'message-1',
             role: 'user',
             content: contextText,
-            createdAt: '2026-07-06T12:00:00.000Z',
           },
         ],
         summary: {
@@ -160,7 +158,38 @@ describe('runtime contract schemas', () => {
         role: 'user',
         content: contextText,
       }));
+      expect(result.data.conversationContext?.messages[0]).not.toHaveProperty('messageId');
+      expect(result.data.conversationContext?.messages[0]).not.toHaveProperty('createdAt');
     }
+  });
+
+  it('rejects internal conversation message identifiers and timestamps in the runtime contract', () => {
+    const contextText = 'Pergunta anterior';
+    const result = assistantRuntimeSpecV1Schema.safeParse({
+      ...validSpec(),
+      conversationContext: {
+        messages: [
+          {
+            messageId: 'internal-message-1',
+            role: 'user',
+            content: contextText,
+            createdAt: '2026-07-06T12:00:00.000Z',
+          },
+        ],
+        summary: {
+          enabled: true,
+          included: true,
+          messageCount: 1,
+          totalChars: contextText.length,
+          truncated: false,
+          maxMessages: 12,
+          maxMessageChars: 1200,
+          maxTotalChars: 6000,
+        },
+      },
+    });
+
+    expect(result.success).toBe(false);
   });
 
   it('rejects unsafe or inconsistent conversation context payloads', () => {
@@ -168,10 +197,8 @@ describe('runtime contract schemas', () => {
       conversationContext: {
         messages: [
           {
-            messageId: 'message-1',
             role: 'assistant',
             content: 'Resposta anterior',
-            createdAt: '2026-07-06T12:00:00.000Z',
           },
         ],
         summary: {
@@ -190,10 +217,8 @@ describe('runtime contract schemas', () => {
       conversationContext: {
         messages: [
           {
-            messageId: 'message-1',
             role: 'user',
             content: 'Bearer must-not-enter-runtime',
-            createdAt: '2026-07-06T12:00:00.000Z',
           },
         ],
         summary: {

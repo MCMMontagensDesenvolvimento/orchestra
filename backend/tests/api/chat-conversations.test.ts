@@ -366,6 +366,54 @@ describe('chat conversation endpoints', () => {
     expect(response.body.data.run.id).toBe(runId);
   });
 
+  it('persists the fake Agno LLM output returned by AgentRun as the assistant message', async () => {
+    const fakeAgnoOutput = 'Resposta simulada do LLM real executado via Agno.';
+    const agnoRun = {
+      ...apiRunFixture(),
+      metadata: {
+        runtime: {
+          provider: 'agno_http',
+          status: 'completed',
+          externalProviderCalled: true,
+        },
+      },
+    };
+    mocks.agentRunsService.createForAssistant.mockImplementationOnce(async (...args) => {
+      const options = args[4] as { onRuntimeResult?: (result: { outputPreview?: string }) => void } | undefined;
+      options?.onRuntimeResult?.({ outputPreview: fakeAgnoOutput });
+      return agnoRun;
+    });
+    mocks.chatConversationsRepository.findConversationForOwner
+      .mockResolvedValueOnce(conversationFixture({ messages: [], _count: { messages: 0 } }))
+      .mockResolvedValueOnce(conversationFixture({ messages: [], _count: { messages: 2 } }));
+
+    const response = await request(createApp())
+      .post(`/api/v1/chat/conversations/${conversationId}/messages`)
+      .set('Cookie', [sessionCookie()])
+      .send({ input: 'Pergunta atual enviada somente pelo frontend.' })
+      .expect(201);
+
+    expect(mocks.agentRunsService.createForAssistant).toHaveBeenCalledWith(
+      assistantId,
+      expect.objectContaining({
+        input: 'Pergunta atual enviada somente pelo frontend.',
+        source: 'chat-conversation',
+      }),
+      expect.anything(),
+      expect.anything(),
+      expect.objectContaining({ onRuntimeResult: expect.any(Function) }),
+    );
+    expect(mocks.chatConversationsRepository.createMessage).toHaveBeenCalledWith(expect.objectContaining({
+      role: 'assistant',
+      content: fakeAgnoOutput,
+      agentRunId: runId,
+    }));
+    expect(response.body.data.run.metadata.runtime).toEqual(expect.objectContaining({
+      provider: 'agno_http',
+      externalProviderCalled: true,
+    }));
+  });
+
   it('sends a second message with backend-governed conversation context only in AgentRun options', async () => {
     const previousUserMessage = messageFixture({
       id: '00000000-0000-0000-0000-000000000711',
