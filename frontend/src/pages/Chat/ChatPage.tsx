@@ -967,11 +967,15 @@ function runRuntimeRows(run: AgentRun): TechnicalRow[] {
     row('outputHash', runtime?.outputHash),
     row('errorCode', firstValue(run.errorCode, runtime?.errorCode)),
     row('latencyMs', firstValue(runtime?.latencyMs, usage?.latencyMs, adapter?.llmLatencyMs)),
+    row('requestSent', runtime?.requestSent),
+    row('failClosed', runtime?.failedClosed),
     row('externalProviderCalled', firstValue(runtime?.externalProviderCalled, adapter?.externalProviderCalled)),
     row('externalMcpCalled', runtime?.externalMcpCalled),
     row('toolCallsExecuted', runtime?.toolCallsExecuted),
+    row('ragMode', runtime?.ragMode),
     row('ragSourceCount', runtime?.ragSourceCount),
     row('ragContextChars', runtime?.ragContextChars),
+    row('maxRagResults', runtime?.maxRagResults),
   ].filter((item): item is TechnicalRow => Boolean(item));
 }
 
@@ -1022,12 +1026,15 @@ function safeEventMetadataRows(event: AgentRunEvent): TechnicalRow[] {
     row('externalProviderCalled', llmSummary.externalProviderCalled),
     row('externalMcpCalled', metadata.externalMcpCalled),
     row('toolCallsExecuted', metadata.toolCallsExecuted),
+    row('ragMode', metadata.ragMode),
     row('ragSourceCount', metadata.ragSourceCount),
+    row('ragContextChars', metadata.ragContextChars),
+    row('maxRagResults', metadata.maxRagResults),
     row('reason', llmSelectionReasonLabel(llmSummary.selectionReason) ?? llmSummary.selectionReason),
     row('simulated', llmSummary.simulated),
     row('failClosed', llmSummary.failedClosed),
     ...conversationContextRows(contextSummary),
-  ].filter((item): item is TechnicalRow => Boolean(item)).slice(0, 14);
+  ].filter((item): item is TechnicalRow => Boolean(item)).slice(0, 18);
 }
 
 function row(label: string, value: unknown): TechnicalRow | undefined {

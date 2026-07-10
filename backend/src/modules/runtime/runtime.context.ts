@@ -10,6 +10,7 @@ import type {
   RuntimeMcpSummary,
   RuntimeProvider,
   RuntimeRagSummary,
+  RuntimeResolvedRagContext,
 } from './runtime.types';
 
 type RuntimeSummary = Awaited<ReturnType<typeof agentRunsRepository.getRuntimeContextSummary>>;
@@ -44,6 +45,7 @@ interface BuildRuntimeContextInput {
   precheckSnapshot: AgentRunPrecheckSnapshot;
   metadata?: Prisma.InputJsonValue;
   conversationContext?: RuntimeConversationContext;
+  resolvedRag?: RuntimeResolvedRagContext;
 }
 
 function previewInput(value: string) {
@@ -93,7 +95,18 @@ function decimalToNumber(value: { toString(): string } | number | string | null 
   return Number.isFinite(parsed) ? parsed : null;
 }
 
-function buildRagSummary(summary: RuntimeSummary): RuntimeRagSummary {
+function buildRagSummary(summary: RuntimeSummary, resolvedRag?: RuntimeResolvedRagContext): RuntimeRagSummary {
+  if (resolvedRag) {
+    return {
+      ragReady: resolvedRag.status === 'completed' && resolvedRag.sourceReferences.length > 0,
+      knowledgeBindingsCount: summary.knowledgeBindingsCount,
+      chunkCount: summary.chunkCount,
+      sourceReferenceCount: summary.sourceReferenceCount,
+      lastRagQueryId: resolvedRag.queryId,
+      sourceReferences: resolvedRag.sourceReferences,
+    };
+  }
+
   return {
     ragReady: summary.knowledgeBindingsCount > 0 && summary.chunkCount > 0,
     knowledgeBindingsCount: summary.knowledgeBindingsCount,
@@ -205,7 +218,7 @@ export async function buildRuntimeExecutionContext(input: BuildRuntimeContextInp
       defaultLlmProvider: llmProviderValue(input.executionPolicy.defaultLlmProvider),
     },
     precheckSnapshot: input.precheckSnapshot,
-    rag: buildRagSummary(summary),
+    rag: buildRagSummary(summary, input.resolvedRag),
     mcp: buildMcpSummary(summary),
     conversationContext: input.conversationContext,
     input: {

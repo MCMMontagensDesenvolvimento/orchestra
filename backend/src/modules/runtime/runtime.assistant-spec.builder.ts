@@ -264,7 +264,6 @@ function buildGovernedRagSpec(
     if (remainingContextChars <= 0) break;
 
     const source = buildGovernedRagSource(reference, index + 1, {
-      lastRagQueryId: rag.lastRagQueryId,
       maxExcerptChars,
       remainingContextChars,
     });
@@ -290,7 +289,7 @@ function buildGovernedRagSpec(
 function buildGovernedRagSource(
   reference: RuntimeRagSourceReference,
   sourceIndex: number,
-  limits: { lastRagQueryId: string | null; maxExcerptChars: number; remainingContextChars: number },
+  limits: { maxExcerptChars: number; remainingContextChars: number },
 ): RuntimeRagSource | null {
   const sourceId = safeId(reference.id);
   const rawExcerpt = textOrUndefined(reference.excerpt);
@@ -319,7 +318,6 @@ function buildGovernedRagSource(
   const metadata = safeMetadataRecord({
     citationLabel: safeOptionalText(reference.label, 80),
     sourceIndex,
-    lastRagQueryId: safeId(limits.lastRagQueryId),
   });
   if (metadata) source.metadata = metadata as RuntimeRagSource['metadata'];
 

@@ -521,10 +521,11 @@ describe('Agno HTTP runtime adapter', () => {
           ragMode: 'resolved_context',
           ragSourceCount: 1,
           ragContextChars: 20,
-          sourceIds: ['source-1'],
+          maxRagResults: 2,
         }),
       }),
     ]));
+    expect(JSON.stringify(result.events)).not.toContain('source-1');
     expect(JSON.stringify(result.events)).not.toContain('01234567890123456789');
   });
 

@@ -6,8 +6,16 @@ import type { AuthenticatedUser } from '../../shared/types/auth';
 import { paginationMeta } from '../../shared/validation/pagination';
 import { recordAuditEvent } from '../audit/audit.service';
 import { recordAiUsageEvent } from '../ai-observability/ai-observability.service';
+import { knowledgeService } from '../knowledge/knowledge.service';
+import { getRuntimeConfig } from '../runtime/runtime.config';
 import { buildRuntimeExecutionContext } from '../runtime/runtime.context';
-import type { RuntimeConversationContext, RuntimeExecutionContext, RuntimeExecutionResult } from '../runtime/runtime.types';
+import type {
+  RuntimeConversationContext,
+  RuntimeExecutionContext,
+  RuntimeExecutionResult,
+  RuntimeProvider,
+  RuntimeResolvedRagContext,
+} from '../runtime/runtime.types';
 import { normalizeRuntimeEvents } from '../runtime/runtime.events';
 import { runtimeAdapterRegistry } from '../runtime/runtime.registry';
 import { runtimeService } from '../runtime/runtime.service';
@@ -140,7 +148,14 @@ function mergeRuntimeMetadata(input: {
         timeoutMs: numberValue(adapterMetadata?.timeoutMs),
       },
       adapterMetadata: input.provider === 'agno_http' ? undefined : input.runtimeMetadata,
-      rag: input.ragSummary,
+      rag: input.ragSummary
+        ? {
+          ragReady: input.ragSummary.ragReady,
+          knowledgeBindingsCount: input.ragSummary.knowledgeBindingsCount,
+          chunkCount: input.ragSummary.chunkCount,
+          sourceReferenceCount: input.ragSummary.sourceReferenceCount,
+        }
+        : undefined,
       mcp: input.mcpSummary
         ? {
           mcpBindingsCount: input.mcpSummary.mcpBindingsCount,
@@ -156,8 +171,12 @@ function mergeRuntimeMetadata(input: {
 
 function runtimeObservationSummary(metadata: Record<string, unknown> | undefined) {
   return {
+    ragMode: stringValue(metadata?.ragMode),
     ragSourceCount: numberValue(metadata?.ragSourceCount),
     ragContextChars: numberValue(metadata?.ragContextChars),
+    maxRagResults: numberValue(metadata?.policyMaxRagResults ?? metadata?.maxRagResults),
+    requestSent: booleanValue(metadata?.requestSent),
+    failedClosed: booleanValue(metadata?.failedClosed),
     conversationContextIncluded: booleanValue(metadata?.conversationContextIncluded),
     conversationContextMessageCount: numberValue(metadata?.conversationContextMessageCount),
     conversationContextChars: numberValue(metadata?.conversationContextChars),
@@ -198,6 +217,74 @@ function booleanValue(value: unknown) {
 
 function stringValue(value: unknown) {
   return typeof value === 'string' && value.trim() ? value.slice(0, 160) : undefined;
+}
+
+function runtimeRagQueryText(value: string) {
+  const normalized = value.replace(/\s+/g, ' ').trim().slice(0, 500);
+  return normalized.length >= 2 ? normalized : undefined;
+}
+
+function toResolvedRagContext(
+  result: Awaited<ReturnType<typeof knowledgeService.queryRag>>,
+): RuntimeResolvedRagContext {
+  const status = result.status === 'completed'
+    ? 'completed'
+    : result.status === 'no_results'
+      ? 'no_results'
+      : 'blocked';
+  const sourceReferences: RuntimeResolvedRagContext['sourceReferences'] = result.sources.map((source) => ({
+    id: source.sourceReferenceId ?? source.id,
+    label: source.citationLabel || `Fonte ${source.rank}`,
+    documentId: source.documentId,
+    chunkId: source.chunkId,
+    documentTitle: source.documentTitle,
+    excerpt: source.excerpt,
+    score: numberValue(source.score) ?? null,
+  }));
+
+  return {
+    queryId: result.queryId,
+    status,
+    sourceReferences,
+  };
+}
+
+function ragRetrievalFailedResult(provider: RuntimeProvider): RuntimeExecutionResult {
+  const message = 'Orchestra could not resolve governed RAG context before runtime execution.';
+  const metadata = {
+    requestSent: false,
+    failedClosed: true,
+    ragMode: 'none',
+    ragSourceCount: 0,
+    ragContextChars: 0,
+  };
+
+  return {
+    provider,
+    status: 'failed',
+    message,
+    errorCode: 'RUNTIME_RAG_RETRIEVAL_FAILED',
+    errorMessage: message,
+    metadata,
+    events: [
+      {
+        type: 'provider_selected',
+        status: 'running',
+        message: 'Runtime provider selected by the Orchestra control plane.',
+        metadata: { provider },
+      },
+      {
+        type: 'run_failed',
+        status: 'failed',
+        message: 'Governed RAG retrieval failed closed before runtime execution.',
+        metadata: {
+          provider,
+          errorCode: 'RUNTIME_RAG_RETRIEVAL_FAILED',
+          ...metadata,
+        },
+      },
+    ],
+  };
 }
 
 async function recordDenied(
@@ -615,6 +702,68 @@ export const agentRunsService = {
     }
 
     await recordRunAudit({ user, assistant, runId, traceId, action: 'agent_run_precheck_passed', mode: input.mode, status: 'prechecking', context });
+    const runtimeConfig = getRuntimeConfig();
+    let resolvedRag: RuntimeResolvedRagContext | undefined;
+    let ragResolutionFailure: RuntimeExecutionResult | undefined;
+
+    if (
+      runtimeProvider === 'agno_http'
+      && runtimeConfig.agnoHttpEnabled
+      && runtimeConfig.agnoHttpConfigured
+      && runtimeConfig.agnoHttpRagContextEnabled
+    ) {
+      resolvedRag = {
+        queryId: null,
+        status: 'no_results',
+        sourceReferences: [],
+      };
+      const query = runtimeRagQueryText(input.input);
+      if (query) {
+        try {
+          const ragResult = await knowledgeService.queryRag(assistant.id, {
+            query,
+            limit: Math.max(1, Math.min(runtimeConfig.agnoHttpMaxRagSources, 20)),
+            includeArchived: false,
+            ...(assistantVersionId ? { assistantVersionId } : {}),
+            traceId,
+          }, user, context);
+          resolvedRag = toResolvedRagContext(ragResult);
+          await recordRunAudit({
+            user,
+            assistant,
+            runId,
+            traceId,
+            action: 'runtime_rag_retrieval_resolved',
+            mode: input.mode,
+            status: ragResult.status,
+            context,
+            metadata: {
+              provider: runtimeProvider,
+              retrievalMode: ragResult.retrievalMode,
+              ragSourceCount: resolvedRag.sourceReferences.length,
+            },
+          });
+        } catch {
+          ragResolutionFailure = ragRetrievalFailedResult(runtimeProvider);
+          await recordRunAudit({
+            user,
+            assistant,
+            runId,
+            traceId,
+            action: 'runtime_rag_retrieval_failed',
+            mode: input.mode,
+            status: 'failed',
+            context,
+            metadata: {
+              provider: runtimeProvider,
+              requestSent: false,
+              failedClosed: true,
+            },
+          });
+        }
+      }
+    }
+
     const runtimeContext = await buildRuntimeExecutionContext({
       runId,
       traceId,
@@ -632,31 +781,37 @@ export const agentRunsService = {
       precheckSnapshot: precheck,
       metadata: sanitizedMetadata,
       conversationContext: options.conversationContext,
+      resolvedRag,
     });
-    const adapterHealth = await runtimeService.health(user, context);
-    await recordRunAudit({
-      user,
-      assistant,
-      runId,
-      traceId,
-      action: 'runtime_adapter_resolved',
-      mode: input.mode,
-      status: adapterHealth.status,
-      context,
-      metadata: { provider: runtimeProvider, healthStatus: adapterHealth.status },
-    });
-    await recordRunAudit({
-      user,
-      assistant,
-      runId,
-      traceId,
-      action: 'runtime_execution_started',
-      mode: input.mode,
-      status: 'running',
-      context,
-      metadata: { provider: runtimeProvider },
-    });
-    const runtimeResult = await runtimeService.execute(runtimeContext);
+    let runtimeResult: RuntimeExecutionResult;
+    if (ragResolutionFailure) {
+      runtimeResult = ragResolutionFailure;
+    } else {
+      const adapterHealth = await runtimeService.health(user, context);
+      await recordRunAudit({
+        user,
+        assistant,
+        runId,
+        traceId,
+        action: 'runtime_adapter_resolved',
+        mode: input.mode,
+        status: adapterHealth.status,
+        context,
+        metadata: { provider: runtimeProvider, healthStatus: adapterHealth.status },
+      });
+      await recordRunAudit({
+        user,
+        assistant,
+        runId,
+        traceId,
+        action: 'runtime_execution_started',
+        mode: input.mode,
+        status: 'running',
+        context,
+        metadata: { provider: runtimeProvider },
+      });
+      runtimeResult = await runtimeService.execute(runtimeContext);
+    }
     options.onRuntimeResult?.(runtimeResult);
     const normalizedRuntimeEvents = normalizeRuntimeEvents(runtimeResult);
     const now = new Date();

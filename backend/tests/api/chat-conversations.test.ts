@@ -375,6 +375,10 @@ describe('chat conversation endpoints', () => {
           provider: 'agno_http',
           status: 'completed',
           externalProviderCalled: true,
+          ragMode: 'resolved_context',
+          ragSourceCount: 2,
+          ragContextChars: 320,
+          maxRagResults: 5,
         },
       },
     };
@@ -411,7 +415,12 @@ describe('chat conversation endpoints', () => {
     expect(response.body.data.run.metadata.runtime).toEqual(expect.objectContaining({
       provider: 'agno_http',
       externalProviderCalled: true,
+      ragMode: 'resolved_context',
+      ragSourceCount: 2,
+      ragContextChars: 320,
+      maxRagResults: 5,
     }));
+    expect(response.body.data.assistantMessage.content).toBe(fakeAgnoOutput);
   });
 
   it('sends a second message with backend-governed conversation context only in AgentRun options', async () => {

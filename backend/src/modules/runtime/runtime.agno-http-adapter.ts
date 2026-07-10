@@ -192,7 +192,10 @@ export class AgnoHttpRuntimeAdapter implements RuntimeAdapter {
       });
     }
 
-    const ragSummary = summarizeRagSpec(requestBody.assistantRuntimeSpec.rag);
+    const ragSummary = summarizeRagSpec(
+      requestBody.assistantRuntimeSpec.rag,
+      requestBody.assistantRuntimeSpec.policy.maxRagResults,
+    );
     const toolSummary = summarizeToolSpec(
       requestBody.assistantRuntimeSpec.tools,
       requestBody.assistantRuntimeSpec.policy.maxToolCalls,
@@ -463,13 +466,16 @@ function summarizeConversationContextSpec(
   };
 }
 
-function summarizeRagSpec(rag: AssistantRuntimeRagSpec): Record<string, unknown> | undefined {
+function summarizeRagSpec(
+  rag: AssistantRuntimeRagSpec,
+  maxRagResults: number,
+): Record<string, unknown> | undefined {
   if (rag.mode !== 'resolved_context' || rag.sources.length === 0) return undefined;
   return {
     ragMode: rag.mode,
     ragSourceCount: rag.sources.length,
     ragContextChars: rag.sources.reduce((total, source) => total + source.excerpt.length, 0),
-    sourceIds: rag.sources.map((source) => source.sourceId).slice(0, 10),
+    maxRagResults,
   };
 }
 
