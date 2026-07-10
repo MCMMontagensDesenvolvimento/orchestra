@@ -48,6 +48,8 @@ A Fase 15G adiciona observabilidade governada na UI existente do Chat/AgentRun, 
 
 A Fase 15H formaliza a homologacao operacional ponta a ponta do fluxo `Chat -> AgentRun -> runtime local -> provider externo`, com preflight seguro, roteiro manual para primeira e segunda mensagens, validacao da UI 15G, consultas SQL quantitativas e checklist de ausencia de vazamentos, sem feature produtiva nova.
 
+A Fase 15I consolida o handoff tecnico da trilha de Chat/AgentRun governado, reunindo linha do tempo, arquitetura final, estado real, evidencias, seguranca, limites, riscos e a recomendacao de evolucao para Agno full-stack na Fase 16, sem criar feature produtiva nova.
+
 Esta pasta deve concentrar a estrategia de IA do Orchestra.
 
 Topicos esperados:
@@ -103,6 +105,7 @@ Topicos esperados:
 - `ORCHESTRA_CHAT_PROVIDER_EXTERNO_GOVERNADO_15F.md`: integracao governada do contexto conversacional com provider LLM externo selecionado por policy do assistant, sem alterar o contrato publico do frontend e sem expor conteudo/IDs internos em eventos publicos.
 - `ORCHESTRA_CHAT_OBSERVABILIDADE_GOVERNADA_15G.md`: observabilidade governada na UI existente do Chat/AgentRun para runtime, contexto conversacional e provider LLM, com campos allowlisted e runbook visual sem vazamento de historico bruto ou payload de provider.
 - `ORCHESTRA_CHAT_HOMOLOGACAO_PROVIDER_REAL_15H.md`: runbook operacional ponta a ponta do Chat ate o provider externo, com preflight nao destrutivo, cenarios local/real/fail-closed, validacao visual e de banco apenas por flags e contadores seguros.
+- `ORCHESTRA_CHAT_GOVERNADO_HANDOFF_15I.md`: consolidacao e handoff tecnico da trilha 15C-15H, com arquitetura final, estado real do Chat, fronteiras do Agno, evidencias, riscos e plano recomendado para a Fase 16.
 - `ORCHESTRA_LLM_PROVIDER_INTEGRATION.md`: catalogo LLM, provider local deterministico, providers externos fail-closed e eventos LLM em AgentRun.
 - `ORCHESTRA_RAG_SEMANTICO_DISCOVERY.md`: discovery tecnico da Fase 10A para RAG semantico, embeddings e vector store.
 - `ORCHESTRA_VECTOR_STORE_EMBEDDING_CONTRACT.md`: decisao tecnica da Fase 10B para pgvector, tabela de embeddings, readiness semantico e fail-closed.
