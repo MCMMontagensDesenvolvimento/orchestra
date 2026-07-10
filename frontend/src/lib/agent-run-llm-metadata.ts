@@ -30,6 +30,16 @@ export interface AgentRunEventLlmSummary extends AgentRunLlmUsage {
   simulated?: boolean;
 }
 
+export interface AgentRunConversationContextSummary {
+  included?: boolean;
+  messageCount?: number;
+  totalChars?: number;
+  truncated?: boolean;
+  maxMessages?: number;
+  maxMessageChars?: number;
+  maxTotalChars?: number;
+}
+
 export type AgentRunEventTone = 'neutral' | 'info' | 'success' | 'warning' | 'danger';
 
 export interface AgentRunEventPresentation {
@@ -47,6 +57,7 @@ const safeMessageEventTypes = new Set([
 ]);
 
 const eventPresentations: Record<string, AgentRunEventPresentation> = {
+  'run.conversation_context_selected': { label: 'Contexto conversacional avaliado', tone: 'info' },
   'llm.provider_selected': { label: 'Provider LLM selecionado', tone: 'info' },
   'llm.generation_started': { label: 'Geração LLM iniciada', tone: 'info' },
   'llm.generation_completed': { label: 'Geração LLM concluída', tone: 'success' },
@@ -101,6 +112,64 @@ function usageFrom(...sources: Array<Record<string, unknown> | undefined>): Agen
   return {};
 }
 
+function contextSummaryFrom(source?: Record<string, unknown>): AgentRunConversationContextSummary {
+  const nested = asRecord(source?.conversationContext);
+  const summary = asRecord(source?.conversationContextSummary);
+  const limits = asRecord(nested?.limits) ?? asRecord(summary?.limits);
+
+  return {
+    included: firstDefined(
+      safeBoolean(source?.conversationContextIncluded),
+      safeBoolean(nested?.included),
+      safeBoolean(summary?.included),
+    ),
+    messageCount: firstDefined(
+      safeNumber(source?.conversationContextMessageCount),
+      safeNumber(nested?.messageCount),
+      safeNumber(summary?.messageCount),
+    ),
+    totalChars: firstDefined(
+      safeNumber(source?.conversationContextChars),
+      safeNumber(nested?.totalChars),
+      safeNumber(summary?.totalChars),
+    ),
+    truncated: firstDefined(
+      safeBoolean(source?.conversationContextTruncated),
+      safeBoolean(nested?.truncated),
+      safeBoolean(summary?.truncated),
+    ),
+    maxMessages: firstDefined(
+      safeNumber(source?.conversationContextMaxMessages),
+      safeNumber(limits?.maxMessages),
+      safeNumber(summary?.maxMessages),
+    ),
+    maxMessageChars: firstDefined(
+      safeNumber(source?.conversationContextMaxMessageChars),
+      safeNumber(limits?.maxMessageChars),
+      safeNumber(summary?.maxMessageChars),
+    ),
+    maxTotalChars: firstDefined(
+      safeNumber(source?.conversationContextMaxTotalChars),
+      safeNumber(limits?.maxTotalChars),
+      safeNumber(summary?.maxTotalChars),
+    ),
+  };
+}
+
+function mergeContextSummaries(
+  ...sources: AgentRunConversationContextSummary[]
+): AgentRunConversationContextSummary {
+  return {
+    included: firstDefined(...sources.map((source) => source.included)),
+    messageCount: firstDefined(...sources.map((source) => source.messageCount)),
+    totalChars: firstDefined(...sources.map((source) => source.totalChars)),
+    truncated: firstDefined(...sources.map((source) => source.truncated)),
+    maxMessages: firstDefined(...sources.map((source) => source.maxMessages)),
+    maxMessageChars: firstDefined(...sources.map((source) => source.maxMessageChars)),
+    maxTotalChars: firstDefined(...sources.map((source) => source.maxTotalChars)),
+  };
+}
+
 export function getAgentRunEventLlmSummary(event: AgentRunEvent): AgentRunEventLlmSummary {
   const metadata = asRecord(event.metadata);
   const usage = usageFrom(metadata);
@@ -126,6 +195,10 @@ export function getAgentRunEventLlmSummary(event: AgentRunEvent): AgentRunEventL
     simulated: safeBoolean(metadata?.simulated),
     ...usage,
   };
+}
+
+export function getAgentRunEventConversationContextSummary(event: AgentRunEvent): AgentRunConversationContextSummary {
+  return contextSummaryFrom(asRecord(event.metadata));
 }
 
 export function getAgentRunLlmSummary(run: AgentRun): AgentRunLlmSummary {
@@ -189,7 +262,27 @@ export function getAgentRunLlmSummary(run: AgentRun): AgentRunLlmSummary {
   };
 }
 
+export function getAgentRunConversationContextSummary(run: AgentRun): AgentRunConversationContextSummary {
+  const metadata = asRecord(run.metadata);
+  const runtime = asRecord(metadata?.runtime);
+  const adapter = asRecord(runtime?.adapterMetadata);
+  const eventSummary = (run.events ?? [])
+    .map(getAgentRunEventConversationContextSummary)
+    .find(hasAgentRunConversationContextSummary);
+
+  return mergeContextSummaries(
+    contextSummaryFrom(runtime),
+    contextSummaryFrom(adapter),
+    contextSummaryFrom(metadata),
+    eventSummary ?? {},
+  );
+}
+
 export function hasAgentRunLlmSummary(summary: AgentRunLlmSummary | AgentRunEventLlmSummary) {
+  return Object.values(summary).some((value) => value !== undefined);
+}
+
+export function hasAgentRunConversationContextSummary(summary: AgentRunConversationContextSummary) {
   return Object.values(summary).some((value) => value !== undefined);
 }
 
@@ -245,7 +338,8 @@ export function isLlmTimelineEvent(event: AgentRunEvent) {
   return event.type.startsWith('llm.')
     || event.type === 'runtime.provider_selected'
     || event.type === 'runtime.model_started'
-    || event.type === 'runtime.model_completed';
+    || event.type === 'runtime.model_completed'
+    || event.type === 'run.conversation_context_selected';
 }
 
 export function visibleAgentRunEvents(events: AgentRunEvent[]) {

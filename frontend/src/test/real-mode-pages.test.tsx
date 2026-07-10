@@ -81,6 +81,22 @@ const agentRun = (overrides: Record<string, unknown> = {}) => ({
   requestId: 'req-1',
   traceId: 'trace-1',
   metadata: {
+    conversationContextSummary: {
+      included: true,
+      messageCount: 2,
+      totalChars: 42,
+      truncated: false,
+      maxMessages: 12,
+      maxMessageChars: 1200,
+      maxTotalChars: 6000,
+      messages: [
+        {
+          messageId: 'message-context-secret',
+          createdAt: '2026-07-03T11:59:00.000Z',
+          content: 'historico bruto nao deve renderizar',
+        },
+      ],
+    },
     runtime: {
       provider: 'local',
       status: 'completed',
@@ -88,11 +104,22 @@ const agentRun = (overrides: Record<string, unknown> = {}) => ({
       protocolVersion: 'orchestra.runtime.assistant.v1',
       specVersion: 'orchestra.runtime.assistant.v1',
       latencyMs: 42,
+      conversationContextIncluded: true,
+      conversationContextMessageCount: 2,
+      conversationContextChars: 42,
+      conversationContextTruncated: false,
       externalProviderCalled: false,
       externalMcpCalled: false,
       toolCallsExecuted: 0,
       ragSourceCount: 0,
       ragContextChars: 0,
+      adapterMetadata: {
+        llmProvider: 'openai',
+        llmModel: 'gpt-4.1-mini',
+        llmLatencyMs: 37,
+        externalProviderCalled: true,
+        llmSelectionReason: 'assistant_policy_opt_in',
+      },
     },
   },
   inputSummary: 'Ola',
@@ -330,6 +357,19 @@ describe('critical pages in real API mode', () => {
     expect(screen.getByText('trace-1')).toBeInTheDocument();
     expect(screen.getByText('runtime provider')).toBeInTheDocument();
     expect(screen.getByText('local')).toBeInTheDocument();
+    expect(screen.getByText('Contexto conversacional')).toBeInTheDocument();
+    expect(screen.getByText('contexto anexado')).toBeInTheDocument();
+    expect(screen.getByText('mensagens')).toBeInTheDocument();
+    expect(screen.getAllByText('2').length).toBeGreaterThan(0);
+    expect(screen.getByText('caracteres')).toBeInTheDocument();
+    expect(screen.getAllByText('42').length).toBeGreaterThan(0);
+    expect(screen.getByText('Provider LLM')).toBeInTheDocument();
+    expect(screen.getByText('OpenAI')).toBeInTheDocument();
+    expect(screen.getByText('gpt-4.1-mini')).toBeInTheDocument();
+    expect(screen.getByText('Provider selecionado por policy')).toBeInTheDocument();
+    expect(screen.queryByText('historico bruto nao deve renderizar')).not.toBeInTheDocument();
+    expect(screen.queryByText('message-context-secret')).not.toBeInTheDocument();
+    expect(screen.queryByText('2026-07-03T11:59:00.000Z')).not.toBeInTheDocument();
   });
 
   it('archives the selected conversation', async () => {
@@ -369,5 +409,69 @@ describe('critical pages in real API mode', () => {
     expect(await screen.findByText('run.precheck_passed')).toBeInTheDocument();
     expect(screen.getByText('Precheck aprovado.')).toBeInTheDocument();
     expect(useAgentRunEvents).toHaveBeenCalledWith('run-1');
+  });
+
+  it('renders governed conversation context event metadata without raw context payload', async () => {
+    useChatConversation.mockReturnValue(queryResult(chatConversationDetail));
+    useAgentRunEvents.mockReturnValue(queryResult([
+      {
+        id: 'event-context',
+        agentRunId: 'run-1',
+        type: 'run.conversation_context_selected',
+        sequence: 3,
+        status: 'queued',
+        message: 'raw context event message must not render',
+        metadata: {
+          conversationContext: {
+            included: true,
+            messageCount: 2,
+            totalChars: 42,
+            truncated: false,
+            limits: {
+              maxMessages: 12,
+              maxMessageChars: 1200,
+              maxTotalChars: 6000,
+            },
+            messages: [
+              {
+                messageId: 'message-event-secret',
+                createdAt: '2026-07-03T11:59:00.000Z',
+                content: 'historico bruto de evento',
+              },
+            ],
+          },
+        },
+        createdAt: '2026-07-03T12:00:00.000Z',
+      },
+      {
+        id: 'event-provider-unsafe',
+        agentRunId: 'run-1',
+        type: 'llm.generation_failed',
+        sequence: 4,
+        status: 'failed',
+        message: 'raw provider payload must not render',
+        metadata: {
+          llmProvider: 'openai',
+          rawProviderResponse: 'Authorization: Bearer provider-secret',
+        },
+        createdAt: '2026-07-03T12:00:01.000Z',
+      },
+    ]));
+
+    renderChatRouteAt('/app/chat/assistant-1?conversationId=conversation-1');
+
+    fireEvent.click(screen.getByText('Detalhes tecnicos'));
+    fireEvent.click(screen.getByRole('button', { name: 'Carregar eventos' }));
+
+    expect(await screen.findByText('run.conversation_context_selected')).toBeInTheDocument();
+    expect(screen.getAllByText('contexto anexado').length).toBeGreaterThan(0);
+    expect(screen.getAllByText('mensagens').length).toBeGreaterThan(0);
+    expect(screen.getAllByText('caracteres').length).toBeGreaterThan(0);
+    expect(screen.queryByText('raw context event message must not render')).not.toBeInTheDocument();
+    expect(screen.queryByText('historico bruto de evento')).not.toBeInTheDocument();
+    expect(screen.queryByText('message-event-secret')).not.toBeInTheDocument();
+    expect(screen.queryByText('2026-07-03T11:59:00.000Z')).not.toBeInTheDocument();
+    expect(screen.queryByText('raw provider payload must not render')).not.toBeInTheDocument();
+    expect(screen.queryByText('Authorization: Bearer provider-secret')).not.toBeInTheDocument();
   });
 });

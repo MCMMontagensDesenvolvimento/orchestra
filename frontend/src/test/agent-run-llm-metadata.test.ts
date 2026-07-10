@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import type { AgentRun, AgentRunEvent } from '@/types';
 import {
+  getAgentRunConversationContextSummary,
+  getAgentRunEventConversationContextSummary,
   getAgentRunEventLlmSummary,
   getAgentRunEventPresentation,
   getAgentRunLlmSummary,
@@ -155,7 +157,76 @@ describe('agent run LLM metadata', () => {
     expect(JSON.stringify(summary)).not.toContain('Bearer secret');
   });
 
+  it('normalizes governed conversation context counters without exposing raw messages', () => {
+    const summary = getAgentRunConversationContextSummary(baseRun({
+      metadata: {
+        conversationContextSummary: {
+          included: true,
+          messageCount: 2,
+          totalChars: 38,
+          truncated: false,
+          maxMessages: 12,
+          maxMessageChars: 1200,
+          maxTotalChars: 6000,
+          messages: [
+            {
+              messageId: 'message-secret-1',
+              createdAt: '2026-07-09T10:00:00.000Z',
+              content: 'historico bruto nao deve aparecer',
+            },
+          ],
+        },
+        runtime: {
+          conversationContextIncluded: true,
+          conversationContextMessageCount: 2,
+          conversationContextChars: 38,
+          conversationContextTruncated: false,
+        },
+      },
+    }));
+
+    expect(summary).toEqual({
+      included: true,
+      messageCount: 2,
+      totalChars: 38,
+      truncated: false,
+      maxMessages: 12,
+      maxMessageChars: 1200,
+      maxTotalChars: 6000,
+    });
+    expect(JSON.stringify(summary)).not.toMatch(/historico bruto|message-secret|messageId|createdAt/);
+  });
+
+  it('normalizes conversation context event metadata from the governed nested shape only', () => {
+    const summary = getAgentRunEventConversationContextSummary(event('run.conversation_context_selected', 1, {
+      conversationContext: {
+        included: true,
+        messageCount: 1,
+        totalChars: 18,
+        truncated: true,
+        limits: {
+          maxMessages: 12,
+          maxMessageChars: 1200,
+          maxTotalChars: 6000,
+        },
+        messages: [{ messageId: 'message-secret-2', content: 'raw context' }],
+      },
+    }));
+
+    expect(summary).toEqual({
+      included: true,
+      messageCount: 1,
+      totalChars: 18,
+      truncated: true,
+      maxMessages: 12,
+      maxMessageChars: 1200,
+      maxTotalChars: 6000,
+    });
+    expect(JSON.stringify(summary)).not.toMatch(/raw context|message-secret|messageId/);
+  });
+
   it.each([
+    ['run.conversation_context_selected', 'Contexto conversacional avaliado', 'info'],
     ['llm.provider_selected', 'Provider LLM selecionado', 'info'],
     ['llm.generation_started', 'Geração LLM iniciada', 'info'],
     ['llm.generation_completed', 'Geração LLM concluída', 'success'],
@@ -228,13 +299,17 @@ describe('agent run LLM metadata', () => {
   it('prioritizes provider and model events in the compact timeline', () => {
     const events = [
       event('run.requested', 1, {}),
-      event('runtime.prompt_compiled', 2, {}),
-      event('llm.provider_selected', 3, { llmProvider: 'openai' }),
-      event('llm.generation_completed', 4, { llmProvider: 'openai', latencyMs: 100 }),
-      event('runtime.run_completed', 5, { provider: 'local' }),
+      event('run.conversation_context_selected', 2, {
+        conversationContext: { included: true, messageCount: 2, totalChars: 42, truncated: false },
+      }),
+      event('runtime.prompt_compiled', 3, {}),
+      event('llm.provider_selected', 4, { llmProvider: 'openai' }),
+      event('llm.generation_completed', 5, { llmProvider: 'openai', latencyMs: 100 }),
+      event('runtime.run_completed', 6, { provider: 'local' }),
     ];
 
     expect(visibleAgentRunEvents(events).map((item) => item.type)).toEqual([
+      'run.conversation_context_selected',
       'llm.provider_selected',
       'llm.generation_completed',
       'runtime.run_completed',

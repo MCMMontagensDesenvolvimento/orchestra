@@ -38,6 +38,20 @@ import {
 } from '@/hooks/queries/useAssistants';
 import { isApiError } from '@/services/api/api-error';
 import { HttpStatus } from '@/services/api/http-status';
+import {
+  formatLlmLatency,
+  getAgentRunConversationContextSummary,
+  getAgentRunEventConversationContextSummary,
+  getAgentRunEventLlmSummary,
+  getAgentRunLlmSummary,
+  hasAgentRunConversationContextSummary,
+  hasAgentRunLlmSummary,
+  llmProviderLabel,
+  llmSelectionReasonLabel,
+  type AgentRunConversationContextSummary,
+  type AgentRunEventLlmSummary,
+  type AgentRunLlmSummary,
+} from '@/lib/agent-run-llm-metadata';
 import type {
   AgentRun,
   AgentRunEvent,
@@ -66,6 +80,16 @@ interface TechnicalRow {
 }
 
 const chatRoute = (assistantId: string) => `/app/chat/${assistantId}`;
+const safeChatEventMessageTypes = new Set([
+  'run.requested',
+  'run.precheck_started',
+  'run.precheck_passed',
+  'runtime.provider_selected',
+  'runtime.model_started',
+  'runtime.model_completed',
+  'runtime.run_completed',
+  'run.completed',
+]);
 
 export default function ChatPage() {
   const { assistantId } = useParams();
@@ -524,13 +548,38 @@ function ChatMessageBubble({
 }
 
 function RunDetails({ run }: { run: AgentRun }) {
-  const rows = technicalRows(run);
+  const runtimeRows = runRuntimeRows(run);
+  const contextSummary = getAgentRunConversationContextSummary(run);
+  const contextRows = conversationContextRows(contextSummary);
+  const llmSummary = getAgentRunLlmSummary(run);
+  const llmRows = llmProviderRows(llmSummary);
 
   return (
     <details className="mt-3 text-xs text-muted-foreground">
       <summary className="cursor-pointer select-none">Detalhes tecnicos</summary>
 
-      <dl className="mt-2 grid gap-1">
+      <div className="mt-2 space-y-3">
+        <RunObservationSection title="Runtime" rows={runtimeRows} />
+        {hasAgentRunConversationContextSummary(contextSummary) && (
+          <RunObservationSection title="Contexto conversacional" rows={contextRows} />
+        )}
+        {hasAgentRunLlmSummary(llmSummary) && (
+          <RunObservationSection title="Provider LLM" rows={llmRows} />
+        )}
+      </div>
+
+      <RunEventsPanel run={run} />
+    </details>
+  );
+}
+
+function RunObservationSection({ title, rows }: { title: string; rows: TechnicalRow[] }) {
+  if (rows.length === 0) return null;
+
+  return (
+    <section>
+      <p className="mb-1 font-medium text-foreground/80">{title}</p>
+      <dl className="grid gap-1">
         {rows.map((row) => (
           <div key={row.label} className="grid grid-cols-[8rem_1fr] gap-2">
             <dt className="font-medium text-foreground/70">{row.label}</dt>
@@ -538,9 +587,7 @@ function RunDetails({ run }: { run: AgentRun }) {
           </div>
         ))}
       </dl>
-
-      <RunEventsPanel run={run} />
-    </details>
+    </section>
   );
 }
 
@@ -597,6 +644,7 @@ function RunEventsPanel({ run }: { run: AgentRun }) {
 
 function RunEventItem({ event }: { event: AgentRunEvent }) {
   const metadataRows = safeEventMetadataRows(event);
+  const safeMessage = safeChatEventMessage(event);
 
   return (
     <div className="rounded-md border bg-background/60 p-2">
@@ -606,8 +654,8 @@ function RunEventItem({ event }: { event: AgentRunEvent }) {
         {event.status && <StatusBadge status={event.status} />}
       </div>
 
-      {event.message && (
-        <p className="mt-1 text-foreground/80">{safeString(event.message, 180)}</p>
+      {safeMessage && (
+        <p className="mt-1 text-foreground/80">{safeMessage}</p>
       )}
 
       {metadataRows.length > 0 && (
@@ -622,6 +670,11 @@ function RunEventItem({ event }: { event: AgentRunEvent }) {
       )}
     </div>
   );
+}
+
+function safeChatEventMessage(event: AgentRunEvent) {
+  if (!safeChatEventMessageTypes.has(event.type)) return undefined;
+  return safeString(event.message, 180);
 }
 
 function ConversationsPanel({
@@ -895,7 +948,7 @@ function apiErrorMessage(error: unknown) {
   return `Nao foi possivel enviar a mensagem.${error.code ? ` codigo=${error.code}` : ''}${requestId}`;
 }
 
-function technicalRows(run: AgentRun): TechnicalRow[] {
+function runRuntimeRows(run: AgentRun): TechnicalRow[] {
   const runtime = runtimeMetadata(run);
   const adapter = asRecord(runtime?.adapterMetadata);
   const usage = asRecord(runtime?.usage);
@@ -910,6 +963,9 @@ function technicalRows(run: AgentRun): TechnicalRow[] {
     row('runtime provider', runtime?.provider),
     row('protocolVersion', runtime?.protocolVersion),
     row('specVersion', runtime?.specVersion),
+    row('inputHash', runtime?.inputHash),
+    row('outputHash', runtime?.outputHash),
+    row('errorCode', firstValue(run.errorCode, runtime?.errorCode)),
     row('latencyMs', firstValue(runtime?.latencyMs, usage?.latencyMs, adapter?.llmLatencyMs)),
     row('externalProviderCalled', firstValue(runtime?.externalProviderCalled, adapter?.externalProviderCalled)),
     row('externalMcpCalled', runtime?.externalMcpCalled),
@@ -919,30 +975,59 @@ function technicalRows(run: AgentRun): TechnicalRow[] {
   ].filter((item): item is TechnicalRow => Boolean(item));
 }
 
+function conversationContextRows(summary: AgentRunConversationContextSummary): TechnicalRow[] {
+  return [
+    row('contexto anexado', summary.included),
+    row('mensagens', summary.messageCount),
+    row('caracteres', summary.totalChars),
+    row('truncado', summary.truncated),
+    row('limite mensagens', summary.maxMessages),
+    row('limite msg chars', summary.maxMessageChars),
+    row('limite total', summary.maxTotalChars),
+  ].filter((item): item is TechnicalRow => Boolean(item));
+}
+
+function llmProviderRows(summary: AgentRunLlmSummary | AgentRunEventLlmSummary): TechnicalRow[] {
+  return [
+    row('llmProvider', summary.provider ? llmProviderLabel(summary.provider) : undefined),
+    row('model', summary.model),
+    row('externalProviderCalled', summary.externalProviderCalled),
+    row('latencyMs', formatLlmLatency(summary.latencyMs) ?? summary.latencyMs),
+    row('providerStatus', summary.providerStatus),
+    row('reason', llmSelectionReasonLabel(summary.selectionReason) ?? summary.selectionReason),
+    row('simulado', summary.simulated),
+    row('failClosed', summary.failedClosed),
+  ].filter((item): item is TechnicalRow => Boolean(item));
+}
+
 function safeEventMetadataRows(event: AgentRunEvent): TechnicalRow[] {
   const metadata = asRecord(event.metadata);
 
   if (!metadata) return [];
 
+  const llmSummary = getAgentRunEventLlmSummary(event);
+  const contextSummary = getAgentRunEventConversationContextSummary(event);
+
   return [
     row('provider', metadata.provider),
-    row('llmProvider', metadata.llmProvider),
-    row('model', metadata.model),
+    row('llmProvider', llmSummary.provider ? llmProviderLabel(llmSummary.provider) : undefined),
+    row('model', llmSummary.model),
     row('traceId', metadata.traceId),
     row('runtimeStatus', metadata.runtimeStatus),
     row('runtimeErrorCode', metadata.runtimeErrorCode),
-    row('latencyMs', firstValue(metadata.latencyMs, metadata.llmLatencyMs)),
-    row('inputTokens', metadata.inputTokens),
-    row('outputTokens', metadata.outputTokens),
-    row('totalTokens', metadata.totalTokens),
-    row('externalProviderCalled', firstValue(metadata.externalProviderCalled, metadata.externalProvidersCalled)),
+    row('latencyMs', formatLlmLatency(llmSummary.latencyMs) ?? llmSummary.latencyMs),
+    row('inputTokens', llmSummary.inputTokens),
+    row('outputTokens', llmSummary.outputTokens),
+    row('totalTokens', llmSummary.totalTokens),
+    row('externalProviderCalled', llmSummary.externalProviderCalled),
     row('externalMcpCalled', metadata.externalMcpCalled),
     row('toolCallsExecuted', metadata.toolCallsExecuted),
     row('ragSourceCount', metadata.ragSourceCount),
-    row('reason', firstValue(metadata.reason, metadata.llmSelectionReason)),
-    row('simulated', metadata.simulated),
-    row('failClosed', firstValue(metadata.failClosed, metadata.policyFailClosed, metadata.failedClosed)),
-  ].filter((item): item is TechnicalRow => Boolean(item)).slice(0, 10);
+    row('reason', llmSelectionReasonLabel(llmSummary.selectionReason) ?? llmSummary.selectionReason),
+    row('simulated', llmSummary.simulated),
+    row('failClosed', llmSummary.failedClosed),
+    ...conversationContextRows(contextSummary),
+  ].filter((item): item is TechnicalRow => Boolean(item)).slice(0, 14);
 }
 
 function row(label: string, value: unknown): TechnicalRow | undefined {
