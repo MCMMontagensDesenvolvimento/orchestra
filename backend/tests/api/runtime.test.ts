@@ -1,5 +1,5 @@
 import request from 'supertest';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { createApp } from '../../src/app/app';
 import { env } from '../../src/config/env';
 import { signSession } from '../../src/shared/security/session';
@@ -16,6 +16,38 @@ vi.mock('../../src/modules/audit/audit.service', () => ({
 const tenantId = '00000000-0000-0000-0000-000000000010';
 const workspaceId = '00000000-0000-0000-0000-000000000020';
 const userId = '00000000-0000-0000-0000-000000000001';
+
+const originalRuntimeEnv = {
+  RUNTIME_PROVIDER: env.RUNTIME_PROVIDER,
+  RUNTIME_ADAPTER_ENABLED: env.RUNTIME_ADAPTER_ENABLED,
+  RUNTIME_ALLOW_EXTERNAL_TOOLS: env.RUNTIME_ALLOW_EXTERNAL_TOOLS,
+  AGNO_ENABLED: env.AGNO_ENABLED,
+  AGNO_EXECUTION_ENABLED: env.AGNO_EXECUTION_ENABLED,
+  AGNO_BASE_URL: env.AGNO_BASE_URL,
+  AGNO_API_KEY: env.AGNO_API_KEY,
+  AGNO_HEALTHCHECK_ENABLED: env.AGNO_HEALTHCHECK_ENABLED,
+  AGNO_RUNTIME_HTTP_ENABLED: env.AGNO_RUNTIME_HTTP_ENABLED,
+  AGNO_RUNTIME_HTTP_BASE_URL: env.AGNO_RUNTIME_HTTP_BASE_URL,
+  AGNO_RUNTIME_HTTP_SECURITY_KEY: env.AGNO_RUNTIME_HTTP_SECURITY_KEY,
+};
+
+function configureRuntime(overrides: Partial<typeof originalRuntimeEnv> = {}) {
+  Object.assign(env, {
+    ...originalRuntimeEnv,
+    RUNTIME_PROVIDER: 'local',
+    RUNTIME_ADAPTER_ENABLED: true,
+    RUNTIME_ALLOW_EXTERNAL_TOOLS: false,
+    AGNO_ENABLED: false,
+    AGNO_EXECUTION_ENABLED: false,
+    AGNO_BASE_URL: undefined,
+    AGNO_API_KEY: undefined,
+    AGNO_HEALTHCHECK_ENABLED: false,
+    AGNO_RUNTIME_HTTP_ENABLED: false,
+    AGNO_RUNTIME_HTTP_BASE_URL: undefined,
+    AGNO_RUNTIME_HTTP_SECURITY_KEY: undefined,
+    ...overrides,
+  });
+}
 
 const testUser: AuthenticatedUser = {
   id: userId,
@@ -46,7 +78,12 @@ function sessionCookie(user: AuthenticatedUser = testUser) {
 describe('runtime adapter boundary endpoints', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    configureRuntime();
     mocks.recordAuditEvent.mockResolvedValue(undefined);
+  });
+
+  afterAll(() => {
+    configureRuntime(originalRuntimeEnv);
   });
 
   it('returns providers with local current and Agno stub disabled by default', async () => {
