@@ -138,6 +138,7 @@ export function executeAgnoRuntimeHttpContract(input: unknown, now = new Date())
       ragSourceCount,
       ragContextChars,
       ragMode: spec.rag.mode,
+      maxRagResults: spec.policy.maxRagResults,
     }));
     eventSequence += 1;
   }
@@ -195,8 +196,10 @@ export function executeAgnoRuntimeHttpContract(input: unknown, now = new Date())
         provider: spec.model.provider,
         model: spec.model.model,
         providerStatus: 'healthy',
+        ragMode: spec.rag.mode,
         ragSourceCount,
         ragContextChars,
+        maxRagResults: spec.policy.maxRagResults,
         conversationContextIncluded: conversationContextMessageCount > 0,
         conversationContextMessageCount,
         conversationContextChars,

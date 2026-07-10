@@ -121,6 +121,12 @@ export interface RuntimeRagSummary {
   }>;
 }
 
+export interface RuntimeResolvedRagContext {
+  queryId: string | null;
+  status: 'completed' | 'no_results' | 'blocked';
+  sourceReferences: RuntimeRagSummary['sourceReferences'];
+}
+
 export interface RuntimeMcpSummary {
   mcpBindingsCount: number;
   allowedSandboxTools: Array<{

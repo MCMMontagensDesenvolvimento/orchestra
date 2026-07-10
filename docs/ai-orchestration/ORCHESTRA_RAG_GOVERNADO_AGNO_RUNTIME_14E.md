@@ -13,7 +13,7 @@ O default permanece seguro: RAG para runtime HTTP fica desligado, `RUNTIME_PROVI
 - Allowlist de campos enviados por fonte: `sourceId`, `documentId`, `chunkId`, `title`, `excerpt`, `score` e metadata minima.
 - Limites de quantidade de fontes, tamanho por excerpt e tamanho total de contexto RAG.
 - Remocao de fonte insegura quando excerpt ou dados derivados violam o contrato.
-- Evento backend `runtime.rag_context_attached` com contadores e IDs de fontes, sem excerpts.
+- Evento backend `runtime.rag_context_attached` com modo, contadores e limite, sem IDs de fontes ou excerpts.
 - Cobertura de builder, adapter, runtime HTTP minimo e API `AgentRun`.
 
 ## 3. Nao implementado
@@ -61,7 +61,6 @@ excerpt
 score
 metadata.citationLabel
 metadata.sourceIndex
-metadata.lastRagQueryId
 ```
 
 Nao sao enviados `sourceUri`, documento completo, embeddings, query vetorial, conexao de banco, headers, cookies, credentials, apiKey, token, secret, providerApiKey, secretRef, rawPrompt, rawResponse, rawProviderResponse ou rawDocuments.

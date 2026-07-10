@@ -111,8 +111,12 @@ const agentRun = (overrides: Record<string, unknown> = {}) => ({
       externalProviderCalled: false,
       externalMcpCalled: false,
       toolCallsExecuted: 0,
-      ragSourceCount: 0,
-      ragContextChars: 0,
+      ragMode: 'resolved_context',
+      ragSourceCount: 2,
+      ragContextChars: 320,
+      maxRagResults: 5,
+      requestSent: true,
+      failedClosed: false,
       adapterMetadata: {
         llmProvider: 'openai',
         llmModel: 'gpt-4.1-mini',
@@ -357,6 +361,11 @@ describe('critical pages in real API mode', () => {
     expect(screen.getByText('trace-1')).toBeInTheDocument();
     expect(screen.getByText('runtime provider')).toBeInTheDocument();
     expect(screen.getByText('local')).toBeInTheDocument();
+    expect(screen.getByText('ragMode')).toBeInTheDocument();
+    expect(screen.getByText('resolved_context')).toBeInTheDocument();
+    expect(screen.getByText('ragSourceCount')).toBeInTheDocument();
+    expect(screen.getByText('ragContextChars')).toBeInTheDocument();
+    expect(screen.getByText('maxRagResults')).toBeInTheDocument();
     expect(screen.getByText('Contexto conversacional')).toBeInTheDocument();
     expect(screen.getByText('contexto anexado')).toBeInTheDocument();
     expect(screen.getByText('mensagens')).toBeInTheDocument();

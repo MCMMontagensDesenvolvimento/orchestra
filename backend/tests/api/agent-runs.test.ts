@@ -28,6 +28,9 @@ const mocks = vi.hoisted(() => {
 
   return {
     agentRunsRepository,
+    knowledgeService: {
+      queryRag: vi.fn(),
+    },
     recordAuditEvent: vi.fn().mockResolvedValue(undefined),
     recordAiUsageEvent: vi.fn().mockResolvedValue(undefined),
   };
@@ -35,6 +38,10 @@ const mocks = vi.hoisted(() => {
 
 vi.mock('../../src/modules/agent-runs/agent-runs.repository', () => ({
   agentRunsRepository: mocks.agentRunsRepository,
+}));
+
+vi.mock('../../src/modules/knowledge/knowledge.service', () => ({
+  knowledgeService: mocks.knowledgeService,
 }));
 
 vi.mock('../../src/modules/audit/audit.service', () => ({
@@ -274,6 +281,13 @@ describe('agent run governance endpoints', () => {
     configureRuntime();
     mocks.recordAuditEvent.mockResolvedValue(undefined);
     mocks.recordAiUsageEvent.mockResolvedValue(undefined);
+    mocks.knowledgeService.queryRag.mockResolvedValue({
+      queryId: '00000000-0000-0000-0000-000000000950',
+      status: 'no_results',
+      resultCount: 0,
+      sources: [],
+      retrievalMode: 'local_keyword',
+    });
     mocks.agentRunsRepository.findAssistantForRun.mockResolvedValue(assistantFixture('draft'));
     mocks.agentRunsRepository.getExecutionPolicy.mockResolvedValue(executionPolicyFixture());
     mocks.agentRunsRepository.countPendingApprovals.mockResolvedValue(0);
@@ -358,6 +372,7 @@ describe('agent run governance endpoints', () => {
   });
 
   it('creates a sandbox run through the local runtime adapter boundary', async () => {
+    configureRuntime({ AGNO_RUNTIME_HTTP_RAG_CONTEXT_ENABLED: true });
     const response = await request(createApp())
       .post(`/api/v1/assistants/${assistantId}/runs`)
       .set('Cookie', [sessionCookie()])
@@ -401,6 +416,7 @@ describe('agent run governance endpoints', () => {
     expect(mocks.recordAuditEvent).toHaveBeenCalledWith(expect.objectContaining({ action: 'runtime_adapter_resolved' }));
     expect(mocks.recordAuditEvent).toHaveBeenCalledWith(expect.objectContaining({ action: 'runtime_execution_completed' }));
     expect(mocks.recordAuditEvent).toHaveBeenCalledWith(expect.objectContaining({ action: 'agent_run_completed' }));
+    expect(mocks.knowledgeService.queryRag).not.toHaveBeenCalled();
   });
 
   it('routes a governed published AgentRun through fake agno_http real-LLM execution', async () => {
@@ -512,33 +528,39 @@ describe('agent run governance endpoints', () => {
       AGNO_RUNTIME_HTTP_MAX_RAG_EXCERPT_CHARS: 24,
       AGNO_RUNTIME_HTTP_MAX_RAG_CONTEXT_CHARS: 48,
     });
-    mocks.agentRunsRepository.getRuntimeContextSummary.mockResolvedValueOnce({
-      knowledgeBindingsCount: 1,
-      chunkCount: 2,
-      sourceReferenceCount: 2,
-      lastRagQuery: { id: '00000000-0000-0000-0000-000000000951', status: 'completed', resultCount: 2 },
-      sourceReferences: [
+    mocks.knowledgeService.queryRag.mockResolvedValueOnce({
+      queryId: '00000000-0000-0000-0000-000000000951',
+      status: 'completed',
+      resultCount: 2,
+      retrievalMode: 'semantic_vector',
+      sources: [
         {
           id: '00000000-0000-0000-0000-000000000952',
-          label: 'Fonte segura',
+          sourceReferenceId: '00000000-0000-0000-0000-000000000952',
+          citationLabel: '[1]',
+          rank: 1,
+          score: 0.91,
           sourceUri: 'internal://must-not-leak',
           documentId: '00000000-0000-0000-0000-000000000953',
           chunkId: '00000000-0000-0000-0000-000000000954',
-          document: { title: 'Governed Runtime Policy' },
-          chunk: { content: 'Resolved governed context excerpt with more than twenty four chars.' },
+          documentTitle: 'Governed Runtime Policy',
+          excerpt: 'Resolved governed context excerpt with more than twenty four chars.',
+          metadata: { secret: 'must-not-leak' },
         },
         {
           id: '00000000-0000-0000-0000-000000000955',
-          label: 'Fonte insegura',
+          sourceReferenceId: '00000000-0000-0000-0000-000000000955',
+          citationLabel: '[2]',
+          rank: 2,
+          score: 0.4,
           sourceUri: 'internal://must-not-leak-unsafe',
           documentId: '00000000-0000-0000-0000-000000000956',
           chunkId: '00000000-0000-0000-0000-000000000957',
-          document: { title: 'Unsafe Runtime Policy' },
-          chunk: { content: 'Bearer must-not-leak' },
+          documentTitle: 'Unsafe Runtime Policy',
+          excerpt: 'Bearer must-not-leak',
+          metadata: { rawDocument: 'must-not-leak' },
         },
       ],
-      mcpBindings: [],
-      lastToolCallIds: [],
     });
     const calls: Array<{ url: string; init?: RequestInit; body?: unknown }> = [];
     vi.stubGlobal('fetch', vi.fn(async (url: string, init?: RequestInit) => {
@@ -558,6 +580,18 @@ describe('agent run governance endpoints', () => {
 
     const executeCall = calls.find((call) => call.url.endsWith('/execute'));
     const parsedRequest = runtimeExecuteRequestV1Schema.parse(executeCall?.body);
+    expect(mocks.knowledgeService.queryRag).toHaveBeenCalledWith(
+      assistantId,
+      expect.objectContaining({
+        query: 'Use governed RAG context.',
+        limit: 2,
+        includeArchived: false,
+        assistantVersionId: versionId,
+        traceId: expect.any(String),
+      }),
+      expect.objectContaining({ id: userId }),
+      expect.objectContaining({ requestId: expect.any(String) }),
+    );
     expect(parsedRequest.assistantRuntimeSpec.rag.mode).toBe('resolved_context');
     expect(parsedRequest.assistantRuntimeSpec.rag.sources).toEqual([
       expect.objectContaining({
@@ -580,11 +614,87 @@ describe('agent run governance endpoints', () => {
           ragMode: 'resolved_context',
           ragSourceCount: 1,
           ragContextChars: 24,
+          maxRagResults: 2,
         }),
       }),
     ]));
     expect(JSON.stringify(executeCall?.body)).not.toMatch(/must-not-leak|internal:\/\/|rawDocuments|rawPrompt|rawResponse|rawProviderResponse|headers|apiKey|token|secret|baseUrl|providerApiKey/i);
     expect(JSON.stringify(response.body)).not.toMatch(/runtime-test-security-key|must-not-leak|internal:\/\/|Authorization|headers|baseUrl|rawDocuments|rawPrompt|rawResponse|rawProviderResponse/i);
+    expect(JSON.stringify(response.body)).not.toContain('00000000-0000-0000-0000-000000000951');
+    expect(JSON.stringify(response.body)).not.toContain('00000000-0000-0000-0000-000000000952');
+  });
+
+  it('keeps rag disabled when governed retrieval is not ready', async () => {
+    configureRuntime({
+      RUNTIME_PROVIDER: 'agno_http',
+      AGNO_RUNTIME_HTTP_ENABLED: true,
+      AGNO_RUNTIME_HTTP_BASE_URL: 'http://127.0.0.1:8091',
+      AGNO_RUNTIME_HTTP_RAG_CONTEXT_ENABLED: true,
+    });
+    mocks.knowledgeService.queryRag.mockResolvedValueOnce({
+      queryId: '00000000-0000-0000-0000-000000000958',
+      status: 'blocked',
+      resultCount: 0,
+      sources: [],
+      retrievalMode: 'local_readiness',
+    });
+    const calls: Array<{ url: string; body?: unknown }> = [];
+    vi.stubGlobal('fetch', vi.fn(async (url: string, init?: RequestInit) => {
+      const body = typeof init?.body === 'string' ? JSON.parse(init.body) as unknown : undefined;
+      calls.push({ url, body });
+      if (url.endsWith('/health')) return new Response(JSON.stringify(runtimeHealthResponse()), { status: 200 });
+      return new Response(JSON.stringify(runtimeExecuteResponse(body)), { status: 200 });
+    }));
+
+    await request(createApp())
+      .post(`/api/v1/assistants/${assistantId}/runs`)
+      .set('Cookie', [sessionCookie()])
+      .send({ mode: 'sandbox', input: 'Question without ready RAG.', source: 'api-test' })
+      .expect(201);
+
+    const executeCall = calls.find((call) => call.url.endsWith('/execute'));
+    const parsedRequest = runtimeExecuteRequestV1Schema.parse(executeCall?.body);
+    expect(parsedRequest.assistantRuntimeSpec.rag).toEqual({ enabled: false, mode: 'none', sources: [] });
+  });
+
+  it('fails closed before Agno HTTP when governed retrieval throws', async () => {
+    configureRuntime({
+      RUNTIME_PROVIDER: 'agno_http',
+      AGNO_RUNTIME_HTTP_ENABLED: true,
+      AGNO_RUNTIME_HTTP_BASE_URL: 'http://127.0.0.1:8091',
+      AGNO_RUNTIME_HTTP_RAG_CONTEXT_ENABLED: true,
+    });
+    mocks.knowledgeService.queryRag.mockRejectedValueOnce(new Error(
+      'internal retrieval stack Authorization token secret AGNO_RUNTIME_HTTP_BASE_URL',
+    ));
+    const fetchMock = vi.fn();
+    vi.stubGlobal('fetch', fetchMock);
+
+    const response = await request(createApp())
+      .post(`/api/v1/assistants/${assistantId}/runs`)
+      .set('Cookie', [sessionCookie()])
+      .send({ mode: 'sandbox', input: 'Question that triggers retrieval.', source: 'api-test' })
+      .expect(201);
+    const serialized = JSON.stringify(response.body);
+
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(response.body.data.status).toBe('failed');
+    expect(response.body.data.errorCode).toBe('RUNTIME_RAG_RETRIEVAL_FAILED');
+    expect(response.body.data.metadata.runtime).toEqual(expect.objectContaining({
+      status: 'failed',
+      ragMode: 'none',
+      ragSourceCount: 0,
+      ragContextChars: 0,
+      requestSent: false,
+      failedClosed: true,
+    }));
+    expect(response.body.data.events).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        type: 'runtime.run_failed',
+        metadata: expect.objectContaining({ requestSent: false, failedClosed: true }),
+      }),
+    ]));
+    expect(serialized).not.toMatch(/internal retrieval stack|Authorization|token|secret|AGNO_RUNTIME_HTTP_BASE_URL|stack/i);
   });
 
 
