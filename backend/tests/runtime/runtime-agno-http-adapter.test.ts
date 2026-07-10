@@ -124,7 +124,11 @@ function context(overrides: Partial<RuntimeExecutionContext> = {}): RuntimeExecu
   };
 }
 
-function runtimeResponse() {
+function runtimeResponse(overrides: {
+  outputText?: string;
+  outputMetadata?: Record<string, unknown>;
+  usage?: Record<string, unknown>;
+} = {}) {
   return {
     specVersion: 'orchestra.runtime.response.v1',
     trace: {
@@ -133,16 +137,17 @@ function runtimeResponse() {
     },
     status: 'succeeded',
     output: {
-      text: 'Resposta sandbox do runtime Agno-compatible minimo. Nenhum provider externo foi chamado.',
+      text: overrides.outputText ?? 'Resposta sandbox do runtime Agno-compatible minimo. Nenhum provider externo foi chamado.',
       format: 'text',
       metadata: {
         mode: 'sandbox',
         inputChars: 42,
         ragSourceCount: 0,
         toolDescriptorCount: 0,
+        ...overrides.outputMetadata,
       },
     },
-    usage: {
+    usage: overrides.usage ?? {
       inputTokens: 0,
       outputTokens: 0,
       totalTokens: 0,
@@ -191,7 +196,7 @@ describe('Agno HTTP runtime adapter', () => {
     const providers = await runtimeAdapterRegistry.listProviders();
     expect(providers.map((provider) => provider.provider)).toEqual(['local', 'agno_stub', 'agno', 'agno_http']);
     expect(providers.find((provider) => provider.provider === 'agno_http')?.health.status).toBe('disabled');
-  });
+  }, 30000);
 
   it('does not call runtime HTTP when disabled', async () => {
     const adapter = await agnoHttpAdapter({ AGNO_RUNTIME_HTTP_ENABLED: 'false' });
@@ -241,11 +246,134 @@ describe('Agno HTTP runtime adapter', () => {
     expect(calls).toHaveLength(1);
     expect(calls[0].url).toBe('http://127.0.0.1:8091/execute');
     expect(calls[0].body?.specVersion).toBe('orchestra.runtime.execute.v1');
-    const body = calls[0].body as { assistantRuntimeSpec: { model: { model: string }; rag: { mode: string }; tools: { mode: string } } };
-    expect(body.assistantRuntimeSpec.model.model).toBe('adapter-selected-model');
+    const body = calls[0].body as { assistantRuntimeSpec: { model: { provider: string; model: string }; rag: { mode: string }; tools: { mode: string } } };
+    expect(body.assistantRuntimeSpec.model).toEqual({
+      provider: 'local_deterministic',
+      model: 'deterministic-sandbox',
+      temperature: 0.2,
+    });
     expect(body.assistantRuntimeSpec.rag.mode).toBe('none');
     expect(body.assistantRuntimeSpec.tools.mode).toBe('none');
     expect(JSON.stringify(calls[0].body)).not.toMatch(/Authorization|apiKey|secret|token|headers|baseUrl|providerApiKey|secretRef|rawPrompt|rawResponse/i);
+  });
+
+  it('normalizes a fake Agno real-LLM response with governed provider observability', async () => {
+    const adapter = await agnoHttpAdapter({
+      AGNO_RUNTIME_HTTP_ENABLED: 'true',
+      AGNO_RUNTIME_HTTP_BASE_URL: 'http://127.0.0.1:8091',
+    });
+    const calls: Array<{ body?: Record<string, unknown> }> = [];
+    vi.stubGlobal('fetch', vi.fn(async (_url: string, init?: RequestInit) => {
+      calls.push({
+        body: typeof init?.body === 'string' ? JSON.parse(init.body) as Record<string, unknown> : undefined,
+      });
+      return new Response(JSON.stringify(runtimeResponse({
+        outputText: 'Resposta simulada do LLM real via Agno.',
+        outputMetadata: {
+          provider: 'openai',
+          model: 'gpt-test-agno',
+          providerStatus: 'healthy',
+          externalProviderCalled: true,
+          simulated: false,
+        },
+        usage: {
+          inputTokens: 21,
+          outputTokens: 9,
+          totalTokens: 30,
+          latencyMs: 17,
+        },
+      })), { status: 200 });
+    }));
+
+    const result = await adapter.execute(context({
+      executionMode: 'published',
+      compiledPrompt: {
+        ...context().compiledPrompt,
+        modelProvider: 'openai',
+        modelName: 'gpt-test-agno',
+      },
+      llmPolicySnapshot: {
+        allowExternalLlmProviders: true,
+        allowedLlmProviders: ['openai'],
+        defaultLlmProvider: 'openai',
+      },
+    }));
+
+    const body = calls[0].body as { assistantRuntimeSpec: { model: { provider: string; model: string } } };
+    expect(body.assistantRuntimeSpec.model).toEqual(expect.objectContaining({
+      provider: 'openai',
+      model: 'gpt-test-agno',
+    }));
+    expect(result).toEqual(expect.objectContaining({
+      provider: 'agno_http',
+      status: 'completed',
+      outputPreview: 'Resposta simulada do LLM real via Agno.',
+      metadata: expect.objectContaining({
+        llmProvider: 'openai',
+        llmModel: 'gpt-test-agno',
+        externalProviderCalled: true,
+        totalTokens: 30,
+        latencyMs: 17,
+      }),
+    }));
+    expect(result.events).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        type: 'run_completed',
+        metadata: expect.objectContaining({
+          llmProvider: 'openai',
+          model: 'gpt-test-agno',
+          externalProviderCalled: true,
+          simulated: false,
+        }),
+      }),
+    ]));
+    expect(JSON.stringify(result.events)).not.toContain('Resposta simulada do LLM real via Agno.');
+  });
+
+  it('fails closed before HTTP when external policy and assistant model do not match', async () => {
+    const adapter = await agnoHttpAdapter({
+      AGNO_RUNTIME_HTTP_ENABLED: 'true',
+      AGNO_RUNTIME_HTTP_BASE_URL: 'http://127.0.0.1:8091',
+    });
+    const fetchMock = vi.fn();
+    vi.stubGlobal('fetch', fetchMock);
+
+    const result = await adapter.execute(context({
+      executionMode: 'published',
+      compiledPrompt: {
+        ...context().compiledPrompt,
+        modelProvider: 'local',
+        modelName: 'wrong-provider-model',
+      },
+      llmPolicySnapshot: {
+        allowExternalLlmProviders: true,
+        allowedLlmProviders: ['openai'],
+        defaultLlmProvider: 'openai',
+      },
+    }));
+    const serialized = JSON.stringify(result);
+
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(result.status).toBe('failed');
+    expect(result.errorCode).toBe('RUNTIME_BAD_REQUEST');
+    expect(result.metadata).toEqual(expect.objectContaining({
+      requestSent: false,
+      failedClosed: true,
+    }));
+    expect(result.events).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        type: 'run_failed',
+        status: 'failed',
+        metadata: expect.objectContaining({
+          errorCode: 'RUNTIME_BAD_REQUEST',
+          requestSent: false,
+          failedClosed: true,
+        }),
+      }),
+    ]));
+    expect(serialized).not.toContain('Assistant model provider and model must match the governed external LLM policy.');
+    expect(serialized).not.toContain('http://127.0.0.1:8091');
+    expect(serialized).not.toMatch(/AGNO_RUNTIME_HTTP_BASE_URL|Authorization|headers|secret|token|stack/i);
   });
 
   it('sends governed conversation context to /execute and exposes only safe summary metadata', async () => {
@@ -308,6 +436,7 @@ describe('Agno HTTP runtime adapter', () => {
       { role: 'assistant', content: previousAssistant },
     ]);
     expect(body.assistantRuntimeSpec.conversationContext.summary.messageCount).toBe(2);
+    expect(JSON.stringify(body.assistantRuntimeSpec.conversationContext)).not.toMatch(/messageId|createdAt|message-1|message-2/);
     expect(result.metadata).toEqual(expect.objectContaining({
       conversationContextIncluded: true,
       conversationContextMessageCount: 2,

@@ -209,6 +209,7 @@ describe('AssistantRuntimeSpecV1 builder for Agno HTTP', () => {
       { role: 'user', content: previousUser },
       { role: 'assistant', content: previousAssistant },
     ]);
+    expect(JSON.stringify(spec.conversationContext)).not.toMatch(/messageId|createdAt|message-1|message-2/);
     expect(spec.metadata).toEqual(expect.objectContaining({
       conversationContextSummary: expect.objectContaining({
         included: true,
@@ -550,6 +551,12 @@ describe('AssistantRuntimeSpecV1 builder for Agno HTTP', () => {
   it('uses provider and model from authorized context without hardcoded defaults', () => {
     const spec = buildAssistantRuntimeSpecV1({
       context: context({
+        executionMode: 'published',
+        llmPolicySnapshot: {
+          allowExternalLlmProviders: true,
+          allowedLlmProviders: ['openai'],
+          defaultLlmProvider: 'openai',
+        },
         compiledPrompt: {
           ...context().compiledPrompt,
           modelProvider: 'openai',
@@ -577,8 +584,27 @@ describe('AssistantRuntimeSpecV1 builder for Agno HTTP', () => {
     });
     const serialized = JSON.stringify(spec);
 
-    expect(spec.model.provider).toBe('local');
+    expect(spec.model.provider).toBe('local_deterministic');
     expect(spec.model.model).toBe('deterministic-sandbox');
     expect(serialized).not.toMatch(/apiKey|secret|token|headers|baseUrl|providerApiKey|secretRef/i);
+  });
+
+  it('fails closed before HTTP when external policy and assistant model do not match', () => {
+    expect(() => buildAssistantRuntimeSpecV1({
+      context: context({
+        executionMode: 'published',
+        compiledPrompt: {
+          ...context().compiledPrompt,
+          modelProvider: 'local',
+          modelName: 'wrong-provider-model',
+        },
+        llmPolicySnapshot: {
+          allowExternalLlmProviders: true,
+          allowedLlmProviders: ['openai'],
+          defaultLlmProvider: 'openai',
+        },
+      }),
+      timeoutMs: 15000,
+    })).toThrow('Assistant model provider and model must match the governed external LLM policy.');
   });
 });

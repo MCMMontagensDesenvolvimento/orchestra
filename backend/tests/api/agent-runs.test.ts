@@ -403,17 +403,24 @@ describe('agent run governance endpoints', () => {
     expect(mocks.recordAuditEvent).toHaveBeenCalledWith(expect.objectContaining({ action: 'agent_run_completed' }));
   });
 
-  it('routes an authorized AgentRun through agno_http and returns only sanitized runtime output', async () => {
+  it('routes a governed published AgentRun through fake agno_http real-LLM execution', async () => {
     configureRuntime({
       RUNTIME_PROVIDER: 'agno_http',
       AGNO_RUNTIME_HTTP_ENABLED: true,
       AGNO_RUNTIME_HTTP_BASE_URL: 'http://127.0.0.1:8091',
       AGNO_RUNTIME_HTTP_SECURITY_KEY: 'runtime-test-security-key',
     });
-    const assistant = assistantFixture('draft');
-    assistant.versions[0].modelProvider = 'governed-provider';
-    assistant.versions[0].modelName = 'governed-chat-model';
+    const assistant = assistantFixture('published');
+    assistant.versions[0].modelProvider = 'openai';
+    assistant.versions[0].modelName = 'gpt-test-agno';
     mocks.agentRunsRepository.findAssistantForRun.mockResolvedValueOnce(assistant);
+    mocks.agentRunsRepository.getExecutionPolicy.mockResolvedValueOnce(executionPolicyFixture({
+      executionMode: 'published',
+      allowExternalLlmProviders: true,
+      allowedLlmProviders: ['openai'],
+      defaultLlmProvider: 'openai',
+      allowPublishedExecution: true,
+    }));
     const calls: Array<{ url: string; init?: RequestInit; body?: unknown }> = [];
     vi.stubGlobal('fetch', vi.fn(async (url: string, init?: RequestInit) => {
       const body = typeof init?.body === 'string' ? JSON.parse(init.body) as unknown : undefined;
@@ -421,21 +428,27 @@ describe('agent run governance endpoints', () => {
       if (url.endsWith('/health')) {
         return new Response(JSON.stringify(runtimeHealthResponse()), { status: 200 });
       }
-      return new Response(JSON.stringify(runtimeExecuteResponse(body)), { status: 200 });
+      return new Response(JSON.stringify(runtimeExecuteResponse(body, 'succeeded', {
+        provider: 'openai',
+        model: 'gpt-test-agno',
+        providerStatus: 'healthy',
+        externalProviderCalled: true,
+        simulated: false,
+      })), { status: 200 });
     }));
 
     const response = await request(createApp())
       .post(`/api/v1/assistants/${assistantId}/runs`)
       .set('Cookie', [sessionCookie()])
-      .send({ mode: 'sandbox', input: 'Use the governed HTTP runtime.', source: 'api-test' })
+      .send({ mode: 'published', input: 'Use the governed HTTP runtime.', source: 'chat-conversation' })
       .expect(201);
 
     const executeCall = calls.find((call) => call.url.endsWith('/execute'));
     expect(executeCall).toBeDefined();
     const parsedRequest = runtimeExecuteRequestV1Schema.parse(executeCall?.body);
     expect(parsedRequest.assistantRuntimeSpec.model).toEqual(expect.objectContaining({
-      provider: 'governed-provider',
-      model: 'governed-chat-model',
+      provider: 'openai',
+      model: 'gpt-test-agno',
     }));
     expect(parsedRequest.assistantRuntimeSpec.rag).toEqual({ enabled: false, mode: 'none', sources: [] });
     expect(parsedRequest.assistantRuntimeSpec.tools).toEqual({ enabled: false, mode: 'none', descriptors: [] });
@@ -458,7 +471,7 @@ describe('agent run governance endpoints', () => {
       toolDescriptorCount: 0,
       toolCallsExecuted: 0,
       externalMcpCalled: false,
-      externalProviderCalled: false,
+      externalProviderCalled: true,
       policy: expect.objectContaining({ maxToolCalls: 0 }),
     }));
     expect(response.body.data.metadata.runtime).not.toHaveProperty('outputPreview');
@@ -475,7 +488,15 @@ describe('agent run governance endpoints', () => {
     }));
     expect(response.body.data.events).toEqual(expect.arrayContaining([
       expect.objectContaining({ type: 'agno.request_completed' }),
-      expect.objectContaining({ type: 'runtime.run_completed' }),
+      expect.objectContaining({
+        type: 'runtime.run_completed',
+        metadata: expect.objectContaining({
+          llmProvider: 'openai',
+          model: 'gpt-test-agno',
+          externalProviderCalled: true,
+          simulated: false,
+        }),
+      }),
     ]));
     expect(JSON.stringify(response.body)).not.toMatch(/Runtime HTTP response through|runtime-test-security-key|127\.0\.0\.1:8091|Authorization|baseUrl|headers/i);
   });
@@ -919,6 +940,7 @@ function runtimeHealthResponse() {
 function runtimeExecuteResponse(
   requestBody: unknown,
   status: 'succeeded' | 'blocked' = 'succeeded',
+  outputMetadata: Record<string, unknown> = {},
 ) {
   const request = runtimeExecuteRequestV1Schema.parse(requestBody);
   const trace = request.assistantRuntimeSpec.trace;
@@ -933,7 +955,7 @@ function runtimeExecuteResponse(
       ? {
         text: 'Runtime HTTP response through the Orchestra control plane.',
         format: 'text',
-        metadata: { mode: 'sandbox', externalProviderCalled: false },
+        metadata: { mode: 'sandbox', externalProviderCalled: false, ...outputMetadata },
       }
       : undefined,
     usage: status === 'succeeded'

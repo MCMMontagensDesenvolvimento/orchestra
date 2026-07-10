@@ -126,6 +126,7 @@ describe('Agno-compatible minimal runtime HTTP service', () => {
       expect(parsed.data.supportsStreaming).toBe(false);
       expect(parsed.data.supportsTools).toBe(false);
       expect(parsed.data.supportsRagContext).toBe(true);
+      expect(parsed.data.supportsExternalProviders).toBe(false);
       expect(parsed.data.supportsFileInputs).toBe(false);
     }
   });
@@ -164,16 +165,12 @@ describe('Agno-compatible minimal runtime HTTP service', () => {
         conversationContext: {
           messages: [
             {
-              messageId: 'message-1',
               role: 'user',
               content: previousUser,
-              createdAt: '2026-07-06T12:00:00.000Z',
             },
             {
-              messageId: 'message-2',
               role: 'assistant',
               content: previousAssistant,
-              createdAt: '2026-07-06T12:00:01.000Z',
             },
           ],
           summary: {

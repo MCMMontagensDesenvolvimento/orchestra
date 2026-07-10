@@ -22,7 +22,7 @@ interface BuildAssistantRuntimeSpecInput {
   maxInputChars?: number;
 }
 
-const defaultModelProvider = 'local';
+const defaultModelProvider = 'local_deterministic';
 const defaultModelName = 'deterministic-sandbox';
 const defaultMaxContextChars = 16000;
 const defaultMaxRagSources = 5;
@@ -36,6 +36,7 @@ const contractMaxToolSchemaChars = 8000;
 
 export function buildAssistantRuntimeSpecV1(input: BuildAssistantRuntimeSpecInput): AssistantRuntimeSpecV1 {
   const context = input.context;
+  const modelSelection = resolveModelSelection(context);
   const message = textOrFallback(context.input.raw, context.input.preview, 'No user input provided.')
     .slice(0, input.maxInputChars ?? defaultMaxContextChars);
   const instructions = textOrUndefined(context.compiledPrompt.instructionsPreview);
@@ -44,6 +45,7 @@ export function buildAssistantRuntimeSpecV1(input: BuildAssistantRuntimeSpecInpu
     adapter: 'agno_http',
     inputHash: context.input.hash,
     executionMode: context.executionMode,
+    llmSelectionReason: modelSelection.reason,
     requestMetadata: context.metadata,
     conversationContextSummary: context.conversationContext?.summary,
   });
@@ -83,8 +85,8 @@ export function buildAssistantRuntimeSpecV1(input: BuildAssistantRuntimeSpecInpu
     },
     ...(governedConversationContext ? { conversationContext: governedConversationContext } : {}),
     model: {
-      provider: resolveModelProvider(context),
-      model: resolveModelName(context),
+      provider: modelSelection.provider,
+      model: modelSelection.model,
       ...(validTemperature(context.compiledPrompt.temperature) ? { temperature: context.compiledPrompt.temperature } : {}),
     },
     policy: {
@@ -114,14 +116,35 @@ export function buildAssistantRuntimeSpecV1(input: BuildAssistantRuntimeSpecInpu
   return parseAssistantRuntimeSpecV1(spec);
 }
 
-function resolveModelProvider(context: RuntimeExecutionContext) {
-  return textOrUndefined(context.compiledPrompt.modelProvider)
-    ?? textOrUndefined(context.llmPolicySnapshot.defaultLlmProvider)
-    ?? defaultModelProvider;
-}
+function resolveModelSelection(context: RuntimeExecutionContext) {
+  const policy = context.llmPolicySnapshot;
+  const externalProvider = policy.defaultLlmProvider;
+  const externalProviderAllowed = context.executionMode !== 'sandbox'
+    && policy.allowExternalLlmProviders
+    && externalProvider !== null
+    && policy.allowedLlmProviders.includes(externalProvider);
 
-function resolveModelName(context: RuntimeExecutionContext) {
-  return textOrUndefined(context.compiledPrompt.modelName) ?? defaultModelName;
+  if (externalProviderAllowed) {
+    const configuredProvider = textOrUndefined(context.compiledPrompt.modelProvider);
+    const configuredModel = textOrUndefined(context.compiledPrompt.modelName);
+    if (configuredProvider !== externalProvider || !configuredModel) {
+      throw new Error('Assistant model provider and model must match the governed external LLM policy.');
+    }
+
+    return {
+      provider: externalProvider,
+      model: configuredModel,
+      reason: 'assistant_policy_opt_in',
+    };
+  }
+
+  return {
+    provider: defaultModelProvider,
+    model: defaultModelName,
+    reason: context.executionMode === 'sandbox'
+      ? 'sandbox_blocks_real_providers'
+      : 'assistant_policy_default_local',
+  };
 }
 
 function textOrFallback(...values: Array<string | null | undefined>) {
@@ -160,16 +183,13 @@ function buildGovernedConversationContextSpec(
       break;
     }
 
-    const messageId = safeId(message.messageId);
     const content = safeConversationContextContent(message.content, Math.min(maxMessageChars, remainingChars));
-    if (!messageId || !content || (message.role !== 'user' && message.role !== 'assistant')) continue;
+    if (!content || (message.role !== 'user' && message.role !== 'assistant')) continue;
 
     if (content.length < textOrFallback(message.content).length) truncated = true;
     messages.push({
-      messageId,
       role: message.role,
       content,
-      createdAt: message.createdAt,
     });
     totalChars += content.length;
   }
