@@ -12,6 +12,8 @@ import type {
   runtimeNormalizedEventV1Schema,
   runtimeRagSourceSchema,
   runtimeToolDescriptorSchema,
+  runtimeToolGatewayRequestSchema,
+  runtimeToolGatewayResponseSchema,
 } from './runtime-contract.schema';
 
 export type RuntimeInputAttachment = z.infer<typeof runtimeInputAttachmentSchema>;
@@ -19,6 +21,8 @@ export type RuntimeConversationContextMessageV1 = z.infer<typeof runtimeConversa
 export type RuntimeConversationContextV1 = z.infer<typeof runtimeConversationContextSchema>;
 export type RuntimeRagSource = z.infer<typeof runtimeRagSourceSchema>;
 export type RuntimeToolDescriptor = z.infer<typeof runtimeToolDescriptorSchema>;
+export type RuntimeToolGatewayRequest = z.infer<typeof runtimeToolGatewayRequestSchema>;
+export type RuntimeToolGatewayResponse = z.infer<typeof runtimeToolGatewayResponseSchema>;
 export type RuntimeNormalizedEventV1 = z.infer<typeof runtimeNormalizedEventV1Schema>;
 export type RuntimeNormalizedErrorV1 = z.infer<typeof runtimeNormalizedErrorV1Schema>;
 export type AssistantRuntimeSpecV1 = z.infer<typeof assistantRuntimeSpecV1Schema>;

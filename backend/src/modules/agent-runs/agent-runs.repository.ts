@@ -305,6 +305,54 @@ export const agentRunsRepository = {
     });
   },
 
+  async finalizeRun(id: string, data: Prisma.AgentRunUpdateInput, events: AgentRunEventInput[]) {
+    return prisma.$transaction(async (tx) => {
+      const run = await tx.agentRun.update({ where: { id }, data });
+      if (events.length > 0) {
+        const lastEvent = await tx.agentRunEvent.findFirst({
+          where: { agentRunId: id },
+          orderBy: { sequence: 'desc' },
+        });
+        const start = lastEvent?.sequence ?? 0;
+        await tx.agentRunEvent.createMany({
+          data: events.map((event, index) => ({
+            agentRunId: id,
+            tenantId: run.tenantId,
+            workspaceId: run.workspaceId,
+            type: event.type,
+            sequence: start + index + 1,
+            status: event.status,
+            message: event.message,
+            metadata: event.metadata,
+          })),
+        });
+      }
+      return tx.agentRun.findUniqueOrThrow({ where: { id }, include: agentRunInclude });
+    });
+  },
+
+  findToolGatewayRun(runId: string, tenantId: string, workspaceId: string) {
+    return prisma.agentRun.findFirst({
+      where: {
+        id: runId,
+        tenantId,
+        workspaceId,
+      },
+      select: {
+        id: true,
+        tenantId: true,
+        workspaceId: true,
+        assistantId: true,
+        assistantVersionId: true,
+        assistantPublicationId: true,
+        requestedById: true,
+        status: true,
+        mode: true,
+        traceId: true,
+      },
+    });
+  },
+
   async listByAssistant(tenantId: string, workspaceIds: string[], assistantId: string, query: AgentRunsQuery) {
     const where: Prisma.AgentRunWhereInput = {
       tenantId,

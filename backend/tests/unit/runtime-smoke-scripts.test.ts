@@ -173,6 +173,7 @@ describe('runtime smoke scripts', () => {
       AGNO_RUNTIME_HTTP_SECURITY_KEY: fakeCredential,
       AGNO_RUNTIME_HTTP_TOOLS_ENABLED: 'true',
       AGNO_RUNTIME_HTTP_MAX_TOOL_CALLS: '0',
+      AGNO_RUNTIME_HTTP_TOOL_GATEWAY_ENABLED: 'false',
       AGNO_ALLOW_EXTERNAL_TOOLS: 'false',
       AGNO_ALLOW_REMOTE_MCP: 'false',
       MCP_REMOTE_EXECUTION_ENABLED: 'false',
@@ -202,6 +203,13 @@ describe('runtime smoke scripts', () => {
         RUNTIME_ALLOW_EXTERNAL_TOOLS: 'true',
       },
     });
+    const toolGatewayRun = spawnSync('bash', [path, '--dry-run'], {
+      encoding: 'utf8',
+      env: {
+        ...safeEnv,
+        AGNO_RUNTIME_HTTP_TOOL_GATEWAY_ENABLED: 'true',
+      },
+    });
 
     expect(syntaxCheck.status, syntaxCheck.stderr).toBe(0);
     expect(helpRun.status, helpRun.stderr).toBe(0);
@@ -221,6 +229,7 @@ describe('runtime smoke scripts', () => {
     expect(`${unsafeRun.stdout}${unsafeRun.stderr}`).not.toContain(unsafeUrl);
     expect(`${unsafeRun.stdout}${unsafeRun.stderr}`).not.toContain('phase-password');
     expect(executableToolsRun.status).not.toBe(0);
+    expect(toolGatewayRun.status).not.toBe(0);
 
     const content = readFileSync(path, 'utf8');
     expect(content).not.toMatch(/(?:source|\.\s+)\s*[^\n]*\.env/);
@@ -232,5 +241,6 @@ describe('runtime smoke scripts', () => {
     expect(content).toMatch(/\/health/);
     expect(content).toMatch(/\/capabilities/);
     expect(content).toMatch(/max_tool_calls.*"0"/);
+    expect(content).toMatch(/tool_gateway_enabled.*false/);
   }, 15_000);
 });

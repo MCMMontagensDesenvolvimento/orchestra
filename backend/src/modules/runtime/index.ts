@@ -9,3 +9,5 @@ export * from './runtime.assistant-spec.builder';
 export * from './runtime.config';
 export * from './runtime.registry';
 export * from './runtime.service';
+export * from './runtime.tool-gateway.config';
+export * from './runtime.tool-gateway.service';

@@ -48,6 +48,33 @@ export const runtimeContractHealthStatusValues = [
   'misconfigured',
   'unavailable',
 ] as const;
+export const runtimeToolGatewayErrorCodeValues = [
+  'TOOL_GATEWAY_DISABLED',
+  'TOOL_CALL_BLOCKED',
+  'TOOL_CALL_RUN_UNAVAILABLE',
+  'TOOL_CALL_NOT_AUTHORIZED',
+  'TOOL_CALL_LIMIT_EXCEEDED',
+  'TOOL_CALL_INVALID_ARGUMENTS',
+  'TOOL_CALL_IDEMPOTENCY_CONFLICT',
+  'TOOL_CALL_GOVERNANCE_FAILURE',
+] as const;
+export const runtimeToolGatewayReasonValues = [
+  'gateway_disabled',
+  'run_unavailable',
+  'run_not_executable',
+  'trace_mismatch',
+  'assistant_mismatch',
+  'tool_not_in_spec',
+  'tool_policy_blocked',
+  'approval_required',
+  'risk_not_low',
+  'max_tool_calls_zero',
+  'max_tool_calls_exceeded',
+  'sequence_out_of_order',
+  'invalid_arguments',
+  'idempotency_conflict',
+  'governance_failure',
+] as const;
 
 const unsafeContractKeyFragments = new Set([
   'apikey',
@@ -263,6 +290,54 @@ export const runtimeToolDescriptorSchema = z.object({
     action: z.literal('mcp.tool.execute'),
   }).strict(),
 }).strict();
+
+export const runtimeToolGatewayRequestSchema = z.object({
+  runtimeTraceId: idSchema,
+  agentRunId: idSchema,
+  assistantId: idSchema,
+  toolCallId: idSchema,
+  toolId: idSchema,
+  arguments: runtimeContractSafeObjectSchema,
+  sequence: z.number().int().positive().max(50),
+}).strict().superRefine((value, ctx) => {
+  if (approximateJsonSize(value) > 32_768) {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'tool request excede o limite permitido.' });
+  }
+  if (containsUnsafeRuntimeContractPayload(value)) {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['arguments'], message: 'tool request contem argumentos inseguros.' });
+  }
+});
+
+export const runtimeToolGatewayResponseSchema = z.object({
+  toolCallId: idSchema,
+  status: z.enum(['succeeded', 'blocked']),
+  result: z.object({
+    content: textSchema(1000),
+  }).strict().optional(),
+  error: z.object({
+    code: z.enum(runtimeToolGatewayErrorCodeValues),
+    message: textSchema(300),
+    retryable: z.literal(false),
+  }).strict().optional(),
+  metadata: z.object({
+    toolCallsExecuted: z.number().int().min(0).max(50),
+    externalMcpCalled: z.literal(false),
+    simulated: z.literal(true),
+    failedClosed: z.boolean(),
+    reason: z.enum(runtimeToolGatewayReasonValues).optional(),
+    latencyMs: z.number().int().nonnegative().max(300000),
+  }).strict(),
+}).strict().superRefine((value, ctx) => {
+  if (value.status === 'succeeded' && (!value.result || value.error)) {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'tool response de sucesso exige somente result.' });
+  }
+  if (value.status === 'blocked' && (!value.error || value.result)) {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'tool response bloqueada exige somente error.' });
+  }
+  if (containsUnsafeRuntimeContractPayload(value)) {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'tool response contem payload inseguro.' });
+  }
+});
 
 export const runtimeNormalizedEventV1Schema = z.object({
   eventId: idSchema,

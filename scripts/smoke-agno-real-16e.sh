@@ -212,6 +212,7 @@ security_required="${AGNO_RUNTIME_HTTP_REQUIRE_SECURITY_KEY:-false}"
 security_key="${AGNO_RUNTIME_HTTP_SECURITY_KEY:-}"
 tools_descriptors_enabled="${AGNO_RUNTIME_HTTP_TOOLS_ENABLED:-false}"
 max_tool_calls="${AGNO_RUNTIME_HTTP_MAX_TOOL_CALLS:-0}"
+tool_gateway_enabled="${AGNO_RUNTIME_HTTP_TOOL_GATEWAY_ENABLED:-false}"
 agno_allow_external_tools="${AGNO_ALLOW_EXTERNAL_TOOLS:-false}"
 agno_allow_remote_mcp="${AGNO_ALLOW_REMOTE_MCP:-false}"
 mcp_remote_execution_enabled="${MCP_REMOTE_EXECUTION_ENABLED:-false}"
@@ -226,6 +227,7 @@ for item in \
   "AGNO_RUNTIME_HTTP_ENABLED:$agno_http_enabled" \
   "AGNO_RUNTIME_HTTP_REQUIRE_SECURITY_KEY:$security_required" \
   "AGNO_RUNTIME_HTTP_TOOLS_ENABLED:$tools_descriptors_enabled" \
+  "AGNO_RUNTIME_HTTP_TOOL_GATEWAY_ENABLED:$tool_gateway_enabled" \
   "AGNO_ALLOW_EXTERNAL_TOOLS:$agno_allow_external_tools" \
   "AGNO_ALLOW_REMOTE_MCP:$agno_allow_remote_mcp" \
   "MCP_REMOTE_EXECUTION_ENABLED:$mcp_remote_execution_enabled"; do
@@ -252,6 +254,7 @@ pass "runtime transport and fail-closed gates are configured"
 pass "runtime credential is present; value was not displayed"
 
 [ "$max_tool_calls" = "0" ] || fail "runtime tool call limit must remain zero"
+is_false "$tool_gateway_enabled" || fail "governed tool gateway must remain disabled during 16E homologation"
 is_false "$allow_external_tools" || fail "external runtime tools must remain disabled"
 is_false "$agno_allow_external_tools" || fail "Agno external tools must remain disabled"
 is_false "$agno_allow_remote_mcp" || fail "Agno remote MCP must remain disabled"

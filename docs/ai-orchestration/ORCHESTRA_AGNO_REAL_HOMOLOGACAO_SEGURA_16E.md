@@ -71,6 +71,8 @@ AGNO_RUNTIME_HTTP_SECURITY_KEY=
 AGNO_RUNTIME_HTTP_RAG_CONTEXT_ENABLED=false
 AGNO_RUNTIME_HTTP_TOOLS_ENABLED=false
 AGNO_RUNTIME_HTTP_MAX_TOOL_CALLS=0
+AGNO_RUNTIME_HTTP_TOOL_GATEWAY_ENABLED=false
+AGNO_RUNTIME_HTTP_TOOL_GATEWAY_MAX_PAYLOAD_BYTES=32768
 AGNO_ALLOW_EXTERNAL_TOOLS=false
 AGNO_ALLOW_REMOTE_MCP=false
 MCP_REMOTE_EXECUTION_ENABLED=false
@@ -78,7 +80,9 @@ MCP_REMOTE_EXECUTION_ENABLED=false
 
 Preencha base URL e chave somente pelo mecanismo seguro do ambiente. O bloco acima contem placeholders vazios, nao valores copiaveis.
 
-Para RAG, habilite `AGNO_RUNTIME_HTTP_RAG_CONTEXT_ENABLED=true` apenas depois de validar readiness, bindings e limites da 16B. Para anexar descriptors, use `AGNO_RUNTIME_HTTP_TOOLS_ENABLED=true` somente na etapa especifica da 16C; isso nao autoriza chamadas, pois `AGNO_RUNTIME_HTTP_MAX_TOOL_CALLS=0` e todos os gates externos permanecem falsos.
+Para RAG, habilite `AGNO_RUNTIME_HTTP_RAG_CONTEXT_ENABLED=true` apenas depois de validar readiness, bindings e limites da 16B. Para anexar descriptors, use `AGNO_RUNTIME_HTTP_TOOLS_ENABLED=true` somente na etapa especifica da 16C; isso nao autoriza chamadas, pois `AGNO_RUNTIME_HTTP_MAX_TOOL_CALLS=0`, `AGNO_RUNTIME_HTTP_TOOL_GATEWAY_ENABLED=false` e todos os gates externos permanecem falsos.
+
+A Fase 16F introduz um gateway controlado, mas nao muda este baseline. A homologacao 16E com Agno real continua com tool execution desligada; MCP/tool externo real permanece fora ate fase posterior.
 
 As variaveis devem estar exportadas no processo que executa os smokes. Os scripts nao carregam `.env`.
 
@@ -100,7 +104,7 @@ Nao reutilize uma key de provider como chave de transporte. Rotacao, escopo e au
 2. Configure URL HTTPS sem userinfo, query ou fragment. HTTP e aceitavel somente em loopback descartavel de desenvolvimento.
 3. Ative `agno_http`, o adapter e a autenticacao obrigatoria.
 4. Mantenha fallback desabilitado; indisponibilidade do Agno deve falhar fechada.
-5. Mantenha todos os gates de execucao externa falsos e `AGNO_RUNTIME_HTTP_MAX_TOOL_CALLS=0`.
+5. Mantenha todos os gates de execucao externa falsos, `AGNO_RUNTIME_HTTP_TOOL_GATEWAY_ENABLED=false` e `AGNO_RUNTIME_HTTP_MAX_TOOL_CALLS=0`.
 6. Inicie o backend somente depois de revisar redaction e egress.
 7. Consulte registry/providers apenas pelo DTO sanitizado. Ele pode mostrar provider logico, `current`, `enabled`, `configured`, health e capabilities; nunca URL, chave, header ou configuracao privada.
 
@@ -173,6 +177,7 @@ Nao use DevTools para copiar headers, cookies ou bodies completos. Divergencia e
 O bloqueio deve coincidir em quatro pontos:
 
 - ambiente Orchestra: `AGNO_RUNTIME_HTTP_MAX_TOOL_CALLS=0`;
+- gateway Orchestra: `AGNO_RUNTIME_HTTP_TOOL_GATEWAY_ENABLED=false`;
 - spec governado: limite efetivo igual a zero;
 - capability do Agno: `maxToolCalls=0`;
 - executor Agno: nenhuma tool chamada, mesmo se descriptors forem anexados.
@@ -314,6 +319,7 @@ AGNO_RUNTIME_HTTP_SECURITY_KEY=
 AGNO_RUNTIME_HTTP_RAG_CONTEXT_ENABLED=false
 AGNO_RUNTIME_HTTP_TOOLS_ENABLED=false
 AGNO_RUNTIME_HTTP_MAX_TOOL_CALLS=0
+AGNO_RUNTIME_HTTP_TOOL_GATEWAY_ENABLED=false
 AGNO_ALLOW_EXTERNAL_TOOLS=false
 AGNO_ALLOW_REMOTE_MCP=false
 MCP_REMOTE_EXECUTION_ENABLED=false
@@ -346,6 +352,7 @@ Nao desabilite autenticacao para evitar indisponibilidade. Rotacao com duas chav
 - [ ] fallback desabilitado;
 - [ ] autenticacao do runtime obrigatoria;
 - [ ] `AGNO_RUNTIME_HTTP_MAX_TOOL_CALLS=0` no Orchestra, spec e capability;
+- [ ] `AGNO_RUNTIME_HTTP_TOOL_GATEWAY_ENABLED=false` na homologacao 16E;
 - [ ] gates de tools externas e MCP falsos;
 - [ ] smoke 16D `--dry-run` aprovado;
 - [ ] smoke 16E default/`--dry-run` aprovado sem rede;
@@ -362,4 +369,4 @@ Nao desabilite autenticacao para evitar indisponibilidade. Rotacao com duas chav
 - [ ] rollback executado ou permanencia do ambiente formalmente decidida;
 - [ ] plano de rotacao/revogacao concluido.
 
-Permanecem fora da 16E: execucao real de tools/MCP, approval UI, callback real de gateway, registry persistido em banco, tela nova, streaming, multi-runtime dinamico, rotação com duas chaves, provider key manager, vault integration e agentes on-premise adicionais.
+Permanecem fora da 16E: execucao real de tools/MCP, approval UI, habilitacao do callback 16F em homologacao real, registry persistido em banco, tela nova, streaming, multi-runtime dinamico, rotação com duas chaves, provider key manager, vault integration e agentes on-premise adicionais.
