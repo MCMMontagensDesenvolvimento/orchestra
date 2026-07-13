@@ -121,6 +121,8 @@ const envSchema = z.object({
   AGNO_RUNTIME_HTTP_MAX_TOOL_DESCRIPTORS: safePositiveInteger(8),
   AGNO_RUNTIME_HTTP_MAX_TOOL_CALLS: safeNonNegativeInteger(0),
   AGNO_RUNTIME_HTTP_MAX_TOOL_SCHEMA_CHARS: safePositiveInteger(6000),
+  AGNO_RUNTIME_HTTP_TOOL_GATEWAY_ENABLED: booleanString('false'),
+  AGNO_RUNTIME_HTTP_TOOL_GATEWAY_MAX_PAYLOAD_BYTES: z.coerce.number().int().min(1024).max(32_768).default(32_768),
   MCP_REMOTE_ENABLED: booleanString('false'),
   MCP_REMOTE_EXECUTION_ENABLED: booleanString('false'),
   MCP_REMOTE_DISCOVERY_ENABLED: booleanString('false'),
@@ -176,6 +178,20 @@ const envSchema = z.object({
       code: z.ZodIssueCode.custom,
       path: ['AGNO_RUNTIME_HTTP_SECURITY_KEY'],
       message: 'Agno runtime HTTP authentication is required but not configured.',
+    });
+  }
+  if (
+    value.AGNO_RUNTIME_HTTP_TOOL_GATEWAY_ENABLED
+    && (
+      !value.AGNO_RUNTIME_HTTP_ENABLED
+      || !value.AGNO_RUNTIME_HTTP_REQUIRE_SECURITY_KEY
+      || !value.AGNO_RUNTIME_HTTP_SECURITY_KEY
+    )
+  ) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ['AGNO_RUNTIME_HTTP_TOOL_GATEWAY_ENABLED'],
+      message: 'Agno tool gateway requires the authenticated Agno HTTP runtime channel.',
     });
   }
 });

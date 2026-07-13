@@ -7,6 +7,7 @@ import {
   assistantRuntimeSpecVersionV1,
   runtimeExecuteRequestV1Schema,
   runtimeExecuteResponseSpecVersionV1,
+  runtimeService,
 } from '../../src/modules/runtime';
 import { signSession } from '../../src/shared/security/session';
 import type { AuthenticatedUser } from '../../src/shared/types/auth';
@@ -18,8 +19,10 @@ const mocks = vi.hoisted(() => {
     countPendingApprovals: vi.fn(),
     getRuntimeContextSummary: vi.fn(),
     createRun: vi.fn(),
+    finalizeRun: vi.fn(),
     appendEvents: vi.fn(),
     updateRun: vi.fn(),
+    findToolGatewayRun: vi.fn(),
     listByAssistant: vi.fn(),
     list: vi.fn(),
     findById: vi.fn(),
@@ -66,6 +69,7 @@ const originalRuntimeEnv = {
   AGNO_RUNTIME_HTTP_ENABLED: env.AGNO_RUNTIME_HTTP_ENABLED,
   AGNO_RUNTIME_HTTP_BASE_URL: env.AGNO_RUNTIME_HTTP_BASE_URL,
   AGNO_RUNTIME_HTTP_SECURITY_KEY: env.AGNO_RUNTIME_HTTP_SECURITY_KEY,
+  AGNO_RUNTIME_HTTP_REQUIRE_SECURITY_KEY: env.AGNO_RUNTIME_HTTP_REQUIRE_SECURITY_KEY,
   AGNO_RUNTIME_HTTP_RAG_CONTEXT_ENABLED: env.AGNO_RUNTIME_HTTP_RAG_CONTEXT_ENABLED,
   AGNO_RUNTIME_HTTP_MAX_RAG_SOURCES: env.AGNO_RUNTIME_HTTP_MAX_RAG_SOURCES,
   AGNO_RUNTIME_HTTP_MAX_RAG_EXCERPT_CHARS: env.AGNO_RUNTIME_HTTP_MAX_RAG_EXCERPT_CHARS,
@@ -74,6 +78,8 @@ const originalRuntimeEnv = {
   AGNO_RUNTIME_HTTP_MAX_TOOL_DESCRIPTORS: env.AGNO_RUNTIME_HTTP_MAX_TOOL_DESCRIPTORS,
   AGNO_RUNTIME_HTTP_MAX_TOOL_CALLS: env.AGNO_RUNTIME_HTTP_MAX_TOOL_CALLS,
   AGNO_RUNTIME_HTTP_MAX_TOOL_SCHEMA_CHARS: env.AGNO_RUNTIME_HTTP_MAX_TOOL_SCHEMA_CHARS,
+  AGNO_RUNTIME_HTTP_TOOL_GATEWAY_ENABLED: env.AGNO_RUNTIME_HTTP_TOOL_GATEWAY_ENABLED,
+  AGNO_RUNTIME_HTTP_TOOL_GATEWAY_MAX_PAYLOAD_BYTES: env.AGNO_RUNTIME_HTTP_TOOL_GATEWAY_MAX_PAYLOAD_BYTES,
 };
 
 function configureRuntime(overrides: Partial<typeof originalRuntimeEnv> = {}) {
@@ -84,6 +90,7 @@ function configureRuntime(overrides: Partial<typeof originalRuntimeEnv> = {}) {
     AGNO_RUNTIME_HTTP_ENABLED: false,
     AGNO_RUNTIME_HTTP_BASE_URL: undefined,
     AGNO_RUNTIME_HTTP_SECURITY_KEY: undefined,
+    AGNO_RUNTIME_HTTP_REQUIRE_SECURITY_KEY: false,
     AGNO_RUNTIME_HTTP_RAG_CONTEXT_ENABLED: false,
     AGNO_RUNTIME_HTTP_MAX_RAG_SOURCES: 5,
     AGNO_RUNTIME_HTTP_MAX_RAG_EXCERPT_CHARS: 1200,
@@ -92,6 +99,8 @@ function configureRuntime(overrides: Partial<typeof originalRuntimeEnv> = {}) {
     AGNO_RUNTIME_HTTP_MAX_TOOL_DESCRIPTORS: 8,
     AGNO_RUNTIME_HTTP_MAX_TOOL_CALLS: 0,
     AGNO_RUNTIME_HTTP_MAX_TOOL_SCHEMA_CHARS: 6000,
+    AGNO_RUNTIME_HTTP_TOOL_GATEWAY_ENABLED: false,
+    AGNO_RUNTIME_HTTP_TOOL_GATEWAY_MAX_PAYLOAD_BYTES: 32768,
     ...overrides,
   });
 }
@@ -358,6 +367,19 @@ describe('agent run governance endpoints', () => {
         events: eventInputsToFixtures(input.events),
       }),
     );
+    mocks.agentRunsRepository.finalizeRun.mockImplementation(async (id, data, events) =>
+      runFixture({
+        id,
+        status: data.status,
+        completedAt: data.completedAt ?? null,
+        failedAt: data.failedAt ?? null,
+        blockedAt: data.blockedAt ?? null,
+        errorCode: data.errorCode ?? null,
+        errorMessage: data.errorMessage ?? null,
+        metadata: data.metadata ?? null,
+        events: eventInputsToFixtures(events),
+      }),
+    );
     mocks.agentRunsRepository.listByAssistant.mockResolvedValue({ data: [runFixture()], total: 1 });
     mocks.agentRunsRepository.list.mockResolvedValue({ data: [runFixture()], total: 1 });
     mocks.agentRunsRepository.findById.mockResolvedValue(runFixture());
@@ -528,6 +550,106 @@ describe('agent run governance endpoints', () => {
       }),
     ]));
     expect(JSON.stringify(response.body)).not.toMatch(/Runtime HTTP response through|runtime-test-security-key|127\.0\.0\.1:8091|Authorization|baseUrl|headers/i);
+  });
+
+  it('persists an authenticated gateway run as running before execute and finalizes the same run', async () => {
+    configureRuntime({
+      RUNTIME_PROVIDER: 'agno_http',
+      AGNO_RUNTIME_HTTP_ENABLED: true,
+      AGNO_RUNTIME_HTTP_BASE_URL: 'http://127.0.0.1:8091',
+      AGNO_RUNTIME_HTTP_SECURITY_KEY: 'runtime-test-security-key',
+      AGNO_RUNTIME_HTTP_REQUIRE_SECURITY_KEY: true,
+      AGNO_RUNTIME_HTTP_TOOL_GATEWAY_ENABLED: true,
+      AGNO_RUNTIME_HTTP_TOOLS_ENABLED: true,
+      AGNO_RUNTIME_HTTP_MAX_TOOL_CALLS: 1,
+    });
+    const assistant = assistantFixture('published');
+    mocks.agentRunsRepository.findAssistantForRun.mockResolvedValueOnce(assistant);
+    mocks.agentRunsRepository.getExecutionPolicy.mockResolvedValueOnce(executionPolicyFixture({
+      executionMode: 'published',
+      allowPublishedExecution: true,
+    }));
+    vi.stubGlobal('fetch', vi.fn(async (url: string, init?: RequestInit) => {
+      const body = typeof init?.body === 'string' ? JSON.parse(init.body) as unknown : undefined;
+      if (url.endsWith('/health')) {
+        return new Response(JSON.stringify(runtimeHealthResponse()), { status: 200 });
+      }
+      return new Response(JSON.stringify(runtimeExecuteResponse(body)), { status: 200 });
+    }));
+
+    const response = await request(createApp())
+      .post(`/api/v1/assistants/${assistantId}/runs`)
+      .set('Cookie', [sessionCookie()])
+      .send({ mode: 'published', input: 'Use the controlled gateway lifecycle.', source: 'chat-conversation' })
+      .expect(201);
+
+    expect(response.body.data.status).toBe('completed');
+    expect(mocks.agentRunsRepository.createRun).toHaveBeenCalledTimes(1);
+    expect(mocks.agentRunsRepository.createRun).toHaveBeenCalledWith(expect.objectContaining({
+      status: 'running',
+      id: expect.any(String),
+      metadata: expect.objectContaining({
+        runtime: expect.objectContaining({
+          provider: 'agno_http',
+          status: 'running',
+          toolDescriptorCount: 1,
+          policy: expect.objectContaining({ maxToolCalls: 1 }),
+        }),
+      }),
+    }));
+    expect(mocks.agentRunsRepository.finalizeRun).toHaveBeenCalledWith(
+      expect.any(String),
+      expect.objectContaining({ status: 'completed' }),
+      expect.any(Array),
+    );
+    expect(JSON.stringify(mocks.agentRunsRepository.createRun.mock.calls[0][0])).not.toMatch(
+      /runtime-test-security-key|Authorization|inputSchema|descriptors|toolArgs|toolOutput|baseUrl|headers/i,
+    );
+  });
+
+  it('finalizes an active gateway run fail-closed when runtime execution throws unexpectedly', async () => {
+    configureRuntime({
+      RUNTIME_PROVIDER: 'agno_http',
+      AGNO_RUNTIME_HTTP_ENABLED: true,
+      AGNO_RUNTIME_HTTP_BASE_URL: 'http://127.0.0.1:8091',
+      AGNO_RUNTIME_HTTP_SECURITY_KEY: 'runtime-test-security-key',
+      AGNO_RUNTIME_HTTP_REQUIRE_SECURITY_KEY: true,
+      AGNO_RUNTIME_HTTP_TOOL_GATEWAY_ENABLED: true,
+      AGNO_RUNTIME_HTTP_TOOLS_ENABLED: true,
+      AGNO_RUNTIME_HTTP_MAX_TOOL_CALLS: 1,
+    });
+    mocks.agentRunsRepository.findAssistantForRun.mockResolvedValueOnce(assistantFixture('published'));
+    mocks.agentRunsRepository.getExecutionPolicy.mockResolvedValueOnce(executionPolicyFixture({
+      executionMode: 'published',
+      allowPublishedExecution: true,
+    }));
+    vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify(runtimeHealthResponse()), { status: 200 })));
+    const executeSpy = vi.spyOn(runtimeService, 'execute').mockRejectedValueOnce(
+      new Error('private transport detail must not escape'),
+    );
+
+    try {
+      const response = await request(createApp())
+        .post(`/api/v1/assistants/${assistantId}/runs`)
+        .set('Cookie', [sessionCookie()])
+        .send({ mode: 'published', input: 'Exercise unexpected gateway failure.', source: 'api-test' })
+        .expect(201);
+
+      expect(response.body.data).toEqual(expect.objectContaining({
+        status: 'failed',
+        errorCode: 'RUNTIME_UNKNOWN_ERROR',
+        errorMessage: 'Runtime execution failed closed.',
+      }));
+      expect(mocks.agentRunsRepository.createRun).toHaveBeenCalledWith(expect.objectContaining({ status: 'running' }));
+      expect(mocks.agentRunsRepository.finalizeRun).toHaveBeenCalledWith(
+        expect.any(String),
+        expect.objectContaining({ status: 'failed', errorCode: 'RUNTIME_UNKNOWN_ERROR' }),
+        expect.any(Array),
+      );
+      expect(JSON.stringify(response.body)).not.toContain('private transport detail');
+    } finally {
+      executeSpy.mockRestore();
+    }
   });
 
   it('sends governed RAG resolved_context through AgentRun when explicitly enabled', async () => {

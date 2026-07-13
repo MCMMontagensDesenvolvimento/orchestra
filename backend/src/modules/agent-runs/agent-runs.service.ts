@@ -7,6 +7,7 @@ import { paginationMeta } from '../../shared/validation/pagination';
 import { recordAuditEvent } from '../audit/audit.service';
 import { recordAiUsageEvent } from '../ai-observability/ai-observability.service';
 import { knowledgeService } from '../knowledge/knowledge.service';
+import { buildAssistantRuntimeSpecV1 } from '../runtime/runtime.assistant-spec.builder';
 import { getRuntimeConfig } from '../runtime/runtime.config';
 import { buildRuntimeExecutionContext } from '../runtime/runtime.context';
 import type {
@@ -19,6 +20,8 @@ import type {
 import { normalizeRuntimeEvents } from '../runtime/runtime.events';
 import { runtimeAdapterRegistry } from '../runtime/runtime.registry';
 import { runtimeService } from '../runtime/runtime.service';
+import { getRuntimeToolGatewayConfig } from '../runtime/runtime.tool-gateway.config';
+import { runtimeToolGatewayService } from '../runtime/runtime.tool-gateway.service';
 import { mapAgentRun, mapAgentRunEvent } from './agent-runs.mapper';
 import { agentRunPolicies } from './agent-runs.policy';
 import { agentRunsRepository } from './agent-runs.repository';
@@ -290,6 +293,43 @@ function ragRetrievalFailedResult(provider: RuntimeProvider): RuntimeExecutionRe
         metadata: {
           provider,
           errorCode: 'RUNTIME_RAG_RETRIEVAL_FAILED',
+          ...metadata,
+        },
+      },
+    ],
+  };
+}
+
+function unexpectedRuntimeFailureResult(provider: RuntimeProvider): RuntimeExecutionResult {
+  const message = 'Runtime execution failed closed.';
+  const metadata = {
+    requestSent: true,
+    failedClosed: true,
+    toolCallsExecuted: 0,
+    externalMcpCalled: false,
+  };
+
+  return {
+    provider,
+    status: 'failed',
+    message,
+    errorCode: 'RUNTIME_UNKNOWN_ERROR',
+    errorMessage: message,
+    metadata,
+    events: [
+      {
+        type: 'provider_selected',
+        status: 'running',
+        message: 'Runtime provider selected by the Orchestra control plane.',
+        metadata: { provider },
+      },
+      {
+        type: 'run_failed',
+        status: 'failed',
+        message,
+        metadata: {
+          provider,
+          errorCode: 'RUNTIME_UNKNOWN_ERROR',
           ...metadata,
         },
       },
@@ -794,6 +834,23 @@ export const agentRunsService = {
       resolvedRag,
     });
     let runtimeResult: RuntimeExecutionResult;
+    let gatewayRunPersisted = false;
+    let gatewayRunActivated = false;
+    const gatewayConfig = getRuntimeToolGatewayConfig();
+    let gatewaySpec: ReturnType<typeof buildAssistantRuntimeSpecV1> | undefined;
+    if (!ragResolutionFailure && runtimeProvider === 'agno_http' && gatewayConfig.enabled) {
+      try {
+        const candidateSpec = buildAssistantRuntimeSpecV1({
+          context: runtimeContext,
+          timeoutMs: runtimeConfig.agnoHttpTimeoutMs,
+        });
+        gatewaySpec = candidateSpec.tools.enabled && candidateSpec.tools.mode === 'gateway'
+          ? candidateSpec
+          : undefined;
+      } catch {
+        gatewaySpec = undefined;
+      }
+    }
     if (ragResolutionFailure) {
       runtimeResult = ragResolutionFailure;
     } else {
@@ -820,14 +877,133 @@ export const agentRunsService = {
         context,
         metadata: { provider: runtimeProvider },
       });
-      runtimeResult = await runtimeService.execute(runtimeContext);
+      if (gatewaySpec) {
+        const startedAt = new Date();
+        await agentRunsRepository.createRun({
+          id: runId,
+          tenantId: user.tenant.id,
+          workspaceId: assistant.workspaceId,
+          assistantId: assistant.id,
+          assistantVersionId,
+          assistantPublicationId,
+          conversationId: options.conversationId,
+          requestedById: user.id,
+          status: 'running',
+          mode: input.mode,
+          source: input.source,
+          inputSummary: summarizeInput(input.input),
+          requestId: context.requestId,
+          traceId,
+          startedAt,
+          precheckSnapshot: precheck as unknown as Prisma.InputJsonValue,
+          metadata: mergeRuntimeMetadata({
+            metadata: sanitizedMetadata,
+            provider: runtimeProvider,
+            runtimeStatus: 'running',
+            requestId: context.requestId,
+            traceId,
+            runId,
+            tenantId: user.tenant.id,
+            workspaceId: assistant.workspaceId,
+            assistantId: assistant.id,
+            assistantVersionId,
+            assistantPublicationId,
+            actorUserId: user.id,
+            inputHash: runtimeContext.input.hash,
+            runtimeMetadata: {
+              runtimeSpecVersion: gatewaySpec.specVersion,
+              policyMaxToolCalls: gatewaySpec.policy.maxToolCalls,
+              toolDescriptorCount: gatewaySpec.tools.descriptors.length,
+              toolCallsExecuted: 0,
+              externalMcpCalled: false,
+            },
+            ragSummary: {
+              ragReady: runtimeContext.rag.ragReady,
+              knowledgeBindingsCount: runtimeContext.rag.knowledgeBindingsCount,
+              chunkCount: runtimeContext.rag.chunkCount,
+              sourceReferenceCount: runtimeContext.rag.sourceReferenceCount,
+              lastRagQueryId: runtimeContext.rag.lastRagQueryId,
+            },
+            mcpSummary: runtimeContext.mcp,
+          }),
+          events: [
+            ...requestedEvents,
+            {
+              type: 'run.precheck_passed',
+              status: 'running',
+              message: 'Precheck aprovado.',
+              metadata: { traceId, runtimeProvider },
+            },
+          ],
+        });
+        gatewayRunPersisted = true;
+        runtimeToolGatewayService.activateRun(gatewaySpec, {
+          provider: 'agno_http',
+          assistantPublicationId,
+        });
+        gatewayRunActivated = true;
+      }
+      try {
+        runtimeResult = await runtimeService.execute(runtimeContext);
+      } catch (error) {
+        if (!gatewayRunPersisted) throw error;
+        runtimeResult = unexpectedRuntimeFailureResult(runtimeProvider);
+      } finally {
+        if (gatewayRunActivated) runtimeToolGatewayService.deactivateRun(runId);
+      }
     }
     options.onRuntimeResult?.(runtimeResult);
     const normalizedRuntimeEvents = normalizeRuntimeEvents(runtimeResult);
     const now = new Date();
     const isFailed = runtimeResult.status === 'failed';
     const isBlocked = runtimeResult.status === 'blocked';
-    const run = await agentRunsRepository.createRun({
+    const finalMetadata = mergeRuntimeMetadata({
+      metadata: sanitizedMetadata,
+      provider: runtimeResult.provider,
+      runtimeStatus: runtimeResult.status,
+      requestId: context.requestId,
+      traceId,
+      runId,
+      tenantId: user.tenant.id,
+      workspaceId: assistant.workspaceId,
+      assistantId: assistant.id,
+      assistantVersionId,
+      assistantPublicationId,
+      actorUserId: user.id,
+      inputHash: runtimeContext.input.hash,
+      outputHash: runtimeResult.outputHash,
+      errorCode: runtimeResult.errorCode,
+      runtimeMetadata: runtimeResult.metadata,
+      ragSummary: {
+        ragReady: runtimeContext.rag.ragReady,
+        knowledgeBindingsCount: runtimeContext.rag.knowledgeBindingsCount,
+        chunkCount: runtimeContext.rag.chunkCount,
+        sourceReferenceCount: runtimeContext.rag.sourceReferenceCount,
+        lastRagQueryId: runtimeContext.rag.lastRagQueryId,
+      },
+      mcpSummary: runtimeContext.mcp,
+    });
+    const finalEvents = [
+      ...requestedEvents,
+      {
+        type: 'run.precheck_passed',
+        status: 'running',
+        message: 'Precheck aprovado.',
+        metadata: { traceId, runtimeProvider },
+      },
+      ...normalizedRuntimeEvents,
+    ];
+    const run = gatewayRunPersisted
+      ? await agentRunsRepository.finalizeRun(runId, {
+        status: runtimeResult.status,
+        completedAt: isFailed || isBlocked ? null : now,
+        failedAt: isFailed ? now : null,
+        blockedAt: isBlocked ? now : null,
+        errorCode: runtimeResult.errorCode ?? null,
+        errorMessage: runtimeResult.errorMessage ?? null,
+        metadata: finalMetadata,
+      }, normalizedRuntimeEvents)
+      : await agentRunsRepository.createRun({
       id: runId,
       tenantId: user.tenant.id,
       workspaceId: assistant.workspaceId,
@@ -849,42 +1025,8 @@ export const agentRunsService = {
       errorCode: runtimeResult.errorCode,
       errorMessage: runtimeResult.errorMessage,
       precheckSnapshot: precheck as unknown as Prisma.InputJsonValue,
-      metadata: mergeRuntimeMetadata({
-        metadata: sanitizedMetadata,
-        provider: runtimeResult.provider,
-        runtimeStatus: runtimeResult.status,
-        requestId: context.requestId,
-        traceId,
-        runId,
-        tenantId: user.tenant.id,
-        workspaceId: assistant.workspaceId,
-        assistantId: assistant.id,
-        assistantVersionId,
-        assistantPublicationId,
-        actorUserId: user.id,
-        inputHash: runtimeContext.input.hash,
-        outputHash: runtimeResult.outputHash,
-        errorCode: runtimeResult.errorCode,
-        runtimeMetadata: runtimeResult.metadata,
-        ragSummary: {
-          ragReady: runtimeContext.rag.ragReady,
-          knowledgeBindingsCount: runtimeContext.rag.knowledgeBindingsCount,
-          chunkCount: runtimeContext.rag.chunkCount,
-          sourceReferenceCount: runtimeContext.rag.sourceReferenceCount,
-          lastRagQueryId: runtimeContext.rag.lastRagQueryId,
-        },
-        mcpSummary: runtimeContext.mcp,
-      }),
-      events: [
-        ...requestedEvents,
-        {
-          type: 'run.precheck_passed',
-          status: 'running',
-          message: 'Precheck aprovado.',
-          metadata: { traceId, runtimeProvider },
-        },
-        ...normalizedRuntimeEvents,
-      ],
+      metadata: finalMetadata,
+      events: finalEvents,
     });
 
     await recordRuntimeUsageEvent({

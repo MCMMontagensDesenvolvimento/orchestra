@@ -508,6 +508,7 @@ export const mcpRepository = {
   },
 
   async createMcpToolCallWithEvents(input: {
+    id?: string;
     tenantId: string;
     workspaceId: string;
     assistantId: string;
@@ -539,6 +540,7 @@ export const mcpRepository = {
     return prisma.$transaction(async (tx) => {
       const call = await tx.mcpToolCall.create({
         data: {
+          id: input.id,
           tenantId: input.tenantId,
           workspaceId: input.workspaceId,
           assistantId: input.assistantId,
