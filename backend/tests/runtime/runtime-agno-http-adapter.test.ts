@@ -1,6 +1,6 @@
 import type { Prisma } from '@prisma/client';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import type { RuntimeExecutionContext } from '../../src/modules/runtime/runtime.types';
+import type { RuntimeExecutionContext, RuntimeProvider } from '../../src/modules/runtime/runtime.types';
 
 const originalEnv = { ...process.env };
 
@@ -30,6 +30,7 @@ function applyBaseEnv(overrides: Record<string, string | undefined> = {}) {
     AGNO_RUNTIME_HTTP_BASE_URL: '',
     AGNO_RUNTIME_HTTP_TIMEOUT_MS: '15000',
     AGNO_RUNTIME_HTTP_SECURITY_KEY: '',
+    AGNO_RUNTIME_HTTP_REQUIRE_SECURITY_KEY: 'false',
     AGNO_RUNTIME_HTTP_RAG_CONTEXT_ENABLED: 'false',
     AGNO_RUNTIME_HTTP_MAX_RAG_SOURCES: '5',
     AGNO_RUNTIME_HTTP_MAX_RAG_EXCERPT_CHARS: '1200',
@@ -198,6 +199,17 @@ describe('Agno HTTP runtime adapter', () => {
     expect(providers.find((provider) => provider.provider === 'agno_http')?.health.status).toBe('disabled');
   }, 30000);
 
+  it('does not silently fall back to local for an unregistered provider when fallback is disabled', async () => {
+    restoreEnv();
+    applyBaseEnv({ RUNTIME_ALLOW_PROVIDER_FALLBACK: 'false' });
+    vi.resetModules();
+    const { runtimeAdapterRegistry } = await import('../../src/modules/runtime/runtime.registry');
+
+    expect(() => runtimeAdapterRegistry.get('unregistered' as RuntimeProvider)).toThrow(
+      'automatic fallback is disabled',
+    );
+  });
+
   it('does not call runtime HTTP when disabled', async () => {
     const adapter = await agnoHttpAdapter({ AGNO_RUNTIME_HTTP_ENABLED: 'false' });
     const fetchMock = vi.fn();
@@ -210,18 +222,34 @@ describe('Agno HTTP runtime adapter', () => {
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
-  it('fails closed when enabled without a valid base URL', async () => {
-    const adapter = await agnoHttpAdapter({ AGNO_RUNTIME_HTTP_ENABLED: 'true', AGNO_RUNTIME_HTTP_BASE_URL: '' });
-    const fetchMock = vi.fn();
-    vi.stubGlobal('fetch', fetchMock);
+  it.each([
+    '',
+    'ftp://runtime.example.test',
+    'https://user:password@runtime.example.test',
+    'https://runtime.example.test?mode=unsafe',
+    'https://runtime.example.test#unsafe',
+  ])('rejects enabled runtime configuration with unsafe base URL %s', async (baseUrl) => {
+    await expect(agnoHttpAdapter({
+      AGNO_RUNTIME_HTTP_ENABLED: 'true',
+      AGNO_RUNTIME_HTTP_BASE_URL: baseUrl,
+    })).rejects.toThrow();
+  });
 
-    const health = await adapter.healthCheck();
-    const result = await adapter.execute(context());
+  it.each(['999', '120001'])('rejects unsafe runtime timeout %sms', async (timeoutMs) => {
+    await expect(agnoHttpAdapter({
+      AGNO_RUNTIME_HTTP_ENABLED: 'true',
+      AGNO_RUNTIME_HTTP_BASE_URL: 'https://runtime.example.test',
+      AGNO_RUNTIME_HTTP_TIMEOUT_MS: timeoutMs,
+    })).rejects.toThrow();
+  });
 
-    expect(health.status).toBe('misconfigured');
-    expect(result.status).toBe('failed');
-    expect(result.errorCode).toBe('RUNTIME_BAD_REQUEST');
-    expect(fetchMock).not.toHaveBeenCalled();
+  it('requires authentication material when the explicit security gate is enabled', async () => {
+    await expect(agnoHttpAdapter({
+      AGNO_RUNTIME_HTTP_ENABLED: 'true',
+      AGNO_RUNTIME_HTTP_BASE_URL: 'https://runtime.example.test',
+      AGNO_RUNTIME_HTTP_REQUIRE_SECURITY_KEY: 'true',
+      AGNO_RUNTIME_HTTP_SECURITY_KEY: '',
+    })).rejects.toThrow();
   });
 
   it('calls /execute when enabled and sends a RuntimeExecuteRequestV1 body', async () => {
@@ -612,11 +640,13 @@ describe('Agno HTTP runtime adapter', () => {
       return new Response(JSON.stringify(runtimeResponse()), { status: 200 });
     }));
 
-    await adapter.execute(context());
+    const result = await adapter.execute(context());
 
     expect(calls[0].init?.headers).toEqual(expect.objectContaining({ Authorization: 'Bearer server-secret-key' }));
     expect(calls[0].body).not.toContain('server-secret-key');
     expect(calls[0].body).not.toContain('Authorization');
+    expect(JSON.stringify(result)).not.toContain('server-secret-key');
+    expect(JSON.stringify(result)).not.toContain('Authorization');
   });
 
   it('normalizes agno_http trace, latency and invalid usage fields safely', async () => {

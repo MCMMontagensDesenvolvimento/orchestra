@@ -92,6 +92,7 @@ export interface RuntimeFeatureConfig {
   agnoHttpConfigured: boolean;
   agnoHttpBaseUrlConfigured: boolean;
   agnoHttpSecurityKeyConfigured: boolean;
+  agnoHttpSecurityRequired: boolean;
   agnoHttpTimeoutMs: number;
   agnoHttpRagContextEnabled: boolean;
   agnoHttpMaxRagSources: number;
@@ -252,6 +253,8 @@ export interface RuntimeAdapter {
 export interface RuntimeProviderSummary {
   provider: RuntimeProvider;
   current: boolean;
+  enabled: boolean;
+  configured: boolean;
   health: RuntimeHealth;
   capabilities: RuntimeCapabilities;
 }

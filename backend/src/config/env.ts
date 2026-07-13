@@ -1,5 +1,11 @@
 import dotenv from 'dotenv';
 import { z } from 'zod';
+import {
+  agnoRuntimeHttpTimeoutMaxMs,
+  agnoRuntimeHttpTimeoutMinMs,
+  normalizeAgnoRuntimeHttpBaseUrl,
+  normalizeAgnoRuntimeHttpSecurityKey,
+} from './agno-runtime-http-security';
 
 dotenv.config();
 
@@ -23,15 +29,32 @@ const safeNonNegativeInteger = (defaultValue: number) =>
     const parsed = Number(value);
     return Number.isInteger(parsed) && parsed >= 0 ? parsed : defaultValue;
   }, z.number().int().nonnegative());
-const optionalUrl = z.preprocess((value) => {
-  const normalized = blankToUndefined(value);
-  if (typeof normalized !== 'string') return undefined;
+const agnoRuntimeHttpBaseUrl = z.preprocess(blankToUndefined, z.string().transform((value, ctx) => {
   try {
-    return new URL(normalized).toString().replace(/\/$/, '');
-  } catch {
-    return undefined;
+    return normalizeAgnoRuntimeHttpBaseUrl(value);
+  } catch (error) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: error instanceof Error ? error.message : 'Agno runtime HTTP base URL is invalid.',
+    });
+    return z.NEVER;
   }
-}, z.string().url().optional());
+}).optional());
+const agnoRuntimeHttpSecurityKey = z.preprocess(blankToUndefined, z.string().transform((value, ctx) => {
+  try {
+    return normalizeAgnoRuntimeHttpSecurityKey(value);
+  } catch (error) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: error instanceof Error ? error.message : 'Agno runtime HTTP security key is invalid.',
+    });
+    return z.NEVER;
+  }
+}).optional());
+const agnoRuntimeHttpTimeout = z.preprocess(
+  blankToUndefined,
+  z.coerce.number().int().min(agnoRuntimeHttpTimeoutMinMs).max(agnoRuntimeHttpTimeoutMaxMs).default(15000),
+);
 
 const envSchema = z.object({
   NODE_ENV: z.enum(['development', 'test', 'production']).default('development'),
@@ -86,9 +109,10 @@ const envSchema = z.object({
   AGNO_MAX_INPUT_PREVIEW_CHARS: z.coerce.number().int().positive().default(500),
   AGNO_MAX_OUTPUT_PREVIEW_CHARS: z.coerce.number().int().positive().default(800),
   AGNO_RUNTIME_HTTP_ENABLED: booleanString('false'),
-  AGNO_RUNTIME_HTTP_BASE_URL: optionalUrl,
-  AGNO_RUNTIME_HTTP_TIMEOUT_MS: safePositiveInteger(15000),
-  AGNO_RUNTIME_HTTP_SECURITY_KEY: z.preprocess(blankToUndefined, z.string().optional()),
+  AGNO_RUNTIME_HTTP_BASE_URL: agnoRuntimeHttpBaseUrl,
+  AGNO_RUNTIME_HTTP_TIMEOUT_MS: agnoRuntimeHttpTimeout,
+  AGNO_RUNTIME_HTTP_SECURITY_KEY: agnoRuntimeHttpSecurityKey,
+  AGNO_RUNTIME_HTTP_REQUIRE_SECURITY_KEY: booleanString('false'),
   AGNO_RUNTIME_HTTP_RAG_CONTEXT_ENABLED: booleanString('false'),
   AGNO_RUNTIME_HTTP_MAX_RAG_SOURCES: safePositiveInteger(5),
   AGNO_RUNTIME_HTTP_MAX_RAG_EXCERPT_CHARS: safePositiveInteger(1200),
@@ -135,6 +159,25 @@ const envSchema = z.object({
   ANTHROPIC_BASE_URL: z.string().url().default('https://api.anthropic.com'),
   ANTHROPIC_DEFAULT_MODEL: z.preprocess(emptyToUndefined, z.string().optional()),
   ANTHROPIC_EXECUTION_ENABLED: booleanString('false'),
+}).superRefine((value, ctx) => {
+  if (value.AGNO_RUNTIME_HTTP_ENABLED && !value.AGNO_RUNTIME_HTTP_BASE_URL) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ['AGNO_RUNTIME_HTTP_BASE_URL'],
+      message: 'AGNO_RUNTIME_HTTP_BASE_URL is required when AGNO_RUNTIME_HTTP_ENABLED=true.',
+    });
+  }
+  if (
+    value.AGNO_RUNTIME_HTTP_ENABLED
+    && value.AGNO_RUNTIME_HTTP_REQUIRE_SECURITY_KEY
+    && !value.AGNO_RUNTIME_HTTP_SECURITY_KEY
+  ) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ['AGNO_RUNTIME_HTTP_SECURITY_KEY'],
+      message: 'Agno runtime HTTP authentication is required but not configured.',
+    });
+  }
 });
 
 export const env = envSchema.parse(process.env);

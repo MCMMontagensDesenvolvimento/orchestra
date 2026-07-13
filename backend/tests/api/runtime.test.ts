@@ -29,6 +29,7 @@ const originalRuntimeEnv = {
   AGNO_RUNTIME_HTTP_ENABLED: env.AGNO_RUNTIME_HTTP_ENABLED,
   AGNO_RUNTIME_HTTP_BASE_URL: env.AGNO_RUNTIME_HTTP_BASE_URL,
   AGNO_RUNTIME_HTTP_SECURITY_KEY: env.AGNO_RUNTIME_HTTP_SECURITY_KEY,
+  AGNO_RUNTIME_HTTP_REQUIRE_SECURITY_KEY: env.AGNO_RUNTIME_HTTP_REQUIRE_SECURITY_KEY,
 };
 
 function configureRuntime(overrides: Partial<typeof originalRuntimeEnv> = {}) {
@@ -45,6 +46,7 @@ function configureRuntime(overrides: Partial<typeof originalRuntimeEnv> = {}) {
     AGNO_RUNTIME_HTTP_ENABLED: false,
     AGNO_RUNTIME_HTTP_BASE_URL: undefined,
     AGNO_RUNTIME_HTTP_SECURITY_KEY: undefined,
+    AGNO_RUNTIME_HTTP_REQUIRE_SECURITY_KEY: false,
     ...overrides,
   });
 }
@@ -95,7 +97,9 @@ describe('runtime adapter boundary endpoints', () => {
     expect(response.body.data.map((provider: { provider: string }) => provider.provider)).toEqual(['local', 'agno_stub', 'agno', 'agno_http']);
     expect(response.body.data.find((provider: { provider: string; current: boolean }) => provider.provider === 'local').current).toBe(true);
     expect(response.body.data.find((provider: { provider: string; health: { status: string } }) => provider.provider === 'agno_stub').health.status).toBe('disabled');
-    expect(response.body.data.find((provider: { provider: string; health: { status: string } }) => provider.provider === 'agno_http').health.status).toBe('disabled');
+    expect(response.body.data.find((provider: { provider: string }) => provider.provider === 'agno_http')).toEqual(
+      expect.objectContaining({ enabled: false, configured: false, health: expect.objectContaining({ status: 'disabled' }) }),
+    );
     expect(mocks.recordAuditEvent).toHaveBeenCalledWith(expect.objectContaining({ action: 'agno_adapter_readiness_checked' }));
   });
 
@@ -130,6 +134,28 @@ describe('runtime adapter boundary endpoints', () => {
     expect(JSON.stringify(response.body.data)).not.toContain('AGNO_RUNTIME_HTTP_SECURITY_KEY');
     expect(JSON.stringify(response.body.data)).not.toContain('127.0.0.1:8091');
     expect(JSON.stringify(response.body.data).toLowerCase()).not.toContain('secret');
+  });
+
+  it('returns explicit safe provider state without exposing transport configuration', async () => {
+    const fakeCredential = 'phase-16d-provider-list-key';
+    configureRuntime({
+      AGNO_RUNTIME_HTTP_ENABLED: false,
+      AGNO_RUNTIME_HTTP_BASE_URL: 'https://runtime.example.test/private-path',
+      AGNO_RUNTIME_HTTP_SECURITY_KEY: fakeCredential,
+    });
+
+    const response = await request(createApp())
+      .get('/api/v1/runtime/providers')
+      .set('Cookie', [sessionCookie()])
+      .expect(200);
+
+    const agnoHttp = response.body.data.find((provider: { provider: string }) => provider.provider === 'agno_http');
+    const serialized = JSON.stringify(response.body.data);
+    expect(agnoHttp).toEqual(expect.objectContaining({ enabled: false, configured: true }));
+    expect(serialized).not.toContain('https://runtime.example.test/private-path');
+    expect(serialized).not.toContain(fakeCredential);
+    expect(serialized).not.toContain('Authorization');
+    expect(serialized).not.toContain('headers');
   });
 
   it('protects runtime endpoints with auth and permissions', async () => {

@@ -146,7 +146,7 @@ describe('Agno HTTP runtime client', () => {
       });
       return jsonResponse(executeResponse());
     }));
-    const client = new AgnoHttpRuntimeClient({ baseUrl: 'http://127.0.0.1:8091', timeoutMs: 15000 });
+    const client = new AgnoHttpRuntimeClient({ baseUrl: 'http://127.0.0.1:8091///', timeoutMs: 15000 });
 
     const response = await client.execute(executeRequest());
 
@@ -185,6 +185,87 @@ describe('Agno HTTP runtime client', () => {
     expect(calls[0].init?.headers).toEqual(expect.objectContaining({ Authorization: 'Bearer server-to-server-key' }));
     expect(calls[0].body).not.toContain('server-to-server-key');
     expect(calls[0].body).not.toContain('Authorization');
+  });
+
+  it('authenticates health, capabilities, and execute with the same server-to-server credential', async () => {
+    const fakeCredential = 'phase-16d-fake-runtime-key';
+    const calls: Array<{ url: string; init?: RequestInit }> = [];
+    vi.stubGlobal('fetch', vi.fn(async (url: string, init?: RequestInit) => {
+      calls.push({ url, init });
+      if (url.endsWith('/health')) {
+        return jsonResponse({
+          provider: 'agno',
+          protocolVersion: assistantRuntimeSpecVersionV1,
+          status: 'healthy',
+          checkedAt: '2026-07-01T12:00:00.000Z',
+        });
+      }
+      if (url.endsWith('/capabilities')) {
+        return jsonResponse({
+          provider: 'agno',
+          protocolVersion: assistantRuntimeSpecVersionV1,
+          supportsStreaming: false,
+          supportsTools: false,
+          supportsRagContext: true,
+          supportsFileInputs: false,
+          maxInputChars: 16000,
+          maxToolCalls: 0,
+        });
+      }
+      return jsonResponse(executeResponse());
+    }));
+    const client = new AgnoHttpRuntimeClient({
+      baseUrl: 'https://runtime.example.test/orchestra/',
+      timeoutMs: 15000,
+      securityKey: fakeCredential,
+    });
+
+    await client.getHealth();
+    await client.getCapabilities();
+    await client.execute(executeRequest());
+
+    expect(calls.map((call) => call.url)).toEqual([
+      'https://runtime.example.test/orchestra/health',
+      'https://runtime.example.test/orchestra/capabilities',
+      'https://runtime.example.test/orchestra/execute',
+    ]);
+    for (const call of calls) {
+      expect(call.init?.headers).toEqual(expect.objectContaining({ Authorization: `Bearer ${fakeCredential}` }));
+    }
+    expect(JSON.stringify(calls.map((call) => call.init?.body))).not.toContain(fakeCredential);
+  });
+
+  it.each([
+    'ftp://runtime.example.test',
+    'https://user:password@runtime.example.test',
+    'https://runtime.example.test?mode=unsafe',
+    'https://runtime.example.test#unsafe',
+  ])('rejects unsafe base URL %s before making a request', (baseUrl) => {
+    expect(() => new AgnoHttpRuntimeClient({ baseUrl, timeoutMs: 15000 })).toThrow();
+  });
+
+  it('rejects a response that echoes private transport configuration without leaking it in the error', async () => {
+    const fakeCredential = 'phase-16d-private-runtime-key';
+    vi.stubGlobal('fetch', vi.fn(async () => jsonResponse({
+      ...executeResponse('failed'),
+      error: {
+        code: 'RUNTIME_BAD_REQUEST',
+        message: `unexpected echo ${fakeCredential}`,
+        retryable: false,
+      },
+    }, 400)));
+    const client = new AgnoHttpRuntimeClient({
+      baseUrl: 'https://runtime.example.test',
+      timeoutMs: 15000,
+      securityKey: fakeCredential,
+    });
+
+    const error = await client.execute(executeRequest()).catch((caught: unknown) => caught);
+    const serialized = error instanceof Error ? `${error.name}:${error.message}:${JSON.stringify(error)}` : JSON.stringify(error);
+
+    expect(error).toMatchObject({ code: 'RUNTIME_INVALID_RESPONSE' });
+    expect(serialized).not.toContain(fakeCredential);
+    expect(serialized).not.toContain('Authorization');
   });
 
   it('maps runtime HTTP 400 and 403 to normalized errors', async () => {

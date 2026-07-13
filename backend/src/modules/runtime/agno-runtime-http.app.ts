@@ -1,4 +1,6 @@
+import { timingSafeEqual } from 'node:crypto';
 import express, { type ErrorRequestHandler, type RequestHandler } from 'express';
+import { normalizeAgnoRuntimeHttpSecurityKey } from '../../config/agno-runtime-http-security';
 import {
   agnoRuntimeHttpCapabilities,
   agnoRuntimeHttpHealth,
@@ -17,13 +19,27 @@ const jsonOnly: RequestHandler = (req, res, next) => {
   next();
 };
 
-export function createAgnoRuntimeHttpApp() {
+interface AgnoRuntimeHttpAppOptions {
+  securityKey?: string | null;
+  requireSecurityKey?: boolean;
+}
+
+export function createAgnoRuntimeHttpApp(options: AgnoRuntimeHttpAppOptions = {}) {
   const app = express();
+  const securityKey = options.securityKey === null
+    ? undefined
+    : normalizeAgnoRuntimeHttpSecurityKey(options.securityKey ?? process.env.AGNO_RUNTIME_HTTP_SECURITY_KEY);
+  const securityRequired = options.requireSecurityKey
+    ?? process.env.AGNO_RUNTIME_HTTP_REQUIRE_SECURITY_KEY?.trim().toLowerCase() === 'true';
+  if (securityRequired && !securityKey) {
+    throw new Error('Agno runtime HTTP authentication is required but not configured.');
+  }
+  const authenticate = requireRuntimeAuthentication(securityKey);
 
   app.disable('x-powered-by');
   app.use(express.json({ limit: '64kb', type: 'application/json' }));
 
-  app.get('/health', (_req, res, next) => {
+  app.get('/health', authenticate, (_req, res, next) => {
     try {
       res.status(200).json(agnoRuntimeHttpHealth());
     } catch (error) {
@@ -31,7 +47,7 @@ export function createAgnoRuntimeHttpApp() {
     }
   });
 
-  app.get('/capabilities', (_req, res, next) => {
+  app.get('/capabilities', authenticate, (_req, res, next) => {
     try {
       res.status(200).json(agnoRuntimeHttpCapabilities());
     } catch (error) {
@@ -39,7 +55,7 @@ export function createAgnoRuntimeHttpApp() {
     }
   });
 
-  app.post('/execute', jsonOnly, (req, res, next) => {
+  app.post('/execute', authenticate, jsonOnly, (req, res, next) => {
     try {
       const result = executeAgnoRuntimeHttpContract(req.body as unknown);
       res.status(result.httpStatus).json(result.body);
@@ -60,6 +76,25 @@ export function createAgnoRuntimeHttpApp() {
   app.use(agnoRuntimeHttpErrorHandler);
 
   return app;
+}
+
+function requireRuntimeAuthentication(securityKey: string | undefined): RequestHandler {
+  if (!securityKey) return (_req, _res, next) => next();
+  const expected = Buffer.from(`Bearer ${securityKey}`, 'utf8');
+
+  return (req, res, next) => {
+    const actual = Buffer.from(req.get('authorization') ?? '', 'utf8');
+    if (actual.length === expected.length && timingSafeEqual(actual, expected)) {
+      next();
+      return;
+    }
+    res.status(401).json({
+      error: {
+        code: 'UNAUTHORIZED',
+        message: 'Runtime authentication failed.',
+      },
+    });
+  };
 }
 
 const agnoRuntimeHttpErrorHandler: ErrorRequestHandler = (error, _req, res, next) => {
