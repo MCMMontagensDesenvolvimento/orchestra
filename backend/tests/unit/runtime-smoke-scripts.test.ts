@@ -9,6 +9,7 @@ const smokeScripts = [
   'scripts/smoke-agno-runtime-mvp.sh',
   'scripts/smoke-chat-contexto-15e.sh',
   'scripts/smoke-chat-provider-real-15h.sh',
+  'scripts/smoke-agno-runtime-security-16d.sh',
 ];
 
 const destructivePatterns = [
@@ -98,5 +99,56 @@ describe('runtime smoke scripts', () => {
     expect(content).not.toMatch(/\/responses\b/);
     expect(content).not.toMatch(/\/test-generation\b/);
     expect(content).not.toMatch(/\/chat\/conversations/);
+  });
+
+  it('keeps the 16D preflight syntax-valid, offline by default, and secret-safe', () => {
+    const script = 'scripts/smoke-agno-runtime-security-16d.sh';
+    const path = resolve(repoRoot, script);
+    const fakeCredential = ['phase16d', 'placeholder', 'credential'].join('-');
+    const syntaxCheck = spawnSync('bash', ['-n', path], { encoding: 'utf8' });
+    const dryRun = spawnSync('bash', [path, '--dry-run'], {
+      encoding: 'utf8',
+      env: {
+        ...process.env,
+        RUNTIME_PROVIDER: 'agno_http',
+        RUNTIME_ADAPTER_ENABLED: 'true',
+        RUNTIME_ALLOW_PROVIDER_FALLBACK: 'false',
+        AGNO_RUNTIME_HTTP_ENABLED: 'true',
+        AGNO_RUNTIME_HTTP_BASE_URL: 'https://runtime.example.test/orchestra/',
+        AGNO_RUNTIME_HTTP_TIMEOUT_MS: '15000',
+        AGNO_RUNTIME_HTTP_REQUIRE_SECURITY_KEY: 'true',
+        AGNO_RUNTIME_HTTP_SECURITY_KEY: fakeCredential,
+      },
+    });
+    const unsafeUrl = 'https://phase-user:phase-password@runtime.example.test';
+    const unsafeRun = spawnSync('bash', [path, '--dry-run'], {
+      encoding: 'utf8',
+      env: {
+        ...process.env,
+        RUNTIME_PROVIDER: 'agno_http',
+        RUNTIME_ADAPTER_ENABLED: 'true',
+        RUNTIME_ALLOW_PROVIDER_FALLBACK: 'false',
+        AGNO_RUNTIME_HTTP_ENABLED: 'true',
+        AGNO_RUNTIME_HTTP_BASE_URL: unsafeUrl,
+        AGNO_RUNTIME_HTTP_TIMEOUT_MS: '15000',
+        AGNO_RUNTIME_HTTP_REQUIRE_SECURITY_KEY: 'false',
+        AGNO_RUNTIME_HTTP_SECURITY_KEY: '',
+      },
+    });
+
+    expect(syntaxCheck.status, syntaxCheck.stderr).toBe(0);
+    expect(dryRun.status, dryRun.stderr).toBe(0);
+    expect(`${dryRun.stdout}${dryRun.stderr}`).not.toContain(fakeCredential);
+    expect(dryRun.stdout).toMatch(/no network request was attempted/);
+    expect(unsafeRun.status).not.toBe(0);
+    expect(`${unsafeRun.stdout}${unsafeRun.stderr}`).not.toContain(unsafeUrl);
+
+    const content = readFileSync(path, 'utf8');
+    expect(content).not.toMatch(/(?:source|\.\s+)\s*[^\n]*\.env/);
+    expect(content).not.toMatch(/dotenv/i);
+    expect(content).not.toMatch(/set\s+-[a-z]*x/);
+    expect(content).not.toMatch(/\/execute\b/);
+    expect(content).not.toMatch(/\/chat\/conversations/);
+    expect(content).not.toMatch(/(?:echo|printf)[^\n]*\$\{?AGNO_RUNTIME_HTTP_SECURITY_KEY/);
   });
 });

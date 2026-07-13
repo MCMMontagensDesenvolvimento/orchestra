@@ -1,5 +1,9 @@
 import type { ZodType } from 'zod';
 import {
+  normalizeAgnoRuntimeHttpBaseUrl,
+  normalizeAgnoRuntimeHttpSecurityKey,
+} from '../../config/agno-runtime-http-security';
+import {
   runtimeCapabilitiesResponseV1Schema,
   runtimeExecuteRequestV1Schema,
   runtimeExecuteResponseV1Schema,
@@ -56,9 +60,9 @@ export class AgnoHttpRuntimeClient {
   private readonly executePath: string;
 
   constructor(options: AgnoHttpRuntimeClientOptions) {
-    this.baseUrl = options.baseUrl.replace(/\/+$/, '');
+    this.baseUrl = normalizeAgnoRuntimeHttpBaseUrl(options.baseUrl);
     this.timeoutMs = options.timeoutMs;
-    this.securityKey = options.securityKey;
+    this.securityKey = normalizeAgnoRuntimeHttpSecurityKey(options.securityKey);
     this.healthPath = options.healthPath ?? '/health';
     this.capabilitiesPath = options.capabilitiesPath ?? '/capabilities';
     this.executePath = options.executePath ?? '/execute';
@@ -105,6 +109,13 @@ export class AgnoHttpRuntimeClient {
         signal: controller.signal,
       });
       const json = parseJson(await response.text());
+      if (containsConfiguredValue(json, this.securityKey) || containsConfiguredValue(json, this.baseUrl)) {
+        throw new AgnoHttpRuntimeClientError({
+          code: 'RUNTIME_INVALID_RESPONSE',
+          message: 'Agno HTTP runtime returned a response containing private transport configuration.',
+          retryable: false,
+        });
+      }
 
       if (!response.ok) {
         throw errorFromHttpResponse(response.status, json);
@@ -124,7 +135,7 @@ export class AgnoHttpRuntimeClient {
 
       return parsed.data;
     } catch (error) {
-      if (error instanceof AgnoHttpRuntimeClientError) throw error;
+      if (error instanceof AgnoHttpRuntimeClientError) throw sanitizeClientError(error, this.securityKey, this.baseUrl);
       if (isAbortError(error)) {
         throw new AgnoHttpRuntimeClientError({
           code: 'RUNTIME_TIMEOUT',
@@ -236,4 +247,28 @@ function safeNonNegativeInteger(value: unknown) {
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value) && typeof value === 'object' && !Array.isArray(value);
+}
+
+function containsConfiguredValue(value: unknown, configuredValue: string | undefined, depth = 0): boolean {
+  if (!configuredValue || depth > 8) return false;
+  if (typeof value === 'string') return value.includes(configuredValue);
+  if (Array.isArray(value)) return value.some((item) => containsConfiguredValue(item, configuredValue, depth + 1));
+  if (!isRecord(value)) return false;
+  return Object.entries(value).some(([key, item]) => (
+    key.includes(configuredValue) || containsConfiguredValue(item, configuredValue, depth + 1)
+  ));
+}
+
+function sanitizeClientError(
+  error: AgnoHttpRuntimeClientError,
+  securityKey: string | undefined,
+  baseUrl: string,
+) {
+  if (!containsConfiguredValue(error.message, securityKey) && !error.message.includes(baseUrl)) return error;
+  return new AgnoHttpRuntimeClientError({
+    code: error.code,
+    message: 'Agno HTTP runtime request failed without exposing private transport configuration.',
+    httpStatus: error.httpStatus,
+    retryable: error.retryable,
+  });
 }

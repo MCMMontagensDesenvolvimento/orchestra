@@ -115,6 +115,7 @@ Topicos esperados:
 - `ORCHESTRA_AGNO_LLM_REAL_CHAT_16A.md`: integracao governada `Chat -> AgentRun -> agno_http -> LLM`, com contrato minimizado, policy de provider/model, fake runtime, observabilidade, homologacao manual e rollback.
 - `ORCHESTRA_AGNO_RAG_GOVERNADO_CHAT_16B.md`: integracao `Chat -> AgentRun -> RAG governado -> agno_http`, com retrieval oficial no Orchestra, contexto resolvido e minimizado, limites, fail-closed, observabilidade segura, homologacao e rollback.
 - `ORCHESTRA_AGNO_MCP_TOOLS_GOVERNADOS_CHAT_16C.md`: integracao `Chat -> AgentRun -> MCP/tools governados -> agno_http`, com selecao no Orchestra, descriptors minimizados, gateway simbolico, fake sem chamadas externas, observabilidade quantitativa, homologacao e rollback.
+- `ORCHESTRA_AGNO_RUNTIME_SECURITY_16D.md`: hardening da comunicacao `Orchestra -> agno_http -> Agno`, com URL/timeout strict, autenticacao de health/capabilities/execute, registry sem configuracao privada, rotacao, preflight e checklist de homologacao.
 - `ORCHESTRA_LLM_PROVIDER_INTEGRATION.md`: catalogo LLM, provider local deterministico, providers externos fail-closed e eventos LLM em AgentRun.
 - `ORCHESTRA_RAG_SEMANTICO_DISCOVERY.md`: discovery tecnico da Fase 10A para RAG semantico, embeddings e vector store.
 - `ORCHESTRA_VECTOR_STORE_EMBEDDING_CONTRACT.md`: decisao tecnica da Fase 10B para pgvector, tabela de embeddings, readiness semantico e fail-closed.

@@ -99,8 +99,8 @@ function validExecuteRequest(spec = validSpec()): RuntimeExecuteRequestV1 {
   };
 }
 
-function app() {
-  return createAgnoRuntimeHttpApp();
+function app(securityKey: string | null = null) {
+  return createAgnoRuntimeHttpApp({ securityKey, requireSecurityKey: false });
 }
 
 describe('Agno-compatible minimal runtime HTTP service', () => {
@@ -129,6 +129,40 @@ describe('Agno-compatible minimal runtime HTTP service', () => {
       expect(parsed.data.supportsExternalProviders).toBe(false);
       expect(parsed.data.supportsFileInputs).toBe(false);
     }
+  });
+
+  it('requires the configured credential on health, capabilities, and execute without echoing it', async () => {
+    const fakeCredential = 'phase-16d-runtime-auth-key';
+    const protectedApp = app(fakeCredential);
+
+    const unauthorizedHealth = await request(protectedApp).get('/health').expect(401);
+    const unauthorizedCapabilities = await request(protectedApp).get('/capabilities').expect(401);
+    const unauthorizedExecute = await request(protectedApp)
+      .post('/execute')
+      .send(validExecuteRequest())
+      .expect(401);
+
+    await request(protectedApp)
+      .get('/health')
+      .set('Authorization', `Bearer ${fakeCredential}`)
+      .expect(200);
+    await request(protectedApp)
+      .get('/capabilities')
+      .set('Authorization', `Bearer ${fakeCredential}`)
+      .expect(200);
+    await request(protectedApp)
+      .post('/execute')
+      .set('Authorization', `Bearer ${fakeCredential}`)
+      .send(validExecuteRequest())
+      .expect(200);
+
+    expect(`${unauthorizedHealth.text}${unauthorizedCapabilities.text}${unauthorizedExecute.text}`).not.toContain(fakeCredential);
+  });
+
+  it('refuses to start when authentication is required without a configured credential', () => {
+    expect(() => createAgnoRuntimeHttpApp({ securityKey: null, requireSecurityKey: true })).toThrow(
+      'Agno runtime HTTP authentication is required but not configured.',
+    );
   });
 
   it('returns a contract-valid response for a valid execute request', async () => {

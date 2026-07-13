@@ -30,6 +30,7 @@ export function mapRuntimeConfig(config: RuntimeFeatureConfig) {
     agnoHttpConfigured: config.agnoHttpConfigured,
     agnoHttpBaseUrlConfigured: config.agnoHttpBaseUrlConfigured,
     agnoHttpSecurityKeyConfigured: config.agnoHttpSecurityKeyConfigured,
+    agnoHttpSecurityRequired: config.agnoHttpSecurityRequired,
     agnoHttpTimeoutMs: config.agnoHttpTimeoutMs,
   };
 }
@@ -43,5 +44,17 @@ export function mapRuntimeCapabilities(capabilities: RuntimeCapabilities) {
 }
 
 export function mapRuntimeProvider(provider: RuntimeProviderSummary) {
-  return provider;
+  return {
+    provider: provider.provider,
+    current: provider.current,
+    enabled: provider.enabled,
+    configured: provider.configured,
+    health: {
+      provider: provider.health.provider,
+      status: provider.health.status,
+      message: provider.health.message,
+      checkedAt: provider.health.checkedAt,
+    },
+    capabilities: provider.capabilities,
+  };
 }

@@ -334,7 +334,7 @@ export class AgnoHttpRuntimeAdapter implements RuntimeAdapter {
       return {
         provider: this.provider,
         status: 'misconfigured',
-        message: 'Agno HTTP runtime adapter is enabled but AGNO_RUNTIME_HTTP_BASE_URL is missing or invalid.',
+        message: 'Agno HTTP runtime adapter is enabled but required transport configuration is missing or invalid.',
         checkedAt: new Date().toISOString(),
         details: {
           requestSent: false,
@@ -342,6 +342,7 @@ export class AgnoHttpRuntimeAdapter implements RuntimeAdapter {
           agnoHttpConfigured: false,
           baseUrlConfigured: config.agnoHttpBaseUrlConfigured,
           securityKeyConfigured: config.agnoHttpSecurityKeyConfigured,
+          securityRequired: config.agnoHttpSecurityRequired,
         },
       };
     }
@@ -356,6 +357,7 @@ export class AgnoHttpRuntimeAdapter implements RuntimeAdapter {
         agnoHttpEnabled: true,
         agnoHttpConfigured: true,
         securityKeyConfigured: config.agnoHttpSecurityKeyConfigured,
+        securityRequired: config.agnoHttpSecurityRequired,
       },
     };
   }
@@ -493,18 +495,29 @@ function summarizeToolSpec(tools: AssistantRuntimeToolSpec, maxToolCalls: number
 }
 
 function normalizeHealth(provider: RuntimeProvider, response: RuntimeHealthResponseV1): RuntimeHealth {
+  const runtimeDetails = allowlistedRuntimeHealthDetails(response.details);
   return {
     provider,
     status: response.status,
-    message: response.message ?? `Agno HTTP runtime reported ${response.status}.`,
+    message: `Agno HTTP runtime reported ${response.status}.`,
     checkedAt: new Date().toISOString(),
     details: {
       httpCalled: true,
       runtimeProvider: response.provider,
       protocolVersion: response.protocolVersion,
-      runtimeDetails: sanitizeMetadata(response.details),
+      ...(runtimeDetails ? { runtimeDetails } : {}),
     },
   };
+}
+
+function allowlistedRuntimeHealthDetails(details: RuntimeHealthResponseV1['details']) {
+  if (!details) return undefined;
+  const safeDetails: Record<string, Prisma.InputJsonValue> = {};
+  if (details.mode === 'sandbox' || details.mode === 'real') safeDetails.mode = details.mode;
+  for (const key of ['externalProvidersCalled', 'databaseCalled'] as const) {
+    if (typeof details[key] === 'boolean') safeDetails[key] = details[key];
+  }
+  return Object.keys(safeDetails).length > 0 ? safeDetails : undefined;
 }
 
 function normalizeCapabilities(

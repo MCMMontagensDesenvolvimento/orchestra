@@ -3,6 +3,9 @@ import type { RuntimeFeatureConfig, RuntimeProvider } from './runtime.types';
 
 export function getRuntimeConfig(): RuntimeFeatureConfig {
   const requestTimeoutMs = env.RUNTIME_REQUEST_TIMEOUT_MS ?? env.RUNTIME_DEFAULT_TIMEOUT_MS;
+  const agnoHttpBaseUrlConfigured = Boolean(env.AGNO_RUNTIME_HTTP_BASE_URL);
+  const agnoHttpSecurityKeyConfigured = Boolean(env.AGNO_RUNTIME_HTTP_SECURITY_KEY);
+  const agnoHttpSecurityRequired = env.AGNO_RUNTIME_HTTP_REQUIRE_SECURITY_KEY;
   return {
     provider: env.RUNTIME_PROVIDER as RuntimeProvider,
     adapterEnabled: env.RUNTIME_ADAPTER_ENABLED,
@@ -33,9 +36,10 @@ export function getRuntimeConfig(): RuntimeFeatureConfig {
     agnoMaxInputPreviewChars: env.AGNO_MAX_INPUT_PREVIEW_CHARS,
     agnoMaxOutputPreviewChars: env.AGNO_MAX_OUTPUT_PREVIEW_CHARS,
     agnoHttpEnabled: env.AGNO_RUNTIME_HTTP_ENABLED,
-    agnoHttpConfigured: Boolean(env.AGNO_RUNTIME_HTTP_BASE_URL),
-    agnoHttpBaseUrlConfigured: Boolean(env.AGNO_RUNTIME_HTTP_BASE_URL),
-    agnoHttpSecurityKeyConfigured: Boolean(env.AGNO_RUNTIME_HTTP_SECURITY_KEY),
+    agnoHttpConfigured: agnoHttpBaseUrlConfigured && (!agnoHttpSecurityRequired || agnoHttpSecurityKeyConfigured),
+    agnoHttpBaseUrlConfigured,
+    agnoHttpSecurityKeyConfigured,
+    agnoHttpSecurityRequired,
     agnoHttpTimeoutMs: env.AGNO_RUNTIME_HTTP_TIMEOUT_MS,
     agnoHttpRagContextEnabled: env.AGNO_RUNTIME_HTTP_RAG_CONTEXT_ENABLED,
     agnoHttpMaxRagSources: env.AGNO_RUNTIME_HTTP_MAX_RAG_SOURCES,
