@@ -27,9 +27,10 @@ import type {
 } from './runtime.types';
 
 const maxOutputPreviewChars = 800;
-const unsafeMetadataFragments = ['authorization', 'apikey', 'api_key', 'baseurl', 'content', 'credential', 'header', 'input', 'instruction', 'output', 'password', 'prompt', 'secret', 'text', 'token'];
+const unsafeMetadataFragments = ['argument', 'authorization', 'apikey', 'api_key', 'baseurl', 'content', 'credential', 'header', 'input', 'instruction', 'output', 'password', 'payload', 'prompt', 'rawtool', 'result', 'secret', 'stack', 'text', 'token', 'url'];
 const allowedMetadataKeys = new Set([
   'adapterlatencyms',
+  'approvalrequiredcount',
   'assistantid',
   'assistantpublicationid',
   'assistantspecversion',
@@ -43,7 +44,6 @@ const allowedMetadataKeys = new Set([
   'conversationcontextmaxtotalchars',
   'conversationcontextmessagecount',
   'conversationcontexttruncated',
-  'descriptorschemahashes',
   'estimatedcostminorunits',
   'externalmcpcalled',
   'externalprovidercalled',
@@ -91,7 +91,6 @@ const allowedMetadataKeys = new Set([
   'tenantid',
   'tooldescriptorcount',
   'toolcallsexecuted',
-  'toolids',
   'toolmode',
   'totaltokens',
   'traceid',
@@ -224,7 +223,10 @@ export class AgnoHttpRuntimeAdapter implements RuntimeAdapter {
         type: 'mcp_tools_attached',
         status: 'completed',
         message: 'Descriptors de tools governados anexados a AssistantRuntimeSpecV1.',
-        metadata: jsonMetadata(toolSummary),
+        metadata: jsonMetadata({
+          ...toolSummary,
+          approvalRequiredCount: context.mcp.requiresApproval.length,
+        }),
       });
     }
 
@@ -433,6 +435,7 @@ function buildInvocationSummary(
     conversationContextMaxTotalChars: conversationContextSummary?.conversationContextMaxTotalChars ?? 0,
     toolMode: toolSummary?.toolMode ?? 'none',
     toolDescriptorCount: toolSummary?.toolDescriptorCount ?? 0,
+    approvalRequiredCount: context.mcp.requiresApproval.length,
     maxToolCalls: spec.policy.maxToolCalls,
   };
 }
@@ -486,16 +489,7 @@ function summarizeToolSpec(tools: AssistantRuntimeToolSpec, maxToolCalls: number
     toolMode: tools.mode,
     toolDescriptorCount: tools.descriptors.length,
     maxToolCalls,
-    toolIds: tools.descriptors.map((descriptor) => descriptor.toolId).slice(0, 20),
-    descriptorSchemaHashes: tools.descriptors
-      .map((descriptor) => descriptor.inputSchema ? stableHash(descriptor.inputSchema) : undefined)
-      .filter((hash): hash is string => Boolean(hash))
-      .slice(0, 20),
   };
-}
-
-function stableHash(value: unknown) {
-  return createHash('sha256').update(JSON.stringify(value)).digest('hex');
 }
 
 function normalizeHealth(provider: RuntimeProvider, response: RuntimeHealthResponseV1): RuntimeHealth {
@@ -524,7 +518,7 @@ function normalizeCapabilities(
     supportsTextGeneration: true,
     supportsStreaming: response.supportsStreaming,
     supportsRagContext: response.supportsRagContext,
-    supportsMcpTools: false,
+    supportsMcpTools: response.supportsTools && config.agnoHttpToolsEnabled,
     supportsToolCalling: false,
     supportsSandbox: true,
     supportsExternalProviders: response.supportsExternalProviders ?? false,
@@ -640,6 +634,7 @@ function normalizeRuntimeMetrics(
     conversationContextChars: numberValue(invocationSummary.conversationContextChars) ?? 0,
     conversationContextTruncated: metadataBoolean(invocationSummary, 'conversationContextTruncated') ?? false,
     toolDescriptorCount: numberValue(invocationSummary.toolDescriptorCount) ?? 0,
+    approvalRequiredCount: numberValue(invocationSummary.approvalRequiredCount) ?? 0,
     maxToolCalls: numberValue(invocationSummary.maxToolCalls) ?? 0,
     toolCallsExecuted: metadataNumber(outputMetadata, 'toolCallsExecuted') ?? 0,
     externalMcpCalled: metadataBoolean(outputMetadata, 'externalMcpCalled') ?? false,
@@ -683,9 +678,44 @@ function normalizeContractEvents(events: RuntimeNormalizedEventV1[] | undefined)
       runtimeEventId: event.eventId,
       runtimeEventType: event.type,
       runtimeEventStatus: event.status,
-      runtimeMetadata: event.metadata,
+      ...allowlistedContractEventMetadata(event.metadata),
     }),
   }));
+}
+
+const contractEventMetadataKeys = new Set([
+  'approvalRequiredCount',
+  'conversationContextChars',
+  'conversationContextIncluded',
+  'conversationContextMessageCount',
+  'conversationContextTruncated',
+  'externalMcpCalled',
+  'externalProviderCalled',
+  'failedClosed',
+  'maxRagResults',
+  'maxToolCalls',
+  'model',
+  'provider',
+  'providerStatus',
+  'ragContextChars',
+  'ragMode',
+  'ragSourceCount',
+  'reason',
+  'runtimeLatencyMs',
+  'simulated',
+  'toolCallsExecuted',
+  'toolDescriptorCount',
+  'toolMode',
+]);
+
+function allowlistedContractEventMetadata(metadata: RuntimeNormalizedEventV1['metadata']) {
+  if (!metadata) return {};
+  return Object.fromEntries(
+    Object.entries(metadata)
+      .filter(([key, value]) => contractEventMetadataKeys.has(key) && (
+        typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean'
+      )),
+  );
 }
 
 function normalizeContractEventType(type: RuntimeNormalizedEventV1['type']): RuntimeNormalizedEvent['type'] {

@@ -58,17 +58,26 @@ const unsafeContractKeyFragments = new Set([
   'connectionstring',
   'endpoint',
   'headers',
+  'gatewayurl',
+  'internalurl',
   'password',
   'providerapikey',
+  'rawpayload',
   'rawdocuments',
   'rawmcpserverconfig',
   'rawprompt',
   'rawproviderresponse',
   'rawresponse',
+  'rawtool',
   'rawtoolmanifest',
+  'stack',
   'secret',
   'secretref',
+  'serverurl',
   'token',
+  'toolargs',
+  'tooloutput',
+  'toolresult',
 ]);
 
 const allowedRuntimeContractTokenMetricKeys = new Set([
@@ -79,6 +88,7 @@ const allowedRuntimeContractTokenMetricKeys = new Set([
 ]);
 
 const sensitiveStringPattern = /(?:\bBearer\s+\S+|sk-[A-Za-z0-9_-]+|https?:\/\/[^/\s:@]+:[^/\s@]+@)/i;
+const internalUrlPattern = /https?:\/\/(?:localhost|127(?:\.\d{1,3}){3}|10(?:\.\d{1,3}){3}|192\.168(?:\.\d{1,3}){2}|172\.(?:1[6-9]|2\d|3[01])(?:\.\d{1,3}){2}|[^/\s]+\.(?:internal|local))(?::\d+)?(?:[/?#\s]|$)/i;
 const maxJsonDepth = 8;
 const maxJsonStringChars = 2000;
 const maxJsonArrayItems = 50;
@@ -106,7 +116,7 @@ function hasUnsafeContractKey(key: string) {
 }
 
 export function containsUnsafeRuntimeContractPayload(value: unknown, depth = 0): boolean {
-  if (typeof value === 'string') return sensitiveStringPattern.test(value);
+  if (typeof value === 'string') return sensitiveStringPattern.test(value) || internalUrlPattern.test(value);
   if (value === null || typeof value === 'boolean' || typeof value === 'number') return false;
   if (typeof value === 'undefined' || typeof value === 'function' || typeof value === 'symbol' || typeof value === 'bigint') return true;
   if (depth > maxJsonDepth) return true;
@@ -142,6 +152,30 @@ const runtimeContractJsonSchema = safeJsonValueSchema();
 const runtimeContractSafeObjectSchema = z.record(runtimeContractJsonSchema)
   .refine((value) => approximateJsonSize(value) <= maxMetadataBytes, 'metadata excede tamanho permitido.')
   .refine((value) => !containsUnsafeRuntimeContractPayload(value), 'payload contem campos ou valores sensiveis.');
+
+const allowedPublicRuntimeMetricKeys = new Set([
+  'approvalrequiredcount',
+  'maxragresults',
+  'tooldescriptorcount',
+]);
+const unsafePublicRuntimeMetadataKeyFragments = ['argument', 'descriptor', 'payload', 'raw', 'result', 'schema', 'stack'];
+
+function containsUnsafePublicRuntimeMetadata(value: unknown, depth = 0): boolean {
+  if (value === null || typeof value === 'boolean' || typeof value === 'number' || typeof value === 'string') return false;
+  if (typeof value === 'undefined' || depth > maxJsonDepth) return true;
+  if (Array.isArray(value)) return value.some((item) => containsUnsafePublicRuntimeMetadata(item, depth + 1));
+  if (typeof value !== 'object') return true;
+
+  return Object.entries(value as Record<string, unknown>).some(([key, entry]) => {
+    const normalized = normalizedKey(key);
+    const unsafeKey = !allowedPublicRuntimeMetricKeys.has(normalized)
+      && unsafePublicRuntimeMetadataKeyFragments.some((fragment) => normalized.includes(fragment));
+    return unsafeKey || containsUnsafePublicRuntimeMetadata(entry, depth + 1);
+  });
+}
+
+const runtimeContractPublicSafeObjectSchema = runtimeContractSafeObjectSchema
+  .refine((value) => !containsUnsafePublicRuntimeMetadata(value), 'metadata publica contem payload detalhado de runtime/tool.');
 
 const idSchema = z.string().trim().min(1).max(160);
 const optionalIdArraySchema = z.array(idSchema).max(80).optional();
@@ -210,6 +244,12 @@ export const runtimeRagSourceSchema = z.object({
   metadata: runtimeContractSafeObjectSchema.optional(),
 }).strict();
 
+const runtimeToolDescriptorMetadataSchema = z.object({
+  bindingId: idSchema.optional(),
+  descriptorIndex: z.number().int().positive().max(50).optional(),
+  source: z.literal('orchestra_mcp_catalog'),
+}).strict();
+
 export const runtimeToolDescriptorSchema = z.object({
   toolId: idSchema,
   name: textSchema(120),
@@ -217,11 +257,11 @@ export const runtimeToolDescriptorSchema = z.object({
   riskLevel: z.enum(runtimeContractToolRiskLevelValues).default('medium'),
   approvalRequired: z.boolean(),
   inputSchema: runtimeContractSafeObjectSchema.optional(),
-  metadata: runtimeContractSafeObjectSchema.optional(),
+  metadata: runtimeToolDescriptorMetadataSchema.optional(),
   gatewayRef: z.object({
     type: z.literal('orchestra_tool_gateway'),
-    action: textSchema(160),
-  }).strict().optional(),
+    action: z.literal('mcp.tool.execute'),
+  }).strict(),
 }).strict();
 
 export const runtimeNormalizedEventV1Schema = z.object({
@@ -232,7 +272,7 @@ export const runtimeNormalizedEventV1Schema = z.object({
   timestamp: z.string().datetime(),
   status: z.enum(runtimeContractEventStatusValues),
   message: optionalTextSchema(1000),
-  metadata: runtimeContractSafeObjectSchema.optional(),
+  metadata: runtimeContractPublicSafeObjectSchema.optional(),
 }).strict().superRefine((value, ctx) => {
   if (containsUnsafeRuntimeContractPayload(value)) {
     ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'evento contem campos ou valores sensiveis.' });
@@ -244,7 +284,7 @@ export const runtimeNormalizedErrorV1Schema = z.object({
   message: textSchema(1000),
   retryable: z.boolean(),
   httpStatus: z.number().int().min(100).max(599).optional(),
-  details: runtimeContractSafeObjectSchema.optional(),
+  details: runtimeContractPublicSafeObjectSchema.optional(),
 }).strict().superRefine((value, ctx) => {
   if (containsUnsafeRuntimeContractPayload(value)) {
     ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'erro contem campos ou valores sensiveis.' });
@@ -343,6 +383,12 @@ export const assistantRuntimeSpecV1Schema = z.object({
   if (!value.tools.enabled && value.tools.mode !== 'none') {
     ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['tools', 'mode'], message: 'tools desabilitadas exigem mode none.' });
   }
+  if (value.tools.enabled && value.tools.mode !== 'gateway') {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['tools', 'mode'], message: 'tools habilitadas exigem mode gateway.' });
+  }
+  if (value.tools.mode === 'gateway' && value.tools.descriptors.length === 0) {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['tools', 'descriptors'], message: 'tools gateway exigem descriptors governados.' });
+  }
 });
 
 export const runtimeExecuteRequestV1Schema = z.object({
@@ -364,7 +410,7 @@ export const runtimeExecuteResponseV1Schema = z.object({
   output: z.object({
     text: z.string().trim().max(16000).optional(),
     format: z.enum(runtimeContractOutputFormatValues).optional(),
-    metadata: runtimeContractSafeObjectSchema.optional(),
+    metadata: runtimeContractPublicSafeObjectSchema.optional(),
   }).strict().optional(),
   usage: z.object({
     inputTokens: z.number().int().nonnegative().safe().optional(),
@@ -437,7 +483,9 @@ export function parseRuntimeCapabilitiesResponseV1(value: unknown) {
 
 export function sanitizeRuntimeContractMetadata(value: unknown, depth = 0): unknown {
   if (value === null || typeof value === 'boolean' || typeof value === 'number') return value;
-  if (typeof value === 'string') return sensitiveStringPattern.test(value) ? '[redacted]' : value.slice(0, maxJsonStringChars);
+  if (typeof value === 'string') return sensitiveStringPattern.test(value) || internalUrlPattern.test(value)
+    ? '[redacted]'
+    : value.slice(0, maxJsonStringChars);
   if (typeof value === 'undefined' || typeof value === 'function' || typeof value === 'symbol' || typeof value === 'bigint') return undefined;
   if (depth >= maxJsonDepth) return '[truncated]';
   if (Array.isArray(value)) {

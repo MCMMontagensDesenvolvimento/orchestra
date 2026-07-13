@@ -124,7 +124,7 @@ describe('Agno-compatible minimal runtime HTTP service', () => {
     expect(parsed.success).toBe(true);
     if (parsed.success) {
       expect(parsed.data.supportsStreaming).toBe(false);
-      expect(parsed.data.supportsTools).toBe(false);
+      expect(parsed.data.supportsTools).toBe(true);
       expect(parsed.data.supportsRagContext).toBe(true);
       expect(parsed.data.supportsExternalProviders).toBe(false);
       expect(parsed.data.supportsFileInputs).toBe(false);
@@ -336,11 +336,67 @@ describe('Agno-compatible minimal runtime HTTP service', () => {
     );
   });
 
+  it.each([
+    { label: 'medium-risk', riskLevel: 'medium' as const, approvalRequired: false },
+    { label: 'approval-required', riskLevel: 'high' as const, approvalRequired: true },
+  ])('blocks $label descriptors quantitatively without calling a tool', async ({ riskLevel, approvalRequired }) => {
+    const fetchMock = vi.fn();
+    vi.stubGlobal('fetch', fetchMock);
+
+    const response = await request(app())
+      .post('/execute')
+      .send(validExecuteRequest(validSpec({
+        policy: {
+          ...validSpec().policy,
+          maxToolCalls: 5,
+        },
+        tools: {
+          enabled: true,
+          mode: 'gateway',
+          descriptors: [{
+            toolId: 'tool-governed-blocked',
+            name: 'governed_blocked_operation',
+            riskLevel,
+            approvalRequired,
+            gatewayRef: {
+              type: 'orchestra_tool_gateway',
+              action: 'mcp.tool.execute',
+            },
+          }],
+        },
+      })))
+      .expect(200);
+
+    expect(response.body.output.metadata).toEqual(expect.objectContaining({
+      toolDescriptorCount: 1,
+      approvalRequiredCount: 1,
+      maxToolCalls: 5,
+      toolCallsExecuted: 0,
+      externalMcpCalled: false,
+    }));
+    expect(response.body.events).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        type: 'tool.blocked',
+        metadata: expect.objectContaining({
+          reason: 'approval_required',
+          approvalRequiredCount: 1,
+          toolCallsExecuted: 0,
+          externalMcpCalled: false,
+        }),
+      }),
+    ]));
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(response.text).not.toMatch(/tool-governed-blocked|governed_blocked_operation/);
+  });
+
 
   it('rejects unsafe governed tool descriptors without leaking raw MCP payloads', async () => {
     const response = await request(app())
       .post('/execute')
-      .send(validExecuteRequest(validSpec({
+      .send({
+        ...validExecuteRequest(),
+        assistantRuntimeSpec: {
+          ...validSpec(),
         tools: {
           enabled: true,
           mode: 'gateway',
@@ -361,7 +417,8 @@ describe('Agno-compatible minimal runtime HTTP service', () => {
             },
           ],
         },
-      })))
+        },
+      })
       .expect(400);
 
     expect(response.body.error.code).toBe('RUNTIME_BAD_REQUEST');

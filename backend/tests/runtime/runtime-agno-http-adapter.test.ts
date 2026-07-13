@@ -590,12 +590,12 @@ describe('Agno HTTP runtime adapter', () => {
         metadata: expect.objectContaining({
           toolMode: 'gateway',
           toolDescriptorCount: 1,
+          approvalRequiredCount: 0,
           maxToolCalls: 0,
-          toolIds: ['tool-1'],
-          descriptorSchemaHashes: [expect.any(String)],
         }),
       }),
     ]));
+    expect(JSON.stringify(result.events)).not.toMatch(/toolIds|descriptorSchemaHashes|lookup_policy|tool-1|query/);
     expect(JSON.stringify(calls[0].body)).not.toMatch(/rawToolManifest|rawMcpServerConfig|Authorization|headers|credentials|apiKey|token|secret|baseUrl|endpoint|providerApiKey|secretRef/i);
     expect(JSON.stringify(result.events)).not.toContain('query');
   });

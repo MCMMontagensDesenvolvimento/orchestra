@@ -366,6 +366,23 @@ describe('chat conversation endpoints', () => {
     expect(response.body.data.run.id).toBe(runId);
   });
 
+  it('rejects frontend attempts to select MCP tools or approvals', async () => {
+    const response = await request(createApp())
+      .post(`/api/v1/chat/conversations/${conversationId}/messages`)
+      .set('Cookie', [sessionCookie()])
+      .send({
+        input: 'Only this input is allowed.',
+        toolName: 'forbidden.tool',
+        mcpServer: 'forbidden-server',
+        toolArgs: { query: 'forbidden' },
+        approvalDecision: 'approved',
+      })
+      .expect(422);
+
+    expect(response.body.code).toBe('VALIDATION_ERROR');
+    expect(mocks.agentRunsService.createForAssistant).not.toHaveBeenCalled();
+  });
+
   it('persists the fake Agno LLM output returned by AgentRun as the assistant message', async () => {
     const fakeAgnoOutput = 'Resposta simulada do LLM real executado via Agno.';
     const agnoRun = {
@@ -379,6 +396,11 @@ describe('chat conversation endpoints', () => {
           ragSourceCount: 2,
           ragContextChars: 320,
           maxRagResults: 5,
+          toolDescriptorCount: 2,
+          maxToolCalls: 0,
+          toolCallsExecuted: 0,
+          externalMcpCalled: false,
+          approvalRequiredCount: 1,
         },
       },
     };
@@ -419,8 +441,14 @@ describe('chat conversation endpoints', () => {
       ragSourceCount: 2,
       ragContextChars: 320,
       maxRagResults: 5,
+      toolDescriptorCount: 2,
+      maxToolCalls: 0,
+      toolCallsExecuted: 0,
+      externalMcpCalled: false,
+      approvalRequiredCount: 1,
     }));
     expect(response.body.data.assistantMessage.content).toBe(fakeAgnoOutput);
+    expect(JSON.stringify(response.body)).not.toMatch(/descriptors|inputSchema|toolArgs|toolOutput|toolResult|rawTool|internalUrl/i);
   });
 
   it('sends a second message with backend-governed conversation context only in AgentRun options', async () => {

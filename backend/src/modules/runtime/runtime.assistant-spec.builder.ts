@@ -388,6 +388,8 @@ function buildGovernedToolDescriptor(
   descriptorIndex: number,
   maxSchemaChars: number,
 ): RuntimeToolDescriptor | null {
+  if (tool.requiresApproval || tool.riskLevel !== 'low') return null;
+
   const toolId = safeId(tool.toolId) ?? safeId(tool.id);
   const name = safeOptionalText(tool.name, 120);
   if (!toolId || !name) return null;
@@ -413,7 +415,6 @@ function buildGovernedToolDescriptor(
   const metadata = safeMetadataRecord({
     bindingId: safeId(tool.id),
     descriptorIndex,
-    executionMode: safeOptionalText(tool.executionMode, 80),
     source: 'orchestra_mcp_catalog',
   });
   if (metadata) descriptor.metadata = metadata as RuntimeToolDescriptor['metadata'];

@@ -380,7 +380,15 @@ describe('agent run governance endpoints', () => {
         mode: 'sandbox',
         input: 'Execute a controlled test.',
         source: 'api-test',
-        metadata: { prompt: 'do not store', ui: { token: 'secret', label: 'detail' } },
+        metadata: {
+          prompt: 'do not store',
+          ui: { token: 'secret', label: 'detail' },
+          toolArgs: { query: 'do not store' },
+          toolOutput: { records: ['do not store'] },
+          inputSchema: { type: 'object' },
+          descriptors: [{ name: 'do not store' }],
+          toolDescriptorCount: 2,
+        },
       })
       .expect(201);
 
@@ -406,6 +414,11 @@ describe('agent run governance endpoints', () => {
     expect(mocks.agentRunsRepository.createRun).toHaveBeenCalledWith(expect.objectContaining({
       metadata: expect.objectContaining({
         prompt: '[redacted]',
+        toolArgs: '[redacted]',
+        toolOutput: '[redacted]',
+        inputSchema: '[redacted]',
+        descriptors: '[redacted]',
+        toolDescriptorCount: 2,
         ui: expect.objectContaining({ token: '[redacted]', label: 'detail' }),
         runtime: expect.objectContaining({
           provider: 'local',
@@ -709,6 +722,17 @@ describe('agent run governance endpoints', () => {
       AGNO_RUNTIME_HTTP_MAX_TOOL_CALLS: 0,
       AGNO_RUNTIME_HTTP_MAX_TOOL_SCHEMA_CHARS: 6000,
     });
+    const assistant = assistantFixture('published');
+    assistant.versions[0].modelProvider = 'openai';
+    assistant.versions[0].modelName = 'gpt-test-agno';
+    mocks.agentRunsRepository.findAssistantForRun.mockResolvedValueOnce(assistant);
+    mocks.agentRunsRepository.getExecutionPolicy.mockResolvedValueOnce(executionPolicyFixture({
+      executionMode: 'published',
+      allowExternalLlmProviders: true,
+      allowedLlmProviders: ['openai'],
+      defaultLlmProvider: 'openai',
+      allowPublishedExecution: true,
+    }));
     const calls: Array<{ url: string; init?: RequestInit; body?: unknown }> = [];
     vi.stubGlobal('fetch', vi.fn(async (url: string, init?: RequestInit) => {
       const body = typeof init?.body === 'string' ? JSON.parse(init.body) as unknown : undefined;
@@ -716,13 +740,19 @@ describe('agent run governance endpoints', () => {
       if (url.endsWith('/health')) {
         return new Response(JSON.stringify(runtimeHealthResponse()), { status: 200 });
       }
-      return new Response(JSON.stringify(runtimeExecuteResponse(body)), { status: 200 });
+      return new Response(JSON.stringify(runtimeExecuteResponse(body, 'succeeded', {
+        provider: 'openai',
+        model: 'gpt-test-agno',
+        providerStatus: 'healthy',
+        externalProviderCalled: true,
+        simulated: false,
+      })), { status: 200 });
     }));
 
     const response = await request(createApp())
       .post('/api/v1/assistants/' + assistantId + '/runs')
       .set('Cookie', [sessionCookie()])
-      .send({ mode: 'sandbox', input: 'Use governed MCP descriptors.', source: 'api-test' })
+      .send({ mode: 'published', input: 'Use governed MCP descriptors.', source: 'chat-conversation' })
       .expect(201);
 
     const executeCall = calls.find((call) => call.url.endsWith('/execute'));
