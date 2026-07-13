@@ -110,7 +110,10 @@ const agentRun = (overrides: Record<string, unknown> = {}) => ({
       conversationContextTruncated: false,
       externalProviderCalled: false,
       externalMcpCalled: false,
+      toolDescriptorCount: 2,
+      maxToolCalls: 0,
       toolCallsExecuted: 0,
+      approvalRequiredCount: 1,
       ragMode: 'resolved_context',
       ragSourceCount: 2,
       ragContextChars: 320,
@@ -343,6 +346,11 @@ describe('critical pages in real API mode', () => {
     expect(mutateAsync.mock.calls[0][0]).not.toHaveProperty('messages');
     expect(mutateAsync.mock.calls[0][0]).not.toHaveProperty('history');
     expect(mutateAsync.mock.calls[0][0]).not.toHaveProperty('conversationContext');
+    expect(mutateAsync.mock.calls[0][0]).not.toHaveProperty('tool');
+    expect(mutateAsync.mock.calls[0][0]).not.toHaveProperty('toolName');
+    expect(mutateAsync.mock.calls[0][0]).not.toHaveProperty('mcpServer');
+    expect(mutateAsync.mock.calls[0][0]).not.toHaveProperty('toolArgs');
+    expect(mutateAsync.mock.calls[0][0]).not.toHaveProperty('approvalDecision');
     expect(useCreateAgentRunMutation).not.toHaveBeenCalled();
   });
 
@@ -366,6 +374,10 @@ describe('critical pages in real API mode', () => {
     expect(screen.getByText('ragSourceCount')).toBeInTheDocument();
     expect(screen.getByText('ragContextChars')).toBeInTheDocument();
     expect(screen.getByText('maxRagResults')).toBeInTheDocument();
+    expect(screen.getByText('toolDescriptorCount')).toBeInTheDocument();
+    expect(screen.getByText('maxToolCalls')).toBeInTheDocument();
+    expect(screen.getByText('toolCallsExecuted')).toBeInTheDocument();
+    expect(screen.getByText('approvalRequiredCount')).toBeInTheDocument();
     expect(screen.getByText('Contexto conversacional')).toBeInTheDocument();
     expect(screen.getByText('contexto anexado')).toBeInTheDocument();
     expect(screen.getByText('mensagens')).toBeInTheDocument();

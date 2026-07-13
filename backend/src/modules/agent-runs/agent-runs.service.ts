@@ -32,15 +32,18 @@ const userWorkspaceIds = (user: AuthenticatedUser) => user.workspaces.map((works
 const unsafeMetadataFragments = [
   'apikey',
   'api_key',
+  'argument',
   'authorization',
   'baseurl',
   'connectionstring',
   'content',
   'cookie',
   'credential',
+  'descriptor',
   'endpoint',
   'header',
   'password',
+  'payload',
   'prompt',
   'providerapikey',
   'rawdocuments',
@@ -48,18 +51,24 @@ const unsafeMetadataFragments = [
   'rawprompt',
   'rawproviderresponse',
   'rawresponse',
+  'rawtool',
   'rawtoolmanifest',
   'instructions',
+  'schema',
   'secret',
   'secretref',
+  'stack',
   'token',
+  'toolargs',
+  'tooloutput',
+  'url',
 ];
 const cancellableStatuses = new Set(['queued', 'prechecking', 'running']);
-const allowedTokenMetricKeys = new Set(['inputtokens', 'outputtokens', 'totaltokens', 'maxtokens']);
+const allowedMetadataMetricKeys = new Set(['inputtokens', 'outputtokens', 'totaltokens', 'maxtokens', 'tooldescriptorcount']);
 
 function isUnsafeMetadataKey(key: string) {
   const normalizedKey = key.replace(/[-_\s]/g, '').toLowerCase();
-  if (allowedTokenMetricKeys.has(normalizedKey)) return false;
+  if (allowedMetadataMetricKeys.has(normalizedKey)) return false;
   return unsafeMetadataFragments.some((fragment) => normalizedKey.includes(fragment));
 }
 
@@ -162,7 +171,7 @@ function mergeRuntimeMetadata(input: {
           allowedSandboxTools: input.mcpSummary.allowedSandboxTools.length,
           blockedTools: input.mcpSummary.blockedTools.length,
           requiresApproval: input.mcpSummary.requiresApproval.length,
-          lastToolCallIds: input.mcpSummary.lastToolCallIds,
+          lastToolCallCount: input.mcpSummary.lastToolCallIds.length,
         }
         : undefined,
     },
@@ -182,6 +191,7 @@ function runtimeObservationSummary(metadata: Record<string, unknown> | undefined
     conversationContextChars: numberValue(metadata?.conversationContextChars),
     conversationContextTruncated: booleanValue(metadata?.conversationContextTruncated),
     toolDescriptorCount: numberValue(metadata?.toolDescriptorCount),
+    approvalRequiredCount: numberValue(metadata?.approvalRequiredCount),
     maxToolCalls: numberValue(metadata?.maxToolCalls ?? metadata?.policyMaxToolCalls),
     toolCallsExecuted: numberValue(metadata?.toolCallsExecuted),
     externalMcpCalled: booleanValue(metadata?.externalMcpCalled),

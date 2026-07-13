@@ -152,6 +152,15 @@ export const agentRunsRepository = {
               requiresApproval: true,
               isEnabled: true,
               deletedAt: true,
+              policies: {
+                take: 1,
+                select: {
+                  requiresApproval: true,
+                  allowRuntimeExecution: true,
+                  sandboxOnly: true,
+                  blockedByDefault: true,
+                },
+              },
             },
           },
           server: {

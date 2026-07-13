@@ -148,8 +148,14 @@ function buildMcpSummary(summary: RuntimeSummary): RuntimeMcpSummary {
       blockedTools.push({ id: tool.id, name: tool.name, reason: 'tool_disabled' });
       continue;
     }
-    const requiresApprovalForTool = binding.requiresApprovalOverride ?? tool.requiresApproval;
-    if (requiresApprovalForTool || tool.riskLevel === 'high' || tool.riskLevel === 'critical') {
+    const toolPolicy = tool.policies?.[0];
+    const requiresApprovalForTool = binding.requiresApprovalOverride === true
+      || toolPolicy?.requiresApproval === true
+      || tool.requiresApproval;
+    const riskRequiresExplicitFlow = tool.riskLevel === 'medium'
+      || tool.riskLevel === 'high'
+      || tool.riskLevel === 'critical';
+    if (requiresApprovalForTool || riskRequiresExplicitFlow) {
       requiresApproval.push({ id: tool.id, name: tool.name, riskLevel: tool.riskLevel });
       continue;
     }

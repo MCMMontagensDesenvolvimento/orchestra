@@ -81,7 +81,7 @@ async function loadRemote() {
     MCP_REMOTE_DISCOVERY_ENABLED: undefined,
     MCP_REMOTE_DEFAULT_TIMEOUT_MS: undefined,
   };
-  return import('../../src/modules/mcp/remote');
+  return import('../../src/modules/mcp/remote/mcp-remote-discovery.service');
 }
 
 describe('MCP remote governed discovery', () => {

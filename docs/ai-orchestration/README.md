@@ -54,6 +54,8 @@ A Fase 16A habilita o Agno HTTP como executor LLM real governado no Chat, com pr
 
 A Fase 16B conecta a consulta RAG oficial do Orchestra ao Chat executado por `agno_http`, levando somente fontes resolvidas, limitadas e sanitizadas em `AssistantRuntimeSpecV1.rag`, com fail-closed antes do runtime, observabilidade quantitativa e runtime local preservado.
 
+A Fase 16C conecta bindings MCP/tools governados pelo Orchestra ao Chat executado por `agno_http`, enviando somente descriptors minimizados em `AssistantRuntimeSpecV1.tools`, com schema strict, gateway simbolico, limites, bloqueio de approval/risco nao baixo, fake sem execucao externa e observabilidade apenas quantitativa.
+
 Esta pasta deve concentrar a estrategia de IA do Orchestra.
 
 Topicos esperados:
@@ -112,6 +114,7 @@ Topicos esperados:
 - `ORCHESTRA_CHAT_GOVERNADO_HANDOFF_15I.md`: consolidacao e handoff tecnico da trilha 15C-15H, com arquitetura final, estado real do Chat, fronteiras do Agno, evidencias, riscos e plano recomendado para a Fase 16.
 - `ORCHESTRA_AGNO_LLM_REAL_CHAT_16A.md`: integracao governada `Chat -> AgentRun -> agno_http -> LLM`, com contrato minimizado, policy de provider/model, fake runtime, observabilidade, homologacao manual e rollback.
 - `ORCHESTRA_AGNO_RAG_GOVERNADO_CHAT_16B.md`: integracao `Chat -> AgentRun -> RAG governado -> agno_http`, com retrieval oficial no Orchestra, contexto resolvido e minimizado, limites, fail-closed, observabilidade segura, homologacao e rollback.
+- `ORCHESTRA_AGNO_MCP_TOOLS_GOVERNADOS_CHAT_16C.md`: integracao `Chat -> AgentRun -> MCP/tools governados -> agno_http`, com selecao no Orchestra, descriptors minimizados, gateway simbolico, fake sem chamadas externas, observabilidade quantitativa, homologacao e rollback.
 - `ORCHESTRA_LLM_PROVIDER_INTEGRATION.md`: catalogo LLM, provider local deterministico, providers externos fail-closed e eventos LLM em AgentRun.
 - `ORCHESTRA_RAG_SEMANTICO_DISCOVERY.md`: discovery tecnico da Fase 10A para RAG semantico, embeddings e vector store.
 - `ORCHESTRA_VECTOR_STORE_EMBEDDING_CONTRACT.md`: decisao tecnica da Fase 10B para pgvector, tabela de embeddings, readiness semantico e fail-closed.

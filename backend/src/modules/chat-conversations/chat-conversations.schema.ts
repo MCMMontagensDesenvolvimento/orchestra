@@ -27,7 +27,7 @@ export const createChatConversationSchema = z.object({
 
 export const createChatMessageSchema = z.object({
   input: z.string().trim().min(1).max(2000),
-});
+}).strict();
 
 export type ChatConversationsQuery = z.infer<typeof chatConversationsQuerySchema>;
 export type CreateChatConversationInput = z.infer<typeof createChatConversationSchema>;

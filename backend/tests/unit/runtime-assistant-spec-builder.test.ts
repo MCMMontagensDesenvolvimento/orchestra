@@ -416,8 +416,47 @@ describe('AssistantRuntimeSpecV1 builder for Agno HTTP', () => {
         approvalRequired: false,
         inputSchema: expect.objectContaining({ type: 'object' }),
         gatewayRef: { type: 'orchestra_tool_gateway', action: 'mcp.tool.execute' },
+        metadata: {
+          bindingId: 'binding-1',
+          descriptorIndex: 1,
+          source: 'orchestra_mcp_catalog',
+        },
       }),
     ]);
+  });
+
+  it('does not attach approval-required or non-low-risk tools even if an unsafe caller injects them as allowed', () => {
+    configureRagRuntime({ AGNO_RUNTIME_HTTP_TOOLS_ENABLED: true, AGNO_RUNTIME_HTTP_MAX_TOOL_CALLS: 5 });
+
+    const unsafeContext = context();
+    const spec = buildAssistantRuntimeSpecV1({
+      context: context({
+        mcp: {
+          ...unsafeContext.mcp,
+          allowedSandboxTools: [
+            {
+              ...unsafeContext.mcp.allowedSandboxTools[0],
+              toolId: 'tool-approval',
+              requiresApproval: true,
+            },
+            {
+              ...unsafeContext.mcp.allowedSandboxTools[0],
+              toolId: 'tool-medium-risk',
+              riskLevel: 'medium',
+            },
+            {
+              ...unsafeContext.mcp.allowedSandboxTools[0],
+              toolId: 'tool-high-risk',
+              riskLevel: 'high',
+            },
+          ],
+        },
+      }),
+      timeoutMs: 15000,
+    });
+
+    expect(spec.tools).toEqual({ enabled: false, mode: 'none', descriptors: [] });
+    expect(spec.policy.maxToolCalls).toBe(0);
   });
 
   it('only increases maxToolCalls with explicit config', () => {

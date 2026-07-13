@@ -139,7 +139,16 @@ async function loadRemote(overrides: Record<string, string | undefined> = {}) {
     MCP_REMOTE_DEFAULT_TIMEOUT_MS: undefined,
     ...overrides,
   };
-  return import('../../src/modules/mcp/remote');
+  const [configModule, readinessModule, clientModule] = await Promise.all([
+    import('../../src/modules/mcp/remote/mcp-remote.config'),
+    import('../../src/modules/mcp/remote/mcp-remote-readiness.service'),
+    import('../../src/modules/mcp/remote/mcp-remote.client'),
+  ]);
+  return {
+    ...configModule,
+    ...readinessModule,
+    ...clientModule,
+  };
 }
 
 describe('MCP remote fail-closed readiness', () => {

@@ -49,7 +49,7 @@ export function agnoRuntimeHttpCapabilities(): RuntimeCapabilitiesResponseV1 {
     provider: 'agno',
     protocolVersion: assistantRuntimeSpecVersionV1,
     supportsStreaming: false,
-    supportsTools: false,
+    supportsTools: true,
     supportsRagContext: true,
     supportsExternalProviders: false,
     supportsFileInputs: false,
@@ -114,6 +114,9 @@ export function executeAgnoRuntimeHttpContract(input: unknown, now = new Date())
   const ragSourceCount = spec.rag.sources.length;
   const ragContextChars = spec.rag.sources.reduce((total, source) => total + source.excerpt.length, 0);
   const toolDescriptorCount = spec.tools.descriptors.length;
+  const approvalRequiredCount = spec.tools.descriptors.filter((descriptor) => (
+    descriptor.approvalRequired || descriptor.riskLevel !== 'low'
+  )).length;
   const completedEvents: RuntimeNormalizedEventV1[] = [
     ...events,
     runtimeEvent(2, spec.trace, 'model.requested', 'running', now, {
@@ -148,16 +151,22 @@ export function executeAgnoRuntimeHttpContract(input: unknown, now = new Date())
       toolDescriptorCount,
       toolMode: spec.tools.mode,
       maxToolCalls: spec.policy.maxToolCalls,
-      toolIds: spec.tools.descriptors.map((descriptor) => descriptor.toolId).slice(0, 20),
+      approvalRequiredCount,
     }));
     eventSequence += 1;
   }
 
-  if (toolDescriptorCount > 0 && spec.policy.maxToolCalls === 0) {
+  if (toolDescriptorCount > 0) {
+    const reason = approvalRequiredCount > 0
+      ? 'approval_required'
+      : spec.policy.maxToolCalls === 0
+        ? 'max_tool_calls_zero'
+        : 'fake_runtime_no_external_execution';
     completedEvents.push(runtimeEvent(eventSequence, spec.trace, 'tool.blocked', 'blocked', now, {
-      reason: 'max_tool_calls_zero',
+      reason,
       toolDescriptorCount,
       maxToolCalls: spec.policy.maxToolCalls,
+      approvalRequiredCount,
       externalMcpCalled: false,
       toolCallsExecuted: 0,
     }));
@@ -174,6 +183,8 @@ export function executeAgnoRuntimeHttpContract(input: unknown, now = new Date())
     conversationContextChars,
     conversationContextTruncated,
     toolDescriptorCount,
+    approvalRequiredCount,
+    maxToolCalls: spec.policy.maxToolCalls,
     externalProviderCalled: false,
     externalMcpCalled: false,
     toolCallsExecuted: 0,
@@ -205,6 +216,8 @@ export function executeAgnoRuntimeHttpContract(input: unknown, now = new Date())
         conversationContextChars,
         conversationContextTruncated,
         toolDescriptorCount,
+        approvalRequiredCount,
+        maxToolCalls: spec.policy.maxToolCalls,
         externalProviderCalled: false,
         simulated: true,
         externalMcpCalled: false,

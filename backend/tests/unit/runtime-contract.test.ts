@@ -418,6 +418,8 @@ describe('runtime contract schemas', () => {
               },
             },
             metadata: {
+              bindingId: 'binding-1',
+              descriptorIndex: 1,
               source: 'orchestra_mcp_catalog',
             },
             gatewayRef: {
@@ -430,6 +432,32 @@ describe('runtime contract schemas', () => {
     }));
 
     expect(result.success).toBe(true);
+  });
+
+  it('keeps gateway tool state and descriptor metadata strict', () => {
+    const missingDescriptors = assistantRuntimeSpecV1Schema.safeParse(validSpec({
+      tools: { enabled: true, mode: 'gateway', descriptors: [] },
+    }));
+    const arbitraryMetadata = assistantRuntimeSpecV1Schema.safeParse(validSpec({
+      tools: {
+        enabled: true,
+        mode: 'gateway',
+        descriptors: [{
+          toolId: 'tool-1',
+          name: 'lookup_policy',
+          riskLevel: 'low',
+          approvalRequired: false,
+          gatewayRef: { type: 'orchestra_tool_gateway', action: 'mcp.tool.execute' },
+          metadata: {
+            source: 'orchestra_mcp_catalog',
+            internalPermissionMatrix: ['must-not-cross-boundary'],
+          },
+        }],
+      },
+    } as unknown as Partial<AssistantRuntimeSpecV1>));
+
+    expect(missingDescriptors.success).toBe(false);
+    expect(arbitraryMetadata.success).toBe(false);
   });
 
   it.each([
@@ -547,6 +575,31 @@ describe('runtime contract schemas', () => {
         metadata: {
           rawProviderResponse: { text: 'must not pass' },
         },
+      },
+    });
+
+    expect(result.success).toBe(false);
+  });
+
+  it.each([
+    { toolArgs: { query: 'must not pass' } },
+    { toolResult: { records: ['must not pass'] } },
+    { toolOutput: { records: ['must not pass'] } },
+    { inputSchema: { type: 'object' } },
+    { descriptors: [{ name: 'must not pass' }] },
+    { rawPayload: { internal: true } },
+    { stackTrace: 'must not pass' },
+  ])('rejects detailed tool/runtime payloads in public response metadata %#', (metadata) => {
+    const result = runtimeExecuteResponseV1Schema.safeParse({
+      specVersion: runtimeExecuteResponseSpecVersionV1,
+      trace: {
+        traceId: 'trace-runtime-contract',
+        runId: 'run-runtime-contract',
+      },
+      status: 'succeeded',
+      output: {
+        text: 'Resposta controlada do runtime.',
+        metadata,
       },
     });
 
