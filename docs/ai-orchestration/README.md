@@ -62,6 +62,8 @@ A Fase 16E formaliza a homologacao full-stack segura com Agno real, reunindo run
 
 A Fase 16F adiciona o primeiro callback interno `Agno -> Orchestra` para tool calls governadas, autenticado pela fronteira 16D, correlacionado a um `AgentRun` ativo e limitado a tool low risk, sem approval e sandbox deterministico. O gateway e desligado por padrao, nao chama MCP externo, nao altera o frontend e nao persiste argumentos/output/schema bruto.
 
+A Fase 16G consolida um pacote de demo local ponta a ponta com Agno real, reunindo runbook, perfis 16E/16G, chave descartavel, preflight offline por default, health/capabilities autenticados, roteiros manuais de Chat/LLM, RAG, descriptors e gateway sandbox, evidencias, apresentacao e rollback. O pacote nao inclui Agno real no repositorio, nao automatiza Chat/provider/tool, nao habilita MCP externo e preserva todos os defaults fail-closed.
+
 Esta pasta deve concentrar a estrategia de IA do Orchestra.
 
 Topicos esperados:
@@ -124,6 +126,7 @@ Topicos esperados:
 - `ORCHESTRA_AGNO_RUNTIME_SECURITY_16D.md`: hardening da comunicacao `Orchestra -> agno_http -> Agno`, com URL/timeout strict, autenticacao de health/capabilities/execute, registry sem configuracao privada, rotacao, preflight e checklist de homologacao.
 - `ORCHESTRA_AGNO_REAL_HOMOLOGACAO_SEGURA_16E.md`: homologacao full-stack segura `Chat -> AgentRun -> agno_http real -> Agno`, com preflight, procedimento manual, evidencias permitidas, RAG quantitativo, descriptors sem execucao e rollback.
 - `ORCHESTRA_AGNO_TOOL_GATEWAY_GOVERNADO_16F.md`: callback server-to-server governado `Agno -> Orchestra` para tool low risk em sandbox deterministico, com contrato strict, correlacao de run/spec, limites, idempotencia local, auditoria sanitizada e default desligado.
+- `ORCHESTRA_AGNO_DEMO_LOCAL_PONTA_A_PONTA_16G.md`: runbook oficial da demo local com Agno real, chave descartavel fora do Git, preflight seguro, health/capabilities autenticados, Chat/RAG/descriptors/gateway sandbox manuais, evidencias, roteiro de apresentacao, troubleshooting e rollback.
 - `ORCHESTRA_LLM_PROVIDER_INTEGRATION.md`: catalogo LLM, provider local deterministico, providers externos fail-closed e eventos LLM em AgentRun.
 - `ORCHESTRA_RAG_SEMANTICO_DISCOVERY.md`: discovery tecnico da Fase 10A para RAG semantico, embeddings e vector store.
 - `ORCHESTRA_VECTOR_STORE_EMBEDDING_CONTRACT.md`: decisao tecnica da Fase 10B para pgvector, tabela de embeddings, readiness semantico e fail-closed.
