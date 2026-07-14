@@ -12,6 +12,7 @@ const smokeScripts = [
   'scripts/smoke-agno-runtime-security-16d.sh',
   'scripts/smoke-agno-real-16e.sh',
   'scripts/smoke-agno-demo-local-16g.sh',
+  'scripts/smoke-agno-bridge-docker-16h.sh',
 ];
 
 const destructivePatterns = [
@@ -354,5 +355,37 @@ describe('runtime smoke scripts', () => {
     expect(content).toMatch(/\/capabilities/);
     expect(content).toMatch(/max_tool_calls.*"1"/);
     expect(content).toMatch(/max_tool_calls.*"0"/);
+  }, 15_000);
+
+  it('keeps the 16H bridge preflight offline by default and validates fail-closed examples', () => {
+    const script = 'scripts/smoke-agno-bridge-docker-16h.sh';
+    const path = resolve(repoRoot, script);
+    const syntaxCheck = spawnSync('bash', ['-n', path], { encoding: 'utf8' });
+    const helpRun = spawnSync('bash', [path, '--help'], { encoding: 'utf8' });
+    const dryRun = spawnSync('bash', [path, '--dry-run'], {
+      encoding: 'utf8',
+      env: {
+        ...process.env,
+        COMPOSE_DISABLE_ENV_FILE: '1',
+      },
+    });
+
+    expect(existsSync(path), `${script} should exist`).toBe(true);
+    expect(syntaxCheck.status, syntaxCheck.stderr).toBe(0);
+    expect(helpRun.status, helpRun.stderr).toBe(0);
+    expect(helpRun.stdout).toMatch(/--dry-run.*--check-runtime/s);
+    expect(dryRun.status, dryRun.stderr).toBe(0);
+    expect(dryRun.stdout).toMatch(/no network request was attempted/);
+    expect(dryRun.stdout).toMatch(/backend example remains fail-closed/);
+
+    const content = readFileSync(path, 'utf8');
+    expect(content).not.toMatch(/(?:source|\.\s+)\s*[^\n]*\.env/);
+    expect(content).not.toMatch(/dotenv/i);
+    expect(content).not.toMatch(/set\s+-[a-z]*x/);
+    expect(content).not.toMatch(/\/chat\/conversations/);
+    expect(content).not.toMatch(/\/tool-calls\b/);
+    expect(content).not.toMatch(/(?:echo|printf)[^\n]*\$\{?AGNO_RUNTIME_HTTP_SECURITY_KEY/);
+    expect(content).toMatch(/\/health/);
+    expect(content).toMatch(/\/capabilities/);
   }, 15_000);
 });
