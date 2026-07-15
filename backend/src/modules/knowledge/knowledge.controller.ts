@@ -35,6 +35,11 @@ export const knowledgeController = {
     return res.status(200).json({ data, requestId: req.requestId });
   },
 
+  async updateKnowledgePolicy(req: Request, res: Response) {
+    const data = await knowledgeService.updateKnowledgePolicy(req.params.id, req.body, req.user!, requestContext(req));
+    return res.status(200).json({ data, requestId: req.requestId });
+  },
+
   async archiveKnowledgeBase(req: Request, res: Response) {
     const data = await knowledgeService.archiveKnowledgeBase(req.params.id, req.user!, requestContext(req));
     return res.status(200).json({ data, requestId: req.requestId });

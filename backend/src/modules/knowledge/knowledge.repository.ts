@@ -7,6 +7,7 @@ import type {
   KnowledgeBaseCreateInput,
   KnowledgeBasesQuery,
   KnowledgeBaseUpdateInput,
+  KnowledgePolicyUpdateInput,
   KnowledgeChunksQuery,
   KnowledgeDataSourceCreateInput,
   KnowledgeDataSourceUpdateInput,
@@ -494,6 +495,45 @@ export const knowledgeRepository = {
         ownerUserId: input.ownerUserId,
         metadata: input.metadata === null ? Prisma.JsonNull : jsonInput(input.metadata),
       },
+      include: knowledgeBaseInclude,
+    });
+  },
+
+  async updateKnowledgePolicy(id: string, tenantId: string, workspaceIds: string[], input: KnowledgePolicyUpdateInput) {
+    const existing = await prisma.knowledgeBase.findFirst({
+      where: scopedKnowledgeBaseWhere(id, tenantId, workspaceIds),
+      select: { id: true, tenantId: true, workspaceId: true },
+    });
+    if (!existing) return null;
+
+    const metadata = input.metadata === undefined
+      ? undefined
+      : input.metadata === null
+        ? Prisma.JsonNull
+        : jsonInput(input.metadata);
+    const metadataData = input.metadata === undefined ? {} : { metadata };
+
+    await prisma.knowledgePolicy.upsert({
+      where: { knowledgeBaseId: existing.id },
+      update: {
+        allowRuntimeRetrieval: input.allowRuntimeRetrieval,
+        allowCitationOnly: input.allowCitationOnly,
+        requireApprovalForExternal: input.requireApprovalForExternal,
+        ...metadataData,
+      },
+      create: {
+        tenantId: existing.tenantId,
+        workspaceId: existing.workspaceId,
+        knowledgeBaseId: existing.id,
+        allowRuntimeRetrieval: input.allowRuntimeRetrieval ?? false,
+        allowCitationOnly: input.allowCitationOnly ?? true,
+        requireApprovalForExternal: input.requireApprovalForExternal ?? true,
+        ...metadataData,
+      },
+    });
+
+    return prisma.knowledgeBase.findUnique({
+      where: { id: existing.id },
       include: knowledgeBaseInclude,
     });
   },
