@@ -1,4 +1,4 @@
-import { useState, useMemo, useEffect } from 'react';
+import { useState, useMemo, useEffect, useRef } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { AppShell } from '@/components/shared/AppShell';
 import { StatusBadge } from '@/components/shared/StatusBadge';
@@ -18,6 +18,7 @@ import {
   useArchiveKnowledgeDocumentMutation,
   useCreateKnowledgeDataSourceMutation,
   useCreateKnowledgeDocumentMutation,
+  useKnowledgeBaseReadiness,
   useKnowledgeBases,
   useKnowledgeChunks,
   useKnowledgeDataSources,
@@ -25,6 +26,7 @@ import {
   useKnowledgeIngestionJobs,
   useKnowledgeSourceReferences,
   useRequestKnowledgeIngestionMutation,
+  useUploadKnowledgeDocumentMutation,
 } from '@/hooks/queries/useKnowledge';
 import { useAssistants } from '@/hooks/queries/useAssistants';
 import {
@@ -45,7 +47,7 @@ const statusIcon: Partial<Record<IngestionStatus, React.ReactNode>> = {
 };
 
 const fileTypeIcon: Record<string, string> = {
-  PDF: '📄', DOCX: '📝', XLSX: '📊', CSV: '📋', TXT: '📃', MD: '📑',
+  CSV: '📋', TXT: '📃', MD: '📑', PLAIN: '📃', MARKDOWN: '📑',
 };
 
 const defaultDataSourceForm = {
@@ -56,12 +58,22 @@ const defaultDataSourceForm = {
 
 function mimeTypeFromName(name: string) {
   const extension = name.split('.').pop()?.toLowerCase();
-  if (extension === 'pdf') return 'application/pdf';
-  if (extension === 'docx') return 'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
-  if (extension === 'xlsx') return 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
   if (extension === 'csv') return 'text/csv';
   if (extension === 'md') return 'text/markdown';
   return 'text/plain';
+}
+
+function embeddingStatusLabel(status?: KnowledgeDocument['embeddingStatus']) {
+  if (status === 'ready') return 'Embeddings prontos';
+  if (status === 'partial') return 'Parcial';
+  if (status === 'failed') return 'Falhou';
+  return 'Nao solicitado';
+}
+
+function readinessStatusLabel(status?: string) {
+  if (status === 'ready') return 'Pronta';
+  if (status === 'degraded') return 'Degradada';
+  return 'Nao pronta';
 }
 
 export default function KnowledgeDetailPage() {
@@ -72,8 +84,11 @@ export default function KnowledgeDetailPage() {
   const { data: documentData = [] } = documentsQuery;
   const dataSourcesQuery = useKnowledgeDataSources(id);
   const { data: dataSources = [] } = dataSourcesQuery;
+  const readinessQuery = useKnowledgeBaseReadiness(id);
+  const readiness = readinessQuery.data;
   const { data: assistants = [] } = useAssistants();
   const createDocumentMutation = useCreateKnowledgeDocumentMutation();
+  const uploadDocumentMutation = useUploadKnowledgeDocumentMutation();
   const requestIngestionMutation = useRequestKnowledgeIngestionMutation();
   const archiveDocumentMutation = useArchiveKnowledgeDocumentMutation();
   const createDataSourceMutation = useCreateKnowledgeDataSourceMutation();
@@ -91,9 +106,10 @@ export default function KnowledgeDetailPage() {
   const [selectedDoc, setSelectedDoc] = useState<KnowledgeDocument | null>(null);
   const [dataSourceForm, setDataSourceForm] = useState(defaultDataSourceForm);
   const [previewDocId, setPreviewDocId] = useState<string | undefined>();
+  const uploadInputRef = useRef<HTMLInputElement | null>(null);
 
-  // Documento textual local. Esta fase nao envia arquivos binarios.
   const [uploadFileName, setUploadFileName] = useState('');
+  const [selectedUploadFile, setSelectedUploadFile] = useState<File | null>(null);
   const [documentText, setDocumentText] = useState('');
   const previewDoc = documents.find(doc => doc.id === previewDocId);
   const ingestionJobsQuery = useKnowledgeIngestionJobs(previewDoc?.id);
@@ -121,6 +137,15 @@ export default function KnowledgeDetailPage() {
     return { total, completed, processing, pending, failed, progress: total > 0 ? Math.round((completed / total) * 100) : 0 };
   }, [documents]);
   const totalChunks = useMemo(() => documents.reduce((total, doc) => total + (doc.chunkCount ?? doc.chunks ?? 0), 0), [documents]);
+  const uploadPending = createDocumentMutation.isPending || uploadDocumentMutation.isPending;
+  const canSubmitUpload = Boolean(selectedUploadFile || (uploadFileName.trim() && documentText.trim()));
+
+  const resetUploadForm = () => {
+    setUploadFileName('');
+    setSelectedUploadFile(null);
+    setDocumentText('');
+    if (uploadInputRef.current) uploadInputRef.current.value = '';
+  };
 
   if (knowledgeQuery.isLoading) {
     return <AppShell><div className="flex items-center justify-center py-16 text-sm text-muted-foreground">Carregando base de conhecimento…</div></AppShell>;
@@ -137,29 +162,31 @@ export default function KnowledgeDetailPage() {
   }
 
   const handleUpload = async () => {
-    const title = uploadFileName.trim() || 'Documento catalogado.txt';
-    const payload: KnowledgeDocumentPayload = {
-      title,
-      sourceType: 'manual',
-      sourceUri: `manual://${kb.id}/${encodeURIComponent(title)}`,
-      mimeType: mimeTypeFromName(title),
-      dataClassification: kb.dataClassification ?? 'internal',
-      contentText: documentText,
-      metadata: {
-        size: `${Math.max(1, Math.ceil(documentText.length / 1024))} KB`,
-        version: '1.0',
-        phase: 'local_text_ingestion',
-      },
-    };
-
     try {
-      const newDoc = await createDocumentMutation.mutateAsync({ knowledgeBaseId: kb.id, payload });
+      const newDoc = selectedUploadFile
+        ? await uploadDocumentMutation.mutateAsync({ knowledgeBaseId: kb.id, file: selectedUploadFile })
+        : await createDocumentMutation.mutateAsync({
+            knowledgeBaseId: kb.id,
+            payload: {
+              title: uploadFileName.trim() || 'documento-manual.txt',
+              sourceType: 'manual',
+              sourceUri: `manual://${kb.id}/${encodeURIComponent(uploadFileName.trim() || 'documento-manual.txt')}`,
+              mimeType: mimeTypeFromName(uploadFileName.trim() || 'documento-manual.txt'),
+              dataClassification: kb.dataClassification ?? 'internal',
+              contentText: documentText,
+              metadata: {
+                size: `${Math.max(1, Math.ceil(documentText.length / 1024))} KB`,
+                version: '1.0',
+                phase: 'local_text_ingestion',
+                uploadMode: 'manual_text',
+              },
+            },
+          });
       setDocuments(prev => [newDoc, ...prev.filter(doc => doc.id !== newDoc.id)]);
       setPreviewDocId(newDoc.id);
       setUploadOpen(false);
-      setUploadFileName('');
-      setDocumentText('');
-      toast({ title: 'Documento registrado', description: `"${newDoc.name}" está pronto para ingestão local.` });
+      resetUploadForm();
+      toast({ title: 'Documento registrado', description: `"${newDoc.name}" esta pronto para ingestao local.` });
     } catch (error) {
       toast({ title: 'Erro ao catalogar documento', description: error instanceof Error ? error.message : 'Tente novamente em instantes.', variant: 'destructive' });
     }
@@ -286,8 +313,26 @@ export default function KnowledgeDetailPage() {
           </div>
         )}
 
-        <div className="rounded-lg border bg-info/5 p-4 text-sm text-info">
-          Ingestão local ativa para texto simples. Embeddings, vector store e retrieval semântico seguem desabilitados nesta fase.
+        <div className={`rounded-lg border p-4 text-sm ${readiness?.status === 'ready' ? 'bg-success/5 text-success' : readiness?.status === 'degraded' ? 'bg-warning/5 text-warning' : 'bg-info/5 text-info'}`}>
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div className="flex items-center gap-2">
+              {readiness?.ready ? <CheckCircle2 className="h-4 w-4" /> : <AlertTriangle className="h-4 w-4" />}
+              <span className="font-medium">Readiness da base: {readinessQuery.isLoading ? 'carregando' : readinessStatusLabel(readiness?.status)}</span>
+            </div>
+            {readiness && (
+              <div className="flex flex-wrap items-center gap-2 text-xs">
+                <Badge variant="outline">modo {readiness.effectiveRetrievalMode}</Badge>
+                <Badge variant="outline">{readiness.documentsReady}/{readiness.documentsTotal} docs</Badge>
+                <Badge variant="outline">{readiness.chunksReady} chunks</Badge>
+                <Badge variant="outline">{readiness.embeddingsReady} embeddings</Badge>
+              </div>
+            )}
+          </div>
+          {readiness?.blockedReasons?.length ? (
+            <p className="mt-2 text-xs opacity-90">{readiness.blockedReasons.join(', ')}</p>
+          ) : (
+            <p className="mt-2 text-xs opacity-90">Upload operacional TXT/MD/CSV, ingestao local e retrieval governado por policy.</p>
+          )}
         </div>
 
         {/* Tabs */}
@@ -324,6 +369,7 @@ export default function KnowledgeDetailPage() {
                       <TableHead>Tamanho</TableHead>
                       <TableHead>Status</TableHead>
                       <TableHead className="text-center">Chunks</TableHead>
+                      <TableHead>Embedding</TableHead>
                       <TableHead>Versão</TableHead>
                       <TableHead>Enviado por</TableHead>
                       <TableHead>Data</TableHead>
@@ -348,6 +394,11 @@ export default function KnowledgeDetailPage() {
                           </div>
                         </TableCell>
                         <TableCell className="text-center">{(doc.chunkCount ?? doc.chunks) > 0 ? (doc.chunkCount ?? doc.chunks) : '—'}</TableCell>
+                        <TableCell>
+                          <Badge variant={doc.embeddingStatus === 'ready' ? 'default' : 'outline'} className="text-[10px]">
+                            {embeddingStatusLabel(doc.embeddingStatus)}
+                          </Badge>
+                        </TableCell>
                         <TableCell className="text-xs">{doc.version}</TableCell>
                         <TableCell className="text-xs">{doc.uploadedBy}</TableCell>
                         <TableCell className="text-xs">{doc.uploadedAt}</TableCell>
@@ -387,6 +438,11 @@ export default function KnowledgeDetailPage() {
                     <div><p className="text-lg font-bold">{previewDoc.chunkCount ?? previewDoc.chunks}</p><p className="text-[10px] text-muted-foreground">Chunks</p></div>
                     <div><p className="text-lg font-bold">{ingestionJobs.length}</p><p className="text-[10px] text-muted-foreground">Jobs</p></div>
                     <div><p className="text-lg font-bold">{sourceReferences.length}</p><p className="text-[10px] text-muted-foreground">Fontes</p></div>
+                  </div>
+                  <div className="mt-3 rounded-md bg-muted/50 p-2 text-xs text-muted-foreground">
+                    Embedding: {embeddingStatusLabel(previewDoc.embeddingStatus)}
+                    {previewDoc.embeddingCount ? ` (${previewDoc.embeddingCount})` : ''}
+                    {previewDoc.embeddingModel ? ` · ${previewDoc.embeddingModel}` : ''}
                   </div>
                   <div className="mt-4 space-y-2">
                     {ingestionJobs.length === 0 ? (
@@ -566,38 +622,53 @@ export default function KnowledgeDetailPage() {
       </div>
 
       {/* Document Dialog */}
-      <Dialog open={uploadOpen} onOpenChange={setUploadOpen}>
+      <Dialog open={uploadOpen} onOpenChange={(open) => {
+        setUploadOpen(open);
+        if (!open) resetUploadForm();
+      }}>
         <DialogContent>
           <DialogHeader>
             <DialogTitle>Registrar Documento</DialogTitle>
-            <DialogDescription>Cadastre metadados do documento em "{kb.name}". Nenhum arquivo binário é enviado nesta fase.</DialogDescription>
+            <DialogDescription>Envie TXT, MD ou CSV para "{kb.name}", ou cadastre texto manual para ingestao local.</DialogDescription>
           </DialogHeader>
           <div className="space-y-4">
-            <div className="border-2 border-dashed rounded-lg p-8 text-center hover:border-primary/50 transition-colors cursor-pointer" onClick={() => setUploadFileName('Documento_' + Date.now() + '.pdf')}>
+            <input
+              ref={uploadInputRef}
+              type="file"
+              accept=".txt,.md,.csv,text/plain,text/markdown,text/csv"
+              className="hidden"
+              onChange={event => {
+                const file = event.target.files?.[0] ?? null;
+                setSelectedUploadFile(file);
+                setUploadFileName(file?.name ?? '');
+                if (file) setDocumentText('');
+              }}
+            />
+            <div className="border-2 border-dashed rounded-lg p-8 text-center hover:border-primary/50 transition-colors cursor-pointer" onClick={() => uploadInputRef.current?.click()}>
               <Upload className="h-8 w-8 mx-auto text-muted-foreground mb-2" />
-              <p className="text-sm font-medium">Clique para preencher um nome de referência</p>
-              <p className="text-xs text-muted-foreground mt-1">PDF, DOCX, XLSX, CSV, TXT, MD como metadado catalogado</p>
+              <p className="text-sm font-medium">Selecionar arquivo operacional</p>
+              <p className="text-xs text-muted-foreground mt-1">TXT, MD ou CSV em UTF-8</p>
             </div>
-            {uploadFileName && (
+            {selectedUploadFile && (
               <div className="flex items-center gap-2 p-2 rounded-lg bg-muted/50">
                 <FileText className="h-4 w-4 text-info" />
-                <span className="text-sm flex-1">{uploadFileName}</span>
-                <Button variant="ghost" size="icon" className="h-6 w-6" onClick={() => setUploadFileName('')}><XCircle className="h-3.5 w-3.5" /></Button>
+                <span className="text-sm flex-1">{selectedUploadFile.name} · {Math.max(1, Math.ceil(selectedUploadFile.size / 1024))} KB</span>
+                <Button variant="ghost" size="icon" className="h-6 w-6" onClick={resetUploadForm}><XCircle className="h-3.5 w-3.5" /></Button>
               </div>
             )}
             <div className="space-y-2">
-              <Label>Nome do documento (opcional)</Label>
-              <Input value={uploadFileName} onChange={e => setUploadFileName(e.target.value)} placeholder="Ex: manual-operacional.pdf" />
+              <Label>Nome do documento manual</Label>
+              <Input value={uploadFileName} onChange={e => setUploadFileName(e.target.value)} placeholder="Ex: manual-operacional.md" disabled={Boolean(selectedUploadFile)} />
             </div>
             <div className="space-y-2">
-              <Label>Conteúdo textual simples</Label>
-              <Textarea value={documentText} onChange={e => setDocumentText(e.target.value)} rows={8} maxLength={100000} placeholder="Cole aqui o texto que será preparado pelo chunking local." />
+              <Label>Conteúdo textual manual</Label>
+              <Textarea value={documentText} onChange={e => setDocumentText(e.target.value)} rows={8} maxLength={100000} placeholder="Cole aqui o texto que sera preparado pelo chunking local." disabled={Boolean(selectedUploadFile)} />
               <p className="text-[10px] text-muted-foreground">{documentText.length}/100000 caracteres. Conteúdo bruto não entra em audit logs.</p>
             </div>
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setUploadOpen(false)}>Cancelar</Button>
-            <Button onClick={() => { void handleUpload(); }} disabled={!uploadFileName || !documentText.trim() || createDocumentMutation.isPending}><Upload className="h-4 w-4 mr-1" />Registrar</Button>
+            <Button onClick={() => { void handleUpload(); }} disabled={!canSubmitUpload || uploadPending}><Upload className="h-4 w-4 mr-1" />Registrar</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>

@@ -121,6 +121,9 @@ export const agentRunsRepository = {
             documentId: true,
             chunkId: true,
             sourceUri: true,
+            sourceType: true,
+            sectionTitle: true,
+            pageNumber: true,
             document: {
               select: {
                 title: true,

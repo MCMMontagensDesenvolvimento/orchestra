@@ -13,6 +13,7 @@ const smokeScripts = [
   'scripts/smoke-agno-real-16e.sh',
   'scripts/smoke-agno-demo-local-16g.sh',
   'scripts/smoke-agno-bridge-docker-16h.sh',
+  'scripts/smoke-knowledge-rag-16i.sh',
 ];
 
 const destructivePatterns = [
@@ -59,6 +60,27 @@ describe('runtime smoke scripts', () => {
     expect(content).not.toMatch(/\/execute\b/);
     expect(content).not.toMatch(/\/chat\/conversations/);
     expect(content).not.toMatch(/\/assistants\/.*\/runs/);
+  });
+
+  it('keeps the 16I Knowledge/RAG smoke offline, syntax-valid, and secret-safe', () => {
+    const script = 'scripts/smoke-knowledge-rag-16i.sh';
+    const path = resolve(repoRoot, script);
+    const syntaxCheck = spawnSync('bash', ['-n', path], { encoding: 'utf8' });
+    const helpRun = spawnSync('bash', [path, '--help'], { encoding: 'utf8' });
+    const dryRun = spawnSync('bash', [path, '--dry-run'], { encoding: 'utf8' });
+    const checklistRun = spawnSync('bash', [path, '--print-checklist'], { encoding: 'utf8' });
+    const content = readFileSync(path, 'utf8');
+
+    expect(syntaxCheck.status, syntaxCheck.stderr).toBe(0);
+    expect(helpRun.status, helpRun.stderr).toBe(0);
+    expect(dryRun.status, dryRun.stderr).toBe(0);
+    expect(checklistRun.status, checklistRun.stderr).toBe(0);
+    expect(dryRun.stdout).toMatch(/Knowledge\/RAG 16I smoke summary: PASS=/);
+    expect(`${dryRun.stdout}${dryRun.stderr}`).not.toMatch(/OPENAI_API_KEY|sk-[A-Za-z0-9]{20,}/);
+    expect(content).not.toMatch(/^\s*(?:source|\.)\s+[^\n]*\.env/m);
+    expect(content).not.toMatch(/curl\s+/);
+    expect(content).not.toMatch(/\/execute\b/);
+    expect(content).not.toMatch(/\/chat\/conversations/);
   });
 
   it('keeps the 15H smoke syntax-valid, secret-safe, and opt-in', () => {

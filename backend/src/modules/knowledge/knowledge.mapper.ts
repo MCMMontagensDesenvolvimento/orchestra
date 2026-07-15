@@ -65,7 +65,24 @@ export function mapKnowledgeBase(
   };
 }
 
-export function mapKnowledgeDocument(document: KnowledgeDocument) {
+export function mapKnowledgeDocument(document: KnowledgeDocument & {
+  _count?: { chunkEmbeddings?: number };
+  chunkEmbeddings?: Array<{
+    status: string;
+    provider: string;
+    embeddingModel: string;
+    updatedAt: Date;
+  }>;
+}) {
+  const embeddingCount = document._count?.chunkEmbeddings ?? 0;
+  const latestEmbedding = document.chunkEmbeddings?.[0];
+  const embeddingStatus = document.chunkCount > 0 && embeddingCount >= document.chunkCount
+    ? 'ready'
+    : latestEmbedding?.status === 'failed'
+      ? 'failed'
+      : embeddingCount > 0
+        ? 'partial'
+        : 'not_requested';
   return {
     id: document.id,
     tenantId: document.tenantId,
@@ -85,6 +102,10 @@ export function mapKnowledgeDocument(document: KnowledgeDocument) {
     contentHash: document.contentHash,
     ingestedAt: document.ingestedAt?.toISOString() ?? null,
     chunkCount: document.chunkCount,
+    embeddingCount,
+    embeddingStatus,
+    embeddingProvider: latestEmbedding?.provider ?? null,
+    embeddingModel: latestEmbedding?.embeddingModel ?? null,
     metadata: document.metadata,
     createdById: document.createdById,
     createdAt: document.createdAt.toISOString(),

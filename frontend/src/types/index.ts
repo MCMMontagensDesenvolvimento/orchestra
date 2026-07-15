@@ -460,6 +460,10 @@ export interface KnowledgeDocument {
   lastProcessed: string;
   updatedAt?: string;
   deletedAt?: string | null;
+  embeddingCount?: number;
+  embeddingStatus?: 'ready' | 'partial' | 'failed' | 'not_requested';
+  embeddingProvider?: string | null;
+  embeddingModel?: string | null;
 }
 
 export interface KnowledgePolicy {
@@ -559,6 +563,41 @@ export interface KnowledgeSourceReference {
   updatedAt: string;
 }
 
+export interface KnowledgeBaseReadiness {
+  knowledgeBaseId: string;
+  status: 'ready' | 'degraded' | 'not_ready';
+  retrievalMode: string;
+  retrievalModeConfigured?: string;
+  effectiveRetrievalMode: string;
+  ready: boolean;
+  keywordReady: boolean;
+  semanticReady: boolean;
+  documentsTotal: number;
+  documentsReady: number;
+  chunksReady: number;
+  embeddingsReady: number;
+  ingestionStatus?: string;
+  blockedReasons: string[];
+  warnings: Array<{ code: string; message: string }>;
+  embeddings: {
+    status: string;
+    enabled: boolean;
+    provider: string;
+    model?: string | null;
+    dimension?: number | null;
+    failClosed?: boolean;
+  };
+  lastJob?: {
+    status: string;
+    completedAt?: string | null;
+    createdAt: string;
+    errorCode?: string | null;
+    errorMessage?: string | null;
+  } | null;
+  lastError?: string | null;
+  lastIngestionAt?: string | null;
+}
+
 export interface RagReadiness {
   assistantId: string;
   ready?: boolean;
@@ -574,9 +613,21 @@ export interface RagReadiness {
   documentsIngested: number;
   chunksAvailable: number;
   missingRequirements: string[];
-  retrievalMode: 'local_chunks_only';
-  embeddingsEnabled: false;
-  vectorStoreEnabled: false;
+  retrievalMode: 'local_chunks_only' | 'keyword' | 'semantic' | 'hybrid' | string;
+  effectiveRetrievalMode?: string;
+  status?: 'ready' | 'degraded' | 'not_ready';
+  keywordReady?: boolean;
+  semanticReady?: boolean;
+  embeddingsEnabled: boolean;
+  vectorStoreEnabled: boolean;
+  embeddings?: {
+    status: string;
+    enabled?: boolean;
+    provider?: string;
+    model?: string | null;
+    dimension?: number | null;
+    reason?: string;
+  };
 }
 
 export interface RagLocalSearchResult {
@@ -663,6 +714,14 @@ export interface RagQueryResponse {
   resultCount: number;
   sources: RagQuerySource[];
   warnings: RagQueryWarning[];
+  retrievalMode?: string;
+  semanticEnabled?: boolean;
+  vectorStoreUsed?: boolean;
+  fallbackUsed?: boolean;
+  fallbackReason?: string | null;
+  provider?: string;
+  model?: string | null;
+  dimension?: number | null;
 }
 
 export interface AssistantKnowledgeBinding {

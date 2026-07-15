@@ -33,6 +33,7 @@ export const queryKeys = {
     all: ['knowledge'] as const,
     list: () => [...queryKeys.knowledge.all, 'list'] as const,
     detail: (id: string) => [...queryKeys.knowledge.all, 'detail', id] as const,
+    readiness: (id?: string) => [...queryKeys.knowledge.all, 'readiness', id ?? 'unknown'] as const,
     documents: (id?: string) => [...queryKeys.knowledge.all, 'documents', id ?? 'all'] as const,
     dataSources: (id?: string) => [...queryKeys.knowledge.all, 'data-sources', id ?? 'all'] as const,
     ingestion: (documentId: string) => [...queryKeys.knowledge.all, 'ingestion', documentId] as const,

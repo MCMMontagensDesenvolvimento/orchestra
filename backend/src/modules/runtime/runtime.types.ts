@@ -117,6 +117,9 @@ export interface RuntimeRagSummary {
     documentId?: string | null;
     chunkId?: string | null;
     documentTitle?: string | null;
+    sourceType?: string | null;
+    sectionTitle?: string | null;
+    pageNumber?: number | null;
     excerpt?: string | null;
     score?: number | null;
   }>;

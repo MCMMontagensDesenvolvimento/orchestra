@@ -19,6 +19,13 @@ export const useKnowledgeBase = (id: string | undefined) =>
     enabled: !!id,
   });
 
+export const useKnowledgeBaseReadiness = (id: string | undefined) =>
+  useQuery({
+    queryKey: queryKeys.knowledge.readiness(id),
+    queryFn: () => knowledgeService.readiness(id!),
+    enabled: !!id,
+  });
+
 export const useKnowledgeDocuments = (knowledgeBaseId?: string) =>
   useQuery({
     queryKey: queryKeys.knowledge.documents(knowledgeBaseId),
@@ -159,6 +166,20 @@ export const useCreateKnowledgeDocumentMutation = () => {
   });
 };
 
+export const useUploadKnowledgeDocumentMutation = () => {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ knowledgeBaseId, file }: { knowledgeBaseId: string; file: File }) =>
+      knowledgeService.uploadDocument(knowledgeBaseId, file),
+    onSuccess: (_document, variables) => {
+      void queryClient.invalidateQueries({ queryKey: queryKeys.knowledge.documents(variables.knowledgeBaseId) });
+      void queryClient.invalidateQueries({ queryKey: queryKeys.knowledge.detail(variables.knowledgeBaseId) });
+      void queryClient.invalidateQueries({ queryKey: queryKeys.knowledge.readiness(variables.knowledgeBaseId) });
+      void queryClient.invalidateQueries({ queryKey: queryKeys.audit.logs });
+    },
+  });
+};
+
 export const useRequestKnowledgeIngestionMutation = () => {
   const queryClient = useQueryClient();
   return useMutation({
@@ -170,6 +191,7 @@ export const useRequestKnowledgeIngestionMutation = () => {
       void queryClient.invalidateQueries({ queryKey: queryKeys.knowledge.chunks(result.documentId) });
       void queryClient.invalidateQueries({ queryKey: queryKeys.knowledge.sourceReferences(result.documentId) });
       void queryClient.invalidateQueries({ queryKey: queryKeys.knowledge.detail(result.knowledgeBaseId) });
+      void queryClient.invalidateQueries({ queryKey: queryKeys.knowledge.readiness(result.knowledgeBaseId) });
       void queryClient.invalidateQueries({ queryKey: queryKeys.knowledge.all });
       void queryClient.invalidateQueries({ queryKey: queryKeys.audit.logs });
     },

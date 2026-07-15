@@ -18,6 +18,8 @@ import {
 } from './knowledge.mapper';
 import { knowledgeRepository } from './knowledge.repository';
 import { chunkContentText, hashText, localChunkingDefaults, normalizeContentText } from './knowledge.chunking';
+import { getKnowledgeRetrievalConfig } from './knowledge.config';
+import { formatKnowledgeUploadSize, parseKnowledgeUpload } from './knowledge.upload';
 import type {
   AssistantKnowledgeBindingCreateInput,
   AssistantKnowledgeBindingUpdateInput,
@@ -265,8 +267,28 @@ function scoreRagCandidate(candidate: {
 
 function mapReadiness(readiness: Awaited<ReturnType<typeof knowledgeRepository.getRagReadiness>>) {
   if (!readiness) return null;
-  const ready = readiness.blockedReasons.length === 0;
   const embeddings = embeddingsService.getEmbeddingReadiness();
+  const retrievalConfig = getKnowledgeRetrievalConfig();
+  const keywordReady = readiness.blockedReasons.length === 0;
+  const embeddingsAvailable = readiness.embeddingsAvailable ?? 0;
+  const semanticReady = keywordReady && embeddings.status === 'ready' && embeddingsAvailable > 0;
+  const ready = retrievalConfig.mode === 'semantic' ? semanticReady : keywordReady;
+  const blockedReasons = [...readiness.blockedReasons];
+  if (retrievalConfig.mode === 'semantic' && keywordReady && !semanticReady) {
+    blockedReasons.push(embeddings.status === 'ready' ? 'NO_SEMANTIC_EMBEDDINGS' : 'EMBEDDINGS_NOT_READY');
+  }
+  const effectiveRetrievalMode = !keywordReady
+    ? 'none'
+    : retrievalConfig.mode === 'keyword'
+      ? 'keyword'
+      : semanticReady
+        ? retrievalConfig.mode
+        : retrievalConfig.mode === 'hybrid'
+          ? 'keyword'
+          : 'none';
+  const status = ready
+    ? retrievalConfig.mode === 'hybrid' && !semanticReady ? 'degraded' : 'ready'
+    : keywordReady ? 'degraded' : 'not_ready';
   return {
     assistantId: readiness.assistant.id,
     ready,
@@ -276,16 +298,24 @@ function mapReadiness(readiness: Awaited<ReturnType<typeof knowledgeRepository.g
     chunkCount: readiness.chunkCount,
     sourceReferenceCount: readiness.sourceReferenceCount,
     enabledBindingCount: readiness.enabledBindingCount,
-    blockedReasons: readiness.blockedReasons,
+    blockedReasons,
     warnings: readiness.warnings,
     knowledgeBasesBound: readiness.knowledgeBasesBound,
     documentsIngested: readiness.documentsIngested,
     chunksAvailable: readiness.chunksAvailable,
-    missingRequirements: readiness.blockedReasons,
+    missingRequirements: blockedReasons,
     retrievalMode: 'local_chunks_only',
-    embeddingsEnabled: false,
+    retrievalModeConfigured: retrievalConfig.mode,
+    effectiveRetrievalMode,
+    status,
+    keywordReady,
+    semanticReady,
+    documentsAuthorized: readiness.documentsIngested,
+    chunksAuthorized: readiness.chunksAvailable,
+    embeddingsAvailable,
+    embeddingsEnabled: embeddings.status === 'ready',
     embeddings,
-    vectorStoreEnabled: false,
+    vectorStoreEnabled: semanticReady,
   };
 }
 
@@ -411,6 +441,8 @@ function buildLexicalOfficialRagResults(input: {
   normalizedTerms: string[];
   priorityByKnowledgeBaseId: Map<string, number>;
   limit: number;
+  maxExcerptChars: number;
+  scoreThreshold: number;
 }) {
   const scoredResults: Array<{
     chunk: RagSearchChunk;
@@ -440,6 +472,7 @@ function buildLexicalOfficialRagResults(input: {
       left.chunk.chunkIndex - right.chunk.chunkIndex ||
       left.chunk.id.localeCompare(right.chunk.id),
     )
+    .filter((item) => item.score >= input.scoreThreshold)
     .slice(0, input.limit)
     .map((item, index): OfficialRagSelectedResult => {
       const sourceReference = item.chunk.sourceReferences[0];
@@ -451,7 +484,7 @@ function buildLexicalOfficialRagResults(input: {
         rank: index + 1,
         score: item.score,
         matchType: item.matchType,
-        excerpt: safeExcerpt(item.chunk.content, input.normalizedTerms),
+        excerpt: safeExcerpt(item.chunk.content, input.normalizedTerms, input.maxExcerptChars),
         citationLabel: `Fonte ${index + 1}`,
         metadata: sanitizeMetadata({
           rawScore: item.rawScore,
@@ -469,8 +502,13 @@ function buildSemanticOfficialRagResults(input: {
   chunks: RagSearchChunk[];
   normalizedTerms: string[];
   limit: number;
+  maxExcerptChars: number;
+  scoreThreshold: number;
 }) {
-  return input.chunks.slice(0, input.limit).map((chunk, index): OfficialRagSelectedResult => {
+  return input.chunks
+    .filter((chunk) => (chunk.semanticScore ?? 0) >= input.scoreThreshold)
+    .slice(0, input.limit)
+    .map((chunk, index): OfficialRagSelectedResult => {
     const sourceReference = chunk.sourceReferences[0];
     const semanticScore = Number((chunk.semanticScore ?? 0).toFixed(6));
     const semanticDistance = Number((chunk.semanticDistance ?? 0).toFixed(6));
@@ -482,7 +520,7 @@ function buildSemanticOfficialRagResults(input: {
       rank: index + 1,
       score: semanticScore,
       matchType: 'semantic_vector',
-      excerpt: safeExcerpt(chunk.content, input.normalizedTerms),
+      excerpt: safeExcerpt(chunk.content, input.normalizedTerms, input.maxExcerptChars),
       citationLabel: `Fonte ${index + 1}`,
       metadata: sanitizeMetadata({
         semanticDistance,
@@ -494,7 +532,22 @@ function buildSemanticOfficialRagResults(input: {
         sourceReferenceLabel: sourceReference?.label,
       }) as Prisma.InputJsonValue,
     };
-  });
+    });
+}
+
+function applyRagContextLimit(results: OfficialRagSelectedResult[], maxContextChars: number) {
+  const selected: OfficialRagSelectedResult[] = [];
+  let contextChars = 0;
+  for (const result of results) {
+    const remaining = maxContextChars - contextChars;
+    if (remaining <= 0) break;
+    const excerpt = result.excerpt.slice(0, remaining).trim();
+    if (!excerpt) continue;
+    const rank = selected.length + 1;
+    selected.push({ ...result, rank, citationLabel: `Fonte ${rank}`, excerpt });
+    contextChars += excerpt.length;
+  }
+  return selected;
 }
 
 async function resolveOfficialRagRetrieval(input: {
@@ -508,6 +561,7 @@ async function resolveOfficialRagRetrieval(input: {
   embeddingReadiness: EmbeddingReadiness;
   lexicalResult: NonNullable<Awaited<ReturnType<typeof knowledgeRepository.findRagRetrievalCandidates>>>;
 }): Promise<OfficialRagRetrievalResolution> {
+  const retrievalConfig = getKnowledgeRetrievalConfig();
   const { provider, model, dimension } = embeddingReadinessMetadata(input.embeddingReadiness);
   const priorityByKnowledgeBaseId = new Map(
     input.lexicalResult.readiness.activeBindings.map((binding) => [binding.knowledgeBaseId, binding.priority]),
@@ -517,6 +571,8 @@ async function resolveOfficialRagRetrieval(input: {
     normalizedTerms: input.normalizedTerms,
     priorityByKnowledgeBaseId,
     limit: input.limit,
+    maxExcerptChars: retrievalConfig.maxExcerptChars,
+    scoreThreshold: retrievalConfig.scoreThreshold,
   });
   const fallback = (reason: SemanticFallbackReason): OfficialRagRetrievalResolution => ({
     mode: 'semantic_fallback_local_keyword',
@@ -528,15 +584,31 @@ async function resolveOfficialRagRetrieval(input: {
     provider,
     model,
     dimension,
-    selectedResults: localResults(),
+    selectedResults: applyRagContextLimit(localResults(), retrievalConfig.maxContextChars),
   });
+
+  if (retrievalConfig.mode === 'keyword') {
+    return {
+      mode: 'local_keyword',
+      retrievalMode: 'local_keyword',
+      semanticEnabled: false,
+      vectorStoreUsed: false,
+      fallbackUsed: false,
+      fallbackReason: null,
+      provider,
+      model,
+      dimension,
+      selectedResults: applyRagContextLimit(localResults(), retrievalConfig.maxContextChars),
+    };
+  }
 
   if (input.embeddingReadiness.status !== 'ready' || !model || !dimension) {
     return fallback('EMBEDDINGS_NOT_READY');
   }
 
+  let queryEmbedding: Awaited<ReturnType<typeof embeddingsService.embedText>>;
   try {
-    const queryEmbedding = await embeddingsService.embedText({
+    queryEmbedding = await embeddingsService.embedText({
       text: input.query,
       requestId: input.requestId,
       model,
@@ -550,7 +622,12 @@ async function resolveOfficialRagRetrieval(input: {
     if (!Array.isArray(queryEmbedding.vector) || queryEmbedding.vector.length !== dimension || !queryEmbedding.vector.every(Number.isFinite)) {
       throw new AppError(502, 'EMBEDDING_DIMENSION_MISMATCH', 'Embedding provider returned a vector with unexpected dimension.');
     }
+  } catch (error) {
+    if (retrievalConfig.mode === 'hybrid') return fallback('SEMANTIC_RETRIEVAL_FAILED');
+    throw new AppError(503, 'RAG_EMBEDDING_FAILED', 'Falha governada ao gerar embedding para retrieval semantico.');
+  }
 
+  try {
     const semanticResult = await knowledgeRepository.findSemanticRagRetrievalCandidates({
       assistantId: input.assistantId,
       tenantId: input.tenantId,
@@ -565,9 +642,29 @@ async function resolveOfficialRagRetrieval(input: {
       throw new AppError(404, 'ASSISTANT_NOT_FOUND', 'Assistente nao encontrado.');
     }
     if (semanticResult.chunks.length === 0) {
-      return fallback(semanticResult.semanticCandidateCount === 0 ? 'NO_SEMANTIC_EMBEDDINGS' : 'SEMANTIC_NO_RESULTS');
+      const reason = semanticResult.semanticCandidateCount === 0 ? 'NO_SEMANTIC_EMBEDDINGS' : 'SEMANTIC_NO_RESULTS';
+      if (retrievalConfig.mode === 'hybrid') return fallback(reason);
+      return {
+        mode: 'semantic_vector',
+        retrievalMode: 'semantic_vector',
+        semanticEnabled: true,
+        vectorStoreUsed: true,
+        fallbackUsed: false,
+        fallbackReason: reason,
+        provider,
+        model,
+        dimension,
+        selectedResults: [],
+      };
     }
 
+    const semanticResults = buildSemanticOfficialRagResults({
+      chunks: semanticResult.chunks,
+      normalizedTerms: input.normalizedTerms,
+      limit: input.limit,
+      maxExcerptChars: retrievalConfig.maxExcerptChars,
+      scoreThreshold: retrievalConfig.scoreThreshold,
+    });
     return {
       mode: 'semantic_vector',
       retrievalMode: 'semantic_vector',
@@ -578,17 +675,13 @@ async function resolveOfficialRagRetrieval(input: {
       provider,
       model,
       dimension,
-      selectedResults: buildSemanticOfficialRagResults({
-        chunks: semanticResult.chunks,
-        normalizedTerms: input.normalizedTerms,
-        limit: input.limit,
-      }),
+      selectedResults: applyRagContextLimit(semanticResults, retrievalConfig.maxContextChars),
     };
   } catch (error) {
     if (error instanceof AppError && error.status === 404) {
       throw error;
     }
-    return fallback('SEMANTIC_RETRIEVAL_FAILED');
+    throw new AppError(503, 'RAG_RETRIEVAL_FAILED', 'Retrieval governado falhou antes da execucao do runtime.');
   }
 }
 
@@ -793,6 +886,69 @@ export const knowledgeService = {
     return mapKnowledgeBase(base);
   },
 
+  async getKnowledgeBaseReadiness(id: string, user: AuthenticatedUser) {
+    const readiness = await knowledgeRepository.getKnowledgeBaseReadiness(id, user.tenant.id, userWorkspaceIds(user));
+    if (!readiness) {
+      throw new AppError(404, 'KNOWLEDGE_BASE_NOT_FOUND', 'Base de conhecimento nao encontrada.');
+    }
+    const embeddings = embeddingsService.getEmbeddingReadiness();
+    const retrieval = getKnowledgeRetrievalConfig();
+    const blockedReasons: string[] = [];
+    if (readiness.base.status !== 'active' || readiness.base.deletedAt) blockedReasons.push('KNOWLEDGE_BASE_ARCHIVED');
+    if (readiness.policy?.allowRuntimeRetrieval !== true) blockedReasons.push('RETRIEVAL_POLICY_BLOCKED');
+    if (readiness.documentsReady === 0) blockedReasons.push('NO_INGESTED_DOCUMENTS');
+    if (readiness.documentsReady > 0 && readiness.chunksReady === 0) blockedReasons.push('NO_CHUNKS_AVAILABLE');
+
+    const keywordReady = blockedReasons.length === 0;
+    const semanticReady = keywordReady && embeddings.status === 'ready' && readiness.embeddingsReady > 0;
+    const effectiveRetrievalMode = !keywordReady
+      ? 'none'
+      : retrieval.mode === 'keyword'
+        ? 'keyword'
+        : semanticReady
+          ? retrieval.mode
+          : retrieval.mode === 'hybrid'
+            ? 'keyword'
+            : 'none';
+    const ready = retrieval.mode === 'semantic' ? semanticReady : keywordReady;
+    const status = ready
+      ? retrieval.mode === 'hybrid' && !semanticReady ? 'degraded' : 'ready'
+      : keywordReady ? 'degraded' : 'not_ready';
+    const lastError = readiness.lastFailedDocument?.ingestionErrorMessage ?? readiness.lastJob?.errorMessage ?? null;
+
+    return {
+      knowledgeBaseId: readiness.base.id,
+      status,
+      ready,
+      documentsTotal: readiness.documentsTotal,
+      documentsReady: readiness.documentsReady,
+      chunksReady: readiness.chunksReady,
+      embeddingsReady: readiness.embeddingsReady,
+      ingestionStatus: readiness.lastJob?.status ?? (readiness.documentsTotal > 0 ? 'pending' : 'empty'),
+      retrievalMode: retrieval.mode,
+      retrievalModeConfigured: retrieval.mode,
+      effectiveRetrievalMode,
+      keywordReady,
+      semanticReady,
+      blockedReasons,
+      warnings: status === 'degraded'
+        ? [{ code: semanticReady ? 'RAG_DEGRADED' : 'SEMANTIC_RETRIEVAL_NOT_READY', message: 'Retrieval keyword esta disponivel, mas retrieval semantico ainda nao esta pronto.' }]
+        : [],
+      lastError: lastError ? embeddingErrorMessage(lastError) : null,
+      lastIngestionAt: readiness.lastJob?.completedAt?.toISOString()
+        ?? readiness.lastJob?.createdAt.toISOString()
+        ?? null,
+      embeddings: {
+        status: embeddings.status,
+        enabled: embeddings.enabled,
+        provider: embeddings.provider,
+        model: embeddings.model,
+        dimension: embeddings.dimension,
+        failClosed: embeddings.failClosed,
+      },
+    };
+  },
+
   async createKnowledgeBase(input: KnowledgeBaseCreateInput, user: AuthenticatedUser, context: RequestContext) {
     const workspaceId = await resolveWorkspace(user, input.workspaceId, context, 'createKnowledgeBase');
     const ownerUserId = input.ownerUserId === null ? null : (input.ownerUserId ?? user.id);
@@ -913,6 +1069,85 @@ export const knowledgeService = {
         sourceType: document.sourceType,
         status: document.status,
         ingestionStatus: document.ingestionStatus,
+      },
+    });
+
+    return mapKnowledgeDocument(document);
+  },
+
+  async uploadDocument(
+    knowledgeBaseId: string,
+    input: { body: Buffer; fileName: string; contentType?: string },
+    user: AuthenticatedUser,
+    context: RequestContext,
+  ) {
+    const base = await getKnowledgeBaseOrThrow(knowledgeBaseId, user);
+    if (base.status === 'archived' || base.deletedAt) {
+      throw new AppError(409, 'KNOWLEDGE_BASE_ARCHIVED', 'Base arquivada nao aceita novos documentos.');
+    }
+
+    let parsed;
+    try {
+      parsed = parseKnowledgeUpload(input);
+    } catch (error) {
+      const code = error instanceof AppError ? error.code : 'KNOWLEDGE_UPLOAD_PARSE_FAILED';
+      await audit({
+        user,
+        context,
+        action: 'knowledge_document_upload_rejected',
+        entity: 'knowledge_base',
+        entityId: base.id,
+        workspaceId: base.workspaceId,
+        metadata: {
+          knowledgeBaseId: base.id,
+          errorCode: code,
+          uploadBytes: Buffer.isBuffer(input.body) ? input.body.length : 0,
+          contentType: input.contentType?.split(';', 1)[0],
+          rawContentStored: false,
+        },
+      });
+      if (error instanceof AppError) throw error;
+      throw new AppError(422, code, 'Falha ao interpretar o arquivo enviado.');
+    }
+
+    const contentHash = hashText(parsed.contentText);
+    const document = await knowledgeRepository.createDocument({
+      tenantId: user.tenant.id,
+      workspaceId: base.workspaceId,
+      knowledgeBaseId: base.id,
+      createdById: user.id,
+      title: parsed.fileName,
+      sourceType: 'file',
+      mimeType: parsed.mimeType,
+      status: 'draft',
+      ingestionStatus: 'pending',
+      dataClassification: base.dataClassification as KnowledgeDocumentCreateInput['dataClassification'],
+      contentText: parsed.contentText,
+      contentHash,
+      metadata: {
+        fileName: parsed.fileName,
+        fileExtension: parsed.extension,
+        fileSizeBytes: parsed.sizeBytes,
+        size: formatKnowledgeUploadSize(parsed.sizeBytes),
+        uploadMode: 'memory_utf8_text',
+        rawFilePersisted: false,
+      },
+    });
+
+    await audit({
+      user,
+      context,
+      action: 'knowledge_document_uploaded',
+      entity: 'knowledge_document',
+      entityId: document.id,
+      workspaceId: base.workspaceId,
+      metadata: {
+        knowledgeBaseId: base.id,
+        fileExtension: parsed.extension,
+        mimeType: parsed.mimeType,
+        uploadBytes: parsed.sizeBytes,
+        rawContentLogged: false,
+        rawFilePersisted: false,
       },
     });
 
@@ -1126,6 +1361,9 @@ export const knowledgeService = {
     if (!result) {
       throw new AppError(404, 'KNOWLEDGE_DOCUMENT_NOT_FOUND', 'Documento de conhecimento nao encontrado.');
     }
+    const chunksCreated = result.chunksCreated ?? result.chunks.length;
+    const sourceReferencesCreated = result.sourceReferencesCreated ?? result.sourceReferences.length;
+    const idempotent = result.idempotent ?? false;
 
     await audit({
       user,
@@ -1139,6 +1377,7 @@ export const knowledgeService = {
         documentId: result.job.documentId,
         status: result.job.status,
         strategy: result.job.strategy,
+        idempotent,
       },
     });
 
@@ -1166,7 +1405,8 @@ export const knowledgeService = {
       metadata: {
         knowledgeBaseId: result.job.knowledgeBaseId,
         documentId: result.job.documentId,
-        chunksCreated: result.chunks.length,
+        chunksCreated,
+        idempotent,
       },
     });
 
@@ -1180,7 +1420,8 @@ export const knowledgeService = {
       metadata: {
         knowledgeBaseId: result.job.knowledgeBaseId,
         documentId: result.job.documentId,
-        sourceReferencesCreated: result.sourceReferences.length,
+        sourceReferencesCreated,
+        idempotent,
       },
     });
 
@@ -1194,16 +1435,18 @@ export const knowledgeService = {
       metadata: {
         knowledgeBaseId: result.job.knowledgeBaseId,
         documentId: result.job.documentId,
-        chunksCreated: result.chunks.length,
-        sourceReferencesCreated: result.sourceReferences.length,
+        chunksCreated,
+        sourceReferencesCreated,
+        idempotent,
       },
     });
 
     return {
       document: mapKnowledgeDocument(result.document),
       job: mapKnowledgeIngestionJob(result.job),
-      chunksCreated: result.chunks.length,
-      sourceReferencesCreated: result.sourceReferences.length,
+      chunksCreated,
+      sourceReferencesCreated,
+      idempotent,
     };
   },
 
@@ -1437,11 +1680,11 @@ export const knowledgeService = {
         sourceReferenceCount: readiness.sourceReferenceCount,
         ready: response.ready,
         blockedReasons: readiness.blockedReasons,
-        embeddingsEnabled: false,
+        embeddingsEnabled: response.embeddingsEnabled,
         embeddingStatus: response.embeddings.status,
         embeddingProvider: response.embeddings.provider,
         embeddingFailClosed: response.embeddings.failClosed,
-        vectorStoreEnabled: false,
+        vectorStoreEnabled: response.vectorStoreEnabled,
       },
     });
 
@@ -1712,6 +1955,8 @@ export const knowledgeService = {
   async queryRag(assistantId: string, input: RagQueryRequestInput, user: AuthenticatedUser, context: RequestContext) {
     const normalizedQuery = normalizeRagQuery(input.query);
     const normalizedTerms = ragTerms(input.query);
+    const retrievalConfig = getKnowledgeRetrievalConfig();
+    const retrievalLimit = Math.min(input.limit, retrievalConfig.maxTopK);
 
     try {
       const result = await knowledgeRepository.findRagRetrievalCandidates({
@@ -1720,7 +1965,7 @@ export const knowledgeService = {
         workspaceIds: userWorkspaceIds(user),
         queryText: input.query,
         terms: originalSearchTerms(input.query),
-        take: Math.max(40, input.limit * 20),
+        take: Math.max(40, retrievalLimit * 20),
       });
       if (!result) {
         throw new AppError(404, 'ASSISTANT_NOT_FOUND', 'Assistente nao encontrado.');
@@ -1747,9 +1992,10 @@ export const knowledgeService = {
         metadata: {
           assistantId: result.readiness.assistant.id,
           queryLength: input.query.length,
-          limit: input.limit,
-          mode: 'semantic_first_with_local_fallback',
-          retrievalMode: 'semantic_vector',
+          requestedLimit: input.limit,
+          effectiveLimit: retrievalLimit,
+          mode: retrievalConfig.mode,
+          retrievalMode: retrievalConfig.mode,
           semanticEnabled: embeddingReadiness.status === 'ready',
           vectorStoreUsed: false,
           fallbackUsed: false,
@@ -1772,7 +2018,7 @@ export const knowledgeService = {
           normalizedQuery,
           mode: 'local_readiness',
           status: 'blocked',
-          limit: input.limit,
+          limit: retrievalLimit,
           resultCount: 0,
           blockedReason,
           errorCode: 'RAG_NOT_READY',
@@ -1844,13 +2090,19 @@ export const knowledgeService = {
         tenantId: user.tenant.id,
         workspaceIds: userWorkspaceIds(user),
         query: input.query,
-        limit: input.limit,
+        limit: retrievalLimit,
         normalizedTerms,
         requestId: context.requestId,
         embeddingReadiness,
         lexicalResult: result,
       });
       const selectedResults = retrieval.selectedResults;
+      if (retrieval.fallbackUsed) {
+        warnings.push({
+          code: retrieval.fallbackReason ?? 'SEMANTIC_FALLBACK_USED',
+          message: 'Retrieval semantico indisponivel; fallback keyword governado aplicado.',
+        });
+      }
 
       const status = selectedResults.length > 0 ? 'completed' : 'no_results';
       if (status === 'no_results') {
@@ -1870,7 +2122,7 @@ export const knowledgeService = {
         normalizedQuery,
         mode: retrieval.mode,
         status,
-        limit: input.limit,
+        limit: retrievalLimit,
         resultCount: selectedResults.length,
         createdById: user.id,
         requestId: context.requestId,
@@ -1958,7 +2210,7 @@ export const knowledgeService = {
         dimension: retrieval.dimension,
       };
     } catch (error) {
-      if (!(error instanceof AppError)) {
+      if (!(error instanceof AppError && error.status === 404)) {
         await audit({
           user,
           context,
@@ -1968,7 +2220,7 @@ export const knowledgeService = {
           metadata: {
             assistantId,
             queryLength: input.query.length,
-            errorCode: 'RAG_QUERY_FAILED',
+            errorCode: embeddingErrorCode(error),
             requestId: context.requestId,
           },
         });

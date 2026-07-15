@@ -1,5 +1,5 @@
 import request from 'supertest';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { createApp } from '../../src/app/app';
 import { env } from '../../src/config/env';
 import { signSession } from '../../src/shared/security/session';
@@ -13,6 +13,7 @@ const mocks = vi.hoisted(() => {
     updateKnowledgeBase: vi.fn(),
     archiveKnowledgeBase: vi.fn(),
     restoreKnowledgeBase: vi.fn(),
+    getKnowledgeBaseReadiness: vi.fn(),
     listDocuments: vi.fn(),
     findDocument: vi.fn(),
     createDocument: vi.fn(),
@@ -131,6 +132,7 @@ const mcpToolCallId = '00000000-0000-0000-0000-000000000911';
 const mcpToolCallEventId = '00000000-0000-0000-0000-000000000912';
 const agentRunId = '00000000-0000-0000-0000-000000000921';
 const now = new Date('2026-06-11T12:00:00.000Z');
+const originalKnowledgeMaxUploadBytes = env.KNOWLEDGE_MAX_UPLOAD_BYTES;
 
 const catalogPermissions = [
   'assistants.read',
@@ -181,7 +183,7 @@ function sessionCookie(user: AuthenticatedUser = testUser) {
   return `${env.COOKIE_NAME}=${token}`;
 }
 
-function knowledgePolicyFixture() {
+function knowledgePolicyFixture(overrides: Record<string, unknown> = {}) {
   return {
     id: '00000000-0000-0000-0000-000000000202',
     tenantId,
@@ -193,6 +195,7 @@ function knowledgePolicyFixture() {
     metadata: null,
     createdAt: now,
     updatedAt: now,
+    ...overrides,
   };
 }
 
@@ -393,6 +396,20 @@ function ragReadinessFixture(overrides: Record<string, unknown> = {}) {
     enabledBindingCount: 1,
     blockedReasons: [],
     warnings: [],
+    ...overrides,
+  };
+}
+
+function knowledgeBaseReadinessFixture(overrides: Record<string, unknown> = {}) {
+  return {
+    base: knowledgeBaseFixture(),
+    policy: knowledgePolicyFixture({ allowRuntimeRetrieval: true }),
+    documentsTotal: 1,
+    documentsReady: 1,
+    chunksReady: 1,
+    embeddingsReady: 0,
+    lastJob: ingestionJobFixture(),
+    lastFailedDocument: null,
     ...overrides,
   };
 }
@@ -736,12 +753,17 @@ function mcpToolCallFixture(overrides: Record<string, unknown> = {}) {
 }
 
 describe('knowledge and MCP catalog endpoints', () => {
+  afterEach(() => {
+    env.KNOWLEDGE_MAX_UPLOAD_BYTES = originalKnowledgeMaxUploadBytes;
+  });
+
   beforeEach(() => {
     vi.clearAllMocks();
     mocks.recordAuditEvent.mockResolvedValue(undefined);
     mocks.knowledgeRepository.listKnowledgeBases.mockResolvedValue({ data: [knowledgeBaseFixture()], total: 1 });
     mocks.knowledgeRepository.findKnowledgeBaseById.mockResolvedValue(knowledgeBaseFixture());
     mocks.knowledgeRepository.createKnowledgeBase.mockResolvedValue(knowledgeBaseFixture());
+    mocks.knowledgeRepository.getKnowledgeBaseReadiness.mockResolvedValue(knowledgeBaseReadinessFixture());
     mocks.knowledgeRepository.listDocuments.mockResolvedValue([documentFixture()]);
     mocks.knowledgeRepository.createDocument.mockResolvedValue(documentFixture());
     mocks.knowledgeRepository.findDocument.mockResolvedValue(documentFixture());
@@ -932,6 +954,88 @@ describe('knowledge and MCP catalog endpoints', () => {
     expect(mocks.recordAuditEvent).toHaveBeenCalledWith(expect.objectContaining({ action: 'knowledge_document_created' }));
     expect(mocks.recordAuditEvent).toHaveBeenCalledWith(expect.objectContaining({ action: 'knowledge_ingestion_requested' }));
     expect(mocks.recordAuditEvent).toHaveBeenCalledWith(expect.objectContaining({ action: 'knowledge_data_source_created' }));
+  });
+
+  it('returns readiness for a knowledge base', async () => {
+    const response = await request(createApp())
+      .get(`/api/v1/knowledge-bases/${knowledgeBaseId}/readiness`)
+      .set('Cookie', [sessionCookie()])
+      .expect(200);
+
+    expect(response.body.data).toMatchObject({
+      knowledgeBaseId,
+      status: 'degraded',
+      ready: true,
+      keywordReady: true,
+      semanticReady: false,
+      documentsTotal: 1,
+      documentsReady: 1,
+      chunksReady: 1,
+      embeddingsReady: 0,
+      retrievalMode: 'hybrid',
+      effectiveRetrievalMode: 'keyword',
+    });
+  });
+
+  it('uploads a TXT document without placing raw content in audit metadata', async () => {
+    mocks.knowledgeRepository.createDocument.mockResolvedValueOnce(documentFixture({
+      title: 'manual-upload.txt',
+      sourceType: 'file',
+      mimeType: 'text/plain',
+      contentText: 'Conteudo operacional para RAG avancado.',
+      metadata: {
+        fileName: 'manual-upload.txt',
+        extension: 'txt',
+        size: '1 KB',
+        uploadMode: 'operational_file_upload',
+      },
+    }));
+
+    const response = await request(createApp())
+      .post(`/api/v1/knowledge-bases/${knowledgeBaseId}/documents/upload`)
+      .set('Cookie', [sessionCookie()])
+      .set('X-File-Name', encodeURIComponent('manual-upload.txt'))
+      .set('Content-Type', 'text/plain')
+      .send(Buffer.from('Conteudo operacional para RAG avancado.', 'utf8'))
+      .expect(201);
+
+    expect(response.body.data).toMatchObject({
+      title: 'manual-upload.txt',
+      sourceType: 'file',
+      mimeType: 'text/plain',
+    });
+    expect(mocks.knowledgeRepository.createDocument).toHaveBeenCalledWith(expect.objectContaining({
+      title: 'manual-upload.txt',
+      sourceType: 'file',
+      mimeType: 'text/plain',
+      contentText: 'Conteudo operacional para RAG avancado.',
+      metadata: expect.objectContaining({
+        fileName: 'manual-upload.txt',
+        fileExtension: 'txt',
+        uploadMode: 'memory_utf8_text',
+        rawFilePersisted: false,
+      }),
+    }));
+    const auditPayload = JSON.stringify(mocks.recordAuditEvent.mock.calls);
+    expect(auditPayload).toContain('knowledge_document_uploaded');
+    expect(auditPayload).not.toContain('Conteudo operacional para RAG avancado');
+  });
+
+  it('uses KNOWLEDGE_MAX_UPLOAD_BYTES as the raw upload parser limit', async () => {
+    env.KNOWLEDGE_MAX_UPLOAD_BYTES = 1024;
+
+    const response = await request(createApp())
+      .post(`/api/v1/knowledge-bases/${knowledgeBaseId}/documents/upload`)
+      .set('Cookie', [sessionCookie()])
+      .set('X-File-Name', encodeURIComponent('too-large.txt'))
+      .set('Content-Type', 'text/plain')
+      .send(Buffer.from('x'.repeat(1025), 'utf8'))
+      .expect(413);
+
+    expect(response.body.code).toBe('KNOWLEDGE_UPLOAD_TOO_LARGE');
+    expect(mocks.knowledgeRepository.findKnowledgeBaseById).not.toHaveBeenCalled();
+    expect(mocks.knowledgeRepository.createDocument).not.toHaveBeenCalled();
+    expect(mocks.recordAuditEvent).not.toHaveBeenCalled();
   });
 
   it('requests controlled embeddings for an ingested document without returning raw text or vectors', async () => {
@@ -1553,31 +1657,20 @@ describe('knowledge and MCP catalog endpoints', () => {
     }));
   });
 
-  it('falls back official RAG query to lexical retrieval on controlled semantic failure', async () => {
+  it('fails closed official RAG query on semantic repository failure', async () => {
     mocks.embeddingsService.getEmbeddingReadiness.mockReturnValue(readyEmbeddingReadinessFixture());
     mocks.knowledgeRepository.findSemanticRagRetrievalCandidates.mockRejectedValueOnce(new Error('semantic unavailable'));
 
-    const response = await request(createApp())
+    await request(createApp())
       .post(`/api/v1/assistants/${assistantId}/rag/query`)
       .set('Cookie', [sessionCookie()])
       .send({ query: 'Politica operacional', limit: 5 })
-      .expect(201);
+      .expect(503);
 
-    expect(response.body.data).toMatchObject({
-      status: 'completed',
-      retrievalMode: 'semantic_fallback_local_keyword',
-      semanticEnabled: true,
-      vectorStoreUsed: false,
-      fallbackUsed: true,
-      fallbackReason: 'SEMANTIC_RETRIEVAL_FAILED',
-      resultCount: 1,
-    });
-    expect(mocks.knowledgeRepository.createRagQueryWithResults).toHaveBeenCalledWith(expect.objectContaining({
-      mode: 'semantic_fallback_local_keyword',
-      metadata: expect.objectContaining({
-        fallbackReason: 'SEMANTIC_RETRIEVAL_FAILED',
-      }),
-      results: expect.arrayContaining([expect.objectContaining({ matchType: 'content' })]),
+    expect(mocks.knowledgeRepository.createRagQueryWithResults).not.toHaveBeenCalled();
+    expect(mocks.recordAuditEvent).toHaveBeenCalledWith(expect.objectContaining({
+      action: 'rag_query_failed',
+      metadata: expect.objectContaining({ errorCode: 'RAG_RETRIEVAL_FAILED' }),
     }));
   });
 

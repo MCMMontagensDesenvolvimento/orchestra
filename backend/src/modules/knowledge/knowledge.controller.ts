@@ -20,6 +20,11 @@ export const knowledgeController = {
     return res.status(200).json({ data, requestId: req.requestId });
   },
 
+  async getKnowledgeBaseReadiness(req: Request, res: Response) {
+    const data = await knowledgeService.getKnowledgeBaseReadiness(req.params.id, req.user!);
+    return res.status(200).json({ data, requestId: req.requestId });
+  },
+
   async createKnowledgeBase(req: Request, res: Response) {
     const data = await knowledgeService.createKnowledgeBase(req.body, req.user!, requestContext(req));
     return res.status(201).json({ data, requestId: req.requestId });
@@ -47,6 +52,21 @@ export const knowledgeController = {
 
   async createDocument(req: Request, res: Response) {
     const data = await knowledgeService.createDocument(req.params.id, req.body, req.user!, requestContext(req));
+    return res.status(201).json({ data, requestId: req.requestId });
+  },
+
+  async uploadDocument(req: Request, res: Response) {
+    const fileName = req.get('x-file-name') ?? '';
+    const data = await knowledgeService.uploadDocument(
+      req.params.id,
+      {
+        body: Buffer.isBuffer(req.body) ? req.body : Buffer.alloc(0),
+        fileName,
+        contentType: req.get('content-type'),
+      },
+      req.user!,
+      requestContext(req),
+    );
     return res.status(201).json({ data, requestId: req.requestId });
   },
 

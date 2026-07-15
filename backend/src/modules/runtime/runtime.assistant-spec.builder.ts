@@ -317,6 +317,9 @@ function buildGovernedRagSource(
 
   const metadata = safeMetadataRecord({
     citationLabel: safeOptionalText(reference.label, 80),
+    sourceType: safeOptionalText(reference.sourceType, 80),
+    sectionTitle: safeOptionalText(reference.sectionTitle, 160),
+    pageNumber: typeof reference.pageNumber === 'number' && Number.isInteger(reference.pageNumber) ? reference.pageNumber : undefined,
     sourceIndex,
   });
   if (metadata) source.metadata = metadata as RuntimeRagSource['metadata'];
