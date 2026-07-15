@@ -11,6 +11,7 @@ const mocks = vi.hoisted(() => {
     findKnowledgeBaseById: vi.fn(),
     createKnowledgeBase: vi.fn(),
     updateKnowledgeBase: vi.fn(),
+    updateKnowledgePolicy: vi.fn(),
     archiveKnowledgeBase: vi.fn(),
     restoreKnowledgeBase: vi.fn(),
     getKnowledgeBaseReadiness: vi.fn(),
@@ -449,6 +450,18 @@ function readyEmbeddingReadinessFixture(overrides: Record<string, unknown> = {})
   });
 }
 
+function stubEmbeddingReadinessFixture(overrides: Record<string, unknown> = {}) {
+  return readyEmbeddingReadinessFixture({
+    provider: 'stub',
+    reason: 'Deterministic offline embedding stub is enabled for local or test execution.',
+    model: 'stub-sha256-v1',
+    dimension: 32,
+    secretsConfigured: false,
+    externalProviderCalled: false,
+    ...overrides,
+  });
+}
+
 function ragCandidateChunkFixture() {
   return {
     ...chunkFixture(),
@@ -763,6 +776,9 @@ describe('knowledge and MCP catalog endpoints', () => {
     mocks.knowledgeRepository.listKnowledgeBases.mockResolvedValue({ data: [knowledgeBaseFixture()], total: 1 });
     mocks.knowledgeRepository.findKnowledgeBaseById.mockResolvedValue(knowledgeBaseFixture());
     mocks.knowledgeRepository.createKnowledgeBase.mockResolvedValue(knowledgeBaseFixture());
+    mocks.knowledgeRepository.updateKnowledgePolicy.mockResolvedValue(knowledgeBaseFixture({
+      policies: [knowledgePolicyFixture({ allowRuntimeRetrieval: true })],
+    }));
     mocks.knowledgeRepository.getKnowledgeBaseReadiness.mockResolvedValue(knowledgeBaseReadinessFixture());
     mocks.knowledgeRepository.listDocuments.mockResolvedValue([documentFixture()]);
     mocks.knowledgeRepository.createDocument.mockResolvedValue(documentFixture());
@@ -977,6 +993,64 @@ describe('knowledge and MCP catalog endpoints', () => {
     });
   });
 
+  it('updates knowledge base policy and readiness no longer reports runtime retrieval policy block', async () => {
+    mocks.knowledgeRepository.getKnowledgeBaseReadiness
+      .mockResolvedValueOnce(knowledgeBaseReadinessFixture({
+        policy: knowledgePolicyFixture({ allowRuntimeRetrieval: false }),
+      }))
+      .mockResolvedValueOnce(knowledgeBaseReadinessFixture({
+        policy: knowledgePolicyFixture({ allowRuntimeRetrieval: true }),
+      }));
+
+    const blockedResponse = await request(createApp())
+      .get(`/api/v1/knowledge-bases/${knowledgeBaseId}/readiness`)
+      .set('Cookie', [sessionCookie()])
+      .expect(200);
+
+    expect(blockedResponse.body.data).toMatchObject({
+      status: 'not_ready',
+      effectiveRetrievalMode: 'none',
+      blockedReasons: ['RETRIEVAL_POLICY_BLOCKED'],
+    });
+
+    const updateResponse = await request(createApp())
+      .patch(`/api/v1/knowledge-bases/${knowledgeBaseId}/policy`)
+      .set('Cookie', [sessionCookie()])
+      .send({ allowRuntimeRetrieval: true })
+      .expect(200);
+
+    expect(updateResponse.body.data.policy).toMatchObject({
+      allowRuntimeRetrieval: true,
+      allowCitationOnly: true,
+      requireApprovalForExternal: true,
+    });
+    expect(mocks.knowledgeRepository.updateKnowledgePolicy).toHaveBeenCalledWith(
+      knowledgeBaseId,
+      tenantId,
+      [workspaceId],
+      { allowRuntimeRetrieval: true },
+    );
+    expect(mocks.recordAuditEvent).toHaveBeenCalledWith(expect.objectContaining({
+      action: 'knowledge_policy_updated',
+      metadata: expect.objectContaining({
+        knowledgeBaseId,
+        changedFields: ['allowRuntimeRetrieval'],
+        rawContentLogged: false,
+      }),
+    }));
+
+    const readyResponse = await request(createApp())
+      .get(`/api/v1/knowledge-bases/${knowledgeBaseId}/readiness`)
+      .set('Cookie', [sessionCookie()])
+      .expect(200);
+
+    expect(readyResponse.body.data.blockedReasons).not.toContain('RETRIEVAL_POLICY_BLOCKED');
+    expect(readyResponse.body.data).toMatchObject({
+      ready: true,
+      effectiveRetrievalMode: 'keyword',
+    });
+  });
+
   it('uploads a TXT document without placing raw content in audit metadata', async () => {
     mocks.knowledgeRepository.createDocument.mockResolvedValueOnce(documentFixture({
       title: 'manual-upload.txt',
@@ -1044,7 +1118,20 @@ describe('knowledge and MCP catalog endpoints', () => {
       ingestionStatus: 'completed',
       chunkCount: 1,
     }));
-    mocks.embeddingsService.getEmbeddingReadiness.mockReturnValue(readyEmbeddingReadinessFixture());
+    mocks.embeddingsService.getEmbeddingReadiness.mockReturnValue(stubEmbeddingReadinessFixture());
+    mocks.embeddingsService.embedText.mockResolvedValueOnce({
+      provider: 'stub',
+      model: 'stub-sha256-v1',
+      dimension: 32,
+      vector: Array.from({ length: 32 }, (_, index) => (index + 1) / 100),
+      usage: { inputTokens: 12 },
+      metadata: {
+        externalProviderCalled: false,
+        rawInputStored: false,
+        rawOutputStored: false,
+        estimatedCost: null,
+      },
+    });
 
     const response = await request(createApp())
       .post(`/api/v1/knowledge-documents/${documentId}/request-embeddings`)
@@ -1056,9 +1143,9 @@ describe('knowledge and MCP catalog endpoints', () => {
       scope: 'document',
       scopeId: documentId,
       status: 'completed',
-      provider: 'openai',
-      model: 'text-embedding-3-small',
-      dimension: 3,
+      provider: 'stub',
+      model: 'stub-sha256-v1',
+      dimension: 32,
       requestedChunks: 1,
       selectedForEmbedding: 1,
       embedded: 1,
@@ -1073,22 +1160,40 @@ describe('knowledge and MCP catalog endpoints', () => {
     expect(serialized).not.toContain('0.1');
     expect(mocks.embeddingsService.embedText).toHaveBeenCalledWith(expect.objectContaining({
       text: expect.stringContaining('Politica operacional'),
-      model: 'text-embedding-3-small',
+      model: 'stub-sha256-v1',
     }));
     expect(mocks.knowledgeRepository.upsertEmbeddedChunkEmbedding).toHaveBeenCalledWith(expect.objectContaining({
       chunkId,
-      provider: 'openai',
-      model: 'text-embedding-3-small',
-      dimension: 3,
+      provider: 'stub',
+      model: 'stub-sha256-v1',
+      dimension: 32,
       contentHash: 'chunk-hash',
       embeddingHash: expect.any(String),
+      metadata: expect.objectContaining({
+        externalProviderCalled: false,
+        rawInputStored: false,
+        rawOutputStored: false,
+      }),
     }));
     expect(mocks.recordAuditEvent).toHaveBeenCalledWith(expect.objectContaining({ action: 'knowledge_embeddings_requested' }));
     expect(mocks.recordAuditEvent).toHaveBeenCalledWith(expect.objectContaining({ action: 'knowledge_embeddings_completed' }));
   });
 
   it('requests controlled embeddings for a knowledge base', async () => {
-    mocks.embeddingsService.getEmbeddingReadiness.mockReturnValue(readyEmbeddingReadinessFixture());
+    mocks.embeddingsService.getEmbeddingReadiness.mockReturnValue(stubEmbeddingReadinessFixture());
+    mocks.embeddingsService.embedText.mockResolvedValueOnce({
+      provider: 'stub',
+      model: 'stub-sha256-v1',
+      dimension: 32,
+      vector: Array.from({ length: 32 }, (_, index) => (index + 1) / 100),
+      usage: { inputTokens: 12 },
+      metadata: {
+        externalProviderCalled: false,
+        rawInputStored: false,
+        rawOutputStored: false,
+        estimatedCost: null,
+      },
+    });
 
     const response = await request(createApp())
       .post(`/api/v1/knowledge-bases/${knowledgeBaseId}/request-embeddings`)
@@ -1100,6 +1205,9 @@ describe('knowledge and MCP catalog endpoints', () => {
       scope: 'knowledge_base',
       scopeId: knowledgeBaseId,
       status: 'completed',
+      provider: 'stub',
+      model: 'stub-sha256-v1',
+      dimension: 32,
       requestedChunks: 1,
       selectedForEmbedding: 1,
       embedded: 1,

@@ -72,6 +72,15 @@ export const knowledgeBaseUpdateSchema = z.object({
   message: 'Informe ao menos uma propriedade para atualizar.',
 });
 
+export const knowledgePolicyUpdateSchema = z.object({
+  allowRuntimeRetrieval: z.boolean().optional(),
+  allowCitationOnly: z.boolean().optional(),
+  requireApprovalForExternal: z.boolean().optional(),
+  metadata: safeJsonRecord.nullable().optional(),
+}).refine((input) => Object.keys(input).length > 0, {
+  message: 'Informe ao menos uma propriedade para atualizar a policy.',
+});
+
 export const knowledgeDocumentCreateSchema = z.object({
   title: z.string().trim().min(2).max(200),
   description: z.string().trim().max(1000).optional(),
@@ -207,6 +216,7 @@ export const assistantKnowledgeBindingParamsSchema = z.object({
 export type KnowledgeBasesQuery = z.infer<typeof knowledgeBasesQuerySchema>;
 export type KnowledgeBaseCreateInput = z.infer<typeof knowledgeBaseCreateSchema>;
 export type KnowledgeBaseUpdateInput = z.infer<typeof knowledgeBaseUpdateSchema>;
+export type KnowledgePolicyUpdateInput = z.infer<typeof knowledgePolicyUpdateSchema>;
 export type KnowledgeDocumentCreateInput = z.infer<typeof knowledgeDocumentCreateSchema>;
 export type KnowledgeDocumentUpdateInput = z.infer<typeof knowledgeDocumentUpdateSchema>;
 export type KnowledgeIngestionRequestInput = z.infer<typeof knowledgeIngestionRequestSchema>;

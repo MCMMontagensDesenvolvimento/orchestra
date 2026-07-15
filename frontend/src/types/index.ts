@@ -468,6 +468,8 @@ export interface KnowledgeDocument {
 
 export interface KnowledgePolicy {
   id: string;
+  tenantId?: string;
+  workspaceId?: string;
   knowledgeBaseId: string;
   allowRuntimeRetrieval: boolean;
   allowCitationOnly: boolean;
@@ -475,6 +477,44 @@ export interface KnowledgePolicy {
   metadata?: unknown;
   createdAt: string;
   updatedAt: string;
+}
+
+export interface KnowledgePolicyUpdatePayload {
+  allowRuntimeRetrieval?: boolean;
+  allowCitationOnly?: boolean;
+  requireApprovalForExternal?: boolean;
+  metadata?: Record<string, unknown> | null;
+}
+
+export interface KnowledgeEmbeddingRequestPayload {
+  limit?: number;
+  force?: boolean;
+  chunkIds?: string[];
+  metadata?: Record<string, unknown>;
+}
+
+export interface KnowledgeEmbeddingFailure {
+  chunkId: string;
+  code: string;
+  message?: string;
+}
+
+export interface KnowledgeEmbeddingRequestSummary {
+  scope: 'document' | 'knowledge_base' | string;
+  scopeId: string;
+  status: 'completed' | 'partial' | 'failed' | string;
+  provider: string;
+  model: string;
+  dimension: number;
+  requestedChunks: number;
+  selectedForEmbedding: number;
+  embedded: number;
+  skipped: number;
+  failed: number;
+  failures: KnowledgeEmbeddingFailure[];
+  retrievalMode: string;
+  ragUpdated: boolean;
+  vectorSearchEnabled: boolean;
 }
 
 export interface KnowledgeDataSource {

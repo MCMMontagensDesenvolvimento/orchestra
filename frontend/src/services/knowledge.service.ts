@@ -8,7 +8,10 @@ import type {
   KnowledgeDataSource,
   KnowledgeChunk,
   KnowledgeDocument,
+  KnowledgeEmbeddingRequestPayload,
+  KnowledgeEmbeddingRequestSummary,
   KnowledgeIngestionJob,
+  KnowledgePolicyUpdatePayload,
   KnowledgeSourceReference,
   RagLocalSearchResponse,
   RagQueryRecord,
@@ -175,6 +178,7 @@ interface ApiKnowledgeSourceReference {
 
 type ApiRagReadiness = RagReadiness;
 type ApiKnowledgeBaseReadiness = KnowledgeBaseReadiness;
+type ApiKnowledgeEmbeddingRequestSummary = KnowledgeEmbeddingRequestSummary;
 type ApiRagLocalSearchResponse = RagLocalSearchResponse;
 type ApiRagQueryRecord = RagQueryRecord;
 type ApiRagQueryResponse = RagQueryResponse;
@@ -233,6 +237,9 @@ export interface RagQueryPayload {
   limit?: number;
   includeArchived?: boolean;
 }
+
+export type KnowledgePolicyPayload = KnowledgePolicyUpdatePayload;
+export type KnowledgeEmbeddingPayload = KnowledgeEmbeddingRequestPayload;
 
 const connectorValues = new Set(['upload', 'sharepoint', 'confluence', 'google_drive', 's3', 'api']);
 
@@ -515,6 +522,27 @@ export const knowledgeService = {
     return mapKnowledgeBase(response.data.data);
   },
 
+  async updatePolicy(id: string, payload: KnowledgePolicyUpdatePayload): Promise<KnowledgeBase> {
+    if (env.useMocks) {
+      const base = await mockFind(mockKnowledgeBases, id);
+      return {
+        ...base,
+        policy: {
+          id: `mock-policy-${id}`,
+          knowledgeBaseId: id,
+          allowRuntimeRetrieval: payload.allowRuntimeRetrieval ?? base.policy?.allowRuntimeRetrieval ?? false,
+          allowCitationOnly: payload.allowCitationOnly ?? base.policy?.allowCitationOnly ?? true,
+          requireApprovalForExternal: payload.requireApprovalForExternal ?? base.policy?.requireApprovalForExternal ?? true,
+          metadata: payload.metadata ?? base.policy?.metadata,
+          createdAt: base.policy?.createdAt ?? new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
+        },
+      };
+    }
+    const response = await apiClient.patch<ApiEnvelope<ApiKnowledgeBase>>(endpoints.knowledge.policy(id), payload);
+    return mapKnowledgeBase(response.data.data);
+  },
+
   async archive(id: string): Promise<KnowledgeBase> {
     if (env.useMocks) return mockFind(mockKnowledgeBases, id);
     const response = await apiClient.post<ApiEnvelope<ApiKnowledgeBase>>(endpoints.knowledge.archive(id));
@@ -630,6 +658,68 @@ export const knowledgeService = {
     if (env.useMocks) return mockFind(mockDocuments, documentId);
     const response = await apiClient.post<ApiEnvelope<ApiKnowledgeDocument>>(endpoints.knowledge.documentArchive(documentId));
     return mapDocument(response.data.data);
+  },
+
+  async requestDocumentEmbeddings(documentId: string, payload: KnowledgeEmbeddingRequestPayload = {}): Promise<KnowledgeEmbeddingRequestSummary> {
+    if (env.useMocks) {
+      const document = mockDocuments.find((item) => item.id === documentId) ?? mockDocuments[0];
+      const chunks = document.chunkCount ?? document.chunks ?? 0;
+      return mockResponse({
+        scope: 'document',
+        scopeId: documentId,
+        status: chunks > 0 ? 'completed' : 'failed',
+        provider: 'stub',
+        model: 'stub-sha256-v1',
+        dimension: 32,
+        requestedChunks: chunks,
+        selectedForEmbedding: chunks,
+        embedded: chunks,
+        skipped: 0,
+        failed: chunks > 0 ? 0 : 1,
+        failures: chunks > 0 ? [] : [{ chunkId: documentId, code: 'NO_CHUNKS_AVAILABLE' }],
+        retrievalMode: 'local_chunks_only',
+        ragUpdated: false,
+        vectorSearchEnabled: false,
+      } satisfies KnowledgeEmbeddingRequestSummary);
+    }
+    const response = await apiClient.post<ApiEnvelope<ApiKnowledgeEmbeddingRequestSummary>>(endpoints.knowledge.requestDocumentEmbeddings(documentId), {
+      limit: payload.limit ?? 50,
+      force: payload.force ?? false,
+      chunkIds: payload.chunkIds,
+      metadata: payload.metadata ?? { source: 'frontend' },
+    });
+    return response.data.data;
+  },
+
+  async requestBaseEmbeddings(knowledgeBaseId: string, payload: KnowledgeEmbeddingRequestPayload = {}): Promise<KnowledgeEmbeddingRequestSummary> {
+    if (env.useMocks) {
+      const docs = mockDocuments.filter((item) => item.knowledgeBaseId === knowledgeBaseId);
+      const requestedChunks = docs.reduce((total, document) => total + (document.chunkCount ?? document.chunks ?? 0), 0);
+      return mockResponse({
+        scope: 'knowledge_base',
+        scopeId: knowledgeBaseId,
+        status: requestedChunks > 0 ? 'completed' : 'failed',
+        provider: 'stub',
+        model: 'stub-sha256-v1',
+        dimension: 32,
+        requestedChunks,
+        selectedForEmbedding: requestedChunks,
+        embedded: requestedChunks,
+        skipped: 0,
+        failed: requestedChunks > 0 ? 0 : 1,
+        failures: requestedChunks > 0 ? [] : [{ chunkId: knowledgeBaseId, code: 'NO_CHUNKS_AVAILABLE' }],
+        retrievalMode: 'local_chunks_only',
+        ragUpdated: false,
+        vectorSearchEnabled: false,
+      } satisfies KnowledgeEmbeddingRequestSummary);
+    }
+    const response = await apiClient.post<ApiEnvelope<ApiKnowledgeEmbeddingRequestSummary>>(endpoints.knowledge.requestBaseEmbeddings(knowledgeBaseId), {
+      limit: payload.limit ?? 50,
+      force: payload.force ?? false,
+      chunkIds: payload.chunkIds,
+      metadata: payload.metadata ?? { source: 'frontend' },
+    });
+    return response.data.data;
   },
 
   async requestIngestion(documentId: string): Promise<{ document: KnowledgeDocument; job: KnowledgeIngestionJob }> {

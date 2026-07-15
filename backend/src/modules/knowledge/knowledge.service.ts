@@ -26,6 +26,7 @@ import type {
   KnowledgeBaseCreateInput,
   KnowledgeBasesQuery,
   KnowledgeBaseUpdateInput,
+  KnowledgePolicyUpdateInput,
   KnowledgeChunksQuery,
   KnowledgeDataSourceCreateInput,
   KnowledgeDataSourceUpdateInput,
@@ -993,6 +994,33 @@ export const knowledgeService = {
       metadata: {
         changedFields: Object.keys(input),
         status: base.status,
+      },
+    });
+
+    return mapKnowledgeBase(base);
+  },
+
+  async updateKnowledgePolicy(id: string, input: KnowledgePolicyUpdateInput, user: AuthenticatedUser, context: RequestContext) {
+    const current = await getKnowledgeBaseOrThrow(id, user);
+    const base = await knowledgeRepository.updateKnowledgePolicy(id, user.tenant.id, userWorkspaceIds(user), input);
+    if (!base) {
+      throw new AppError(404, 'KNOWLEDGE_BASE_NOT_FOUND', 'Base de conhecimento nao encontrada.');
+    }
+
+    await audit({
+      user,
+      context,
+      action: 'knowledge_policy_updated',
+      entity: 'knowledge_policy',
+      entityId: base.policies?.[0]?.id ?? current.id,
+      workspaceId: current.workspaceId,
+      metadata: {
+        knowledgeBaseId: current.id,
+        changedFields: Object.keys(input),
+        allowRuntimeRetrieval: base.policies?.[0]?.allowRuntimeRetrieval ?? false,
+        allowCitationOnly: base.policies?.[0]?.allowCitationOnly ?? true,
+        requireApprovalForExternal: base.policies?.[0]?.requireApprovalForExternal ?? true,
+        rawContentLogged: false,
       },
     });
 

@@ -131,6 +131,7 @@ pass "legacy singular embedding env absent"
 require_pattern "$ROOT_DIR/backend/src/modules/knowledge/knowledge.routes.ts" '/:id/documents/upload' 'upload route'
 require_pattern "$ROOT_DIR/backend/src/modules/knowledge/knowledge.routes.ts" 'getKnowledgeUploadConfig().maxUploadBytes' 'upload route governed max bytes'
 reject_pattern "$ROOT_DIR/backend/src/modules/knowledge/knowledge.routes.ts" '10_485_760' 'hardcoded upload route parser limit'
+require_pattern "$ROOT_DIR/backend/src/modules/knowledge/knowledge.routes.ts" '/:id/policy' 'knowledge policy update route'
 require_pattern "$ROOT_DIR/backend/src/config/env.ts" 'KNOWLEDGE_MAX_UPLOAD_BYTES: z.coerce.number().int().min(1024).max(10_485_760).default(1_048_576)' 'upload env bounds and default'
 require_pattern "$ROOT_DIR/backend/src/modules/knowledge/knowledge.config.ts" 'maxUploadBytes: env.KNOWLEDGE_MAX_UPLOAD_BYTES' 'upload config uses governed env'
 require_pattern "$ROOT_DIR/backend/src/modules/knowledge/knowledge.routes.ts" '/:id/readiness' 'base readiness route'
@@ -140,6 +141,15 @@ require_pattern "$ROOT_DIR/backend/src/modules/knowledge/knowledge.repository.ts
 require_pattern "$ROOT_DIR/backend/src/modules/knowledge/knowledge.service.ts" 'RAG_RETRIEVAL_FAILED' 'fail-closed semantic retrieval'
 require_pattern "$ROOT_DIR/backend/src/modules/embeddings/providers/stub-embedding.provider.ts" 'externalProviderCalled: false' 'offline stub metadata'
 require_pattern "$ROOT_DIR/frontend/src/pages/Knowledge/KnowledgeDetailPage.tsx" 'accept=".txt,.md,.csv,text/plain,text/markdown,text/csv"' 'frontend upload accept list'
+require_pattern "$ROOT_DIR/frontend/src/pages/Knowledge/KnowledgeDetailPage.tsx" 'Habilitar retrieval em runtime' 'frontend runtime retrieval CTA'
+require_pattern "$ROOT_DIR/frontend/src/pages/Knowledge/KnowledgeDetailPage.tsx" 'Solicitar embeddings' 'frontend document embeddings action'
+require_pattern "$ROOT_DIR/frontend/src/pages/Knowledge/KnowledgeDetailPage.tsx" 'Solicitar embeddings da base' 'frontend base embeddings action'
+require_pattern "$ROOT_DIR/frontend/src/pages/Knowledge/KnowledgeDetailPage.tsx" 'allowRuntimeRetrieval' 'frontend runtime policy field'
+require_pattern "$ROOT_DIR/frontend/src/hooks/queries/useKnowledge.ts" 'useUpdateKnowledgePolicyMutation' 'frontend policy mutation'
+require_pattern "$ROOT_DIR/frontend/src/hooks/queries/useKnowledge.ts" 'useRequestKnowledgeDocumentEmbeddingsMutation' 'frontend document embeddings mutation'
+require_pattern "$ROOT_DIR/frontend/src/hooks/queries/useKnowledge.ts" 'useRequestKnowledgeBaseEmbeddingsMutation' 'frontend base embeddings mutation'
+require_pattern "$ROOT_DIR/frontend/src/services/api/endpoints.ts" 'requestDocumentEmbeddings' 'frontend document embeddings endpoint'
+require_pattern "$ROOT_DIR/frontend/src/services/api/endpoints.ts" 'requestBaseEmbeddings' 'frontend base embeddings endpoint'
 require_pattern "$DOC_FILE" 'Rollback seguro' 'rollback section'
 
 printf '\nKnowledge/RAG 16I smoke summary: PASS=%d FAIL=0\n' "$pass_count"

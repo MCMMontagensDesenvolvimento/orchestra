@@ -10,6 +10,7 @@ import { Textarea } from '@/components/ui/textarea';
 import { Badge } from '@/components/ui/badge';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { Switch } from '@/components/ui/switch';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
@@ -25,7 +26,10 @@ import {
   useKnowledgeDocuments,
   useKnowledgeIngestionJobs,
   useKnowledgeSourceReferences,
+  useRequestKnowledgeBaseEmbeddingsMutation,
+  useRequestKnowledgeDocumentEmbeddingsMutation,
   useRequestKnowledgeIngestionMutation,
+  useUpdateKnowledgePolicyMutation,
   useUploadKnowledgeDocumentMutation,
 } from '@/hooks/queries/useKnowledge';
 import { useAssistants } from '@/hooks/queries/useAssistants';
@@ -35,7 +39,7 @@ import {
   FileUp, Search, AlertTriangle, CheckCircle2, Loader2, XCircle, Download, Plus
 } from 'lucide-react';
 import type { KnowledgeDocument, IngestionStatus } from '@/types';
-import type { KnowledgeDataSourcePayload, KnowledgeDocumentPayload } from '@/services/knowledge.service';
+import type { KnowledgeDataSourcePayload, KnowledgeDocumentPayload, KnowledgePolicyPayload } from '@/services/knowledge.service';
 import { toast } from '@/hooks/use-toast';
 import { env } from '@/lib/env';
 
@@ -76,6 +80,24 @@ function readinessStatusLabel(status?: string) {
   return 'Nao pronta';
 }
 
+function readinessReasonLabel(reason: string) {
+  const labels: Record<string, string> = {
+    RETRIEVAL_POLICY_BLOCKED: 'Policy bloqueia retrieval em runtime',
+    NO_INGESTED_DOCUMENTS: 'Nenhum documento com ingestao concluida',
+    NO_CHUNKS_AVAILABLE: 'Nenhum chunk ativo disponivel',
+    KNOWLEDGE_BASE_ARCHIVED: 'Base arquivada',
+    SEMANTIC_RETRIEVAL_NOT_READY: 'Retrieval semantico ainda nao esta pronto',
+  };
+  return labels[reason] ?? reason;
+}
+
+function documentEmbeddingBlockReason(doc: KnowledgeDocument) {
+  const chunks = doc.chunkCount ?? doc.chunks ?? 0;
+  if (doc.ingestionStatus !== 'completed' && doc.status !== 'completed') return 'Documento precisa estar com ingestao concluida.';
+  if (chunks <= 0) return 'Documento ainda nao possui chunks ativos.';
+  return null;
+}
+
 export default function KnowledgeDetailPage() {
   const knowledgeQuery = useKnowledgeBases();
   const knowledgeBases = knowledgeQuery.data ?? [];
@@ -90,6 +112,9 @@ export default function KnowledgeDetailPage() {
   const createDocumentMutation = useCreateKnowledgeDocumentMutation();
   const uploadDocumentMutation = useUploadKnowledgeDocumentMutation();
   const requestIngestionMutation = useRequestKnowledgeIngestionMutation();
+  const requestDocumentEmbeddingsMutation = useRequestKnowledgeDocumentEmbeddingsMutation();
+  const requestBaseEmbeddingsMutation = useRequestKnowledgeBaseEmbeddingsMutation();
+  const updatePolicyMutation = useUpdateKnowledgePolicyMutation();
   const archiveDocumentMutation = useArchiveKnowledgeDocumentMutation();
   const createDataSourceMutation = useCreateKnowledgeDataSourceMutation();
   const navigate = useNavigate();
@@ -139,6 +164,13 @@ export default function KnowledgeDetailPage() {
   const totalChunks = useMemo(() => documents.reduce((total, doc) => total + (doc.chunkCount ?? doc.chunks ?? 0), 0), [documents]);
   const uploadPending = createDocumentMutation.isPending || uploadDocumentMutation.isPending;
   const canSubmitUpload = Boolean(selectedUploadFile || (uploadFileName.trim() && documentText.trim()));
+  const runtimePolicy = kb?.policy ?? {
+    allowRuntimeRetrieval: false,
+    allowCitationOnly: true,
+    requireApprovalForExternal: true,
+  };
+  const readinessBlockedByPolicy = readiness?.blockedReasons?.includes('RETRIEVAL_POLICY_BLOCKED') || runtimePolicy.allowRuntimeRetrieval !== true;
+  const hasEmbeddingEligibleDocuments = documents.some(doc => !documentEmbeddingBlockReason(doc));
 
   const resetUploadForm = () => {
     setUploadFileName('');
@@ -216,6 +248,56 @@ export default function KnowledgeDetailPage() {
     }
   };
 
+  const handlePolicyUpdate = async (payload: KnowledgePolicyPayload) => {
+    try {
+      await updatePolicyMutation.mutateAsync({ id: kb.id, payload });
+      toast({ title: 'Policy RAG atualizada', description: 'Readiness e auditoria foram atualizados para esta base.' });
+    } catch (error) {
+      toast({ title: 'Erro ao atualizar policy RAG', description: error instanceof Error ? error.message : 'Revise permissoes e tente novamente.', variant: 'destructive' });
+    }
+  };
+
+  const handleRequestDocumentEmbeddings = async (doc: KnowledgeDocument) => {
+    const blockReason = documentEmbeddingBlockReason(doc);
+    if (blockReason) {
+      toast({ title: 'Embeddings indisponiveis para este documento', description: blockReason, variant: 'destructive' });
+      return;
+    }
+    try {
+      const summary = await requestDocumentEmbeddingsMutation.mutateAsync({
+        documentId: doc.id,
+        knowledgeBaseId: kb.id,
+        payload: { metadata: { source: 'knowledge_detail_ui', operation: 'document_embeddings' } },
+      });
+      setPreviewDocId(doc.id);
+      toast({
+        title: 'Embeddings do documento solicitados',
+        description: `${summary.embedded} gerado(s), ${summary.skipped} ignorado(s), ${summary.failed} falha(s).`,
+      });
+    } catch (error) {
+      toast({ title: 'Erro ao solicitar embeddings', description: error instanceof Error ? error.message : 'Tente novamente em instantes.', variant: 'destructive' });
+    }
+  };
+
+  const handleRequestBaseEmbeddings = async () => {
+    if (!hasEmbeddingEligibleDocuments) {
+      toast({ title: 'Embeddings da base indisponiveis', description: 'Conclua a ingestao e gere chunks em ao menos um documento.', variant: 'destructive' });
+      return;
+    }
+    try {
+      const summary = await requestBaseEmbeddingsMutation.mutateAsync({
+        knowledgeBaseId: kb.id,
+        payload: { metadata: { source: 'knowledge_detail_ui', operation: 'base_embeddings' } },
+      });
+      toast({
+        title: 'Embeddings da base solicitados',
+        description: `${summary.requestedChunks} solicitado(s): ${summary.embedded} gerado(s), ${summary.skipped} ignorado(s), ${summary.failed} falha(s).`,
+      });
+    } catch (error) {
+      toast({ title: 'Erro ao solicitar embeddings da base', description: error instanceof Error ? error.message : 'Tente novamente em instantes.', variant: 'destructive' });
+    }
+  };
+
   const handleCreateDataSource = async () => {
     const payload: KnowledgeDataSourcePayload = {
       name: dataSourceForm.name.trim(),
@@ -274,6 +356,15 @@ export default function KnowledgeDetailPage() {
               }}>
                 <RefreshCw className="h-4 w-4 mr-1" />Ingestão
               </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => { void handleRequestBaseEmbeddings(); }}
+                disabled={!hasEmbeddingEligibleDocuments || requestBaseEmbeddingsMutation.isPending}
+              >
+                {requestBaseEmbeddingsMutation.isPending ? <Loader2 className="h-4 w-4 mr-1 animate-spin" /> : <Layers className="h-4 w-4 mr-1" />}
+                Embeddings da base
+              </Button>
               <Button size="sm" onClick={() => setUploadOpen(true)}>
                 <Upload className="h-4 w-4 mr-1" />Registrar documento
               </Button>
@@ -327,9 +418,22 @@ export default function KnowledgeDetailPage() {
                 <Badge variant="outline">{readiness.embeddingsReady} embeddings</Badge>
               </div>
             )}
+            {readinessBlockedByPolicy && (
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={() => { void handlePolicyUpdate({ allowRuntimeRetrieval: true }); }}
+                disabled={updatePolicyMutation.isPending}
+              >
+                {updatePolicyMutation.isPending ? <Loader2 className="h-3.5 w-3.5 mr-1 animate-spin" /> : <ShieldCheck className="h-3.5 w-3.5 mr-1" />}
+                Habilitar retrieval em runtime
+              </Button>
+            )}
           </div>
           {readiness?.blockedReasons?.length ? (
-            <p className="mt-2 text-xs opacity-90">{readiness.blockedReasons.join(', ')}</p>
+            <p className="mt-2 text-xs opacity-90">{readiness.blockedReasons.map(readinessReasonLabel).join(', ')}</p>
+          ) : readiness?.warnings?.length ? (
+            <p className="mt-2 text-xs opacity-90">{readiness.warnings.map(warning => `${warning.code}: ${warning.message}`).join(' · ')}</p>
           ) : (
             <p className="mt-2 text-xs opacity-90">Upload operacional TXT/MD/CSV, ingestao local e retrieval governado por policy.</p>
           )}
@@ -377,7 +481,10 @@ export default function KnowledgeDetailPage() {
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {filteredDocs.map(doc => (
+                    {filteredDocs.map(doc => {
+                      const embeddingBlockReason = documentEmbeddingBlockReason(doc);
+                      const embeddingPending = requestDocumentEmbeddingsMutation.isPending && requestDocumentEmbeddingsMutation.variables?.documentId === doc.id;
+                      return (
                       <TableRow key={doc.id}>
                         <TableCell>
                           <div className="flex items-center gap-2">
@@ -410,6 +517,16 @@ export default function KnowledgeDetailPage() {
                             <DropdownMenuContent align="end">
                               <DropdownMenuItem onClick={() => setPreviewDocId(doc.id)}><Eye className="h-4 w-4 mr-2" />Ver ingestão</DropdownMenuItem>
                               <DropdownMenuItem onClick={() => { void handleReprocessDoc(doc); }}><RefreshCw className="h-4 w-4 mr-2" />Solicitar ingestão</DropdownMenuItem>
+                              <DropdownMenuItem
+                                disabled={Boolean(embeddingBlockReason) || requestDocumentEmbeddingsMutation.isPending}
+                                onClick={() => { void handleRequestDocumentEmbeddings(doc); }}
+                              >
+                                {embeddingPending ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Layers className="h-4 w-4 mr-2" />}
+                                Solicitar embeddings
+                              </DropdownMenuItem>
+                              {embeddingBlockReason && (
+                                <div className="max-w-[240px] px-2 py-1 text-[10px] text-muted-foreground">{embeddingBlockReason}</div>
+                              )}
                               <DropdownMenuSeparator />
                               <DropdownMenuItem onClick={() => { setSelectedDoc(doc); setDeleteDocOpen(true); }} className="text-destructive">
                                 <Trash2 className="h-4 w-4 mr-2" />Arquivar
@@ -418,7 +535,8 @@ export default function KnowledgeDetailPage() {
                           </DropdownMenu>
                         </TableCell>
                       </TableRow>
-                    ))}
+                      );
+                    })}
                   </TableBody>
                 </Table>
               </div>
@@ -580,6 +698,88 @@ export default function KnowledgeDetailPage() {
                   <div className="flex justify-between text-sm"><span className="text-muted-foreground">Owner</span><span className="font-medium">{kb.owner}</span></div>
                   <div className="flex justify-between text-sm"><span className="text-muted-foreground">Criação</span><span className="font-medium">{kb.createdAt}</span></div>
                 </div>
+              </div>
+              <div className="rounded-lg border bg-card p-5 space-y-4 sm:col-span-2">
+                <div className="flex flex-wrap items-start justify-between gap-3">
+                  <div>
+                    <h3 className="font-semibold flex items-center gap-2"><ShieldCheck className="h-4 w-4" />Governança RAG operacional</h3>
+                    <p className="mt-1 text-xs text-muted-foreground">Policy de retrieval runtime da base. Sem conteúdo bruto, secrets ou vetores na UI.</p>
+                  </div>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <Badge variant={runtimePolicy.allowRuntimeRetrieval ? 'default' : 'outline'}>
+                      {runtimePolicy.allowRuntimeRetrieval ? 'runtime habilitado' : 'runtime bloqueado'}
+                    </Badge>
+                    {readiness && <Badge variant="outline">modo efetivo {readiness.effectiveRetrievalMode}</Badge>}
+                  </div>
+                </div>
+
+                <div className="grid gap-3 md:grid-cols-3">
+                  <div className="rounded-md border p-3">
+                    <div className="flex items-center justify-between gap-3">
+                      <div>
+                        <p className="text-sm font-medium">Retrieval em runtime</p>
+                        <p className="text-[10px] text-muted-foreground">allowRuntimeRetrieval</p>
+                      </div>
+                      <Switch
+                        checked={runtimePolicy.allowRuntimeRetrieval}
+                        disabled={updatePolicyMutation.isPending}
+                        onCheckedChange={checked => { void handlePolicyUpdate({ allowRuntimeRetrieval: checked }); }}
+                      />
+                    </div>
+                  </div>
+                  <div className="rounded-md border p-3">
+                    <div className="flex items-center justify-between gap-3">
+                      <div>
+                        <p className="text-sm font-medium">Somente com citações</p>
+                        <p className="text-[10px] text-muted-foreground">allowCitationOnly</p>
+                      </div>
+                      <Switch
+                        checked={runtimePolicy.allowCitationOnly}
+                        disabled={updatePolicyMutation.isPending}
+                        onCheckedChange={checked => { void handlePolicyUpdate({ allowCitationOnly: checked }); }}
+                      />
+                    </div>
+                  </div>
+                  <div className="rounded-md border p-3">
+                    <div className="flex items-center justify-between gap-3">
+                      <div>
+                        <p className="text-sm font-medium">Approval externo</p>
+                        <p className="text-[10px] text-muted-foreground">requireApprovalForExternal</p>
+                      </div>
+                      <Switch
+                        checked={runtimePolicy.requireApprovalForExternal}
+                        disabled={updatePolicyMutation.isPending}
+                        onCheckedChange={checked => { void handlePolicyUpdate({ requireApprovalForExternal: checked }); }}
+                      />
+                    </div>
+                  </div>
+                </div>
+
+                <div className="flex flex-wrap gap-2">
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={() => { void handlePolicyUpdate({ allowRuntimeRetrieval: true }); }}
+                    disabled={runtimePolicy.allowRuntimeRetrieval || updatePolicyMutation.isPending}
+                  >
+                    <ShieldCheck className="h-4 w-4 mr-1" />Habilitar retrieval em runtime
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={() => { void handleRequestBaseEmbeddings(); }}
+                    disabled={!hasEmbeddingEligibleDocuments || requestBaseEmbeddingsMutation.isPending}
+                  >
+                    {requestBaseEmbeddingsMutation.isPending ? <Loader2 className="h-4 w-4 mr-1 animate-spin" /> : <Layers className="h-4 w-4 mr-1" />}
+                    Solicitar embeddings da base
+                  </Button>
+                </div>
+
+                {readiness?.warnings?.length ? (
+                  <div className="rounded-md bg-warning/10 p-3 text-xs text-warning">
+                    {readiness.warnings.map(warning => `${warning.code}: ${warning.message}`).join(' · ')}
+                  </div>
+                ) : null}
               </div>
             </div>
           </TabsContent>

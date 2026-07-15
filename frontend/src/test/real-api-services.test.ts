@@ -3,6 +3,7 @@ import { endpoints } from '@/services/api/endpoints';
 
 const apiGet = vi.hoisted(() => vi.fn());
 const apiPost = vi.hoisted(() => vi.fn());
+const apiPatch = vi.hoisted(() => vi.fn());
 
 vi.mock('@/lib/env', () => ({
   env: {
@@ -21,7 +22,7 @@ vi.mock('@/services/api/api-client', () => ({
   apiClient: {
     get: apiGet,
     post: apiPost,
-    patch: vi.fn(),
+    patch: apiPatch,
     delete: vi.fn(),
   },
 }));
@@ -75,6 +76,87 @@ describe('services in real API mode', () => {
     await expect(assistantsService.list()).rejects.toBe(backendError);
     expect(apiGet).toHaveBeenCalledTimes(1);
     expect(apiGet).toHaveBeenCalledWith(endpoints.assistants.list);
+  });
+
+  it('uses operational Knowledge/RAG endpoints for policy and embeddings', async () => {
+    const knowledgeBase = {
+      id: 'kb-1',
+      tenantId: 'tenant-1',
+      workspaceId: 'workspace-1',
+      name: 'Base Homologacao 16I',
+      description: null,
+      status: 'active',
+      visibility: 'workspace',
+      dataClassification: 'internal',
+      ownerUserId: null,
+      owner: null,
+      metadata: {},
+      documentCount: 3,
+      chunkCount: 3,
+      dataSourceCount: 0,
+      bindingCount: 0,
+      ingestionJobCount: 3,
+      policy: {
+        id: 'policy-1',
+        knowledgeBaseId: 'kb-1',
+        allowRuntimeRetrieval: true,
+        allowCitationOnly: true,
+        requireApprovalForExternal: true,
+        metadata: null,
+        createdAt: '2026-07-15T10:00:00.000Z',
+        updatedAt: '2026-07-15T10:00:00.000Z',
+      },
+      createdAt: '2026-07-15T10:00:00.000Z',
+      updatedAt: '2026-07-15T10:00:00.000Z',
+      deletedAt: null,
+    };
+    const embeddingSummary = {
+      scope: 'document',
+      scopeId: 'doc-1',
+      status: 'completed',
+      provider: 'stub',
+      model: 'stub-sha256-v1',
+      dimension: 32,
+      requestedChunks: 1,
+      selectedForEmbedding: 1,
+      embedded: 1,
+      skipped: 0,
+      failed: 0,
+      failures: [],
+      retrievalMode: 'local_chunks_only',
+      ragUpdated: false,
+      vectorSearchEnabled: false,
+    };
+
+    apiPatch.mockResolvedValueOnce({ data: { data: knowledgeBase } });
+    apiPost.mockResolvedValue({ data: { data: embeddingSummary } });
+
+    await expect(knowledgeService.updatePolicy('kb-1', { allowRuntimeRetrieval: true })).resolves.toMatchObject({
+      id: 'kb-1',
+      policy: expect.objectContaining({ allowRuntimeRetrieval: true }),
+    });
+    await expect(knowledgeService.requestDocumentEmbeddings('doc-1')).resolves.toMatchObject({
+      provider: 'stub',
+      embedded: 1,
+    });
+    await expect(knowledgeService.requestBaseEmbeddings('kb-1', { force: true })).resolves.toMatchObject({
+      provider: 'stub',
+      embedded: 1,
+    });
+
+    expect(apiPatch).toHaveBeenCalledWith(endpoints.knowledge.policy('kb-1'), { allowRuntimeRetrieval: true });
+    expect(apiPost).toHaveBeenCalledWith(endpoints.knowledge.requestDocumentEmbeddings('doc-1'), {
+      limit: 50,
+      force: false,
+      chunkIds: undefined,
+      metadata: { source: 'frontend' },
+    });
+    expect(apiPost).toHaveBeenCalledWith(endpoints.knowledge.requestBaseEmbeddings('kb-1'), {
+      limit: 50,
+      force: true,
+      chunkIds: undefined,
+      metadata: { source: 'frontend' },
+    });
   });
 
   it('returns an honest empty analytics state while the real endpoint is unsupported', async () => {

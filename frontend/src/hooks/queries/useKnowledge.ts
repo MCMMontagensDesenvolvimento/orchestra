@@ -2,9 +2,11 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   knowledgeService,
   type AssistantKnowledgeBindingPayload,
+  type KnowledgeEmbeddingPayload,
   type KnowledgeBasePayload,
   type KnowledgeDataSourcePayload,
   type KnowledgeDocumentPayload,
+  type KnowledgePolicyPayload,
   type RagQueryPayload,
 } from '@/services/knowledge.service';
 import { queryKeys } from './queryKeys';
@@ -129,6 +131,20 @@ export const useUpdateKnowledgeBaseMutation = () => {
   });
 };
 
+export const useUpdateKnowledgePolicyMutation = () => {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, payload }: { id: string; payload: KnowledgePolicyPayload }) => knowledgeService.updatePolicy(id, payload),
+    onSuccess: (_base, variables) => {
+      void queryClient.invalidateQueries({ queryKey: queryKeys.knowledge.all });
+      void queryClient.invalidateQueries({ queryKey: queryKeys.knowledge.detail(variables.id) });
+      void queryClient.invalidateQueries({ queryKey: queryKeys.knowledge.readiness(variables.id) });
+      void queryClient.invalidateQueries({ queryKey: queryKeys.knowledge.documents(variables.id) });
+      void queryClient.invalidateQueries({ queryKey: queryKeys.audit.logs });
+    },
+  });
+};
+
 export const useArchiveKnowledgeBaseMutation = () => {
   const queryClient = useQueryClient();
   return useMutation({
@@ -175,6 +191,44 @@ export const useUploadKnowledgeDocumentMutation = () => {
       void queryClient.invalidateQueries({ queryKey: queryKeys.knowledge.documents(variables.knowledgeBaseId) });
       void queryClient.invalidateQueries({ queryKey: queryKeys.knowledge.detail(variables.knowledgeBaseId) });
       void queryClient.invalidateQueries({ queryKey: queryKeys.knowledge.readiness(variables.knowledgeBaseId) });
+      void queryClient.invalidateQueries({ queryKey: queryKeys.audit.logs });
+    },
+  });
+};
+
+export const useRequestKnowledgeDocumentEmbeddingsMutation = () => {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({
+      documentId,
+      knowledgeBaseId,
+      payload,
+    }: {
+      documentId: string;
+      knowledgeBaseId: string;
+      payload?: KnowledgeEmbeddingPayload;
+    }) => knowledgeService.requestDocumentEmbeddings(documentId, payload).then((summary) => ({ ...summary, documentId, knowledgeBaseId })),
+    onSuccess: (result) => {
+      void queryClient.invalidateQueries({ queryKey: queryKeys.knowledge.documents(result.knowledgeBaseId) });
+      void queryClient.invalidateQueries({ queryKey: queryKeys.knowledge.detail(result.knowledgeBaseId) });
+      void queryClient.invalidateQueries({ queryKey: queryKeys.knowledge.readiness(result.knowledgeBaseId) });
+      void queryClient.invalidateQueries({ queryKey: queryKeys.knowledge.chunks(result.documentId) });
+      void queryClient.invalidateQueries({ queryKey: queryKeys.knowledge.sourceReferences(result.documentId) });
+      void queryClient.invalidateQueries({ queryKey: queryKeys.audit.logs });
+    },
+  });
+};
+
+export const useRequestKnowledgeBaseEmbeddingsMutation = () => {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ knowledgeBaseId, payload }: { knowledgeBaseId: string; payload?: KnowledgeEmbeddingPayload }) =>
+      knowledgeService.requestBaseEmbeddings(knowledgeBaseId, payload).then((summary) => ({ ...summary, knowledgeBaseId })),
+    onSuccess: (result) => {
+      void queryClient.invalidateQueries({ queryKey: queryKeys.knowledge.documents(result.knowledgeBaseId) });
+      void queryClient.invalidateQueries({ queryKey: queryKeys.knowledge.detail(result.knowledgeBaseId) });
+      void queryClient.invalidateQueries({ queryKey: queryKeys.knowledge.readiness(result.knowledgeBaseId) });
+      void queryClient.invalidateQueries({ queryKey: queryKeys.knowledge.all });
       void queryClient.invalidateQueries({ queryKey: queryKeys.audit.logs });
     },
   });

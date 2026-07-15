@@ -24,6 +24,7 @@ import {
   knowledgeEmbeddingRequestSchema,
   knowledgeIngestionJobParamsSchema,
   knowledgeIngestionRequestSchema,
+  knowledgePolicyUpdateSchema,
   ragLocalSearchSchema,
   ragQueriesQuerySchema,
   ragQueryParamsSchema,
@@ -63,6 +64,16 @@ export function createKnowledgeRouter() {
   router.get('/:id/readiness', requireAuth, requirePermission('knowledge.read'), validateParams(idParamsSchema), (req, res, next) => {
     void knowledgeController.getKnowledgeBaseReadiness(req, res).catch(next);
   });
+  router.patch(
+    '/:id/policy',
+    requireAuth,
+    requirePermission('knowledge.update'),
+    validateParams(knowledgeBaseChildParamsSchema),
+    validateBody(knowledgePolicyUpdateSchema),
+    (req, res, next) => {
+      void knowledgeController.updateKnowledgePolicy(req, res).catch(next);
+    },
+  );
   router.patch(
     '/:id',
     requireAuth,
