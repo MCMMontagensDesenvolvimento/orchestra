@@ -251,6 +251,9 @@ function toResolvedRagContext(
     documentId: source.documentId,
     chunkId: source.chunkId,
     documentTitle: source.documentTitle,
+    sourceType: stringValue(source.sourceType) ?? null,
+    sectionTitle: stringValue(source.sectionTitle) ?? null,
+    pageNumber: numberValue(source.pageNumber) ?? null,
     excerpt: source.excerpt,
     score: numberValue(source.score) ?? null,
   }));

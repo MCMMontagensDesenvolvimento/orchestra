@@ -4,6 +4,7 @@ import type {
   DataClassification,
   IngestionStatus,
   KnowledgeBase,
+  KnowledgeBaseReadiness,
   KnowledgeDataSource,
   KnowledgeChunk,
   KnowledgeDocument,
@@ -80,6 +81,10 @@ interface ApiKnowledgeDocument {
   createdAt: string;
   updatedAt: string;
   deletedAt: string | null;
+  embeddingCount?: number;
+  embeddingStatus?: 'ready' | 'partial' | 'failed' | 'not_requested';
+  embeddingProvider?: string | null;
+  embeddingModel?: string | null;
 }
 
 interface ApiKnowledgeDataSource {
@@ -169,6 +174,7 @@ interface ApiKnowledgeSourceReference {
 }
 
 type ApiRagReadiness = RagReadiness;
+type ApiKnowledgeBaseReadiness = KnowledgeBaseReadiness;
 type ApiRagLocalSearchResponse = RagLocalSearchResponse;
 type ApiRagQueryRecord = RagQueryRecord;
 type ApiRagQueryResponse = RagQueryResponse;
@@ -263,6 +269,13 @@ function connectorFromMetadata(metadata: Record<string, unknown> | null | undefi
   return typeof value === 'string' && connectorValues.has(value) ? (value as ConnectorType) : 'api';
 }
 
+function uploadMimeType(file: File) {
+  const extension = file.name.split('.').pop()?.toLowerCase();
+  if (extension === 'csv') return file.type || 'text/csv';
+  if (extension === 'md') return file.type || 'text/markdown';
+  return file.type || 'text/plain';
+}
+
 function mapKnowledgeBase(base: ApiKnowledgeBase): KnowledgeBase {
   const metadata = base.metadata ?? {};
   return {
@@ -330,6 +343,10 @@ function mapDocument(document: ApiKnowledgeDocument): KnowledgeDocument {
     lastProcessed: document.ingestedAt ?? (document.ingestionStatus === 'completed' || document.ingestionStatus === 'completed_placeholder' ? document.updatedAt : ''),
     updatedAt: document.updatedAt,
     deletedAt: document.deletedAt,
+    embeddingCount: document.embeddingCount,
+    embeddingStatus: document.embeddingStatus,
+    embeddingProvider: document.embeddingProvider,
+    embeddingModel: document.embeddingModel,
   };
 }
 
@@ -510,6 +527,39 @@ export const knowledgeService = {
     return mapKnowledgeBase(response.data.data);
   },
 
+  async readiness(id: string): Promise<KnowledgeBaseReadiness> {
+    if (env.useMocks) {
+      const docs = mockDocuments.filter((document) => document.knowledgeBaseId === id);
+      const chunksReady = docs.reduce((total, document) => total + (document.chunkCount ?? document.chunks ?? 0), 0);
+      return mockResponse({
+        knowledgeBaseId: id,
+        status: chunksReady > 0 ? 'ready' : 'not_ready',
+        retrievalMode: 'hybrid',
+        effectiveRetrievalMode: chunksReady > 0 ? 'keyword' : 'none',
+        ready: chunksReady > 0,
+        keywordReady: chunksReady > 0,
+        semanticReady: false,
+        documentsTotal: docs.length,
+        documentsReady: docs.filter((document) => document.status === 'completed').length,
+        chunksReady,
+        embeddingsReady: 0,
+        blockedReasons: chunksReady > 0 ? [] : ['NO_CHUNKS_AVAILABLE'],
+        warnings: [],
+        embeddings: {
+          status: 'disabled',
+          enabled: false,
+          provider: 'disabled',
+          model: null,
+          dimension: null,
+        },
+        lastJob: null,
+        lastError: null,
+      } satisfies KnowledgeBaseReadiness);
+    }
+    const response = await apiClient.get<ApiEnvelope<ApiKnowledgeBaseReadiness>>(endpoints.knowledge.readiness(id));
+    return response.data.data;
+  },
+
   async documents(knowledgeBaseId?: string): Promise<KnowledgeDocument[]> {
     if (env.useMocks) {
       const docs = knowledgeBaseId
@@ -539,6 +589,40 @@ export const knowledgeService = {
       });
     }
     const response = await apiClient.post<ApiEnvelope<ApiKnowledgeDocument>>(endpoints.knowledge.documents(knowledgeBaseId), payload);
+    return mapDocument(response.data.data);
+  },
+
+  async uploadDocument(knowledgeBaseId: string, file: File): Promise<KnowledgeDocument> {
+    if (env.useMocks) {
+      const contentText = await file.text();
+      return mockResponse({
+        ...mockDocuments[0],
+        id: `mock-doc-${Date.now()}`,
+        knowledgeBaseId,
+        name: file.name,
+        title: file.name,
+        type: file.name.split('.').pop()?.toUpperCase() ?? 'TXT',
+        sourceType: 'file',
+        mimeType: uploadMimeType(file),
+        contentText,
+        status: 'pending',
+        chunks: 0,
+        chunkCount: 0,
+        size: `${Math.max(1, Math.ceil(file.size / 1024))} KB`,
+        metadata: {
+          size: `${Math.max(1, Math.ceil(file.size / 1024))} KB`,
+          originalFileName: file.name,
+          uploadMode: 'mock_upload',
+        },
+      });
+    }
+    const response = await apiClient.post<ApiEnvelope<ApiKnowledgeDocument>>(endpoints.knowledge.documentUpload(knowledgeBaseId), file, {
+      headers: {
+        'Content-Type': uploadMimeType(file),
+        'X-File-Name': encodeURIComponent(file.name),
+      },
+      transformRequest: [(data) => data],
+    });
     return mapDocument(response.data.data);
   },
 

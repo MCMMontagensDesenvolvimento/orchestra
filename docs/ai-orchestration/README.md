@@ -66,6 +66,8 @@ A Fase 16G consolida um pacote de demo local ponta a ponta com Agno real, reunin
 
 A Fase 16H adiciona o servico Docker local `agno-bridge`, com contrato runtime V1 strict, SDK Agno real isolado, provider keys somente no container, RAG resolvido pelo Orchestra, descriptors governados, callback opcional ao gateway sandbox 16F, testes offline e preflight seguro. O backend permanece fail-closed por default; MCP/tool externa real, frontend, migrations e deploy cloud continuam fora.
 
+A Fase 16I torna o Knowledge/RAG operacional para TXT/MD/CSV, com upload real, parsing deterministico, ingestao idempotente, source references, embeddings opcionais `stub`/OpenAI, retrieval keyword/semantic/hybrid governado, readiness de base/assistente, UI minima e smoke offline.
+
 Esta pasta deve concentrar a estrategia de IA do Orchestra.
 
 Topicos esperados:
@@ -130,6 +132,7 @@ Topicos esperados:
 - `ORCHESTRA_AGNO_TOOL_GATEWAY_GOVERNADO_16F.md`: callback server-to-server governado `Agno -> Orchestra` para tool low risk em sandbox deterministico, com contrato strict, correlacao de run/spec, limites, idempotencia local, auditoria sanitizada e default desligado.
 - `ORCHESTRA_AGNO_DEMO_LOCAL_PONTA_A_PONTA_16G.md`: runbook oficial da demo local com Agno real, chave descartavel fora do Git, preflight seguro, health/capabilities autenticados, Chat/RAG/descriptors/gateway sandbox manuais, evidencias, roteiro de apresentacao, troubleshooting e rollback.
 - `ORCHESTRA_AGNO_BRIDGE_DOCKER_REAL_16H.md`: implementacao e runbook do `agno-bridge` Docker local com SDK Agno real por tras do contrato V1, provider keys isoladas, RAG/descriptors governados, callback sandbox 16F opcional, testes offline, evidencias, rollback e riscos.
+- `ORCHESTRA_KNOWLEDGE_RAG_OPERACIONAL_16I.md`: Knowledge/RAG operacional para upload TXT/MD/CSV, ingestao idempotente, embeddings opcionais, retrieval governado, readiness, UI, validacao e rollback.
 - `ORCHESTRA_LLM_PROVIDER_INTEGRATION.md`: catalogo LLM, provider local deterministico, providers externos fail-closed e eventos LLM em AgentRun.
 - `ORCHESTRA_RAG_SEMANTICO_DISCOVERY.md`: discovery tecnico da Fase 10A para RAG semantico, embeddings e vector store.
 - `ORCHESTRA_VECTOR_STORE_EMBEDDING_CONTRACT.md`: decisao tecnica da Fase 10B para pgvector, tabela de embeddings, readiness semantico e fail-closed.

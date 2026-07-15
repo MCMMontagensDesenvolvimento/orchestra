@@ -35,6 +35,19 @@ const bindingInclude = {
   },
 } satisfies Prisma.AssistantKnowledgeBindingInclude;
 
+const knowledgeDocumentInclude = {
+  _count: {
+    select: {
+      chunkEmbeddings: { where: { status: 'embedded' } },
+    },
+  },
+  chunkEmbeddings: {
+    select: { status: true, provider: true, embeddingModel: true, updatedAt: true },
+    orderBy: { updatedAt: 'desc' as const },
+    take: 1,
+  },
+} satisfies Prisma.KnowledgeDocumentInclude;
+
 function scopedKnowledgeBaseWhere(id: string, tenantId: string, workspaceIds: string[]) {
   return {
     id,
@@ -61,7 +74,9 @@ async function getRagReadinessInternal(assistantId: string, tenantId: string, wo
       workspaceId: { in: workspaceIds },
     },
     include: {
-      knowledgeBase: true,
+      knowledgeBase: {
+        include: { policies: { take: 1 } },
+      },
     },
     orderBy: [{ priority: 'asc' }, { createdAt: 'asc' }],
   });
@@ -70,16 +85,20 @@ async function getRagReadinessInternal(assistantId: string, tenantId: string, wo
     (binding) => binding.knowledgeBase.status === 'archived' || Boolean(binding.knowledgeBase.deletedAt),
   ).length;
   const workspaceScopeMismatchCount = enabledBindings.filter((binding) => binding.knowledgeBase.workspaceId !== assistant.workspaceId).length;
+  const retrievalPolicyBlockedCount = enabledBindings.filter(
+    (binding) => binding.knowledgeBase.policies[0]?.allowRuntimeRetrieval !== true,
+  ).length;
   const activeBindings = enabledBindings.filter(
     (binding) =>
       binding.knowledgeBase.status === 'active' &&
       !binding.knowledgeBase.deletedAt &&
-      binding.knowledgeBase.workspaceId === assistant.workspaceId,
+      binding.knowledgeBase.workspaceId === assistant.workspaceId &&
+      binding.knowledgeBase.policies[0]?.allowRuntimeRetrieval === true,
   );
   const activeKnowledgeBaseIds = activeBindings
     .map((binding) => binding.knowledgeBaseId);
 
-  const [documentsIngested, chunksAvailable, sourceReferencesAvailable] = activeKnowledgeBaseIds.length > 0
+  const [documentsIngested, chunksAvailable, sourceReferencesAvailable, embeddingsAvailable] = activeKnowledgeBaseIds.length > 0
     ? await Promise.all([
         prisma.knowledgeDocument.count({
           where: {
@@ -117,8 +136,24 @@ async function getRagReadinessInternal(assistantId: string, tenantId: string, wo
             },
           },
         }),
+        prisma.knowledgeChunkEmbedding.count({
+          where: {
+            tenantId,
+            workspaceId: { in: workspaceIds },
+            knowledgeBaseId: { in: activeKnowledgeBaseIds },
+            status: 'embedded',
+            chunk: {
+              status: 'active',
+              document: {
+                deletedAt: null,
+                ingestionStatus: 'completed',
+                status: { not: 'archived' },
+              },
+            },
+          },
+        }),
       ])
-    : [0, 0, 0];
+    : [0, 0, 0, 0];
 
   const blockedReasons = [];
   const warnings = [];
@@ -126,6 +161,7 @@ async function getRagReadinessInternal(assistantId: string, tenantId: string, wo
   if (bindings.length > 0 && enabledBindings.length === 0) blockedReasons.push('NO_ENABLED_KNOWLEDGE_BINDINGS');
   if (archivedKnowledgeBaseCount > 0 && activeKnowledgeBaseIds.length === 0) blockedReasons.push('KNOWLEDGE_BASE_ARCHIVED');
   if (workspaceScopeMismatchCount > 0 && activeKnowledgeBaseIds.length === 0) blockedReasons.push('WORKSPACE_SCOPE_MISMATCH');
+  if (retrievalPolicyBlockedCount > 0 && activeKnowledgeBaseIds.length === 0) blockedReasons.push('RETRIEVAL_POLICY_BLOCKED');
   if (activeKnowledgeBaseIds.length > 0 && documentsIngested === 0) blockedReasons.push('NO_INGESTED_DOCUMENTS');
   if (activeKnowledgeBaseIds.length > 0 && documentsIngested > 0 && chunksAvailable === 0) blockedReasons.push('NO_CHUNKS_AVAILABLE');
   if (archivedKnowledgeBaseCount > 0 && activeKnowledgeBaseIds.length > 0) {
@@ -138,6 +174,12 @@ async function getRagReadinessInternal(assistantId: string, tenantId: string, wo
     warnings.push({
       code: 'WORKSPACE_SCOPE_MISMATCH',
       message: 'Uma ou mais bases vinculadas estao fora do workspace do assistente e foram excluidas da consulta.',
+    });
+  }
+  if (retrievalPolicyBlockedCount > 0 && activeKnowledgeBaseIds.length > 0) {
+    warnings.push({
+      code: 'RETRIEVAL_POLICY_BLOCKED',
+      message: 'Uma ou mais bases vinculadas nao permitem retrieval em runtime e foram excluidas.',
     });
   }
   if (chunksAvailable > 0 && sourceReferencesAvailable === 0) {
@@ -160,6 +202,8 @@ async function getRagReadinessInternal(assistantId: string, tenantId: string, wo
     chunksAvailable,
     chunkCount: chunksAvailable,
     sourceReferenceCount: sourceReferencesAvailable,
+    embeddingsAvailable,
+    retrievalPolicyBlockedCount,
     enabledBindingCount: enabledBindings.length,
     blockedReasons,
     warnings,
@@ -342,6 +386,70 @@ export const knowledgeRepository = {
     });
   },
 
+  async getKnowledgeBaseReadiness(id: string, tenantId: string, workspaceIds: string[]) {
+    const base = await prisma.knowledgeBase.findFirst({
+      where: scopedKnowledgeBaseWhere(id, tenantId, workspaceIds),
+      include: { policies: { take: 1 } },
+    });
+    if (!base) return null;
+
+    const documentScope = {
+      tenantId,
+      workspaceId: { in: workspaceIds },
+      knowledgeBaseId: base.id,
+      deletedAt: null,
+      status: { not: 'archived' },
+    } satisfies Prisma.KnowledgeDocumentWhereInput;
+    const [documentsTotal, documentsReady, chunksReady, embeddingsReady, lastJob, lastFailedDocument] = await Promise.all([
+      prisma.knowledgeDocument.count({ where: documentScope }),
+      prisma.knowledgeDocument.count({
+        where: { ...documentScope, ingestionStatus: 'completed', chunkCount: { gt: 0 } },
+      }),
+      prisma.knowledgeChunk.count({
+        where: {
+          tenantId,
+          workspaceId: { in: workspaceIds },
+          knowledgeBaseId: base.id,
+          status: 'active',
+          document: { ...documentScope, ingestionStatus: 'completed' },
+        },
+      }),
+      prisma.knowledgeChunkEmbedding.count({
+        where: {
+          tenantId,
+          workspaceId: { in: workspaceIds },
+          knowledgeBaseId: base.id,
+          status: 'embedded',
+          chunk: {
+            status: 'active',
+            document: { ...documentScope, ingestionStatus: 'completed' },
+          },
+        },
+      }),
+      prisma.knowledgeIngestionJob.findFirst({
+        where: { tenantId, workspaceId: { in: workspaceIds }, knowledgeBaseId: base.id },
+        orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+        select: { status: true, completedAt: true, createdAt: true, errorCode: true, errorMessage: true },
+      }),
+      prisma.knowledgeDocument.findFirst({
+        where: { ...documentScope, ingestionStatus: 'failed' },
+        orderBy: [{ updatedAt: 'desc' }, { id: 'desc' }],
+        select: { ingestionErrorCode: true, ingestionErrorMessage: true, updatedAt: true },
+      }),
+    ]);
+
+    return {
+      base,
+      policy: base.policies[0] ?? null,
+      documentsTotal,
+      documentsReady,
+      chunksReady,
+      embeddingsReady,
+      lastJob,
+      lastFailedDocument,
+    };
+  },
+
   createKnowledgeBase(input: KnowledgeBaseCreateInput & { tenantId: string; workspaceId: string; ownerUserId?: string | null }) {
     return prisma.knowledgeBase.create({
       data: {
@@ -424,6 +532,7 @@ export const knowledgeRepository = {
         workspaceId: { in: workspaceIds },
         deletedAt: null,
       },
+      include: knowledgeDocumentInclude,
       orderBy: [{ updatedAt: 'desc' }, { createdAt: 'desc' }],
     });
   },
@@ -435,10 +544,17 @@ export const knowledgeRepository = {
         tenantId,
         workspaceId: { in: workspaceIds },
       },
+      include: knowledgeDocumentInclude,
     });
   },
 
-  createDocument(input: KnowledgeDocumentCreateInput & { tenantId: string; workspaceId: string; knowledgeBaseId: string; createdById: string }) {
+  createDocument(input: KnowledgeDocumentCreateInput & {
+    tenantId: string;
+    workspaceId: string;
+    knowledgeBaseId: string;
+    createdById: string;
+    contentHash?: string;
+  }) {
     return prisma.knowledgeDocument.create({
       data: {
         tenantId: input.tenantId,
@@ -453,6 +569,7 @@ export const knowledgeRepository = {
         ingestionStatus: input.ingestionStatus,
         dataClassification: input.dataClassification,
         contentText: input.contentText,
+        contentHash: input.contentHash,
         metadata: jsonInput(input.metadata),
         createdById: input.createdById,
       },
@@ -602,6 +719,72 @@ export const knowledgeRepository = {
       if (!document) return null;
 
       const now = new Date();
+      if (document.contentHash === input.contentHash && document.ingestionStatus === 'completed' && document.chunkCount > 0) {
+        const [existingChunks, existingSourceReferences] = await Promise.all([
+          tx.knowledgeChunk.findMany({
+            where: {
+              documentId: document.id,
+              tenantId: document.tenantId,
+              workspaceId: document.workspaceId,
+              status: 'active',
+            },
+            orderBy: [{ chunkIndex: 'asc' }, { id: 'asc' }],
+          }),
+          tx.knowledgeSourceReference.findMany({
+            where: {
+              documentId: document.id,
+              tenantId: document.tenantId,
+              workspaceId: document.workspaceId,
+            },
+            orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
+          }),
+        ]);
+        if (existingChunks.length === document.chunkCount && existingSourceReferences.length > 0) {
+          const job = await tx.knowledgeIngestionJob.create({
+            data: {
+              tenantId: document.tenantId,
+              workspaceId: document.workspaceId,
+              knowledgeBaseId: document.knowledgeBaseId,
+              documentId: document.id,
+              status: 'completed',
+              strategy: 'local_text_chunking',
+              startedAt: now,
+              completedAt: now,
+              chunksCreated: 0,
+              sourceReferencesCreated: 0,
+              createdById: input.createdById,
+              metadata: input.metadata,
+            },
+          });
+          const event = await tx.knowledgeIngestionEvent.create({
+            data: {
+              jobId: job.id,
+              tenantId: document.tenantId,
+              workspaceId: document.workspaceId,
+              knowledgeBaseId: document.knowledgeBaseId,
+              documentId: document.id,
+              eventType: 'knowledge_ingestion_unchanged',
+              message: 'Document content hash is unchanged; existing chunks were preserved.',
+              metadata: {
+                idempotent: true,
+                existingChunks: existingChunks.length,
+                existingSourceReferences: existingSourceReferences.length,
+              },
+            },
+          });
+          return {
+            document,
+            job,
+            chunks: existingChunks,
+            sourceReferences: existingSourceReferences,
+            events: [event],
+            idempotent: true,
+            chunksCreated: 0,
+            sourceReferencesCreated: 0,
+          };
+        }
+      }
+
       const job = await tx.knowledgeIngestionJob.create({
         data: {
           tenantId: document.tenantId,
@@ -771,6 +954,9 @@ export const knowledgeRepository = {
         chunks: createdChunks,
         sourceReferences: createdSourceReferences,
         events: [startedEvent, chunkEvent, referenceEvent, completedEvent],
+        idempotent: false,
+        chunksCreated: createdChunks.length,
+        sourceReferencesCreated: createdSourceReferences.length,
       };
     });
   },
@@ -1053,10 +1239,8 @@ export const knowledgeRepository = {
   async localSearch(assistantId: string, tenantId: string, workspaceIds: string[], query: string) {
     const readiness = await getRagReadinessInternal(assistantId, tenantId, workspaceIds);
     if (!readiness) return null;
-    const knowledgeBaseIds = readiness.bindings
-      .filter((binding) => binding.isEnabled && binding.knowledgeBase.status === 'active' && !binding.knowledgeBase.deletedAt)
-      .map((binding) => binding.knowledgeBaseId);
-    if (knowledgeBaseIds.length === 0) {
+    const knowledgeBaseIds = readiness.activeKnowledgeBaseIds;
+    if (knowledgeBaseIds.length === 0 || readiness.blockedReasons.length > 0) {
       return { readiness, chunks: [] };
     }
 
@@ -1067,6 +1251,11 @@ export const knowledgeRepository = {
         knowledgeBaseId: { in: knowledgeBaseIds },
         status: 'active',
         content: { contains: query, mode: 'insensitive' },
+        document: {
+          deletedAt: null,
+          ingestionStatus: 'completed',
+          status: { not: 'archived' },
+        },
       },
       include: {
         sourceReferences: { take: 1, orderBy: { createdAt: 'asc' } },
@@ -1208,6 +1397,10 @@ export const knowledgeRepository = {
         ON b.knowledge_base_id = kb.id
         AND b.assistant_id = ${input.assistantId}::uuid
         AND b.tenant_id = ${input.tenantId}::uuid
+      INNER JOIN knowledge_policies kp
+        ON kp.knowledge_base_id = kb.id
+        AND kp.tenant_id = kb.tenant_id
+        AND kp.workspace_id = kb.workspace_id
       WHERE e.tenant_id = ${input.tenantId}::uuid
         AND e.workspace_id IN (${uuidSqlList(input.workspaceIds)})
         AND e.knowledge_base_id IN (${uuidSqlList(readiness.activeKnowledgeBaseIds)})
@@ -1226,6 +1419,7 @@ export const knowledgeRepository = {
         AND b.workspace_id IN (${uuidSqlList(input.workspaceIds)})
         AND b.is_enabled = true
         AND b.retrieval_mode <> 'disabled'
+        AND kp.allow_runtime_retrieval = true
       ORDER BY
         e.embedding <=> ${vector}::vector ASC,
         b.priority ASC,

@@ -120,6 +120,9 @@ function buildRagSummary(summary: RuntimeSummary, resolvedRag?: RuntimeResolvedR
       documentId: reference.documentId,
       chunkId: reference.chunkId,
       documentTitle: reference.document.title,
+      sourceType: reference.sourceType,
+      sectionTitle: reference.sectionTitle,
+      pageNumber: reference.pageNumber,
       excerpt: previewText(reference.chunk?.content, 500),
     })),
   };

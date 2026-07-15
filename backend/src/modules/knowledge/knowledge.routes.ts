@@ -1,7 +1,9 @@
-import { Router } from 'express';
+import { raw, Router, type NextFunction, type Request, type Response } from 'express';
+import { AppError } from '../../shared/errors/app-error';
 import { requireAuth, requirePermission } from '../../shared/middleware/auth.middleware';
 import { idParamsSchema } from '../../shared/validation/pagination';
 import { validateBody, validateParams, validateQuery } from '../../shared/validation/validate';
+import { getKnowledgeUploadConfig } from './knowledge.config';
 import { knowledgeController } from './knowledge.controller';
 import {
   assistantKnowledgeBindingCreateSchema,
@@ -29,6 +31,23 @@ import {
   ragSemanticSearchSchema,
 } from './knowledge.schema';
 
+function isPayloadTooLargeError(error: unknown) {
+  if (!error || typeof error !== 'object') return false;
+  const bodyParserError = error as { status?: number; statusCode?: number; type?: string };
+  return bodyParserError.status === 413 || bodyParserError.statusCode === 413 || bodyParserError.type === 'entity.too.large';
+}
+
+function knowledgeUploadRawParser() {
+  return raw({ type: () => true, limit: getKnowledgeUploadConfig().maxUploadBytes });
+}
+
+function handleKnowledgeUploadParserError(error: unknown, _req: Request, _res: Response, next: NextFunction) {
+  if (isPayloadTooLargeError(error)) {
+    return next(new AppError(413, 'KNOWLEDGE_UPLOAD_TOO_LARGE', 'O arquivo excede o limite configurado para upload de conhecimento.'));
+  }
+  return next(error);
+}
+
 export function createKnowledgeRouter() {
   const router = Router();
 
@@ -40,6 +59,9 @@ export function createKnowledgeRouter() {
   });
   router.get('/:id', requireAuth, requirePermission('knowledge.read'), validateParams(idParamsSchema), (req, res, next) => {
     void knowledgeController.getKnowledgeBase(req, res).catch(next);
+  });
+  router.get('/:id/readiness', requireAuth, requirePermission('knowledge.read'), validateParams(idParamsSchema), (req, res, next) => {
+    void knowledgeController.getKnowledgeBaseReadiness(req, res).catch(next);
   });
   router.patch(
     '/:id',
@@ -89,6 +111,17 @@ export function createKnowledgeRouter() {
     validateBody(knowledgeDocumentCreateSchema),
     (req, res, next) => {
       void knowledgeController.createDocument(req, res).catch(next);
+    },
+  );
+  router.post(
+    '/:id/documents/upload',
+    requireAuth,
+    requirePermission('knowledge.update'),
+    validateParams(knowledgeBaseChildParamsSchema),
+    knowledgeUploadRawParser(),
+    handleKnowledgeUploadParserError,
+    (req: Request, res: Response, next: NextFunction) => {
+      void knowledgeController.uploadDocument(req, res).catch(next);
     },
   );
   router.get(

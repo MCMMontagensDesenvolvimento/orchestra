@@ -2,10 +2,12 @@ import { getEmbeddingsConfig } from './embeddings.config';
 import { embeddingReadinessError } from './embeddings.errors';
 import { disabledEmbeddingProvider } from './embeddings.provider';
 import { openAiEmbeddingProvider } from './providers/openai-embedding.provider';
+import { deterministicStubEmbeddingProvider } from './providers/stub-embedding.provider';
 import type { EmbedBatchInput, EmbeddingProvider, EmbedTextInput } from './embeddings.types';
 
 function currentProvider(): EmbeddingProvider {
   const config = getEmbeddingsConfig();
+  if (config.enabled && config.provider === 'stub') return deterministicStubEmbeddingProvider;
   if (config.enabled && config.provider === 'openai') return openAiEmbeddingProvider;
   return disabledEmbeddingProvider;
 }

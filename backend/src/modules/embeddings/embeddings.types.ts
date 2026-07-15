@@ -1,5 +1,6 @@
 export const embeddingProviderNameValues = [
   'disabled',
+  'stub',
   'openai',
   'azure_openai',
   'ollama',
