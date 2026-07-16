@@ -96,6 +96,13 @@ function context(): RuntimeExecutionContext {
       reasons: [],
       requestId: 'req-1',
     },
+    responseScope: {
+      mode: 'knowledge_first',
+      ragIntentDetected: true,
+      ragSkippedReason: null,
+      fallbackOutsideKnowledgeUsed: false,
+      rawContentLogged: false,
+    },
     rag: {
       ragReady: true,
       knowledgeBindingsCount: 1,

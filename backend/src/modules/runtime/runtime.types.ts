@@ -2,6 +2,7 @@ import type { Prisma } from '@prisma/client';
 import type { AgentRunMode } from '../agent-runs/agent-runs.schema';
 import type { AgentRunEventInput, AgentRunPrecheckSnapshot } from '../agent-runs/agent-runs.types';
 import type { LlmProviderName } from '../llm/llm.types';
+import type { ResponseScopeMode } from '../../shared/policies/response-scope';
 
 export const runtimeProviderValues = ['local', 'agno_stub', 'agno', 'agno_http'] as const;
 export const runtimeHealthStatusValues = ['healthy', 'degraded', 'disabled', 'misconfigured', 'unavailable'] as const;
@@ -136,6 +137,14 @@ export interface RuntimeResolvedRagContext {
   sourceReferences: RuntimeRagSummary['sourceReferences'];
 }
 
+export interface RuntimeResponseScopeSummary {
+  mode: ResponseScopeMode;
+  ragIntentDetected: boolean;
+  ragSkippedReason: string | null;
+  fallbackOutsideKnowledgeUsed: boolean;
+  rawContentLogged: false;
+}
+
 export interface RuntimeMcpSummary {
   mcpBindingsCount: number;
   allowedSandboxTools: Array<{
@@ -220,6 +229,7 @@ export interface RuntimeExecutionContext {
     defaultLlmProvider: LlmProviderName | null;
   };
   precheckSnapshot: AgentRunPrecheckSnapshot;
+  responseScope: RuntimeResponseScopeSummary;
   rag: RuntimeRagSummary;
   mcp: RuntimeMcpSummary;
   conversationContext?: RuntimeConversationContext;

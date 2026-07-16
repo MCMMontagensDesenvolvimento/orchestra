@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto';
 import type { Prisma } from '@prisma/client';
 import { logger } from '../../infrastructure/logger/logger';
 import { AppError } from '../../shared/errors/app-error';
+import { responseScopeModeFromMetadata, type ResponseScopeMode } from '../../shared/policies/response-scope';
 import type { AuthenticatedUser } from '../../shared/types/auth';
 import { paginationMeta } from '../../shared/validation/pagination';
 import { recordAuditEvent } from '../audit/audit.service';
@@ -15,6 +16,7 @@ import type {
   RuntimeExecutionContext,
   RuntimeExecutionResult,
   RuntimeProvider,
+  RuntimeResponseScopeSummary,
   RuntimeResolvedRagContext,
 } from '../runtime/runtime.types';
 import { normalizeRuntimeEvents } from '../runtime/runtime.events';
@@ -30,6 +32,7 @@ import type { AgentRunEventInput, AgentRunPrecheckSnapshot, PrecheckReason, Requ
 
 type AssistantForRun = NonNullable<Awaited<ReturnType<typeof agentRunsRepository.findAssistantForRun>>>;
 type PolicyForRun = Awaited<ReturnType<typeof agentRunsRepository.getExecutionPolicy>>;
+type RuntimeSummaryForRun = Awaited<ReturnType<typeof agentRunsRepository.getRuntimeContextSummary>>;
 
 const userWorkspaceIds = (user: AuthenticatedUser) => user.workspaces.map((workspace) => workspace.id);
 const unsafeMetadataFragments = [
@@ -67,7 +70,14 @@ const unsafeMetadataFragments = [
   'url',
 ];
 const cancellableStatuses = new Set(['queued', 'prechecking', 'running']);
-const allowedMetadataMetricKeys = new Set(['inputtokens', 'outputtokens', 'totaltokens', 'maxtokens', 'tooldescriptorcount']);
+const allowedMetadataMetricKeys = new Set([
+  'inputtokens',
+  'outputtokens',
+  'totaltokens',
+  'maxtokens',
+  'tooldescriptorcount',
+  'rawcontentlogged',
+]);
 
 function isUnsafeMetadataKey(key: string) {
   const normalizedKey = key.replace(/[-_\s]/g, '').toLowerCase();
@@ -118,6 +128,7 @@ function mergeRuntimeMetadata(input: {
   runtimeMetadata?: Prisma.InputJsonValue;
   ragSummary?: { ragReady: boolean; knowledgeBindingsCount: number; chunkCount: number; sourceReferenceCount: number; lastRagQueryId: string | null };
   mcpSummary?: { mcpBindingsCount: number; allowedSandboxTools: unknown[]; blockedTools: unknown[]; requiresApproval: unknown[]; lastToolCallIds: string[] };
+  responseScopeSummary?: RuntimeResponseScopeSummary;
 }): Prisma.InputJsonValue {
   const base = typeof input.metadata === 'object' && input.metadata && !Array.isArray(input.metadata)
     ? input.metadata as Record<string, unknown>
@@ -145,6 +156,11 @@ function mergeRuntimeMetadata(input: {
       inputHash: input.inputHash,
       outputHash: input.outputHash,
       errorCode: input.errorCode,
+      responseScopeMode: input.responseScopeSummary ? input.responseScopeSummary.mode : stringValue(adapterMetadata?.responseScopeMode),
+      ragIntentDetected: input.responseScopeSummary ? input.responseScopeSummary.ragIntentDetected : booleanValue(adapterMetadata?.ragIntentDetected),
+      ragSkippedReason: input.responseScopeSummary ? input.responseScopeSummary.ragSkippedReason : stringValue(adapterMetadata?.ragSkippedReason) ?? null,
+      fallbackOutsideKnowledgeUsed: input.responseScopeSummary ? input.responseScopeSummary.fallbackOutsideKnowledgeUsed : booleanValue(adapterMetadata?.fallbackOutsideKnowledgeUsed),
+      rawContentLogged: input.responseScopeSummary ? input.responseScopeSummary.rawContentLogged : booleanValue(adapterMetadata?.rawContentLogged) ?? false,
       latencyMs: numberValue(adapterMetadata?.runtimeLatencyMs ?? adapterMetadata?.latencyMs),
       usage,
       ...summary,
@@ -239,6 +255,141 @@ function stringValue(value: unknown) {
 function runtimeRagQueryText(value: string) {
   const normalized = value.replace(/\s+/g, ' ').trim().slice(0, 500);
   return normalized.length >= 2 ? normalized : undefined;
+}
+
+function responseScopeModeFromPolicy(policy: PolicyForRun | Record<string, unknown>): ResponseScopeMode {
+  return responseScopeModeFromMetadata(asRecord((policy as Record<string, unknown>).metadata));
+}
+
+const ragIntentSignalPatterns = [
+  /\bbase\b/,
+  /\bbase de conhecimento\b/,
+  /\bsegundo\b/,
+  /\bdocumentos?\b/,
+  /\bfontes?\b/,
+  /\bfaq\b/,
+  /\bpoliticas?\b/,
+  /\bprocedimentos?\b/,
+  /\bmanuais?\b/,
+  /\bhomologacao\b/,
+  /\b16i\b/,
+];
+
+const generalBrazilStatesPatterns = [
+  /\bquantos estados\b.*\bbrasil\b/,
+  /\blist(?:e|a|ar)?\b.*\bestados\b.*\bbrasil\b/,
+  /\btodos os estados\b.*\bbrasil\b/,
+  /\bestados brasileiros\b/,
+];
+
+const responseScopeQuestionPatterns = [
+  /\b(?:pode|posso|consegue|voce pode|voces podem)\b.*\b(?:procurar|buscar|responder|usar|consultar)\b.*\bfora da base\b/,
+  /\bfora da base de conhecimento\b/,
+  /\bconhecimento geral\b/,
+  /\bvoce pode\b.*\bbase\b/,
+  /\bso(?:mente)?\b.*\bbase\b/,
+];
+
+const sourceHintStopWords = new Set([
+  'base',
+  'conhecimento',
+  'documento',
+  'documentos',
+  'fonte',
+  'fontes',
+  'manual',
+  'politica',
+  'politicas',
+  'procedimento',
+  'procedimentos',
+  'txt',
+  'md',
+  'csv',
+  'pdf',
+]);
+
+function normalizeIntentText(value: string) {
+  return value
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+    .replace(/[^a-z0-9\s]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function hasExplicitRagSignal(normalizedQuery: string) {
+  return ragIntentSignalPatterns.some((pattern) => pattern.test(normalizedQuery));
+}
+
+function isGeneralBrazilStatesQuestion(normalizedQuery: string) {
+  return generalBrazilStatesPatterns.some((pattern) => pattern.test(normalizedQuery));
+}
+
+function isResponseScopeQuestion(normalizedQuery: string) {
+  return responseScopeQuestionPatterns.some((pattern) => pattern.test(normalizedQuery));
+}
+
+function sourceHintsFromSummary(summary: RuntimeSummaryForRun | undefined) {
+  if (!summary) return [];
+  return summary.sourceReferences.flatMap((reference) => [
+    reference.label,
+    reference.document?.title,
+    reference.sectionTitle,
+    sourceNameFromUri(reference.sourceUri ?? undefined),
+  ]).filter((value): value is string => typeof value === 'string' && value.trim().length > 0);
+}
+
+function hasSourceHintMatch(normalizedQuery: string, summary: RuntimeSummaryForRun | undefined) {
+  const queryTerms = new Set(normalizedQuery.split(' ').filter(Boolean));
+  return sourceHintsFromSummary(summary).some((hint) => {
+    const normalizedHint = normalizeIntentText(hint);
+    if (!normalizedHint) return false;
+    if (normalizedHint.length >= 4 && normalizedQuery.includes(normalizedHint)) return true;
+    return normalizedHint
+      .split(' ')
+      .filter((term) => term.length >= 3 && !sourceHintStopWords.has(term))
+      .some((term) => queryTerms.has(term));
+  });
+}
+
+function detectRuntimeRagIntent(input: {
+  query: string | undefined;
+  responseScopeMode: ResponseScopeMode;
+  runtimeSummary?: RuntimeSummaryForRun;
+}): { detected: boolean; reason: string | null } {
+  if (!input.query) return { detected: false, reason: 'empty_query' };
+  const normalizedQuery = normalizeIntentText(input.query);
+  if (isResponseScopeQuestion(normalizedQuery)) {
+    return { detected: false, reason: 'response_scope_question' };
+  }
+  const explicitSignal = hasExplicitRagSignal(normalizedQuery);
+  if (
+    input.responseScopeMode !== 'knowledge_only'
+    && !explicitSignal
+    && isGeneralBrazilStatesQuestion(normalizedQuery)
+  ) {
+    return { detected: false, reason: 'general_question_no_knowledge_signal' };
+  }
+  if (input.responseScopeMode === 'knowledge_only') {
+    return { detected: true, reason: 'response_scope_knowledge_only' };
+  }
+  if (explicitSignal) return { detected: true, reason: 'explicit_knowledge_signal' };
+  if (hasSourceHintMatch(normalizedQuery, input.runtimeSummary)) {
+    return { detected: true, reason: 'source_label_match' };
+  }
+  return { detected: false, reason: 'no_knowledge_intent_detected' };
+}
+
+function hasResolvedRag(resolvedRag: RuntimeResolvedRagContext | undefined) {
+  return resolvedRag?.status === 'completed' && resolvedRag.sourceReferences.length > 0;
+}
+
+function shouldMarkFallbackOutsideKnowledge(
+  responseScopeMode: ResponseScopeMode,
+  resolvedRag: RuntimeResolvedRagContext | undefined,
+) {
+  return responseScopeMode === 'knowledge_first' && !hasResolvedRag(resolvedRag);
 }
 
 function toResolvedRagContext(
@@ -782,8 +933,17 @@ export const agentRunsService = {
 
     await recordRunAudit({ user, assistant, runId, traceId, action: 'agent_run_precheck_passed', mode: input.mode, status: 'prechecking', context });
     const runtimeConfig = getRuntimeConfig();
+    const responseScopeMode = responseScopeModeFromPolicy(policy);
+    let runtimeSummary: RuntimeSummaryForRun | undefined;
     let resolvedRag: RuntimeResolvedRagContext | undefined;
     let ragResolutionFailure: RuntimeExecutionResult | undefined;
+    let responseScopeSummary: RuntimeResponseScopeSummary = {
+      mode: responseScopeMode,
+      ragIntentDetected: false,
+      ragSkippedReason: null,
+      fallbackOutsideKnowledgeUsed: responseScopeMode === 'knowledge_first',
+      rawContentLogged: false,
+    };
 
     if (
       runtimeProvider === 'agno_http'
@@ -791,13 +951,30 @@ export const agentRunsService = {
       && runtimeConfig.agnoHttpConfigured
       && runtimeConfig.agnoHttpRagContextEnabled
     ) {
+      runtimeSummary = await agentRunsRepository.getRuntimeContextSummary({
+        tenantId: user.tenant.id,
+        workspaceId: assistant.workspaceId,
+        assistantId: assistant.id,
+      });
       resolvedRag = {
         queryId: null,
         status: 'no_results',
         sourceReferences: [],
       };
       const query = runtimeRagQueryText(input.input);
-      if (query) {
+      const ragIntent = detectRuntimeRagIntent({
+        query,
+        responseScopeMode,
+        runtimeSummary,
+      });
+      responseScopeSummary = {
+        mode: responseScopeMode,
+        ragIntentDetected: ragIntent.detected,
+        ragSkippedReason: ragIntent.detected ? null : ragIntent.reason,
+        fallbackOutsideKnowledgeUsed: responseScopeMode === 'knowledge_first',
+        rawContentLogged: false,
+      };
+      if (query && ragIntent.detected) {
         try {
           const ragResult = await knowledgeService.queryRag(assistant.id, {
             query,
@@ -807,6 +984,10 @@ export const agentRunsService = {
             traceId,
           }, user, context);
           resolvedRag = toResolvedRagContext(ragResult);
+          responseScopeSummary = {
+            ...responseScopeSummary,
+            fallbackOutsideKnowledgeUsed: shouldMarkFallbackOutsideKnowledge(responseScopeMode, resolvedRag),
+          };
           await recordRunAudit({
             user,
             assistant,
@@ -818,6 +999,11 @@ export const agentRunsService = {
             context,
             metadata: {
               provider: runtimeProvider,
+              responseScopeMode,
+              ragIntentDetected: responseScopeSummary.ragIntentDetected,
+              ragSkippedReason: responseScopeSummary.ragSkippedReason,
+              fallbackOutsideKnowledgeUsed: responseScopeSummary.fallbackOutsideKnowledgeUsed,
+              rawContentLogged: false,
               ragQueryId: ragResult.queryId,
               retrievalMode: ragResult.retrievalMode,
               ragSourceCount: resolvedRag.sourceReferences.length,
@@ -852,6 +1038,29 @@ export const agentRunsService = {
             },
           });
         }
+      } else {
+        responseScopeSummary = {
+          ...responseScopeSummary,
+          fallbackOutsideKnowledgeUsed: shouldMarkFallbackOutsideKnowledge(responseScopeMode, resolvedRag),
+        };
+        await recordRunAudit({
+          user,
+          assistant,
+          runId,
+          traceId,
+          action: 'runtime_rag_retrieval_skipped',
+          mode: input.mode,
+          status: 'no_results',
+          context,
+          metadata: {
+            provider: runtimeProvider,
+            responseScopeMode,
+            ragIntentDetected: responseScopeSummary.ragIntentDetected,
+            ragSkippedReason: responseScopeSummary.ragSkippedReason ?? 'no_knowledge_intent_detected',
+            fallbackOutsideKnowledgeUsed: responseScopeSummary.fallbackOutsideKnowledgeUsed,
+            rawContentLogged: false,
+          },
+        });
       }
     }
 
@@ -873,6 +1082,8 @@ export const agentRunsService = {
       metadata: sanitizedMetadata,
       conversationContext: options.conversationContext,
       resolvedRag,
+      responseScope: responseScopeSummary,
+      runtimeSummary,
     });
     let runtimeResult: RuntimeExecutionResult;
     let gatewayRunPersisted = false;
@@ -1023,6 +1234,7 @@ export const agentRunsService = {
         lastRagQueryId: runtimeContext.rag.lastRagQueryId,
       },
       mcpSummary: runtimeContext.mcp,
+      responseScopeSummary: runtimeContext.responseScope,
     });
     const finalEvents = [
       ...requestedEvents,
@@ -1097,8 +1309,8 @@ export const agentRunsService = {
     });
 
     const runtimeMetadata = asRecord(runtimeResult.metadata);
-    const runtimeSummary = runtimeObservationSummary(runtimeMetadata);
-    if (runtimeResult.provider === 'agno_http' && numberValue(runtimeSummary.ragSourceCount) && numberValue(runtimeSummary.ragSourceCount)! > 0) {
+    const runtimeObservation = runtimeObservationSummary(runtimeMetadata);
+    if (runtimeResult.provider === 'agno_http' && numberValue(runtimeObservation.ragSourceCount) && numberValue(runtimeObservation.ragSourceCount)! > 0) {
       await recordRunAudit({
         user,
         assistant,
@@ -1110,12 +1322,12 @@ export const agentRunsService = {
         context,
         metadata: {
           provider: runtimeResult.provider,
-          ragSourceCount: runtimeSummary.ragSourceCount,
-          ragContextChars: runtimeSummary.ragContextChars,
+          ragSourceCount: runtimeObservation.ragSourceCount,
+          ragContextChars: runtimeObservation.ragContextChars,
         },
       });
     }
-    if (runtimeResult.provider === 'agno_http' && numberValue(runtimeSummary.toolDescriptorCount) && numberValue(runtimeSummary.toolDescriptorCount)! > 0) {
+    if (runtimeResult.provider === 'agno_http' && numberValue(runtimeObservation.toolDescriptorCount) && numberValue(runtimeObservation.toolDescriptorCount)! > 0) {
       await recordRunAudit({
         user,
         assistant,
@@ -1127,8 +1339,8 @@ export const agentRunsService = {
         context,
         metadata: {
           provider: runtimeResult.provider,
-          toolDescriptorCount: runtimeSummary.toolDescriptorCount,
-          maxToolCalls: runtimeSummary.maxToolCalls,
+          toolDescriptorCount: runtimeObservation.toolDescriptorCount,
+          maxToolCalls: runtimeObservation.maxToolCalls,
         },
       });
     }

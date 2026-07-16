@@ -8,6 +8,7 @@ import type {
   AssistantTestResult,
   AssistantVersion,
 } from '@prisma/client';
+import { responseScopeModeFromMetadata } from '../../shared/policies/response-scope';
 
 export function mapAssistant(
   assistant: Assistant & {
@@ -190,6 +191,8 @@ export function mapAssistantExecutionPolicy(policy: AssistantExecutionPolicy) {
     allowDraftTesting: policy.allowDraftTesting,
     allowPublishedExecution: policy.allowPublishedExecution,
     isExecutionEnabled: policy.isExecutionEnabled,
+    metadata: policy.metadata,
+    responseScopeMode: responseScopeModeFromMetadata(policy.metadata),
     updatedById: policy.updatedById,
     createdAt: policy.createdAt.toISOString(),
     updatedAt: policy.updatedAt.toISOString(),

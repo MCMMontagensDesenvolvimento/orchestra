@@ -717,7 +717,7 @@ describe('agent run governance endpoints', () => {
     const response = await request(createApp())
       .post(`/api/v1/assistants/${assistantId}/runs`)
       .set('Cookie', [sessionCookie()])
-      .send({ mode: 'sandbox', input: 'Use governed RAG context.', source: 'api-test' })
+      .send({ mode: 'sandbox', input: 'Segundo o documento de runtime, use governed RAG context.', source: 'api-test' })
       .expect(201);
 
     const executeCall = calls.find((call) => call.url.endsWith('/execute'));
@@ -725,7 +725,7 @@ describe('agent run governance endpoints', () => {
     expect(mocks.knowledgeService.queryRag).toHaveBeenCalledWith(
       assistantId,
       expect.objectContaining({
-        query: 'Use governed RAG context.',
+        query: 'Segundo o documento de runtime, use governed RAG context.',
         limit: 2,
         includeArchived: false,
         assistantVersionId: versionId,
@@ -818,6 +818,199 @@ describe('agent run governance endpoints', () => {
     expect(parsedRequest.assistantRuntimeSpec.rag).toEqual({ enabled: false, mode: 'none', sources: [] });
   });
 
+  it('skips governed RAG for a general question in knowledge_first and marks outside-knowledge fallback', async () => {
+    configureRuntime({
+      RUNTIME_PROVIDER: 'agno_http',
+      AGNO_RUNTIME_HTTP_ENABLED: true,
+      AGNO_RUNTIME_HTTP_BASE_URL: 'http://127.0.0.1:8091',
+      AGNO_RUNTIME_HTTP_RAG_CONTEXT_ENABLED: true,
+    });
+    mocks.agentRunsRepository.getExecutionPolicy.mockResolvedValueOnce(executionPolicyFixture({
+      metadata: { responseScopeMode: 'knowledge_first' },
+    }));
+    const calls: Array<{ url: string; body?: unknown }> = [];
+    vi.stubGlobal('fetch', vi.fn(async (url: string, init?: RequestInit) => {
+      const body = typeof init?.body === 'string' ? JSON.parse(init.body) as unknown : undefined;
+      calls.push({ url, body });
+      if (url.endsWith('/health')) return new Response(JSON.stringify(runtimeHealthResponse()), { status: 200 });
+      return new Response(JSON.stringify(runtimeExecuteResponse(body)), { status: 200 });
+    }));
+
+    const response = await request(createApp())
+      .post(`/api/v1/assistants/${assistantId}/runs`)
+      .set('Cookie', [sessionCookie()])
+      .send({ mode: 'sandbox', input: 'Liste todos os estados do Brasil.', source: 'api-test' })
+      .expect(201);
+
+    const executeCall = calls.find((call) => call.url.endsWith('/execute'));
+    const parsedRequest = runtimeExecuteRequestV1Schema.parse(executeCall?.body);
+    expect(mocks.knowledgeService.queryRag).not.toHaveBeenCalled();
+    expect(parsedRequest.assistantRuntimeSpec.rag).toEqual({ enabled: false, mode: 'none', sources: [] });
+    expect(parsedRequest.assistantRuntimeSpec.metadata).toEqual(expect.objectContaining({
+      responseScopeMode: 'knowledge_first',
+      ragIntentDetected: false,
+      ragSkippedReason: 'general_question_no_knowledge_signal',
+      fallbackOutsideKnowledgeUsed: true,
+      rawContentLogged: false,
+    }));
+    expect(parsedRequest.assistantRuntimeSpec.instructions.system).toContain('Pelo conhecimento geral do modelo');
+    expect(response.body.data.metadata.runtime).toEqual(expect.objectContaining({
+      responseScopeMode: 'knowledge_first',
+      ragIntentDetected: false,
+      ragSkippedReason: 'general_question_no_knowledge_signal',
+      fallbackOutsideKnowledgeUsed: true,
+      rawContentLogged: false,
+    }));
+    expect(mocks.recordAuditEvent).toHaveBeenCalledWith(expect.objectContaining({
+      action: 'runtime_rag_retrieval_skipped',
+      metadata: expect.objectContaining({
+        responseScopeMode: 'knowledge_first',
+        ragIntentDetected: false,
+        ragSkippedReason: 'general_question_no_knowledge_signal',
+        fallbackOutsideKnowledgeUsed: true,
+        rawContentLogged: false,
+      }),
+    }));
+  });
+
+  it('skips general questions in general_allowed without fallback disclosure', async () => {
+    configureRuntime({
+      RUNTIME_PROVIDER: 'agno_http',
+      AGNO_RUNTIME_HTTP_ENABLED: true,
+      AGNO_RUNTIME_HTTP_BASE_URL: 'http://127.0.0.1:8091',
+      AGNO_RUNTIME_HTTP_RAG_CONTEXT_ENABLED: true,
+    });
+    mocks.agentRunsRepository.getExecutionPolicy.mockResolvedValueOnce(executionPolicyFixture({
+      metadata: { responseScopeMode: 'general_allowed' },
+    }));
+    const calls: Array<{ url: string; body?: unknown }> = [];
+    vi.stubGlobal('fetch', vi.fn(async (url: string, init?: RequestInit) => {
+      const body = typeof init?.body === 'string' ? JSON.parse(init.body) as unknown : undefined;
+      calls.push({ url, body });
+      if (url.endsWith('/health')) return new Response(JSON.stringify(runtimeHealthResponse()), { status: 200 });
+      return new Response(JSON.stringify(runtimeExecuteResponse(body)), { status: 200 });
+    }));
+
+    await request(createApp())
+      .post(`/api/v1/assistants/${assistantId}/runs`)
+      .set('Cookie', [sessionCookie()])
+      .send({ mode: 'sandbox', input: 'Quantos estados existem no Brasil?', source: 'api-test' })
+      .expect(201);
+
+    const executeCall = calls.find((call) => call.url.endsWith('/execute'));
+    const parsedRequest = runtimeExecuteRequestV1Schema.parse(executeCall?.body);
+    expect(mocks.knowledgeService.queryRag).not.toHaveBeenCalled();
+    expect(parsedRequest.assistantRuntimeSpec.metadata).toEqual(expect.objectContaining({
+      responseScopeMode: 'general_allowed',
+      ragIntentDetected: false,
+      ragSkippedReason: 'general_question_no_knowledge_signal',
+      fallbackOutsideKnowledgeUsed: false,
+      rawContentLogged: false,
+    }));
+    expect(parsedRequest.assistantRuntimeSpec.instructions.system).toContain('perguntas gerais normalmente');
+  });
+
+  it('triggers governed RAG for FAQ intent even when general_allowed is configured', async () => {
+    configureRuntime({
+      RUNTIME_PROVIDER: 'agno_http',
+      AGNO_RUNTIME_HTTP_ENABLED: true,
+      AGNO_RUNTIME_HTTP_BASE_URL: 'http://127.0.0.1:8091',
+      AGNO_RUNTIME_HTTP_RAG_CONTEXT_ENABLED: true,
+    });
+    mocks.agentRunsRepository.getExecutionPolicy.mockResolvedValueOnce(executionPolicyFixture({
+      metadata: { responseScopeMode: 'general_allowed' },
+    }));
+    mocks.knowledgeService.queryRag.mockResolvedValueOnce({
+      queryId: '00000000-0000-0000-0000-000000000951',
+      status: 'completed',
+      resultCount: 1,
+      retrievalMode: 'hybrid_stub_keyword_priority',
+      sources: [
+        {
+          id: '00000000-0000-0000-0000-000000000952',
+          sourceReferenceId: '00000000-0000-0000-0000-000000000953',
+          documentId: '00000000-0000-0000-0000-000000000954',
+          chunkId: '00000000-0000-0000-0000-000000000955',
+          documentTitle: 'faq-ti-16i.txt',
+          sourceUri: 'upload://faq-ti-16i.txt',
+          sourceType: 'upload',
+          excerpt: 'Para instalar software externo, o colaborador deve abrir chamado para TI.',
+          citationLabel: 'FAQ TI 16I',
+          score: 0.93,
+          rank: 1,
+          matchType: 'mixed',
+          metadata: { sourceName: 'faq-ti-16i.txt' },
+        },
+      ],
+    });
+    const calls: Array<{ url: string; body?: unknown }> = [];
+    vi.stubGlobal('fetch', vi.fn(async (url: string, init?: RequestInit) => {
+      const body = typeof init?.body === 'string' ? JSON.parse(init.body) as unknown : undefined;
+      calls.push({ url, body });
+      if (url.endsWith('/health')) return new Response(JSON.stringify(runtimeHealthResponse()), { status: 200 });
+      return new Response(JSON.stringify(runtimeExecuteResponse(body)), { status: 200 });
+    }));
+
+    await request(createApp())
+      .post(`/api/v1/assistants/${assistantId}/runs`)
+      .set('Cookie', [sessionCookie()])
+      .send({ mode: 'sandbox', input: 'Segundo o FAQ TI 16I, o que fazer para instalar software externo?', source: 'api-test' })
+      .expect(201);
+
+    const executeCall = calls.find((call) => call.url.endsWith('/execute'));
+    const parsedRequest = runtimeExecuteRequestV1Schema.parse(executeCall?.body);
+    expect(mocks.knowledgeService.queryRag).toHaveBeenCalledWith(
+      assistantId,
+      expect.objectContaining({ query: 'Segundo o FAQ TI 16I, o que fazer para instalar software externo?' }),
+      expect.objectContaining({ id: userId }),
+      expect.objectContaining({ requestId: expect.any(String) }),
+    );
+    expect(parsedRequest.assistantRuntimeSpec.metadata).toEqual(expect.objectContaining({
+      responseScopeMode: 'general_allowed',
+      ragIntentDetected: true,
+      fallbackOutsideKnowledgeUsed: false,
+      rawContentLogged: false,
+    }));
+  });
+
+  it('keeps knowledge_only runs constrained to RAG and controlled no-result instructions', async () => {
+    configureRuntime({
+      RUNTIME_PROVIDER: 'agno_http',
+      AGNO_RUNTIME_HTTP_ENABLED: true,
+      AGNO_RUNTIME_HTTP_BASE_URL: 'http://127.0.0.1:8091',
+      AGNO_RUNTIME_HTTP_RAG_CONTEXT_ENABLED: true,
+    });
+    mocks.agentRunsRepository.getExecutionPolicy.mockResolvedValueOnce(executionPolicyFixture({
+      metadata: { responseScopeMode: 'knowledge_only' },
+    }));
+    const calls: Array<{ url: string; body?: unknown }> = [];
+    vi.stubGlobal('fetch', vi.fn(async (url: string, init?: RequestInit) => {
+      const body = typeof init?.body === 'string' ? JSON.parse(init.body) as unknown : undefined;
+      calls.push({ url, body });
+      if (url.endsWith('/health')) return new Response(JSON.stringify(runtimeHealthResponse()), { status: 200 });
+      return new Response(JSON.stringify(runtimeExecuteResponse(body)), { status: 200 });
+    }));
+
+    await request(createApp())
+      .post(`/api/v1/assistants/${assistantId}/runs`)
+      .set('Cookie', [sessionCookie()])
+      .send({ mode: 'sandbox', input: 'Quantos estados existem no Brasil?', source: 'api-test' })
+      .expect(201);
+
+    const executeCall = calls.find((call) => call.url.endsWith('/execute'));
+    const parsedRequest = runtimeExecuteRequestV1Schema.parse(executeCall?.body);
+    expect(mocks.knowledgeService.queryRag).toHaveBeenCalled();
+    expect(parsedRequest.assistantRuntimeSpec.metadata).toEqual(expect.objectContaining({
+      responseScopeMode: 'knowledge_only',
+      ragIntentDetected: true,
+      fallbackOutsideKnowledgeUsed: false,
+      rawContentLogged: false,
+    }));
+    expect(parsedRequest.assistantRuntimeSpec.instructions.system).toContain('Escopo de resposta: knowledge_only.');
+    expect(parsedRequest.assistantRuntimeSpec.instructions.system).toContain('Não encontrei essa informação na base de conhecimento vinculada.');
+    expect(parsedRequest.assistantRuntimeSpec.instructions.system).toContain('Nao use conhecimento geral');
+  });
+
   it('fails closed before Agno HTTP when governed retrieval throws', async () => {
     configureRuntime({
       RUNTIME_PROVIDER: 'agno_http',
@@ -834,7 +1027,7 @@ describe('agent run governance endpoints', () => {
     const response = await request(createApp())
       .post(`/api/v1/assistants/${assistantId}/runs`)
       .set('Cookie', [sessionCookie()])
-      .send({ mode: 'sandbox', input: 'Question that triggers retrieval.', source: 'api-test' })
+      .send({ mode: 'sandbox', input: 'Segundo a base, question that triggers retrieval.', source: 'api-test' })
       .expect(201);
     const serialized = JSON.stringify(response.body);
 

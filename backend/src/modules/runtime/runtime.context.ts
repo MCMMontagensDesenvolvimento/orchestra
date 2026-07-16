@@ -1,5 +1,6 @@
 import { createHash } from 'node:crypto';
 import type { Prisma } from '@prisma/client';
+import { responseScopeModeFromMetadata } from '../../shared/policies/response-scope';
 import { agentRunsRepository } from '../agent-runs/agent-runs.repository';
 import type { AgentRunMode } from '../agent-runs/agent-runs.schema';
 import type { AgentRunPrecheckSnapshot } from '../agent-runs/agent-runs.types';
@@ -10,6 +11,7 @@ import type {
   RuntimeMcpSummary,
   RuntimeProvider,
   RuntimeRagSummary,
+  RuntimeResponseScopeSummary,
   RuntimeResolvedRagContext,
 } from './runtime.types';
 
@@ -46,6 +48,8 @@ interface BuildRuntimeContextInput {
   metadata?: Prisma.InputJsonValue;
   conversationContext?: RuntimeConversationContext;
   resolvedRag?: RuntimeResolvedRagContext;
+  responseScope?: Partial<RuntimeResponseScopeSummary>;
+  runtimeSummary?: RuntimeSummary;
 }
 
 function previewInput(value: string) {
@@ -74,6 +78,7 @@ function llmProviderValue(value: unknown): LlmProviderName | null {
 }
 
 function policySnapshot(policy: Record<string, unknown>): Prisma.InputJsonValue {
+  const responseScopeMode = responseScopeModeFromPolicy(policy);
   return {
     executionMode: String(policy.executionMode ?? 'sandbox'),
     sandboxEnabled: Boolean(policy.sandboxEnabled),
@@ -86,7 +91,15 @@ function policySnapshot(policy: Record<string, unknown>): Prisma.InputJsonValue 
     allowExternalLlmProviders: Boolean(policy.allowExternalLlmProviders),
     allowedLlmProviders: llmProviderArray(policy.allowedLlmProviders),
     defaultLlmProvider: llmProviderValue(policy.defaultLlmProvider),
+    responseScopeMode,
   };
+}
+
+function responseScopeModeFromPolicy(policy: Record<string, unknown>) {
+  const metadata = Boolean(policy.metadata) && typeof policy.metadata === 'object' && !Array.isArray(policy.metadata)
+    ? policy.metadata
+    : undefined;
+  return responseScopeModeFromMetadata(metadata);
 }
 
 function decimalToNumber(value: { toString(): string } | number | string | null | undefined) {
@@ -184,8 +197,25 @@ function buildMcpSummary(summary: RuntimeSummary): RuntimeMcpSummary {
   };
 }
 
+function buildResponseScopeSummary(
+  policy: Record<string, unknown>,
+  resolvedRag: RuntimeResolvedRagContext | undefined,
+  override: Partial<RuntimeResponseScopeSummary> | undefined,
+): RuntimeResponseScopeSummary {
+  const mode = override?.mode ?? responseScopeModeFromPolicy(policy);
+  const hasResolvedRag = resolvedRag?.status === 'completed' && resolvedRag.sourceReferences.length > 0;
+  return {
+    mode,
+    ragIntentDetected: override?.ragIntentDetected ?? Boolean(hasResolvedRag),
+    ragSkippedReason: override?.ragSkippedReason ?? null,
+    fallbackOutsideKnowledgeUsed: override?.fallbackOutsideKnowledgeUsed
+      ?? (mode === 'knowledge_first' && !hasResolvedRag),
+    rawContentLogged: false,
+  };
+}
+
 export async function buildRuntimeExecutionContext(input: BuildRuntimeContextInput): Promise<RuntimeExecutionContext> {
-  const summary = await agentRunsRepository.getRuntimeContextSummary({
+  const summary = input.runtimeSummary ?? await agentRunsRepository.getRuntimeContextSummary({
     tenantId: input.tenantId,
     workspaceId: input.workspaceId,
     assistantId: input.assistant.id,
@@ -227,6 +257,7 @@ export async function buildRuntimeExecutionContext(input: BuildRuntimeContextInp
       defaultLlmProvider: llmProviderValue(input.executionPolicy.defaultLlmProvider),
     },
     precheckSnapshot: input.precheckSnapshot,
+    responseScope: buildResponseScopeSummary(input.executionPolicy, input.resolvedRag, input.responseScope),
     rag: buildRagSummary(summary, input.resolvedRag),
     mcp: buildMcpSummary(summary),
     conversationContext: input.conversationContext,

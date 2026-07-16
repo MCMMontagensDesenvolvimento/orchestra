@@ -212,6 +212,7 @@ const ragStopWords = new Set([
   'dos',
   'e',
   'em',
+  'fale',
   'na',
   'nas',
   'no',
@@ -220,6 +221,8 @@ const ragStopWords = new Set([
   'os',
   'para',
   'por',
+  'sobre',
+  'me',
   'qual',
   'quais',
   'quando',
@@ -266,6 +269,41 @@ function countOccurrences(content: string, term: string) {
   return count;
 }
 
+function countFlexiblePhraseOccurrences(content: string, term: string) {
+  const phraseTerms = term.split(' ').filter(Boolean);
+  if (phraseTerms.length < 2) return countOccurrences(content, term);
+  const words = content.split(' ').filter(Boolean);
+  let count = 0;
+
+  for (let start = 0; start < words.length; start += 1) {
+    if (words[start] !== phraseTerms[0]) continue;
+    let cursor = start;
+    let matched = true;
+    for (let phraseIndex = 1; phraseIndex < phraseTerms.length; phraseIndex += 1) {
+      let nextIndex = -1;
+      for (let offset = 1; offset <= 3; offset += 1) {
+        if (words[cursor + offset] === phraseTerms[phraseIndex]) {
+          nextIndex = cursor + offset;
+          break;
+        }
+      }
+      if (nextIndex < 0) {
+        matched = false;
+        break;
+      }
+      cursor = nextIndex;
+    }
+    if (matched) count += 1;
+  }
+
+  return count;
+}
+
+function termOccurrences(content: string, term: string) {
+  if (!term.includes(' ')) return countOccurrences(content, term);
+  return Math.max(countOccurrences(content, term), countFlexiblePhraseOccurrences(content, term));
+}
+
 function sourceNameFromUri(value: string | null | undefined) {
   if (!value) return '';
   if (/^(?:internal|localhost|private):/i.test(value)) return '';
@@ -305,9 +343,9 @@ function scoreRagCandidate(candidate: {
   let metadataScore = 0;
   for (const term of terms) {
     const phraseBoost = term.includes(' ') ? 2 : 1;
-    contentScore += countOccurrences(content, term) * phraseBoost;
-    titleScore += countOccurrences(title, term) * (term.includes(' ') ? 10 : 4);
-    metadataScore += countOccurrences(metadataText, term) * (term.includes(' ') ? 8 : 3);
+    contentScore += termOccurrences(content, term) * phraseBoost;
+    titleScore += termOccurrences(title, term) * (term.includes(' ') ? 10 : 4);
+    metadataScore += termOccurrences(metadataText, term) * (term.includes(' ') ? 8 : 3);
   }
 
   const rawScore = contentScore + titleScore + metadataScore;

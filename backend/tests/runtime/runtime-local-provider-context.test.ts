@@ -56,6 +56,13 @@ function context(overrides: Partial<RuntimeExecutionContext> = {}): RuntimeExecu
       reasons: [],
       requestId: 'req-local-provider-context',
     },
+    responseScope: {
+      mode: 'knowledge_first',
+      ragIntentDetected: false,
+      ragSkippedReason: 'no_knowledge_intent_detected',
+      fallbackOutsideKnowledgeUsed: true,
+      rawContentLogged: false,
+    },
     rag: {
       ragReady: false,
       knowledgeBindingsCount: 0,

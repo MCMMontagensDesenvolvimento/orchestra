@@ -249,7 +249,8 @@ export const useUpdateAssistantExecutionPolicyMutation = () => {
       'defaultLlmProvider' |
       'allowDraftTesting' |
       'allowPublishedExecution' |
-      'isExecutionEnabled'
+      'isExecutionEnabled' |
+      'responseScopeMode'
     >> }) => assistantsService.updateExecutionPolicy(id, payload),
     onSuccess: (_policy, variables) => {
       void queryClient.invalidateQueries({ queryKey: queryKeys.assistants.detail(variables.id) });

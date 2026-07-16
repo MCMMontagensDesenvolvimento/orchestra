@@ -7,6 +7,7 @@ import type {
   AssistantExecutionPrecheckResult,
   AssistantFeedback,
   AssistantPublication,
+  ResponseScopeMode,
   AssistantTestResult,
   AssistantVersion,
   AssistantWizardFormData,
@@ -86,6 +87,8 @@ interface ApiAssistantExecutionPolicy {
   allowDraftTesting: boolean;
   allowPublishedExecution: boolean;
   isExecutionEnabled: boolean;
+  metadata?: unknown;
+  responseScopeMode?: unknown;
   updatedById: string | null;
   createdAt: string;
   updatedAt: string;
@@ -158,6 +161,12 @@ const mapAllowedLlmProviders = (value: unknown): AssistantExecutionPolicy['allow
 const mapDefaultLlmProvider = (value: unknown): AssistantExecutionPolicy['defaultLlmProvider'] =>
   typeof value === 'string' ? value : null;
 
+const responseScopeModes = new Set<ResponseScopeMode>(['knowledge_only', 'knowledge_first', 'general_allowed']);
+const mapResponseScopeMode = (value: unknown): ResponseScopeMode =>
+  typeof value === 'string' && responseScopeModes.has(value as ResponseScopeMode)
+    ? value as ResponseScopeMode
+    : 'knowledge_first';
+
 const mapExecutionPolicy = (policy: ApiAssistantExecutionPolicy): AssistantExecutionPolicy => ({
   id: policy.id,
   assistantId: policy.assistantId,
@@ -176,6 +185,7 @@ const mapExecutionPolicy = (policy: ApiAssistantExecutionPolicy): AssistantExecu
   allowDraftTesting: policy.allowDraftTesting,
   allowPublishedExecution: policy.allowPublishedExecution,
   isExecutionEnabled: policy.isExecutionEnabled,
+  responseScopeMode: mapResponseScopeMode(policy.responseScopeMode),
   updatedById: policy.updatedById,
   createdAt: policy.createdAt,
   updatedAt: policy.updatedAt,
@@ -510,6 +520,7 @@ export const assistantsService = {
         allowDraftTesting: true,
         allowPublishedExecution: false,
         isExecutionEnabled: false,
+        responseScopeMode: 'knowledge_first',
         updatedById: 'mock-user-1',
         createdAt: new Date().toISOString(),
         updatedAt: new Date().toISOString(),
@@ -534,7 +545,8 @@ export const assistantsService = {
     'defaultLlmProvider' |
     'allowDraftTesting' |
     'allowPublishedExecution' |
-    'isExecutionEnabled'
+    'isExecutionEnabled' |
+    'responseScopeMode'
   >>): Promise<AssistantExecutionPolicy> {
     if (env.useMocks) return assistantsService.executionPolicy(assistantId);
     const response = await apiClient.patch<ApiEnvelope<ApiAssistantExecutionPolicy>>(endpoints.assistants.executionPolicy(assistantId), payload);
