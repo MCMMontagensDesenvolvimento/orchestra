@@ -166,6 +166,7 @@ function mergeRuntimeMetadata(input: {
           knowledgeBindingsCount: input.ragSummary.knowledgeBindingsCount,
           chunkCount: input.ragSummary.chunkCount,
           sourceReferenceCount: input.ragSummary.sourceReferenceCount,
+          lastRagQueryId: input.ragSummary.lastRagQueryId,
         }
         : undefined,
       mcp: input.mcpSummary
@@ -184,7 +185,10 @@ function mergeRuntimeMetadata(input: {
 function runtimeObservationSummary(metadata: Record<string, unknown> | undefined) {
   return {
     ragMode: stringValue(metadata?.ragMode),
+    ragQueryId: stringValue(metadata?.ragQueryId),
+    retrievalMode: stringValue(metadata?.retrievalMode),
     ragSourceCount: numberValue(metadata?.ragSourceCount),
+    selectedSourceCount: numberValue(metadata?.selectedSourceCount),
     ragContextChars: numberValue(metadata?.ragContextChars),
     maxRagResults: numberValue(metadata?.policyMaxRagResults ?? metadata?.maxRagResults),
     requestSent: booleanValue(metadata?.requestSent),
@@ -245,24 +249,46 @@ function toResolvedRagContext(
     : result.status === 'no_results'
       ? 'no_results'
       : 'blocked';
-  const sourceReferences: RuntimeResolvedRagContext['sourceReferences'] = result.sources.map((source) => ({
-    id: source.sourceReferenceId ?? source.id,
-    label: source.citationLabel || `Fonte ${source.rank}`,
-    documentId: source.documentId,
-    chunkId: source.chunkId,
-    documentTitle: source.documentTitle,
-    sourceType: stringValue(source.sourceType) ?? null,
-    sectionTitle: stringValue(source.sectionTitle) ?? null,
-    pageNumber: numberValue(source.pageNumber) ?? null,
-    excerpt: source.excerpt,
-    score: numberValue(source.score) ?? null,
-  }));
+  const sourceReferences: RuntimeResolvedRagContext['sourceReferences'] = result.sources.map((source) => {
+    const metadata = asRecord(source.metadata);
+    return {
+      id: source.sourceReferenceId ?? source.id,
+      label: source.citationLabel || `Fonte ${source.rank}`,
+      documentId: source.documentId,
+      chunkId: source.chunkId,
+      documentTitle: source.documentTitle,
+      sourceName: stringValue(metadata?.sourceName) ?? sourceNameFromUri(stringValue(source.sourceUri)),
+      sourceType: stringValue(source.sourceType) ?? stringValue(metadata?.sourceType) ?? null,
+      sectionTitle: stringValue(source.sectionTitle) ?? stringValue(metadata?.sectionTitle) ?? null,
+      pageNumber: numberValue(source.pageNumber) ?? null,
+      excerpt: source.excerpt,
+      score: numberValue(source.score) ?? null,
+      rank: numberValue(source.rank) ?? null,
+      matchType: stringValue(source.matchType) ?? null,
+      retrievalMode: stringValue(result.retrievalMode) ?? null,
+      ragQueryId: result.queryId,
+    };
+  });
 
   return {
     queryId: result.queryId,
     status,
     sourceReferences,
   };
+}
+
+function sourceNameFromUri(value: string | undefined) {
+  if (!value) return undefined;
+  if (/^(?:internal|localhost|private):/i.test(value)) return undefined;
+  const withoutQuery = value.split(/[?#]/)[0] ?? value;
+  const parts = withoutQuery.split(/[\\/]/).filter(Boolean);
+  const lastPart = parts[parts.length - 1] ?? withoutQuery;
+  const normalized = lastPart
+    .replace(/^[a-z][a-z0-9+.-]*:\/\//i, '')
+    .replace(/[^A-Za-z0-9._ -]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+  return normalized ? normalized.slice(0, 160) : undefined;
 }
 
 function ragRetrievalFailedResult(provider: RuntimeProvider): RuntimeExecutionResult {
@@ -792,8 +818,20 @@ export const agentRunsService = {
             context,
             metadata: {
               provider: runtimeProvider,
+              ragQueryId: ragResult.queryId,
               retrievalMode: ragResult.retrievalMode,
               ragSourceCount: resolvedRag.sourceReferences.length,
+              selectedSourceCount: resolvedRag.sourceReferences.length,
+              resultTitles: resolvedRag.sourceReferences
+                .map((source) => source.documentTitle)
+                .filter((value): value is string => typeof value === 'string' && value.trim().length > 0),
+              resultLabels: resolvedRag.sourceReferences.map((source) => source.label).filter(Boolean),
+              matchTypes: resolvedRag.sourceReferences
+                .map((source) => source.matchType)
+                .filter((value): value is string => typeof value === 'string' && value.trim().length > 0),
+              ranks: resolvedRag.sourceReferences
+                .map((source) => source.rank)
+                .filter((value): value is number => typeof value === 'number' && Number.isFinite(value)),
             },
           });
         } catch {
@@ -1031,6 +1069,20 @@ export const agentRunsService = {
       metadata: finalMetadata,
       events: finalEvents,
     });
+
+    if (runtimeContext.rag.lastRagQueryId) {
+      try {
+        await knowledgeService.linkRagQueryToAgentRun(runtimeContext.rag.lastRagQueryId, run.id, user, context);
+      } catch (error) {
+        logger.warn({
+          requestId: context.requestId,
+          traceId,
+          runId: run.id,
+          ragQueryId: runtimeContext.rag.lastRagQueryId,
+          error: error instanceof Error ? error.message : 'unknown',
+        }, 'failed to link RAG query to agent run');
+      }
+    }
 
     await recordRuntimeUsageEvent({
       user,

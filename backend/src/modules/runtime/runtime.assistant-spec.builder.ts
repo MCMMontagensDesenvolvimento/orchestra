@@ -33,13 +33,21 @@ const defaultMaxToolDescriptors = 8;
 const defaultMaxToolSchemaChars = 6000;
 const contractMaxToolDescriptionChars = 1000;
 const contractMaxToolSchemaChars = 8000;
+const ragGroundingInstructions = [
+  'Quando houver contexto RAG governado, responda usando exclusivamente o contexto RAG fornecido quando ele contiver a resposta.',
+  'Se a resposta estiver no contexto RAG, responda diretamente.',
+  'Nao diga que nao tem acesso quando o contexto RAG contem a informacao.',
+  'Nao substitua o contexto RAG pelo historico conversacional.',
+  'Se houver conflito entre historico conversacional e RAG, use RAG.',
+  'Se o contexto RAG nao contiver a resposta, diga que nao encontrou na base.',
+].join(' ');
 
 export function buildAssistantRuntimeSpecV1(input: BuildAssistantRuntimeSpecInput): AssistantRuntimeSpecV1 {
   const context = input.context;
   const modelSelection = resolveModelSelection(context);
   const message = textOrFallback(context.input.raw, context.input.preview, 'No user input provided.')
     .slice(0, input.maxInputChars ?? defaultMaxContextChars);
-  const instructions = textOrUndefined(context.compiledPrompt.instructionsPreview);
+  const baseInstructions = textOrUndefined(context.compiledPrompt.instructionsPreview);
   const metadata = safeMetadataRecord({
     source: 'orchestra_backend',
     adapter: 'agno_http',
@@ -54,6 +62,7 @@ export function buildAssistantRuntimeSpecV1(input: BuildAssistantRuntimeSpecInpu
   const governedTools = buildGovernedToolSpec(context.mcp, config);
   const governedConversationContext = buildGovernedConversationContextSpec(context.conversationContext);
   const maxConversationContextChars = governedConversationContext?.summary.maxTotalChars ?? 0;
+  const instructions = buildSystemInstructions(baseInstructions, governedRag.spec);
 
   const spec: Record<string, unknown> = {
     specVersion: assistantRuntimeSpecVersionV1,
@@ -114,6 +123,18 @@ export function buildAssistantRuntimeSpecV1(input: BuildAssistantRuntimeSpecInpu
   };
 
   return parseAssistantRuntimeSpecV1(spec);
+}
+
+function buildSystemInstructions(
+  baseInstructions: string | undefined,
+  rag: AssistantRuntimeSpecV1['rag'],
+) {
+  const segments = [
+    baseInstructions,
+    rag.enabled && rag.mode === 'resolved_context' && rag.sources.length > 0 ? ragGroundingInstructions : undefined,
+  ].filter((segment): segment is string => Boolean(segment));
+  const combined = segments.join('\n\n').slice(0, 12000).trim();
+  return combined || undefined;
 }
 
 function resolveModelSelection(context: RuntimeExecutionContext) {
@@ -317,14 +338,35 @@ function buildGovernedRagSource(
 
   const metadata = safeMetadataRecord({
     citationLabel: safeOptionalText(reference.label, 80),
+    documentTitle: safeOptionalText(reference.documentTitle, 240),
     sourceType: safeOptionalText(reference.sourceType, 80),
+    sourceName: safeSourceName(reference.sourceName ?? reference.sourceUri ?? reference.documentTitle ?? reference.label),
     sectionTitle: safeOptionalText(reference.sectionTitle, 160),
     pageNumber: typeof reference.pageNumber === 'number' && Number.isInteger(reference.pageNumber) ? reference.pageNumber : undefined,
+    rank: typeof reference.rank === 'number' && Number.isInteger(reference.rank) ? reference.rank : sourceIndex,
+    matchType: safeOptionalText(reference.matchType, 120),
+    retrievalMode: safeOptionalText(reference.retrievalMode, 120),
+    ragQueryId: safeOptionalText(reference.ragQueryId, 160),
     sourceIndex,
   });
   if (metadata) source.metadata = metadata as RuntimeRagSource['metadata'];
 
   return containsUnsafeRuntimeContractPayload(source) ? null : source;
+}
+
+function safeSourceName(value: string | null | undefined) {
+  const raw = textOrUndefined(value);
+  if (!raw) return undefined;
+  if (/^(?:internal|localhost|private):/i.test(raw)) return undefined;
+  const withoutQuery = raw.split(/[?#]/)[0] ?? raw;
+  const parts = withoutQuery.split(/[\\/]/).filter(Boolean);
+  const lastPart = parts[parts.length - 1] ?? withoutQuery;
+  const normalized = lastPart
+    .replace(/^[a-z][a-z0-9+.-]*:\/\//i, '')
+    .replace(/[^A-Za-z0-9._ -]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+  return safeOptionalText(normalized, 160);
 }
 
 

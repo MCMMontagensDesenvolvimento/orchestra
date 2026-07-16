@@ -1339,6 +1339,10 @@ export const knowledgeRepository = {
         OR: searchTerms.flatMap((term) => [
           { content: { contains: term, mode: 'insensitive' as const } },
           { document: { title: { contains: term, mode: 'insensitive' as const } } },
+          { document: { sourceUri: { contains: term, mode: 'insensitive' as const } } },
+          { sourceReferences: { some: { label: { contains: term, mode: 'insensitive' as const } } } },
+          { sourceReferences: { some: { sourceUri: { contains: term, mode: 'insensitive' as const } } } },
+          { sourceReferences: { some: { sectionTitle: { contains: term, mode: 'insensitive' as const } } } },
         ]),
       },
       include: {
@@ -1586,6 +1590,39 @@ export const knowledgeRepository = {
           },
         },
       });
+    });
+  },
+
+  async linkRagQueryToAgentRun(input: {
+    queryId: string;
+    agentRunId: string;
+    tenantId: string;
+    workspaceIds: string[];
+  }) {
+    const query = await prisma.ragQuery.findFirst({
+      where: {
+        id: input.queryId,
+        tenantId: input.tenantId,
+        workspaceId: { in: input.workspaceIds },
+      },
+      select: { id: true },
+    });
+    if (!query) return null;
+
+    const agentRun = await prisma.agentRun.findFirst({
+      where: {
+        id: input.agentRunId,
+        tenantId: input.tenantId,
+        workspaceId: { in: input.workspaceIds },
+      },
+      select: { id: true },
+    });
+    if (!agentRun) return null;
+
+    return prisma.ragQuery.update({
+      where: { id: query.id },
+      data: { agentRunId: agentRun.id },
+      select: { id: true, agentRunId: true },
     });
   },
 
