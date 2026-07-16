@@ -101,6 +101,13 @@ function context(overrides: Partial<RuntimeExecutionContext> = {}): RuntimeExecu
       reasons: [],
       requestId: 'req-adapter-1',
     },
+    responseScope: {
+      mode: 'knowledge_first',
+      ragIntentDetected: false,
+      ragSkippedReason: 'no_knowledge_intent_detected',
+      fallbackOutsideKnowledgeUsed: true,
+      rawContentLogged: false,
+    },
     rag: {
       ragReady: false,
       knowledgeBindingsCount: 0,

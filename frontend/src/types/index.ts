@@ -7,6 +7,7 @@ export type AssistantTestStatus = 'passed' | 'failed' | 'needs_review';
 export type AssistantApprovalStatus = 'pending' | 'approved' | 'rejected' | 'cancelled' | 'expired';
 export type AssistantApprovalAction = 'publish' | 'rollback' | 'restore' | 'enable_execution' | 'configure_sandbox';
 export type AssistantExecutionMode = 'draft_test' | 'sandbox' | 'published' | 'blocked' | 'archived';
+export type ResponseScopeMode = 'knowledge_only' | 'knowledge_first' | 'general_allowed';
 export type AgentRunStatus = 'queued' | 'prechecking' | 'blocked' | 'running' | 'completed' | 'failed' | 'cancelled';
 export type RuntimeProvider = 'local' | 'agno_stub' | 'agno';
 export type RuntimeHealthStatus = 'healthy' | 'degraded' | 'disabled' | 'misconfigured' | 'unavailable';
@@ -66,6 +67,7 @@ export interface AssistantExecutionPolicy {
   allowDraftTesting: boolean;
   allowPublishedExecution: boolean;
   isExecutionEnabled: boolean;
+  responseScopeMode: ResponseScopeMode;
   updatedById?: string | null;
   createdAt: string;
   updatedAt: string;

@@ -1,5 +1,6 @@
 import { Prisma } from '@prisma/client';
 import { prisma } from '../../infrastructure/prisma/prisma.service';
+import { defaultResponseScopeMode, mergeResponseScopeMetadata } from '../../shared/policies/response-scope';
 import { paginationOffset } from '../../shared/validation/pagination';
 import type {
   AssistantCreateInput,
@@ -75,7 +76,7 @@ function nullableJson(value: unknown) {
   return value as Prisma.InputJsonValue;
 }
 
-function executionPolicyData(input: AssistantExecutionPolicyUpdateInput, updatedById?: string) {
+function executionPolicyData(input: AssistantExecutionPolicyUpdateInput, updatedById?: string, metadata?: unknown) {
   return {
     executionMode: input.executionMode,
     requiresApprovalToPublish: input.requiresApprovalToPublish,
@@ -97,6 +98,9 @@ function executionPolicyData(input: AssistantExecutionPolicyUpdateInput, updated
     allowDraftTesting: input.allowDraftTesting,
     allowPublishedExecution: input.allowPublishedExecution,
     isExecutionEnabled: input.isExecutionEnabled,
+    metadata: input.responseScopeMode === undefined
+      ? undefined
+      : mergeResponseScopeMetadata(metadata, input.responseScopeMode) as Prisma.InputJsonValue,
     updatedById,
   };
 }
@@ -600,24 +604,33 @@ export const assistantsRepository = {
         tenantId: assistant.tenantId,
         workspaceId: assistant.workspaceId,
         assistantId: assistant.id,
+        metadata: mergeResponseScopeMetadata(undefined, defaultResponseScopeMode) as Prisma.InputJsonValue,
       },
     });
   },
 
-  updateExecutionPolicy(input: {
+  async updateExecutionPolicy(input: {
     assistant: { id: string; tenantId: string; workspaceId: string };
     payload: AssistantExecutionPolicyUpdateInput;
     updatedById: string;
   }) {
+    const existingPolicy = await prisma.assistantExecutionPolicy.findUnique({
+      where: { assistantId: input.assistant.id },
+      select: { metadata: true },
+    });
+    const updateData = executionPolicyData(input.payload, input.updatedById, existingPolicy?.metadata);
+    const createData = executionPolicyData(input.payload, input.updatedById);
     return prisma.assistantExecutionPolicy.upsert({
       where: { assistantId: input.assistant.id },
       create: {
         tenantId: input.assistant.tenantId,
         workspaceId: input.assistant.workspaceId,
         assistantId: input.assistant.id,
-        ...executionPolicyData(input.payload, input.updatedById),
+        ...createData,
+        metadata: createData.metadata
+          ?? mergeResponseScopeMetadata(undefined, input.payload.responseScopeMode ?? defaultResponseScopeMode) as Prisma.InputJsonValue,
       },
-      update: executionPolicyData(input.payload, input.updatedById),
+      update: updateData,
     });
   },
 

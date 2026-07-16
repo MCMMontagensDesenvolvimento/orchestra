@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { responseScopeModeValues } from '../../shared/policies/response-scope';
 import { paginationQuerySchema } from '../../shared/validation/pagination';
 
 export const assistantStatusValues = ['draft', 'testing', 'pending_approval', 'published', 'archived'] as const;
@@ -155,6 +156,7 @@ export const assistantExecutionPolicyUpdateSchema = z.object({
   allowDraftTesting: z.boolean().optional(),
   allowPublishedExecution: z.boolean().optional(),
   isExecutionEnabled: z.boolean().optional(),
+  responseScopeMode: z.enum(responseScopeModeValues).optional(),
 }).refine((input) => Object.keys(input).length > 0, {
   message: 'Informe ao menos uma propriedade de policy.',
 });

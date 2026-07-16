@@ -107,6 +107,8 @@ require_file "$DOC_FILE"
 require_file "$ROOT_DIR/backend/src/config/env.ts"
 require_file "$ROOT_DIR/backend/src/modules/knowledge/knowledge.upload.ts"
 require_file "$ROOT_DIR/backend/src/modules/knowledge/knowledge.config.ts"
+require_file "$ROOT_DIR/backend/src/shared/policies/response-scope.ts"
+require_file "$ROOT_DIR/backend/prisma/migrations/20260716160000_phase_16j_answer_scope_policy/migration.sql"
 require_file "$ROOT_DIR/backend/src/modules/embeddings/providers/stub-embedding.provider.ts"
 require_file "$ROOT_DIR/backend/tests/unit/knowledge-upload.test.ts"
 require_file "$ROOT_DIR/backend/tests/unit/embedding-stub.test.ts"
@@ -143,17 +145,37 @@ require_pattern "$ROOT_DIR/backend/src/modules/knowledge/knowledge.service.ts" '
 require_pattern "$ROOT_DIR/backend/src/modules/knowledge/knowledge.service.ts" 'hybridMergeApplied' 'hybrid merge metadata'
 require_pattern "$ROOT_DIR/backend/src/modules/knowledge/knowledge.service.ts" 'stubKeywordPriority' 'stub semantic auxiliary metadata'
 require_pattern "$ROOT_DIR/backend/src/modules/knowledge/knowledge.service.ts" 'sourceNameFromUri' 'source filename normalization for ranking'
+require_pattern "$ROOT_DIR/backend/src/modules/knowledge/knowledge.service.ts" 'termOccurrences' 'stopword-flexible phrase ranking'
 require_pattern "$ROOT_DIR/backend/src/modules/knowledge/knowledge.repository.ts" 'sourceReferences: { some: { label:' 'source label lexical candidate search'
 require_pattern "$ROOT_DIR/backend/src/modules/knowledge/knowledge.repository.ts" 'linkRagQueryToAgentRun' 'rag query linked to agent run'
+require_pattern "$ROOT_DIR/backend/src/shared/policies/response-scope.ts" "defaultResponseScopeMode: ResponseScopeMode = 'knowledge_first'" 'versioned default response scope'
+require_pattern "$ROOT_DIR/backend/src/modules/assistants/assistants.schema.ts" 'responseScopeMode: z.enum(responseScopeModeValues).optional()' 'assistant policy response scope schema'
+require_pattern "$ROOT_DIR/backend/src/modules/assistants/assistants.mapper.ts" 'responseScopeModeFromMetadata' 'assistant policy response scope mapper'
+require_pattern "$ROOT_DIR/backend/src/modules/assistants/assistants.repository.ts" 'mergeResponseScopeMetadata' 'assistant policy response scope metadata storage'
+require_pattern "$ROOT_DIR/backend/prisma/schema.prisma" 'metadata                    Json?' 'assistant execution policy metadata schema'
+require_pattern "$ROOT_DIR/backend/prisma/migrations/20260716160000_phase_16j_answer_scope_policy/migration.sql" 'ADD COLUMN "metadata" JSONB' 'assistant execution policy metadata migration'
+require_pattern "$ROOT_DIR/backend/src/modules/agent-runs/agent-runs.service.ts" 'detectRuntimeRagIntent' 'runtime RAG intent detector'
+require_pattern "$ROOT_DIR/backend/src/modules/agent-runs/agent-runs.service.ts" 'general_question_no_knowledge_signal' 'general question RAG skip reason'
+require_pattern "$ROOT_DIR/backend/src/modules/agent-runs/agent-runs.service.ts" 'runtime_rag_retrieval_skipped' 'RAG skipped audit event'
+require_pattern "$ROOT_DIR/backend/src/modules/agent-runs/agent-runs.service.ts" 'fallbackOutsideKnowledgeUsed' 'outside knowledge fallback metadata'
+require_pattern "$ROOT_DIR/backend/src/modules/agent-runs/agent-runs.service.ts" 'rawContentLogged: false' 'raw content logging disabled metadata'
 require_pattern "$ROOT_DIR/backend/src/modules/agent-runs/agent-runs.service.ts" 'linkRagQueryToAgentRun' 'agent run persists rag query association'
 require_pattern "$ROOT_DIR/backend/src/modules/runtime/runtime.assistant-spec.builder.ts" 'Se a resposta estiver no contexto RAG, responda diretamente.' 'RAG grounding instruction'
+require_pattern "$ROOT_DIR/backend/src/modules/runtime/runtime.assistant-spec.builder.ts" 'buildResponseScopeInstructions' 'runtime response scope instructions'
+require_pattern "$ROOT_DIR/backend/src/modules/runtime/runtime.assistant-spec.builder.ts" 'Pelo conhecimento geral do modelo' 'knowledge_first disclosure instruction'
+require_pattern "$ROOT_DIR/backend/src/modules/runtime/runtime.agno-http-adapter.ts" 'responseScopeMode: context.responseScope.mode' 'Agno HTTP response scope metadata'
 require_pattern "$ROOT_DIR/backend/tests/api/knowledge-mcp-catalog.test.ts" 'answers the five 16I homologation retrieval questions' '16I homologation retrieval test'
+require_pattern "$ROOT_DIR/backend/tests/api/knowledge-mcp-catalog.test.ts" 'troca notebook' '16J notebook ranking test'
+require_pattern "$ROOT_DIR/backend/tests/api/agent-runs.test.ts" 'skips governed RAG for a general question in knowledge_first' '16J knowledge_first general skip test'
+require_pattern "$ROOT_DIR/backend/tests/api/agent-runs.test.ts" 'triggers governed RAG for FAQ intent even when general_allowed is configured' '16J FAQ RAG detector test'
 require_pattern "$ROOT_DIR/backend/src/modules/embeddings/providers/stub-embedding.provider.ts" 'externalProviderCalled: false' 'offline stub metadata'
 require_pattern "$ROOT_DIR/frontend/src/pages/Knowledge/KnowledgeDetailPage.tsx" 'accept=".txt,.md,.csv,text/plain,text/markdown,text/csv"' 'frontend upload accept list'
 require_pattern "$ROOT_DIR/frontend/src/pages/Knowledge/KnowledgeDetailPage.tsx" 'Habilitar retrieval em runtime' 'frontend runtime retrieval CTA'
 require_pattern "$ROOT_DIR/frontend/src/pages/Knowledge/KnowledgeDetailPage.tsx" 'Solicitar embeddings' 'frontend document embeddings action'
 require_pattern "$ROOT_DIR/frontend/src/pages/Knowledge/KnowledgeDetailPage.tsx" 'Solicitar embeddings da base' 'frontend base embeddings action'
 require_pattern "$ROOT_DIR/frontend/src/pages/Knowledge/KnowledgeDetailPage.tsx" 'allowRuntimeRetrieval' 'frontend runtime policy field'
+require_pattern "$ROOT_DIR/frontend/src/pages/Assistants/AssistantDetailPage.tsx" 'Escopo de resposta' 'frontend response scope selector'
+require_pattern "$ROOT_DIR/frontend/src/types/index.ts" "ResponseScopeMode = 'knowledge_only' | 'knowledge_first' | 'general_allowed'" 'frontend response scope type'
 require_pattern "$ROOT_DIR/frontend/src/hooks/queries/useKnowledge.ts" 'useUpdateKnowledgePolicyMutation' 'frontend policy mutation'
 require_pattern "$ROOT_DIR/frontend/src/hooks/queries/useKnowledge.ts" 'useRequestKnowledgeDocumentEmbeddingsMutation' 'frontend document embeddings mutation'
 require_pattern "$ROOT_DIR/frontend/src/hooks/queries/useKnowledge.ts" 'useRequestKnowledgeBaseEmbeddingsMutation' 'frontend base embeddings mutation'

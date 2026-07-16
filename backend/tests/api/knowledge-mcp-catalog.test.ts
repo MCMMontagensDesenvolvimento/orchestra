@@ -575,7 +575,7 @@ function homologation16iChunks() {
       sourceUri: 'upload://faq-ti-16i.txt',
       semanticScore: 0.1,
       semanticDistance: 0.9,
-      content: 'FAQ TI 16I. Para instalar software externo, o colaborador deve abrir chamado para TI antes da instalação.',
+      content: 'FAQ TI 16I. Para instalar software externo, o colaborador deve abrir chamado para TI antes da instalação. Para troca de notebook corporativo, abrir chamado para TI e aguardar validação.',
     }),
     homologation16iChunk({
       documentId: homologation16i.equipmentDocumentId,
@@ -1963,6 +1963,88 @@ describe('knowledge and MCP catalog endpoints', () => {
         }));
       }
     }
+  });
+
+  it('prioritizes stopword-flexible notebook phrase ranking over semantic stub noise', async () => {
+    env.KNOWLEDGE_RETRIEVAL_MODE = 'hybrid';
+    env.KNOWLEDGE_RETRIEVAL_SCORE_THRESHOLD = 0;
+    mocks.embeddingsService.getEmbeddingReadiness.mockReturnValue(stubEmbeddingReadinessFixture());
+    mocks.embeddingsService.embedText.mockResolvedValue({
+      provider: 'stub',
+      model: 'stub-sha256-v1',
+      dimension: 32,
+      vector: Array.from({ length: 32 }, (_, index) => index / 32),
+      usage: { inputTokens: 4 },
+      metadata: {
+        externalProviderCalled: false,
+        rawInputStored: false,
+        rawOutputStored: false,
+      },
+    });
+
+    const chunks = homologation16iChunks();
+    const equipmentChunk = chunks.find((chunk) => chunk.id === homologation16i.equipmentChunkId)!;
+    mocks.knowledgeRepository.findRagRetrievalCandidates.mockResolvedValueOnce({
+      readiness: ragReadinessFixture({
+        documentsIngested: 3,
+        documentCount: 3,
+        chunksAvailable: 3,
+        chunkCount: 3,
+        sourceReferenceCount: 3,
+        embeddingsAvailable: 3,
+      }),
+      chunks,
+    });
+    mocks.knowledgeRepository.findSemanticRagRetrievalCandidates.mockResolvedValueOnce({
+      readiness: ragReadinessFixture({
+        documentsIngested: 3,
+        documentCount: 3,
+        chunksAvailable: 3,
+        chunkCount: 3,
+        sourceReferenceCount: 3,
+        embeddingsAvailable: 3,
+      }),
+      chunks: [equipmentChunk],
+      semanticCandidateCount: 1,
+    });
+
+    const response = await request(createApp())
+      .post(`/api/v1/assistants/${assistantId}/rag/query`)
+      .set('Cookie', [sessionCookie()])
+      .send({ query: 'troca notebook', limit: 1 })
+      .expect(201);
+
+    expect(response.body.data).toMatchObject({
+      status: 'completed',
+      retrievalMode: 'hybrid_stub_keyword_priority',
+      keywordUsed: true,
+      semanticEnabled: true,
+      semanticUsed: true,
+      hybridMergeApplied: true,
+      stubKeywordPriority: true,
+      resultCount: 1,
+    });
+    expect(response.body.data.sources[0]).toMatchObject({
+      documentId: homologation16i.faqDocumentId,
+      documentTitle: 'faq-ti-16i.txt',
+    });
+    expect(response.body.data.sources[0].excerpt).toContain('troca de notebook corporativo');
+    const persistedInput = mocks.knowledgeRepository.createRagQueryWithResults.mock.calls.at(-1)?.[0];
+    expect(persistedInput).toEqual(expect.objectContaining({
+      mode: 'hybrid_stub_keyword_priority',
+      resultCount: 1,
+      metadata: expect.objectContaining({
+        retrievalMode: 'hybrid_stub_keyword_priority',
+        hybridMergeApplied: true,
+        stubKeywordPriority: true,
+      }),
+      results: [
+        expect.objectContaining({
+          documentId: homologation16i.faqDocumentId,
+          excerpt: expect.stringContaining('troca de notebook corporativo'),
+        }),
+      ],
+    }));
   });
 
   it('falls back official RAG query to lexical retrieval when embeddings are not ready', async () => {

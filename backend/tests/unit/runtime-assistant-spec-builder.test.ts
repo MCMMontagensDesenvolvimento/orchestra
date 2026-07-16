@@ -81,6 +81,13 @@ function context(overrides: Partial<RuntimeExecutionContext> = {}): RuntimeExecu
       reasons: [],
       requestId: 'req-builder-1',
     },
+    responseScope: {
+      mode: 'knowledge_first',
+      ragIntentDetected: true,
+      ragSkippedReason: null,
+      fallbackOutsideKnowledgeUsed: false,
+      rawContentLogged: false,
+    },
     rag: {
       ragReady: true,
       knowledgeBindingsCount: 1,
@@ -284,6 +291,91 @@ describe('AssistantRuntimeSpecV1 builder for Agno HTTP', () => {
     expect(spec.policy.maxRagResults).toBe(5);
     expect(spec.policy.maxContextChars).toBe(6000);
     expect(JSON.stringify(spec)).not.toContain('rag-1');
+  });
+
+  it('adds knowledge_only scope instructions and metadata without unsafe payloads', () => {
+    const spec = buildAssistantRuntimeSpecV1({
+      context: context({
+        responseScope: {
+          mode: 'knowledge_only',
+          ragIntentDetected: true,
+          ragSkippedReason: null,
+          fallbackOutsideKnowledgeUsed: false,
+          rawContentLogged: false,
+        },
+        rag: {
+          ...context().rag,
+          ragReady: false,
+          sourceReferences: [],
+        },
+      }),
+      timeoutMs: 15000,
+    });
+
+    expect(spec.metadata).toEqual(expect.objectContaining({
+      responseScopeMode: 'knowledge_only',
+      ragIntentDetected: true,
+      fallbackOutsideKnowledgeUsed: false,
+      rawContentLogged: false,
+    }));
+    expect(spec.instructions.system).toContain('Escopo de resposta: knowledge_only.');
+    expect(spec.instructions.system).toContain('Não encontrei essa informação na base de conhecimento vinculada.');
+    expect(spec.instructions.system).toContain('Nao use conhecimento geral');
+    expect(JSON.stringify(spec)).not.toMatch(/rawPrompt|rawDocuments|secret|apiKey|Authorization|baseUrl/i);
+  });
+
+  it('varies fallback instructions for knowledge_first and general_allowed scopes', () => {
+    const knowledgeFirstSpec = buildAssistantRuntimeSpecV1({
+      context: context({
+        responseScope: {
+          mode: 'knowledge_first',
+          ragIntentDetected: false,
+          ragSkippedReason: 'no_knowledge_intent_detected',
+          fallbackOutsideKnowledgeUsed: true,
+          rawContentLogged: false,
+        },
+        rag: {
+          ...context().rag,
+          ragReady: false,
+          sourceReferences: [],
+        },
+      }),
+      timeoutMs: 15000,
+    });
+    const generalAllowedSpec = buildAssistantRuntimeSpecV1({
+      context: context({
+        responseScope: {
+          mode: 'general_allowed',
+          ragIntentDetected: false,
+          ragSkippedReason: 'no_knowledge_intent_detected',
+          fallbackOutsideKnowledgeUsed: false,
+          rawContentLogged: false,
+        },
+        rag: {
+          ...context().rag,
+          ragReady: false,
+          sourceReferences: [],
+        },
+      }),
+      timeoutMs: 15000,
+    });
+
+    expect(knowledgeFirstSpec.instructions.system).toContain('Escopo de resposta: knowledge_first.');
+    expect(knowledgeFirstSpec.instructions.system).toContain('Pelo conhecimento geral do modelo');
+    expect(knowledgeFirstSpec.metadata).toEqual(expect.objectContaining({
+      responseScopeMode: 'knowledge_first',
+      ragIntentDetected: false,
+      ragSkippedReason: 'no_knowledge_intent_detected',
+      fallbackOutsideKnowledgeUsed: true,
+      rawContentLogged: false,
+    }));
+    expect(generalAllowedSpec.instructions.system).toContain('Escopo de resposta: general_allowed.');
+    expect(generalAllowedSpec.instructions.system).toContain('perguntas gerais normalmente');
+    expect(generalAllowedSpec.metadata).toEqual(expect.objectContaining({
+      responseScopeMode: 'general_allowed',
+      fallbackOutsideKnowledgeUsed: false,
+      rawContentLogged: false,
+    }));
   });
 
   it('limits RAG sources by configured quantity', () => {

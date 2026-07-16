@@ -28,6 +28,7 @@ import type {
   McpExecutionPrecheck,
   McpTool,
   McpToolCallRecord,
+  ResponseScopeMode,
   RuntimeCapabilities,
   RuntimeConfig,
   RuntimeHealth,
@@ -549,7 +550,8 @@ export default function AssistantDetailPage() {
     'sandboxEnabled' |
     'allowDraftTesting' |
     'allowPublishedExecution' |
-    'isExecutionEnabled'
+    'isExecutionEnabled' |
+    'responseScopeMode'
   >>) => {
     try {
       await updateExecutionPolicyMutation.mutateAsync({ id: assistant.id, payload });
@@ -1068,6 +1070,24 @@ ${tools.map(t => `- ${t.name}: ${t.description}${t.requiresApproval ? ' [REQUER 
                             <SelectItem value="blocked">Blocked</SelectItem>
                           </SelectContent>
                         </Select>
+                      </div>
+                      <div className="space-y-2">
+                        <Label>Escopo de resposta</Label>
+                        <Select
+                          value={executionPolicy.responseScopeMode}
+                          onValueChange={value => { void handlePolicyUpdate({ responseScopeMode: value as ResponseScopeMode }); }}
+                          disabled={!hasPermission('assistants.execution.configure') || updateExecutionPolicyMutation.isPending}
+                        >
+                          <SelectTrigger><SelectValue /></SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="knowledge_only">Somente base de conhecimento</SelectItem>
+                            <SelectItem value="knowledge_first">Base primeiro, geral se faltar</SelectItem>
+                            <SelectItem value="general_allowed">Geral permitido</SelectItem>
+                          </SelectContent>
+                        </Select>
+                        <p className="text-xs text-muted-foreground">
+                          Define se o assistente responde somente com fontes vinculadas, usa a base primeiro ou permite conhecimento geral.
+                        </p>
                       </div>
                       <PolicySwitch
                         label="Approval para publicar"

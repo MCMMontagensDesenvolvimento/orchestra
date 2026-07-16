@@ -41,6 +41,7 @@ const ragGroundingInstructions = [
   'Se houver conflito entre historico conversacional e RAG, use RAG.',
   'Se o contexto RAG nao contiver a resposta, diga que nao encontrou na base.',
 ].join(' ');
+const knowledgeNotFoundMessage = 'Não encontrei essa informação na base de conhecimento vinculada.';
 
 export function buildAssistantRuntimeSpecV1(input: BuildAssistantRuntimeSpecInput): AssistantRuntimeSpecV1 {
   const context = input.context;
@@ -53,6 +54,11 @@ export function buildAssistantRuntimeSpecV1(input: BuildAssistantRuntimeSpecInpu
     adapter: 'agno_http',
     inputHash: context.input.hash,
     executionMode: context.executionMode,
+    responseScopeMode: context.responseScope.mode,
+    ragIntentDetected: context.responseScope.ragIntentDetected,
+    ragSkippedReason: context.responseScope.ragSkippedReason,
+    fallbackOutsideKnowledgeUsed: context.responseScope.fallbackOutsideKnowledgeUsed,
+    rawContentLogged: false,
     llmSelectionReason: modelSelection.reason,
     requestMetadata: context.metadata,
     conversationContextSummary: context.conversationContext?.summary,
@@ -62,7 +68,7 @@ export function buildAssistantRuntimeSpecV1(input: BuildAssistantRuntimeSpecInpu
   const governedTools = buildGovernedToolSpec(context.mcp, config);
   const governedConversationContext = buildGovernedConversationContextSpec(context.conversationContext);
   const maxConversationContextChars = governedConversationContext?.summary.maxTotalChars ?? 0;
-  const instructions = buildSystemInstructions(baseInstructions, governedRag.spec);
+  const instructions = buildSystemInstructions(baseInstructions, governedRag.spec, context.responseScope);
 
   const spec: Record<string, unknown> = {
     specVersion: assistantRuntimeSpecVersionV1,
@@ -128,13 +134,50 @@ export function buildAssistantRuntimeSpecV1(input: BuildAssistantRuntimeSpecInpu
 function buildSystemInstructions(
   baseInstructions: string | undefined,
   rag: AssistantRuntimeSpecV1['rag'],
+  responseScope: RuntimeExecutionContext['responseScope'],
 ) {
   const segments = [
     baseInstructions,
+    buildResponseScopeInstructions(responseScope, rag),
     rag.enabled && rag.mode === 'resolved_context' && rag.sources.length > 0 ? ragGroundingInstructions : undefined,
   ].filter((segment): segment is string => Boolean(segment));
   const combined = segments.join('\n\n').slice(0, 12000).trim();
   return combined || undefined;
+}
+
+function buildResponseScopeInstructions(
+  responseScope: RuntimeExecutionContext['responseScope'],
+  rag: AssistantRuntimeSpecV1['rag'],
+) {
+  const hasRagContext = rag.enabled && rag.mode === 'resolved_context' && rag.sources.length > 0;
+  if (responseScope.mode === 'knowledge_only') {
+    return [
+      'Escopo de resposta: knowledge_only.',
+      'Responda somente com informacoes presentes no contexto RAG governado da base vinculada.',
+      `Se nao houver contexto RAG ou se o contexto nao contiver a resposta, responda: "${knowledgeNotFoundMessage}"`,
+      'Nao use conhecimento geral, historico conversacional ou suposicoes para complementar lacunas da base.',
+      'Se o usuario perguntar se pode procurar fora da base, responda que este assistente esta limitado a base vinculada.',
+      `Contexto RAG anexado nesta execucao: ${hasRagContext ? 'sim' : 'nao'}.`,
+    ].join(' ');
+  }
+  if (responseScope.mode === 'knowledge_first') {
+    return [
+      'Escopo de resposta: knowledge_first.',
+      'Priorize a base de conhecimento vinculada sempre que houver intencao de consulta a base, documentos, FAQ, politicas, procedimentos, manuais, fontes ou labels de arquivo.',
+      `Se nao houver contexto RAG relevante, voce pode responder com conhecimento geral, mas inicie a resposta com: "${knowledgeNotFoundMessage} Pelo conhecimento geral do modelo, ..."`,
+      'Quando houver contexto RAG com a resposta, nao use conhecimento geral para substituir a base.',
+      'Se o usuario perguntar se pode procurar fora da base, explique que pode complementar fora da base somente quando a base nao trouxer a informacao.',
+      `Contexto RAG anexado nesta execucao: ${hasRagContext ? 'sim' : 'nao'}.`,
+    ].join(' ');
+  }
+  return [
+    'Escopo de resposta: general_allowed.',
+    'Voce pode responder perguntas gerais normalmente com conhecimento geral.',
+    'Use contexto RAG quando ele for fornecido ou quando a pergunta tratar claramente da base, documentos, FAQ, politicas, procedimentos, manuais, fontes ou labels de arquivo.',
+    `Se a pergunta for sobre a base vinculada e nao houver contexto RAG relevante, responda que nao encontrou na base: "${knowledgeNotFoundMessage}"`,
+    'Se o usuario perguntar se pode procurar fora da base, explique que este modo permite conhecimento geral quando a pergunta nao exige resposta exclusiva da base.',
+    `Contexto RAG anexado nesta execucao: ${hasRagContext ? 'sim' : 'nao'}.`,
+  ].join(' ');
 }
 
 function resolveModelSelection(context: RuntimeExecutionContext) {
