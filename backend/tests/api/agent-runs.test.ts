@@ -33,6 +33,7 @@ const mocks = vi.hoisted(() => {
     agentRunsRepository,
     knowledgeService: {
       queryRag: vi.fn(),
+      linkRagQueryToAgentRun: vi.fn(),
     },
     recordAuditEvent: vi.fn().mockResolvedValue(undefined),
     recordAiUsageEvent: vi.fn().mockResolvedValue(undefined),
@@ -296,6 +297,10 @@ describe('agent run governance endpoints', () => {
       resultCount: 0,
       sources: [],
       retrievalMode: 'local_keyword',
+    });
+    mocks.knowledgeService.linkRagQueryToAgentRun.mockResolvedValue({
+      id: '00000000-0000-0000-0000-000000000950',
+      agentRunId: runId,
     });
     mocks.agentRunsRepository.findAssistantForRun.mockResolvedValue(assistantFixture('draft'));
     mocks.agentRunsRepository.getExecutionPolicy.mockResolvedValue(executionPolicyFixture());
@@ -680,6 +685,7 @@ describe('agent run governance endpoints', () => {
           chunkId: '00000000-0000-0000-0000-000000000954',
           documentTitle: 'Governed Runtime Policy',
           excerpt: 'Resolved governed context excerpt with more than twenty four chars.',
+          matchType: 'content',
           metadata: { secret: 'must-not-leak' },
         },
         {
@@ -693,6 +699,7 @@ describe('agent run governance endpoints', () => {
           chunkId: '00000000-0000-0000-0000-000000000957',
           documentTitle: 'Unsafe Runtime Policy',
           excerpt: 'Bearer must-not-leak',
+          matchType: 'semantic_vector',
           metadata: { rawDocument: 'must-not-leak' },
         },
       ],
@@ -737,6 +744,14 @@ describe('agent run governance endpoints', () => {
         excerpt: 'Resolved governed contex',
       }),
     ]);
+    expect(parsedRequest.assistantRuntimeSpec.rag.sources[0].metadata).toEqual(expect.objectContaining({
+      ragQueryId: '00000000-0000-0000-0000-000000000951',
+      retrievalMode: 'semantic_vector',
+      matchType: 'content',
+      rank: 1,
+      sourceName: 'Governed Runtime Policy',
+    }));
+    expect(parsedRequest.assistantRuntimeSpec.instructions.system).toContain('Se a resposta estiver no contexto RAG, responda diretamente.');
     expect(parsedRequest.assistantRuntimeSpec.tools).toEqual({ enabled: false, mode: 'none', descriptors: [] });
     expect(executeCall?.init?.headers).toEqual(expect.objectContaining({
       Authorization: 'Bearer runtime-test-security-key',
@@ -747,15 +762,26 @@ describe('agent run governance endpoints', () => {
         type: 'runtime.rag_context_attached',
         metadata: expect.objectContaining({
           ragMode: 'resolved_context',
+          ragQueryId: '00000000-0000-0000-0000-000000000951',
+          retrievalMode: 'semantic_vector',
           ragSourceCount: 1,
+          selectedSourceCount: 1,
           ragContextChars: 24,
           maxRagResults: 2,
+          matchTypes: ['content'],
+          ranks: [1],
         }),
       }),
     ]));
+    expect(mocks.knowledgeService.linkRagQueryToAgentRun).toHaveBeenCalledWith(
+      '00000000-0000-0000-0000-000000000951',
+      response.body.data.id,
+      expect.objectContaining({ id: userId }),
+      expect.objectContaining({ requestId: expect.any(String) }),
+    );
     expect(JSON.stringify(executeCall?.body)).not.toMatch(/must-not-leak|internal:\/\/|rawDocuments|rawPrompt|rawResponse|rawProviderResponse|headers|apiKey|token|secret|baseUrl|providerApiKey/i);
     expect(JSON.stringify(response.body)).not.toMatch(/runtime-test-security-key|must-not-leak|internal:\/\/|Authorization|headers|baseUrl|rawDocuments|rawPrompt|rawResponse|rawProviderResponse/i);
-    expect(JSON.stringify(response.body)).not.toContain('00000000-0000-0000-0000-000000000951');
+    expect(JSON.stringify(response.body)).toContain('00000000-0000-0000-0000-000000000951');
     expect(JSON.stringify(response.body)).not.toContain('00000000-0000-0000-0000-000000000952');
   });
 

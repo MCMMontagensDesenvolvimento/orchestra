@@ -277,9 +277,10 @@ describe('AssistantRuntimeSpecV1 builder for Agno HTTP', () => {
         title: 'Local Policy',
         excerpt: 'Governed excerpt that must not be sent by default in 14C.',
         score: 0.91,
-        metadata: { citationLabel: '[1]', sourceIndex: 1 },
+        metadata: expect.objectContaining({ citationLabel: '[1]', sourceIndex: 1, rank: 1 }),
       }),
     ]);
+    expect(spec.instructions.system).toContain('Se a resposta estiver no contexto RAG, responda diretamente.');
     expect(spec.policy.maxRagResults).toBe(5);
     expect(spec.policy.maxContextChars).toBe(6000);
     expect(JSON.stringify(spec)).not.toContain('rag-1');

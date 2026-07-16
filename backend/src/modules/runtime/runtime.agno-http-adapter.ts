@@ -71,7 +71,14 @@ const allowedMetadataKeys = new Set([
   'providerstatus',
   'ragcontextchars',
   'ragmode',
+  'ragqueryid',
   'ragsourcecount',
+  'ranks',
+  'retrievalmode',
+  'resultlabels',
+  'resulttitles',
+  'matchtypes',
+  'selectedsourcecount',
   'requestid',
   'requestsent',
   'requestspecversion',
@@ -426,8 +433,15 @@ function buildInvocationSummary(
     limitsEnforce: spec.limits.enforce,
     blockedBeforeRuntime: Boolean(spec.limits.blockedBeforeRuntime),
     ragMode: ragSummary?.ragMode ?? 'none',
+    ragQueryId: ragSummary?.ragQueryId,
+    retrievalMode: ragSummary?.retrievalMode,
     ragSourceCount: ragSummary?.ragSourceCount ?? 0,
+    selectedSourceCount: ragSummary?.selectedSourceCount ?? 0,
     ragContextChars: ragSummary?.ragContextChars ?? 0,
+    resultTitles: ragSummary?.resultTitles,
+    resultLabels: ragSummary?.resultLabels,
+    matchTypes: ragSummary?.matchTypes,
+    ranks: ragSummary?.ranks,
     conversationContextIncluded: conversationContextSummary?.conversationContextIncluded ?? false,
     conversationContextMessageCount: conversationContextSummary?.conversationContextMessageCount ?? 0,
     conversationContextChars: conversationContextSummary?.conversationContextChars ?? 0,
@@ -478,10 +492,25 @@ function summarizeRagSpec(
   if (rag.mode !== 'resolved_context' || rag.sources.length === 0) return undefined;
   return {
     ragMode: rag.mode,
+    ragQueryId: firstMetadataString(rag.sources, 'ragQueryId'),
+    retrievalMode: firstMetadataString(rag.sources, 'retrievalMode'),
     ragSourceCount: rag.sources.length,
+    selectedSourceCount: rag.sources.length,
     ragContextChars: rag.sources.reduce((total, source) => total + source.excerpt.length, 0),
+    resultTitles: rag.sources.map((source) => source.title).filter(Boolean).slice(0, 10),
+    resultLabels: rag.sources.map((source) => metadataString(source.metadata, 'citationLabel')).filter(Boolean).slice(0, 10),
+    matchTypes: rag.sources.map((source) => metadataString(source.metadata, 'matchType')).filter(Boolean).slice(0, 10),
+    ranks: rag.sources.map((source) => metadataNumber(source.metadata, 'rank')).filter((rank): rank is number => typeof rank === 'number').slice(0, 10),
     maxRagResults,
   };
+}
+
+function firstMetadataString(sources: AssistantRuntimeRagSpec['sources'], key: string) {
+  for (const source of sources) {
+    const value = metadataString(source.metadata, key);
+    if (value) return value;
+  }
+  return undefined;
 }
 
 function summarizeToolSpec(tools: AssistantRuntimeToolSpec, maxToolCalls: number): Record<string, unknown> | undefined {
@@ -640,8 +669,15 @@ function normalizeRuntimeMetrics(
     providerStatus: metadataString(outputMetadata, 'providerStatus'),
     failedClosed: metadataBoolean(outputMetadata, 'failedClosed') ?? false,
     simulated: metadataBoolean(outputMetadata, 'simulated'),
+    ragQueryId: stringValue(invocationSummary.ragQueryId),
+    retrievalMode: stringValue(invocationSummary.retrievalMode),
     ragSourceCount: numberValue(invocationSummary.ragSourceCount) ?? 0,
+    selectedSourceCount: numberValue(invocationSummary.selectedSourceCount) ?? 0,
     ragContextChars: numberValue(invocationSummary.ragContextChars) ?? 0,
+    resultTitles: invocationSummary.resultTitles,
+    resultLabels: invocationSummary.resultLabels,
+    matchTypes: invocationSummary.matchTypes,
+    ranks: invocationSummary.ranks,
     conversationContextIncluded: metadataBoolean(invocationSummary, 'conversationContextIncluded') ?? false,
     conversationContextMessageCount: numberValue(invocationSummary.conversationContextMessageCount) ?? 0,
     conversationContextChars: numberValue(invocationSummary.conversationContextChars) ?? 0,

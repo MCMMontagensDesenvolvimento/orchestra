@@ -39,6 +39,7 @@ const mocks = vi.hoisted(() => {
     findRagRetrievalCandidates: vi.fn(),
     findSemanticRagRetrievalCandidates: vi.fn(),
     createRagQueryWithResults: vi.fn(),
+    linkRagQueryToAgentRun: vi.fn(),
     listRagQueries: vi.fn(),
     findRagQuery: vi.fn(),
     listRagQueryResults: vi.fn(),
@@ -134,6 +135,8 @@ const mcpToolCallEventId = '00000000-0000-0000-0000-000000000912';
 const agentRunId = '00000000-0000-0000-0000-000000000921';
 const now = new Date('2026-06-11T12:00:00.000Z');
 const originalKnowledgeMaxUploadBytes = env.KNOWLEDGE_MAX_UPLOAD_BYTES;
+const originalKnowledgeRetrievalMode = env.KNOWLEDGE_RETRIEVAL_MODE;
+const originalKnowledgeRetrievalScoreThreshold = env.KNOWLEDGE_RETRIEVAL_SCORE_THRESHOLD;
 
 const catalogPermissions = [
   'assistants.read',
@@ -462,7 +465,7 @@ function stubEmbeddingReadinessFixture(overrides: Record<string, unknown> = {}) 
   });
 }
 
-function ragCandidateChunkFixture() {
+function ragCandidateChunkFixture(overrides: Record<string, unknown> = {}) {
   return {
     ...chunkFixture(),
     document: {
@@ -482,15 +485,109 @@ function ragCandidateChunkFixture() {
       workspaceId,
     },
     sourceReferences: [sourceReferenceFixture()],
+    ...overrides,
   };
 }
 
-function semanticRagCandidateChunkFixture() {
+function semanticRagCandidateChunkFixture(overrides: Record<string, unknown> = {}) {
   return {
     ...ragCandidateChunkFixture(),
     semanticScore: 0.82,
     semanticDistance: 0.18,
+    ...overrides,
   };
+}
+
+const homologation16i = {
+  policyDocumentId: '00000000-0000-0000-0000-000000000311',
+  faqDocumentId: '00000000-0000-0000-0000-000000000312',
+  equipmentDocumentId: '00000000-0000-0000-0000-000000000313',
+  policyChunkId: '00000000-0000-0000-0000-000000000631',
+  faqChunkId: '00000000-0000-0000-0000-000000000632',
+  equipmentChunkId: '00000000-0000-0000-0000-000000000633',
+  policySourceReferenceId: '00000000-0000-0000-0000-000000000641',
+  faqSourceReferenceId: '00000000-0000-0000-0000-000000000642',
+  equipmentSourceReferenceId: '00000000-0000-0000-0000-000000000643',
+};
+
+function homologation16iChunk(input: {
+  documentId: string;
+  chunkId: string;
+  sourceReferenceId: string;
+  title: string;
+  sourceUri: string;
+  content: string;
+  semanticScore?: number;
+  semanticDistance?: number;
+}) {
+  return semanticRagCandidateChunkFixture({
+    id: input.chunkId,
+    documentId: input.documentId,
+    content: input.content,
+    charCount: input.content.length,
+    contentHash: `hash-${input.chunkId}`,
+    semanticScore: input.semanticScore ?? 0.2,
+    semanticDistance: input.semanticDistance ?? 0.8,
+    document: {
+      id: input.documentId,
+      title: input.title,
+      sourceType: 'upload',
+      sourceUri: input.sourceUri,
+      status: 'indexed',
+      ingestionStatus: 'completed',
+      deletedAt: null,
+    },
+    sourceReferences: [sourceReferenceFixture({
+      id: input.sourceReferenceId,
+      documentId: input.documentId,
+      chunkId: input.chunkId,
+      label: input.sourceUri,
+      sourceType: 'upload',
+      sourceUri: input.sourceUri,
+      sectionTitle: input.title,
+      endOffset: input.content.length,
+    })],
+  });
+}
+
+function homologation16iChunks() {
+  return [
+    homologation16iChunk({
+      documentId: homologation16i.policyDocumentId,
+      chunkId: homologation16i.policyChunkId,
+      sourceReferenceId: homologation16i.policySourceReferenceId,
+      title: 'politicas-rh-16i.md',
+      sourceUri: 'upload://politicas-rh-16i.md',
+      semanticScore: 0.2,
+      semanticDistance: 0.8,
+      content: [
+        'Base Homologação 16I - Políticas RH.',
+        'A antecedência mínima para solicitar férias é de 45 dias.',
+        'O home office pode ocorrer até 3 vezes por semana.',
+        'A frase-código oficial da homologação 16I é: RAG operacional 16I validado com upload real, ingestão e retrieval governado.',
+      ].join(' '),
+    }),
+    homologation16iChunk({
+      documentId: homologation16i.faqDocumentId,
+      chunkId: homologation16i.faqChunkId,
+      sourceReferenceId: homologation16i.faqSourceReferenceId,
+      title: 'faq-ti-16i.txt',
+      sourceUri: 'upload://faq-ti-16i.txt',
+      semanticScore: 0.1,
+      semanticDistance: 0.9,
+      content: 'FAQ TI 16I. Para instalar software externo, o colaborador deve abrir chamado para TI antes da instalação.',
+    }),
+    homologation16iChunk({
+      documentId: homologation16i.equipmentDocumentId,
+      chunkId: homologation16i.equipmentChunkId,
+      sourceReferenceId: homologation16i.equipmentSourceReferenceId,
+      title: 'equipamentos-16i.csv',
+      sourceUri: 'upload://equipamentos-16i.csv',
+      semanticScore: 0.95,
+      semanticDistance: 0.05,
+      content: 'item,politica,aprovacao Notebook padrão,Livre,Gestor Software externo,Exige aprovação de TI,TI',
+    }),
+  ];
 }
 
 function ragQueryResultFixture(overrides: Record<string, unknown> = {}) {
@@ -768,6 +865,8 @@ function mcpToolCallFixture(overrides: Record<string, unknown> = {}) {
 describe('knowledge and MCP catalog endpoints', () => {
   afterEach(() => {
     env.KNOWLEDGE_MAX_UPLOAD_BYTES = originalKnowledgeMaxUploadBytes;
+    env.KNOWLEDGE_RETRIEVAL_MODE = originalKnowledgeRetrievalMode;
+    env.KNOWLEDGE_RETRIEVAL_SCORE_THRESHOLD = originalKnowledgeRetrievalScoreThreshold;
   });
 
   beforeEach(() => {
@@ -821,6 +920,7 @@ describe('knowledge and MCP catalog endpoints', () => {
       chunks: [semanticRagCandidateChunkFixture()],
       semanticCandidateCount: 1,
     });
+    mocks.knowledgeRepository.linkRagQueryToAgentRun.mockResolvedValue({ id: ragQueryId, agentRunId });
     mocks.knowledgeRepository.createRagQueryWithResults.mockImplementation(async (input: {
       results?: Record<string, unknown>[];
       queryText: string;
@@ -834,12 +934,24 @@ describe('knowledge and MCP catalog endpoints', () => {
       errorMessage?: string | null;
       metadata?: unknown;
     }) => {
-      const results = (input.results ?? []).map((result: Record<string, unknown>) => ragQueryResultFixture({
-        ...result,
-        ragQueryId,
-        document: { id: documentId, title: 'Governance document', sourceUri: `knowledge-document://${documentId}`, sourceType: 'manual' },
-        sourceReference: { id: sourceReferenceId, label: 'Governance document #1', sourceUri: `knowledge-document://${documentId}`, sectionTitle: 'Governance document', pageNumber: null },
-      }));
+      const results = (input.results ?? []).map((result: Record<string, unknown>) => {
+        const metadata = typeof result.metadata === 'object' && result.metadata && !Array.isArray(result.metadata)
+          ? result.metadata as Record<string, unknown>
+          : {};
+        const resultDocumentId = typeof result.documentId === 'string' ? result.documentId : documentId;
+        const resultSourceReferenceId = typeof result.sourceReferenceId === 'string' ? result.sourceReferenceId : sourceReferenceId;
+        const resultDocumentTitle = typeof metadata.documentTitle === 'string' ? metadata.documentTitle : 'Governance document';
+        const resultSourceLabel = typeof metadata.sourceReferenceLabel === 'string' ? metadata.sourceReferenceLabel : `${resultDocumentTitle} #1`;
+        const resultSourceUri = typeof metadata.sourceName === 'string' ? `upload://${metadata.sourceName}` : `knowledge-document://${resultDocumentId}`;
+        const resultSourceType = typeof metadata.sourceType === 'string' ? metadata.sourceType : 'manual';
+        const resultSectionTitle = typeof metadata.sectionTitle === 'string' ? metadata.sectionTitle : resultDocumentTitle;
+        return ragQueryResultFixture({
+          ...result,
+          ragQueryId,
+          document: { id: resultDocumentId, title: resultDocumentTitle, sourceUri: resultSourceUri, sourceType: resultSourceType },
+          sourceReference: { id: resultSourceReferenceId, label: resultSourceLabel, sourceUri: resultSourceUri, sectionTitle: resultSectionTitle, pageNumber: null },
+        });
+      });
       return ragQueryFixture({
         queryText: input.queryText,
         normalizedQuery: input.normalizedQuery,
@@ -1592,7 +1704,7 @@ describe('knowledge and MCP catalog endpoints', () => {
     expect(forbiddenResponse.body.code).toBe('FORBIDDEN');
   });
 
-  it('executes official RAG query with semantic vector retrieval, persisted citations and history', async () => {
+  it('executes official RAG query with hybrid retrieval, persisted citations and history', async () => {
     mocks.embeddingsService.getEmbeddingReadiness.mockReturnValue(readyEmbeddingReadinessFixture());
 
     const queryResponse = await request(createApp())
@@ -1618,8 +1730,12 @@ describe('knowledge and MCP catalog endpoints', () => {
 
     expect(queryResponse.body.data.status).toBe('completed');
     expect(queryResponse.body.data).toMatchObject({
-      retrievalMode: 'semantic_vector',
+      retrievalMode: 'hybrid_keyword_semantic',
+      keywordUsed: true,
       semanticEnabled: true,
+      semanticUsed: true,
+      hybridMergeApplied: true,
+      stubKeywordPriority: false,
       vectorStoreUsed: true,
       fallbackUsed: false,
       fallbackReason: null,
@@ -1630,7 +1746,7 @@ describe('knowledge and MCP catalog endpoints', () => {
     expect(queryResponse.body.data.resultCount).toBe(1);
     expect(queryResponse.body.data.sources[0].citationLabel).toBe('Fonte 1');
     expect(queryResponse.body.data.sources[0].documentTitle).toBe('Governance document');
-    expect(queryResponse.body.data.sources[0].matchType).toBe('semantic_vector');
+    expect(queryResponse.body.data.sources[0].matchType).toBe('content');
     expect(historyResponse.body.pagination.total).toBe(1);
     expect(detailResponse.body.data.queryId).toBe(ragQueryId);
     expect(sourcesResponse.body.data[0].sourceReferenceId).toBe(sourceReferenceId);
@@ -1653,12 +1769,16 @@ describe('knowledge and MCP catalog endpoints', () => {
       take: 5,
     }));
     expect(mocks.knowledgeRepository.createRagQueryWithResults).toHaveBeenCalledWith(expect.objectContaining({
-      mode: 'semantic_vector',
+      mode: 'hybrid_keyword_semantic',
       status: 'completed',
       resultCount: 1,
       metadata: expect.objectContaining({
-        retrievalMode: 'semantic_vector',
+        retrievalMode: 'hybrid_keyword_semantic',
+        keywordUsed: true,
         semanticEnabled: true,
+        semanticUsed: true,
+        hybridMergeApplied: true,
+        stubKeywordPriority: false,
         vectorStoreUsed: true,
         fallbackUsed: false,
         fallbackReason: null,
@@ -1669,9 +1789,10 @@ describe('knowledge and MCP catalog endpoints', () => {
       results: expect.arrayContaining([
         expect.objectContaining({
           citationLabel: 'Fonte 1',
-          matchType: 'semantic_vector',
+          matchType: 'content',
           metadata: expect.objectContaining({
-            semanticDistance: 0.18,
+            rawScore: expect.any(Number),
+            semanticAuxiliary: true,
             semanticScore: 0.82,
             chunkIndex: 0,
             tokenEstimate: 12,
@@ -1684,6 +1805,164 @@ describe('knowledge and MCP catalog endpoints', () => {
     }));
     expect(mocks.recordAuditEvent).toHaveBeenCalledWith(expect.objectContaining({ action: 'rag_query_requested' }));
     expect(mocks.recordAuditEvent).toHaveBeenCalledWith(expect.objectContaining({ action: 'rag_query_completed' }));
+  });
+
+  it('answers the five 16I homologation retrieval questions with hybrid stub keyword priority', async () => {
+    env.KNOWLEDGE_RETRIEVAL_MODE = 'hybrid';
+    env.KNOWLEDGE_RETRIEVAL_SCORE_THRESHOLD = 0;
+    mocks.embeddingsService.getEmbeddingReadiness.mockReturnValue(stubEmbeddingReadinessFixture());
+    mocks.embeddingsService.embedText.mockResolvedValue({
+      provider: 'stub',
+      model: 'stub-sha256-v1',
+      dimension: 32,
+      vector: Array.from({ length: 32 }, (_, index) => index / 32),
+      usage: { inputTokens: 12 },
+      metadata: {
+        externalProviderCalled: false,
+        rawInputStored: false,
+        rawOutputStored: false,
+      },
+    });
+
+    const chunks = homologation16iChunks();
+    const policyChunk = chunks.find((chunk) => chunk.id === homologation16i.policyChunkId)!;
+    const faqChunk = chunks.find((chunk) => chunk.id === homologation16i.faqChunkId)!;
+    const equipmentChunk = chunks.find((chunk) => chunk.id === homologation16i.equipmentChunkId)!;
+    const cases = [
+      {
+        query: 'Qual é a frase-código oficial da homologação 16I?',
+        expectedDocumentId: homologation16i.policyDocumentId,
+        expectedDocumentTitle: 'politicas-rh-16i.md',
+        expectedExcerpt: 'frase-código oficial',
+        semanticChunks: [equipmentChunk],
+        expectedMode: 'hybrid_stub_keyword_priority',
+        expectedFallback: false,
+      },
+      {
+        query: 'Segundo a Base Homologação 16I, qual é a antecedência mínima para solicitar férias?',
+        expectedDocumentId: homologation16i.policyDocumentId,
+        expectedDocumentTitle: 'politicas-rh-16i.md',
+        expectedExcerpt: '45 dias',
+        semanticChunks: [equipmentChunk],
+        expectedMode: 'hybrid_stub_keyword_priority',
+        expectedFallback: false,
+      },
+      {
+        query: 'Segundo a Base Homologação 16I, quantas vezes por semana o home office pode ocorrer?',
+        expectedDocumentId: homologation16i.policyDocumentId,
+        expectedDocumentTitle: 'politicas-rh-16i.md',
+        expectedExcerpt: 'até 3 vezes por semana',
+        semanticChunks: [faqChunk, equipmentChunk],
+        expectedMode: 'hybrid_stub_keyword_priority',
+        expectedFallback: false,
+      },
+      {
+        query: 'Na base de equipamentos 16I, qual item exige aprovação de TI?',
+        expectedDocumentId: homologation16i.equipmentDocumentId,
+        expectedDocumentTitle: 'equipamentos-16i.csv',
+        expectedExcerpt: 'Software externo',
+        semanticChunks: [policyChunk],
+        expectedMode: 'hybrid_stub_keyword_priority',
+        expectedFallback: false,
+      },
+      {
+        query: 'Segundo o FAQ TI 16I, o que deve ser feito para instalar software externo?',
+        expectedDocumentId: homologation16i.faqDocumentId,
+        expectedDocumentTitle: 'faq-ti-16i.txt',
+        expectedExcerpt: 'abrir chamado para TI',
+        semanticChunks: [],
+        expectedMode: 'semantic_fallback_local_keyword',
+        expectedFallback: true,
+      },
+    ];
+
+    for (const item of cases) {
+      mocks.knowledgeRepository.findRagRetrievalCandidates.mockResolvedValueOnce({
+        readiness: ragReadinessFixture({
+          documentsIngested: 3,
+          documentCount: 3,
+          chunksAvailable: 3,
+          chunkCount: 3,
+          sourceReferenceCount: 3,
+          embeddingsAvailable: 3,
+        }),
+        chunks,
+      });
+      mocks.knowledgeRepository.findSemanticRagRetrievalCandidates.mockResolvedValueOnce({
+        readiness: ragReadinessFixture({
+          documentsIngested: 3,
+          documentCount: 3,
+          chunksAvailable: 3,
+          chunkCount: 3,
+          sourceReferenceCount: 3,
+          embeddingsAvailable: 3,
+        }),
+        chunks: item.semanticChunks,
+        semanticCandidateCount: item.semanticChunks.length === 0 ? 1 : item.semanticChunks.length,
+      });
+
+      const response = await request(createApp())
+        .post(`/api/v1/assistants/${assistantId}/rag/query`)
+        .set('Cookie', [sessionCookie()])
+        .send({ query: item.query, limit: 1 })
+        .expect(201);
+
+      expect(response.body.data).toMatchObject({
+        status: 'completed',
+        retrievalMode: item.expectedMode,
+        provider: 'stub',
+        model: 'stub-sha256-v1',
+        dimension: 32,
+        keywordUsed: true,
+        semanticEnabled: true,
+        semanticUsed: true,
+        fallbackUsed: item.expectedFallback,
+        resultCount: 1,
+      });
+      expect(response.body.data.sources[0]).toMatchObject({
+        documentId: item.expectedDocumentId,
+        documentTitle: item.expectedDocumentTitle,
+      });
+      expect(response.body.data.sources[0].excerpt).toContain(item.expectedExcerpt);
+
+      const persistedCalls = mocks.knowledgeRepository.createRagQueryWithResults.mock.calls;
+      const persistedInput = persistedCalls[persistedCalls.length - 1]?.[0];
+      expect(persistedInput).toEqual(expect.objectContaining({
+        mode: item.expectedMode,
+        resultCount: 1,
+        metadata: expect.objectContaining({
+          retrievalMode: item.expectedMode,
+          keywordUsed: true,
+          semanticEnabled: true,
+          semanticUsed: true,
+          provider: 'stub',
+          model: 'stub-sha256-v1',
+          dimension: 32,
+          fallbackUsed: item.expectedFallback,
+        }),
+        results: [
+          expect.objectContaining({
+            documentId: item.expectedDocumentId,
+            excerpt: expect.stringContaining(item.expectedExcerpt),
+            metadata: expect.objectContaining({
+              documentTitle: item.expectedDocumentTitle,
+            }),
+          }),
+        ],
+      }));
+      if (item.expectedMode === 'hybrid_stub_keyword_priority') {
+        expect(persistedInput?.metadata).toEqual(expect.objectContaining({
+          hybridMergeApplied: true,
+          stubKeywordPriority: true,
+          vectorStoreUsed: true,
+        }));
+      } else {
+        expect(persistedInput?.metadata).toEqual(expect.objectContaining({
+          fallbackReason: 'SEMANTIC_NO_RESULTS',
+          vectorStoreUsed: true,
+        }));
+      }
+    }
   });
 
   it('falls back official RAG query to lexical retrieval when embeddings are not ready', async () => {
@@ -1749,7 +2028,8 @@ describe('knowledge and MCP catalog endpoints', () => {
       status: 'completed',
       retrievalMode: 'semantic_fallback_local_keyword',
       semanticEnabled: true,
-      vectorStoreUsed: false,
+      semanticUsed: true,
+      vectorStoreUsed: true,
       fallbackUsed: true,
       fallbackReason: 'SEMANTIC_NO_RESULTS',
       resultCount: 1,
@@ -1760,6 +2040,8 @@ describe('knowledge and MCP catalog endpoints', () => {
       mode: 'semantic_fallback_local_keyword',
       metadata: expect.objectContaining({
         fallbackReason: 'SEMANTIC_NO_RESULTS',
+        semanticUsed: true,
+        vectorStoreUsed: true,
       }),
       results: expect.arrayContaining([expect.objectContaining({ matchType: 'content' })]),
     }));

@@ -53,7 +53,13 @@ type SemanticFallbackReason =
   | 'SEMANTIC_NO_RESULTS'
   | 'SEMANTIC_RETRIEVAL_FAILED'
   | 'RAG_NOT_READY';
-type OfficialRagMode = 'semantic_vector' | 'semantic_fallback_local_keyword' | 'local_keyword' | 'local_readiness';
+type OfficialRagMode =
+  | 'semantic_vector'
+  | 'semantic_fallback_local_keyword'
+  | 'hybrid_keyword_semantic'
+  | 'hybrid_stub_keyword_priority'
+  | 'local_keyword'
+  | 'local_readiness';
 
 interface EmbeddingFailure {
   chunkId: string;
@@ -192,10 +198,50 @@ function normalizeRagQuery(value: string) {
     .trim();
 }
 
+const ragStopWords = new Set([
+  'a',
+  'ao',
+  'aos',
+  'as',
+  'com',
+  'da',
+  'das',
+  'de',
+  'deve',
+  'do',
+  'dos',
+  'e',
+  'em',
+  'na',
+  'nas',
+  'no',
+  'nos',
+  'o',
+  'os',
+  'para',
+  'por',
+  'qual',
+  'quais',
+  'quando',
+  'quantas',
+  'quantos',
+  'que',
+  'segundo',
+  'ser',
+  'uma',
+  'um',
+]);
+
 function ragTerms(value: string) {
   const normalized = normalizeRagQuery(value);
-  const terms = normalized.split(' ').filter((term) => term.length >= 2);
-  return Array.from(new Set([normalized, ...terms].filter(Boolean))).slice(0, 12);
+  const terms = normalized
+    .split(' ')
+    .filter((term) => term.length >= 2 && !ragStopWords.has(term));
+  const phrases = [];
+  for (let index = 0; index < terms.length - 1; index += 1) {
+    phrases.push(`${terms[index]} ${terms[index + 1]}`);
+  }
+  return Array.from(new Set([normalized, ...phrases, ...terms].filter(Boolean))).slice(0, 32);
 }
 
 function originalSearchTerms(value: string) {
@@ -220,6 +266,15 @@ function countOccurrences(content: string, term: string) {
   return count;
 }
 
+function sourceNameFromUri(value: string | null | undefined) {
+  if (!value) return '';
+  if (/^(?:internal|localhost|private):/i.test(value)) return '';
+  const withoutQuery = value.split(/[?#]/)[0] ?? value;
+  const parts = withoutQuery.split(/[\\/]/).filter(Boolean);
+  const lastPart = parts[parts.length - 1] ?? withoutQuery;
+  return normalizeRagQuery(lastPart.replace(/^[a-z][a-z0-9+.-]*:\/\//i, ''));
+}
+
 function safeExcerpt(content: string, terms: string[], maxLength = 600) {
   const normalizedContent = normalizeRagQuery(content);
   const firstTerm = terms.find((term) => normalizedContent.includes(term));
@@ -232,22 +287,27 @@ function safeExcerpt(content: string, terms: string[], maxLength = 600) {
 
 function scoreRagCandidate(candidate: {
   content: string;
-  document: { title: string };
-  sourceReferences: Array<{ label: string; sectionTitle: string | null }>;
+  document: { title: string; sourceUri: string | null };
+  sourceReferences: Array<{ label: string; sourceUri: string | null; sectionTitle: string | null }>;
 }, terms: string[]) {
   const content = normalizeRagQuery(candidate.content);
   const title = normalizeRagQuery(candidate.document.title);
+  const documentSource = sourceNameFromUri(candidate.document.sourceUri);
   const referenceText = normalizeRagQuery(
-    candidate.sourceReferences.map((reference) => `${reference.label} ${reference.sectionTitle ?? ''}`).join(' '),
+    candidate.sourceReferences
+      .map((reference) => `${reference.label} ${reference.sectionTitle ?? ''} ${sourceNameFromUri(reference.sourceUri)}`)
+      .join(' '),
   );
+  const metadataText = normalizeRagQuery(`${title} ${documentSource} ${referenceText}`);
 
   let contentScore = 0;
   let titleScore = 0;
   let metadataScore = 0;
   for (const term of terms) {
-    contentScore += countOccurrences(content, term);
-    titleScore += countOccurrences(title, term) * 2;
-    metadataScore += countOccurrences(referenceText, term);
+    const phraseBoost = term.includes(' ') ? 2 : 1;
+    contentScore += countOccurrences(content, term) * phraseBoost;
+    titleScore += countOccurrences(title, term) * (term.includes(' ') ? 10 : 4);
+    metadataScore += countOccurrences(metadataText, term) * (term.includes(' ') ? 8 : 3);
   }
 
   const rawScore = contentScore + titleScore + metadataScore;
@@ -331,6 +391,7 @@ interface RagSearchChunk {
   document: {
     title: string;
     sourceUri: string | null;
+    sourceType: string;
   };
   sourceReferences: Array<{
     id?: string | null;
@@ -359,6 +420,10 @@ interface OfficialRagRetrievalResolution {
   mode: OfficialRagMode;
   retrievalMode: OfficialRagMode;
   semanticEnabled: boolean;
+  keywordUsed: boolean;
+  semanticUsed: boolean;
+  hybridMergeApplied: boolean;
+  stubKeywordPriority: boolean;
   vectorStoreUsed: boolean;
   fallbackUsed: boolean;
   fallbackReason: SemanticFallbackReason | null;
@@ -494,6 +559,9 @@ function buildLexicalOfficialRagResults(input: {
           charCount: item.chunk.charCount,
           documentTitle: item.chunk.document.title,
           sourceReferenceLabel: sourceReference?.label,
+          sourceName: sourceNameFromUri(sourceReference?.sourceUri ?? item.chunk.document.sourceUri),
+          sourceType: item.chunk.document.sourceType,
+          sectionTitle: sourceReference?.sectionTitle,
         }) as Prisma.InputJsonValue,
       };
     });
@@ -531,9 +599,80 @@ function buildSemanticOfficialRagResults(input: {
         charCount: chunk.charCount,
         documentTitle: chunk.document.title,
         sourceReferenceLabel: sourceReference?.label,
+        sourceName: sourceNameFromUri(sourceReference?.sourceUri ?? chunk.document.sourceUri),
+        sourceType: chunk.document.sourceType,
+        sectionTitle: sourceReference?.sectionTitle,
       }) as Prisma.InputJsonValue,
     };
     });
+}
+
+function rerankRagResults(results: OfficialRagSelectedResult[]) {
+  return results.map((result, index) => ({
+    ...result,
+    rank: index + 1,
+    citationLabel: `Fonte ${index + 1}`,
+  }));
+}
+
+function metadataRecord(value: Prisma.InputJsonValue): Record<string, unknown> {
+  return Boolean(value) && typeof value === 'object' && !Array.isArray(value)
+    ? value as Record<string, unknown>
+    : {};
+}
+
+function withMergedMetadata(result: OfficialRagSelectedResult, metadata: Record<string, unknown>) {
+  return {
+    ...result,
+    metadata: sanitizeMetadata({
+      ...metadataRecord(result.metadata),
+      ...metadata,
+    }) as Prisma.InputJsonValue,
+  };
+}
+
+function mergeHybridOfficialRagResults(input: {
+  lexicalResults: OfficialRagSelectedResult[];
+  semanticResults: OfficialRagSelectedResult[];
+  limit: number;
+  stubKeywordPriority: boolean;
+}) {
+  const byChunkId = new Map<string, OfficialRagSelectedResult>();
+  const semanticByChunkId = new Map(input.semanticResults.map((result) => [result.chunkId, result]));
+
+  for (const lexical of input.lexicalResults) {
+    const semantic = semanticByChunkId.get(lexical.chunkId);
+    byChunkId.set(lexical.chunkId, semantic
+      ? withMergedMetadata(lexical, {
+        semanticAuxiliary: true,
+        semanticScore: semantic.score,
+        semanticMatchType: semantic.matchType,
+        semanticMetadata: metadataRecord(semantic.metadata),
+      })
+      : lexical);
+  }
+
+  for (const semantic of input.semanticResults) {
+    if (byChunkId.has(semantic.chunkId)) continue;
+    byChunkId.set(semantic.chunkId, input.stubKeywordPriority
+      ? withMergedMetadata(semantic, {
+        semanticAuxiliary: true,
+        rankingDemoted: true,
+        rankingReason: 'stub_keyword_priority',
+      })
+      : semantic);
+  }
+
+  const merged = Array.from(byChunkId.values())
+    .sort((left, right) => {
+      const leftLexical = left.matchType !== 'semantic_vector';
+      const rightLexical = right.matchType !== 'semantic_vector';
+      if (input.stubKeywordPriority && leftLexical !== rightLexical) return leftLexical ? -1 : 1;
+      return right.score - left.score || left.rank - right.rank || left.chunkId.localeCompare(right.chunkId);
+    })
+    .slice(0, input.limit);
+
+  return rerankRagResults(merged);
 }
 
 function applyRagContextLimit(results: OfficialRagSelectedResult[], maxContextChars: number) {
@@ -575,24 +714,36 @@ async function resolveOfficialRagRetrieval(input: {
     maxExcerptChars: retrievalConfig.maxExcerptChars,
     scoreThreshold: retrievalConfig.scoreThreshold,
   });
-  const fallback = (reason: SemanticFallbackReason): OfficialRagRetrievalResolution => ({
-    mode: 'semantic_fallback_local_keyword',
-    retrievalMode: 'semantic_fallback_local_keyword',
-    semanticEnabled: input.embeddingReadiness.status === 'ready',
-    vectorStoreUsed: false,
-    fallbackUsed: true,
-    fallbackReason: reason,
-    provider,
-    model,
-    dimension,
-    selectedResults: applyRagContextLimit(localResults(), retrievalConfig.maxContextChars),
-  });
+  const fallback = (reason: SemanticFallbackReason): OfficialRagRetrievalResolution => {
+    const semanticAttempted = reason !== 'EMBEDDINGS_NOT_READY' && reason !== 'RAG_NOT_READY';
+    const vectorStoreUsed = reason === 'NO_SEMANTIC_EMBEDDINGS' || reason === 'SEMANTIC_NO_RESULTS';
+    return {
+      mode: 'semantic_fallback_local_keyword',
+      retrievalMode: 'semantic_fallback_local_keyword',
+      semanticEnabled: input.embeddingReadiness.status === 'ready',
+      keywordUsed: true,
+      semanticUsed: semanticAttempted,
+      hybridMergeApplied: false,
+      stubKeywordPriority: false,
+      vectorStoreUsed,
+      fallbackUsed: true,
+      fallbackReason: reason,
+      provider,
+      model,
+      dimension,
+      selectedResults: applyRagContextLimit(localResults(), retrievalConfig.maxContextChars),
+    };
+  };
 
   if (retrievalConfig.mode === 'keyword') {
     return {
       mode: 'local_keyword',
       retrievalMode: 'local_keyword',
       semanticEnabled: false,
+      keywordUsed: true,
+      semanticUsed: false,
+      hybridMergeApplied: false,
+      stubKeywordPriority: false,
       vectorStoreUsed: false,
       fallbackUsed: false,
       fallbackReason: null,
@@ -649,6 +800,10 @@ async function resolveOfficialRagRetrieval(input: {
         mode: 'semantic_vector',
         retrievalMode: 'semantic_vector',
         semanticEnabled: true,
+        keywordUsed: false,
+        semanticUsed: true,
+        hybridMergeApplied: false,
+        stubKeywordPriority: false,
         vectorStoreUsed: true,
         fallbackUsed: false,
         fallbackReason: reason,
@@ -666,10 +821,40 @@ async function resolveOfficialRagRetrieval(input: {
       maxExcerptChars: retrievalConfig.maxExcerptChars,
       scoreThreshold: retrievalConfig.scoreThreshold,
     });
+    if (retrievalConfig.mode === 'hybrid') {
+      const lexicalResults = localResults();
+      const stubKeywordPriority = input.embeddingReadiness.provider === 'stub';
+      const mergedResults = mergeHybridOfficialRagResults({
+        lexicalResults,
+        semanticResults,
+        limit: input.limit,
+        stubKeywordPriority,
+      });
+      return {
+        mode: stubKeywordPriority ? 'hybrid_stub_keyword_priority' : 'hybrid_keyword_semantic',
+        retrievalMode: stubKeywordPriority ? 'hybrid_stub_keyword_priority' : 'hybrid_keyword_semantic',
+        semanticEnabled: true,
+        keywordUsed: true,
+        semanticUsed: true,
+        hybridMergeApplied: true,
+        stubKeywordPriority,
+        vectorStoreUsed: true,
+        fallbackUsed: false,
+        fallbackReason: null,
+        provider,
+        model,
+        dimension,
+        selectedResults: applyRagContextLimit(mergedResults, retrievalConfig.maxContextChars),
+      };
+    }
     return {
       mode: 'semantic_vector',
       retrievalMode: 'semantic_vector',
       semanticEnabled: true,
+      keywordUsed: false,
+      semanticUsed: true,
+      hybridMergeApplied: false,
+      stubKeywordPriority: false,
       vectorStoreUsed: true,
       fallbackUsed: false,
       fallbackReason: null,
@@ -2024,7 +2209,11 @@ export const knowledgeService = {
           effectiveLimit: retrievalLimit,
           mode: retrievalConfig.mode,
           retrievalMode: retrievalConfig.mode,
+          keywordUsed: false,
           semanticEnabled: embeddingReadiness.status === 'ready',
+          semanticUsed: false,
+          hybridMergeApplied: false,
+          stubKeywordPriority: false,
           vectorStoreUsed: false,
           fallbackUsed: false,
           provider: embeddingMetadata.provider,
@@ -2057,7 +2246,11 @@ export const knowledgeService = {
           metadata: sanitizeMetadata({
             readiness,
             retrievalMode: 'local_readiness',
+            keywordUsed: false,
             semanticEnabled: embeddingReadiness.status === 'ready',
+            semanticUsed: false,
+            hybridMergeApplied: false,
+            stubKeywordPriority: false,
             vectorStoreUsed: false,
             fallbackUsed: false,
             fallbackReason: 'RAG_NOT_READY',
@@ -2083,7 +2276,11 @@ export const knowledgeService = {
             status: 'blocked',
             blockedReason,
             retrievalMode: 'local_readiness',
+            keywordUsed: false,
             semanticEnabled: embeddingReadiness.status === 'ready',
+            semanticUsed: false,
+            hybridMergeApplied: false,
+            stubKeywordPriority: false,
             vectorStoreUsed: false,
             fallbackUsed: false,
             fallbackReason: 'RAG_NOT_READY',
@@ -2103,7 +2300,11 @@ export const knowledgeService = {
           sources: [],
           warnings,
           retrievalMode: 'local_readiness',
+          keywordUsed: false,
           semanticEnabled: embeddingReadiness.status === 'ready',
+          semanticUsed: false,
+          hybridMergeApplied: false,
+          stubKeywordPriority: false,
           vectorStoreUsed: false,
           fallbackUsed: false,
           fallbackReason: 'RAG_NOT_READY',
@@ -2157,7 +2358,11 @@ export const knowledgeService = {
         traceId: input.traceId,
         metadata: sanitizeMetadata({
           retrievalMode: retrieval.retrievalMode,
+          keywordUsed: retrieval.keywordUsed,
           semanticEnabled: retrieval.semanticEnabled,
+          semanticUsed: retrieval.semanticUsed,
+          hybridMergeApplied: retrieval.hybridMergeApplied,
+          stubKeywordPriority: retrieval.stubKeywordPriority,
           vectorStoreUsed: retrieval.vectorStoreUsed,
           fallbackUsed: retrieval.fallbackUsed,
           fallbackReason: retrieval.fallbackReason,
@@ -2167,6 +2372,15 @@ export const knowledgeService = {
           queryLength: input.query.length,
           includeArchived: input.includeArchived,
           terms: normalizedTerms,
+          selectedSources: selectedResults.map((item) => ({
+            rank: item.rank,
+            documentId: item.documentId,
+            chunkId: item.chunkId,
+            matchType: item.matchType,
+            score: item.score,
+            documentTitle: metadataRecord(item.metadata).documentTitle,
+            sourceReferenceLabel: metadataRecord(item.metadata).sourceReferenceLabel,
+          })),
         }) as Prisma.InputJsonValue,
         results: selectedResults,
       });
@@ -2187,13 +2401,22 @@ export const knowledgeService = {
           resultCount: selectedResults.length,
           status,
           retrievalMode: retrieval.retrievalMode,
+          keywordUsed: retrieval.keywordUsed,
           semanticEnabled: retrieval.semanticEnabled,
+          semanticUsed: retrieval.semanticUsed,
+          hybridMergeApplied: retrieval.hybridMergeApplied,
+          stubKeywordPriority: retrieval.stubKeywordPriority,
           vectorStoreUsed: retrieval.vectorStoreUsed,
           fallbackUsed: retrieval.fallbackUsed,
           fallbackReason: retrieval.fallbackReason,
           provider: retrieval.provider,
           model: retrieval.model,
           dimension: retrieval.dimension,
+          selectedSourceCount: selectedResults.length,
+          resultTitles: selectedResults.map((item) => metadataRecord(item.metadata).documentTitle).filter(Boolean),
+          resultLabels: selectedResults.map((item) => metadataRecord(item.metadata).sourceReferenceLabel).filter(Boolean),
+          matchTypes: selectedResults.map((item) => item.matchType),
+          ranks: selectedResults.map((item) => item.rank),
           requestId: context.requestId,
         },
       });
@@ -2212,7 +2435,11 @@ export const knowledgeService = {
             resultCount: selectedResults.length,
             documentIds: Array.from(new Set(selectedResults.map((item) => item.documentId))),
             retrievalMode: retrieval.retrievalMode,
+            keywordUsed: retrieval.keywordUsed,
             semanticEnabled: retrieval.semanticEnabled,
+            semanticUsed: retrieval.semanticUsed,
+            hybridMergeApplied: retrieval.hybridMergeApplied,
+            stubKeywordPriority: retrieval.stubKeywordPriority,
             vectorStoreUsed: retrieval.vectorStoreUsed,
             fallbackUsed: retrieval.fallbackUsed,
             fallbackReason: retrieval.fallbackReason,
@@ -2229,7 +2456,11 @@ export const knowledgeService = {
         sources: mapped.sources,
         warnings,
         retrievalMode: retrieval.retrievalMode,
+        keywordUsed: retrieval.keywordUsed,
         semanticEnabled: retrieval.semanticEnabled,
+        semanticUsed: retrieval.semanticUsed,
+        hybridMergeApplied: retrieval.hybridMergeApplied,
+        stubKeywordPriority: retrieval.stubKeywordPriority,
         vectorStoreUsed: retrieval.vectorStoreUsed,
         fallbackUsed: retrieval.fallbackUsed,
         fallbackReason: retrieval.fallbackReason,
@@ -2255,6 +2486,30 @@ export const knowledgeService = {
       }
       throw error;
     }
+  },
+
+  async linkRagQueryToAgentRun(queryId: string, agentRunId: string, user: AuthenticatedUser, context: RequestContext) {
+    const linked = await knowledgeRepository.linkRagQueryToAgentRun({
+      queryId,
+      agentRunId,
+      tenantId: user.tenant.id,
+      workspaceIds: userWorkspaceIds(user),
+    });
+    if (!linked) return null;
+
+    await audit({
+      user,
+      context,
+      action: 'rag_query_agent_run_linked',
+      entity: 'rag_query',
+      entityId: queryId,
+      metadata: {
+        queryId,
+        agentRunId,
+        rawContentLogged: false,
+      },
+    });
+    return linked;
   },
 
   async listRagQueries(assistantId: string, query: RagQueriesQuery, user: AuthenticatedUser) {
