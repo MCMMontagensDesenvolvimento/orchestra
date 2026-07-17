@@ -657,7 +657,7 @@ describe('agent run governance endpoints', () => {
     }
   });
 
-  it('sends governed RAG resolved_context through AgentRun when explicitly enabled', async () => {
+  it('16K matrix: knowledge_first with a knowledge-base question sends RAG resolved_context', async () => {
     configureRuntime({
       RUNTIME_PROVIDER: 'agno_http',
       AGNO_RUNTIME_HTTP_ENABLED: true,
@@ -668,6 +668,9 @@ describe('agent run governance endpoints', () => {
       AGNO_RUNTIME_HTTP_MAX_RAG_EXCERPT_CHARS: 24,
       AGNO_RUNTIME_HTTP_MAX_RAG_CONTEXT_CHARS: 48,
     });
+    mocks.agentRunsRepository.getExecutionPolicy.mockResolvedValueOnce(executionPolicyFixture({
+      metadata: { responseScopeMode: 'knowledge_first' },
+    }));
     mocks.knowledgeService.queryRag.mockResolvedValueOnce({
       queryId: '00000000-0000-0000-0000-000000000951',
       status: 'completed',
@@ -735,6 +738,13 @@ describe('agent run governance endpoints', () => {
       expect.objectContaining({ requestId: expect.any(String) }),
     );
     expect(parsedRequest.assistantRuntimeSpec.rag.mode).toBe('resolved_context');
+    expect(parsedRequest.assistantRuntimeSpec.metadata).toEqual(expect.objectContaining({
+      responseScopeMode: 'knowledge_first',
+      ragIntentDetected: true,
+      ragSkippedReason: null,
+      fallbackOutsideKnowledgeUsed: false,
+      rawContentLogged: false,
+    }));
     expect(parsedRequest.assistantRuntimeSpec.rag.sources).toEqual([
       expect.objectContaining({
         sourceId: '00000000-0000-0000-0000-000000000952',
@@ -818,7 +828,7 @@ describe('agent run governance endpoints', () => {
     expect(parsedRequest.assistantRuntimeSpec.rag).toEqual({ enabled: false, mode: 'none', sources: [] });
   });
 
-  it('skips governed RAG for a general question in knowledge_first and marks outside-knowledge fallback', async () => {
+  it('16K matrix: knowledge_first with a general Brazil states question skips RAG and marks fallback; skips governed RAG for a general question in knowledge_first', async () => {
     configureRuntime({
       RUNTIME_PROVIDER: 'agno_http',
       AGNO_RUNTIME_HTTP_ENABLED: true,
@@ -873,7 +883,7 @@ describe('agent run governance endpoints', () => {
     }));
   });
 
-  it('skips general questions in general_allowed without fallback disclosure', async () => {
+  it('16K matrix: general_allowed with a general Brazil states question skips RAG without fallback', async () => {
     configureRuntime({
       RUNTIME_PROVIDER: 'agno_http',
       AGNO_RUNTIME_HTTP_ENABLED: true,
@@ -900,6 +910,7 @@ describe('agent run governance endpoints', () => {
     const executeCall = calls.find((call) => call.url.endsWith('/execute'));
     const parsedRequest = runtimeExecuteRequestV1Schema.parse(executeCall?.body);
     expect(mocks.knowledgeService.queryRag).not.toHaveBeenCalled();
+    expect(parsedRequest.assistantRuntimeSpec.rag).toEqual({ enabled: false, mode: 'none', sources: [] });
     expect(parsedRequest.assistantRuntimeSpec.metadata).toEqual(expect.objectContaining({
       responseScopeMode: 'general_allowed',
       ragIntentDetected: false,
@@ -910,7 +921,7 @@ describe('agent run governance endpoints', () => {
     expect(parsedRequest.assistantRuntimeSpec.instructions.system).toContain('perguntas gerais normalmente');
   });
 
-  it('triggers governed RAG for a non-general query with knowledge bindings in general_allowed', async () => {
+  it('16K matrix: general_allowed with troca de notebook sends RAG resolved_context', async () => {
     configureRuntime({
       RUNTIME_PROVIDER: 'agno_http',
       AGNO_RUNTIME_HTTP_ENABLED: true,
@@ -981,7 +992,7 @@ describe('agent run governance endpoints', () => {
     ]));
   });
 
-  it('skips response scope questions in knowledge_first', async () => {
+  it('16K matrix: knowledge_first with an outside-base question skips RAG as response_scope_question', async () => {
     configureRuntime({
       RUNTIME_PROVIDER: 'agno_http',
       AGNO_RUNTIME_HTTP_ENABLED: true,
@@ -1018,7 +1029,7 @@ describe('agent run governance endpoints', () => {
     }));
   });
 
-  it('triggers governed RAG for FAQ intent even when general_allowed is configured', async () => {
+  it('16K matrix: general_allowed with explicit FAQ intent sends RAG resolved_context; triggers governed RAG for FAQ intent even when general_allowed is configured', async () => {
     configureRuntime({
       RUNTIME_PROVIDER: 'agno_http',
       AGNO_RUNTIME_HTTP_ENABLED: true,
@@ -1079,9 +1090,14 @@ describe('agent run governance endpoints', () => {
       fallbackOutsideKnowledgeUsed: false,
       rawContentLogged: false,
     }));
+    expect(parsedRequest.assistantRuntimeSpec.rag).toEqual(expect.objectContaining({
+      enabled: true,
+      mode: 'resolved_context',
+      sources: [expect.objectContaining({ title: 'faq-ti-16i.txt' })],
+    }));
   });
 
-  it('keeps knowledge_only runs constrained to RAG and controlled no-result instructions', async () => {
+  it('16K matrix: knowledge_only with a general Brazil states question stays limited to the base', async () => {
     configureRuntime({
       RUNTIME_PROVIDER: 'agno_http',
       AGNO_RUNTIME_HTTP_ENABLED: true,
@@ -1108,14 +1124,55 @@ describe('agent run governance endpoints', () => {
     const executeCall = calls.find((call) => call.url.endsWith('/execute'));
     const parsedRequest = runtimeExecuteRequestV1Schema.parse(executeCall?.body);
     expect(mocks.knowledgeService.queryRag).toHaveBeenCalled();
+    expect(parsedRequest.assistantRuntimeSpec.rag).toEqual({ enabled: false, mode: 'none', sources: [] });
     expect(parsedRequest.assistantRuntimeSpec.metadata).toEqual(expect.objectContaining({
       responseScopeMode: 'knowledge_only',
       ragIntentDetected: true,
+      ragSkippedReason: null,
       fallbackOutsideKnowledgeUsed: false,
       rawContentLogged: false,
     }));
     expect(parsedRequest.assistantRuntimeSpec.instructions.system).toContain('Escopo de resposta: knowledge_only.');
     expect(parsedRequest.assistantRuntimeSpec.instructions.system).toContain('Não encontrei essa informação na base de conhecimento vinculada.');
+    expect(parsedRequest.assistantRuntimeSpec.instructions.system).toContain('Nao use conhecimento geral');
+  });
+
+  it('16K matrix: knowledge_only with an outside-base question stays limited and skips RAG', async () => {
+    configureRuntime({
+      RUNTIME_PROVIDER: 'agno_http',
+      AGNO_RUNTIME_HTTP_ENABLED: true,
+      AGNO_RUNTIME_HTTP_BASE_URL: 'http://127.0.0.1:8091',
+      AGNO_RUNTIME_HTTP_RAG_CONTEXT_ENABLED: true,
+    });
+    mocks.agentRunsRepository.getExecutionPolicy.mockResolvedValueOnce(executionPolicyFixture({
+      metadata: { responseScopeMode: 'knowledge_only' },
+    }));
+    const calls: Array<{ url: string; body?: unknown }> = [];
+    vi.stubGlobal('fetch', vi.fn(async (url: string, init?: RequestInit) => {
+      const body = typeof init?.body === 'string' ? JSON.parse(init.body) as unknown : undefined;
+      calls.push({ url, body });
+      if (url.endsWith('/health')) return new Response(JSON.stringify(runtimeHealthResponse()), { status: 200 });
+      return new Response(JSON.stringify(runtimeExecuteResponse(body)), { status: 200 });
+    }));
+
+    await request(createApp())
+      .post(`/api/v1/assistants/${assistantId}/runs`)
+      .set('Cookie', [sessionCookie()])
+      .send({ mode: 'sandbox', input: 'pode procurar fora da base?', source: 'api-test' })
+      .expect(201);
+
+    const executeCall = calls.find((call) => call.url.endsWith('/execute'));
+    const parsedRequest = runtimeExecuteRequestV1Schema.parse(executeCall?.body);
+    expect(mocks.knowledgeService.queryRag).not.toHaveBeenCalled();
+    expect(parsedRequest.assistantRuntimeSpec.rag).toEqual({ enabled: false, mode: 'none', sources: [] });
+    expect(parsedRequest.assistantRuntimeSpec.metadata).toEqual(expect.objectContaining({
+      responseScopeMode: 'knowledge_only',
+      ragIntentDetected: false,
+      ragSkippedReason: 'response_scope_question',
+      fallbackOutsideKnowledgeUsed: false,
+      rawContentLogged: false,
+    }));
+    expect(parsedRequest.assistantRuntimeSpec.instructions.system).toContain('Escopo de resposta: knowledge_only.');
     expect(parsedRequest.assistantRuntimeSpec.instructions.system).toContain('Nao use conhecimento geral');
   });
 
