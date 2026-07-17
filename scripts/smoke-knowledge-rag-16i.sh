@@ -156,6 +156,7 @@ require_pattern "$ROOT_DIR/backend/prisma/schema.prisma" 'metadata              
 require_pattern "$ROOT_DIR/backend/prisma/migrations/20260716160000_phase_16j_answer_scope_policy/migration.sql" 'ADD COLUMN "metadata" JSONB' 'assistant execution policy metadata migration'
 require_pattern "$ROOT_DIR/backend/src/modules/agent-runs/agent-runs.service.ts" 'detectRuntimeRagIntent' 'runtime RAG intent detector'
 require_pattern "$ROOT_DIR/backend/src/modules/agent-runs/agent-runs.service.ts" 'general_question_no_knowledge_signal' 'general question RAG skip reason'
+require_pattern "$ROOT_DIR/backend/src/modules/agent-runs/agent-runs.service.ts" 'non_general_query_with_knowledge_bindings' 'knowledge-bound non-general RAG intent reason'
 require_pattern "$ROOT_DIR/backend/src/modules/agent-runs/agent-runs.service.ts" 'runtime_rag_retrieval_skipped' 'RAG skipped audit event'
 require_pattern "$ROOT_DIR/backend/src/modules/agent-runs/agent-runs.service.ts" 'fallbackOutsideKnowledgeUsed' 'outside knowledge fallback metadata'
 require_pattern "$ROOT_DIR/backend/src/modules/agent-runs/agent-runs.service.ts" 'rawContentLogged: false' 'raw content logging disabled metadata'

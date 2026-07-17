@@ -275,11 +275,12 @@ const ragIntentSignalPatterns = [
   /\b16i\b/,
 ];
 
-const generalBrazilStatesPatterns = [
+const clearlyGeneralQuestionPatterns = [
   /\bquantos estados\b.*\bbrasil\b/,
   /\blist(?:e|a|ar)?\b.*\bestados\b.*\bbrasil\b/,
   /\btodos os estados\b.*\bbrasil\b/,
   /\bestados brasileiros\b/,
+  /\bquem descobriu\b.*\bbrasil\b/,
 ];
 
 const responseScopeQuestionPatterns = [
@@ -288,6 +289,11 @@ const responseScopeQuestionPatterns = [
   /\bconhecimento geral\b/,
   /\bvoce pode\b.*\bbase\b/,
   /\bso(?:mente)?\b.*\bbase\b/,
+];
+
+const simpleGreetingOrThanksPatterns = [
+  /^(?:oi|ola|bom dia|boa tarde|boa noite)$/,
+  /^(?:obrigado|obrigada|valeu)$/,
 ];
 
 const sourceHintStopWords = new Set([
@@ -322,12 +328,25 @@ function hasExplicitRagSignal(normalizedQuery: string) {
   return ragIntentSignalPatterns.some((pattern) => pattern.test(normalizedQuery));
 }
 
-function isGeneralBrazilStatesQuestion(normalizedQuery: string) {
-  return generalBrazilStatesPatterns.some((pattern) => pattern.test(normalizedQuery));
+function isClearlyGeneralQuestion(normalizedQuery: string) {
+  return clearlyGeneralQuestionPatterns.some((pattern) => pattern.test(normalizedQuery));
 }
 
 function isResponseScopeQuestion(normalizedQuery: string) {
   return responseScopeQuestionPatterns.some((pattern) => pattern.test(normalizedQuery));
+}
+
+function isSimpleGreetingOrThanks(normalizedQuery: string) {
+  return simpleGreetingOrThanksPatterns.some((pattern) => pattern.test(normalizedQuery));
+}
+
+function hasRuntimeKnowledgeBindings(summary: RuntimeSummaryForRun | undefined) {
+  return Boolean(summary && (
+    summary.knowledgeBindingsCount > 0
+    || summary.sourceReferenceCount > 0
+    || summary.chunkCount > 0
+    || summary.sourceReferences.length > 0
+  ));
 }
 
 function sourceHintsFromSummary(summary: RuntimeSummaryForRun | undefined) {
@@ -367,7 +386,7 @@ function detectRuntimeRagIntent(input: {
   if (
     input.responseScopeMode !== 'knowledge_only'
     && !explicitSignal
-    && isGeneralBrazilStatesQuestion(normalizedQuery)
+    && isClearlyGeneralQuestion(normalizedQuery)
   ) {
     return { detected: false, reason: 'general_question_no_knowledge_signal' };
   }
@@ -375,8 +394,14 @@ function detectRuntimeRagIntent(input: {
     return { detected: true, reason: 'response_scope_knowledge_only' };
   }
   if (explicitSignal) return { detected: true, reason: 'explicit_knowledge_signal' };
+  if (isSimpleGreetingOrThanks(normalizedQuery)) {
+    return { detected: false, reason: 'simple_greeting_or_thanks' };
+  }
   if (hasSourceHintMatch(normalizedQuery, input.runtimeSummary)) {
     return { detected: true, reason: 'source_label_match' };
+  }
+  if (hasRuntimeKnowledgeBindings(input.runtimeSummary)) {
+    return { detected: true, reason: 'non_general_query_with_knowledge_bindings' };
   }
   return { detected: false, reason: 'no_knowledge_intent_detected' };
 }

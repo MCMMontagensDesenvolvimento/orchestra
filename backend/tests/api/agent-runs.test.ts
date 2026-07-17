@@ -910,6 +910,114 @@ describe('agent run governance endpoints', () => {
     expect(parsedRequest.assistantRuntimeSpec.instructions.system).toContain('perguntas gerais normalmente');
   });
 
+  it('triggers governed RAG for a non-general query with knowledge bindings in general_allowed', async () => {
+    configureRuntime({
+      RUNTIME_PROVIDER: 'agno_http',
+      AGNO_RUNTIME_HTTP_ENABLED: true,
+      AGNO_RUNTIME_HTTP_BASE_URL: 'http://127.0.0.1:8091',
+      AGNO_RUNTIME_HTTP_RAG_CONTEXT_ENABLED: true,
+    });
+    mocks.agentRunsRepository.getExecutionPolicy.mockResolvedValueOnce(executionPolicyFixture({
+      metadata: { responseScopeMode: 'general_allowed' },
+    }));
+    mocks.knowledgeService.queryRag.mockResolvedValueOnce({
+      queryId: '00000000-0000-0000-0000-000000000961',
+      status: 'completed',
+      resultCount: 1,
+      retrievalMode: 'hybrid_stub_keyword_priority',
+      sources: [
+        {
+          id: '00000000-0000-0000-0000-000000000962',
+          sourceReferenceId: '00000000-0000-0000-0000-000000000963',
+          documentId: '00000000-0000-0000-0000-000000000964',
+          chunkId: '00000000-0000-0000-0000-000000000965',
+          documentTitle: 'faq-ti-16i.txt',
+          sourceUri: 'upload://faq-ti-16i.txt',
+          sourceType: 'upload',
+          excerpt: 'A troca de notebook corporativo depende de avaliacao tecnica e autorizacao da lideranca de TI.',
+          citationLabel: 'FAQ TI 16I',
+          score: 0.94,
+          rank: 1,
+          matchType: 'mixed',
+          metadata: { sourceName: 'faq-ti-16i.txt' },
+        },
+      ],
+    });
+    const calls: Array<{ url: string; body?: unknown }> = [];
+    vi.stubGlobal('fetch', vi.fn(async (url: string, init?: RequestInit) => {
+      const body = typeof init?.body === 'string' ? JSON.parse(init.body) as unknown : undefined;
+      calls.push({ url, body });
+      if (url.endsWith('/health')) return new Response(JSON.stringify(runtimeHealthResponse()), { status: 200 });
+      return new Response(JSON.stringify(runtimeExecuteResponse(body)), { status: 200 });
+    }));
+
+    const response = await request(createApp())
+      .post(`/api/v1/assistants/${assistantId}/runs`)
+      .set('Cookie', [sessionCookie()])
+      .send({ mode: 'sandbox', input: 'me fale sobre troca de notebook', source: 'api-test' })
+      .expect(201);
+
+    const executeCall = calls.find((call) => call.url.endsWith('/execute'));
+    const parsedRequest = runtimeExecuteRequestV1Schema.parse(executeCall?.body);
+    expect(mocks.knowledgeService.queryRag).toHaveBeenCalledWith(
+      assistantId,
+      expect.objectContaining({ query: 'me fale sobre troca de notebook' }),
+      expect.objectContaining({ id: userId }),
+      expect.objectContaining({ requestId: expect.any(String) }),
+    );
+    expect(parsedRequest.assistantRuntimeSpec.metadata).toEqual(expect.objectContaining({
+      responseScopeMode: 'general_allowed',
+      ragIntentDetected: true,
+      fallbackOutsideKnowledgeUsed: false,
+      rawContentLogged: false,
+    }));
+    expect(parsedRequest.assistantRuntimeSpec.rag).toEqual(expect.objectContaining({
+      enabled: true,
+      mode: 'resolved_context',
+      sources: [expect.objectContaining({ title: 'faq-ti-16i.txt' })],
+    }));
+    expect(response.body.data.events).toEqual(expect.arrayContaining([
+      expect.objectContaining({ type: 'runtime.rag_context_attached' }),
+    ]));
+  });
+
+  it('skips response scope questions in knowledge_first', async () => {
+    configureRuntime({
+      RUNTIME_PROVIDER: 'agno_http',
+      AGNO_RUNTIME_HTTP_ENABLED: true,
+      AGNO_RUNTIME_HTTP_BASE_URL: 'http://127.0.0.1:8091',
+      AGNO_RUNTIME_HTTP_RAG_CONTEXT_ENABLED: true,
+    });
+    mocks.agentRunsRepository.getExecutionPolicy.mockResolvedValueOnce(executionPolicyFixture({
+      metadata: { responseScopeMode: 'knowledge_first' },
+    }));
+    const calls: Array<{ url: string; body?: unknown }> = [];
+    vi.stubGlobal('fetch', vi.fn(async (url: string, init?: RequestInit) => {
+      const body = typeof init?.body === 'string' ? JSON.parse(init.body) as unknown : undefined;
+      calls.push({ url, body });
+      if (url.endsWith('/health')) return new Response(JSON.stringify(runtimeHealthResponse()), { status: 200 });
+      return new Response(JSON.stringify(runtimeExecuteResponse(body)), { status: 200 });
+    }));
+
+    await request(createApp())
+      .post(`/api/v1/assistants/${assistantId}/runs`)
+      .set('Cookie', [sessionCookie()])
+      .send({ mode: 'sandbox', input: 'pode procurar fora da base?', source: 'api-test' })
+      .expect(201);
+
+    const executeCall = calls.find((call) => call.url.endsWith('/execute'));
+    const parsedRequest = runtimeExecuteRequestV1Schema.parse(executeCall?.body);
+    expect(mocks.knowledgeService.queryRag).not.toHaveBeenCalled();
+    expect(parsedRequest.assistantRuntimeSpec.rag).toEqual({ enabled: false, mode: 'none', sources: [] });
+    expect(parsedRequest.assistantRuntimeSpec.metadata).toEqual(expect.objectContaining({
+      responseScopeMode: 'knowledge_first',
+      ragIntentDetected: false,
+      ragSkippedReason: 'response_scope_question',
+      fallbackOutsideKnowledgeUsed: true,
+      rawContentLogged: false,
+    }));
+  });
+
   it('triggers governed RAG for FAQ intent even when general_allowed is configured', async () => {
     configureRuntime({
       RUNTIME_PROVIDER: 'agno_http',
