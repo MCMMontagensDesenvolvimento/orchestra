@@ -65,7 +65,11 @@ export const queryKeys = {
     messages: (conversationId: string) => ['chat', 'messages', conversationId] as const,
   },
   analytics: {
+    all: ['analytics', 'runtime'] as const,
     overview: ['analytics', 'overview'] as const,
+    runs: (filters: Record<string, unknown>) => [...queryKeys.analytics.all, 'runs', filters] as const,
+    detail: (runId: string) => [...queryKeys.analytics.all, 'detail', runId] as const,
+    summary: () => [...queryKeys.analytics.all, 'summary'] as const,
   },
   audit: {
     logs: ['audit', 'logs'] as const,
