@@ -158,8 +158,11 @@ export function normalizeAiUsageEventInput(input: AiUsageEventInput): Normalized
   const totalTokens = nonNegativeInt(input.totalTokens) ?? (
     typeof inputTokens === 'number' && typeof outputTokens === 'number' ? inputTokens + outputTokens : undefined
   );
-  const costCurrency = normalizeCurrency(input.costCurrency ?? input.cost?.currency);
-  const estimatedCostMinorUnits = normalizeMinorUnits(input.estimatedCostMinorUnits ?? input.cost?.minorUnits);
+  const normalizedCostCurrency = normalizeCurrency(input.costCurrency ?? input.cost?.currency);
+  const normalizedCostMinorUnits = normalizeMinorUnits(input.estimatedCostMinorUnits ?? input.cost?.minorUnits);
+  const hasReliableCostPair = Boolean(normalizedCostCurrency) && typeof normalizedCostMinorUnits === 'bigint';
+  const costCurrency = hasReliableCostPair ? normalizedCostCurrency : undefined;
+  const estimatedCostMinorUnits = hasReliableCostPair ? normalizedCostMinorUnits : undefined;
   const startedAt = normalizeDate(input.startedAt, new Date())!;
 
   return {

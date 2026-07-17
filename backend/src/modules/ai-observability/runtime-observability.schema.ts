@@ -16,6 +16,7 @@ const runtimeRunFilters = {
   fallbackOutsideKnowledgeUsed: optionalBooleanQuery,
   externalProviderCalled: optionalBooleanQuery,
   externalMcpCalled: optionalBooleanQuery,
+  usageLimitBlocked: optionalBooleanQuery,
   search: z.string().trim().max(160).default(''),
 };
 

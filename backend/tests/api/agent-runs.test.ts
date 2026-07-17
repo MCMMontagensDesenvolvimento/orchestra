@@ -37,6 +37,7 @@ const mocks = vi.hoisted(() => {
     },
     recordAuditEvent: vi.fn().mockResolvedValue(undefined),
     recordAiUsageEvent: vi.fn().mockResolvedValue(undefined),
+    evaluateAiUsageLimits: vi.fn(),
   };
 });
 
@@ -54,6 +55,10 @@ vi.mock('../../src/modules/audit/audit.service', () => ({
 
 vi.mock('../../src/modules/ai-observability/ai-observability.service', () => ({
   recordAiUsageEvent: mocks.recordAiUsageEvent,
+}));
+
+vi.mock('../../src/modules/ai-observability/ai-usage-limits.service', () => ({
+  evaluateAiUsageLimits: mocks.evaluateAiUsageLimits,
 }));
 
 const workspaceId = '00000000-0000-0000-0000-000000000020';
@@ -228,6 +233,40 @@ function executionPolicyFixture(overrides: Record<string, unknown> = {}) {
   };
 }
 
+function usageLimitEvaluationFixture(input: {
+  mode?: 'monitor_only' | 'enforce';
+  exceeded?: boolean;
+  applied?: boolean;
+} = {}) {
+  const mode = input.mode ?? 'monitor_only';
+  const exceeded = input.exceeded ?? false;
+  const applied = input.applied ?? true;
+  const blocked = mode === 'enforce' && exceeded;
+  return {
+    allowed: !blocked,
+    status: blocked ? 'blocked' : exceeded ? 'warn' : 'allowed',
+    mode,
+    decisions: applied ? [{
+      policyId: '00000000-0000-0000-0000-00000000016a',
+      scopeType: 'assistant',
+      metric: 'run_count',
+      period: 'day',
+      mode,
+      status: blocked ? 'blocked' : exceeded ? 'warn' : 'allowed',
+      limitValue: 10n,
+      warnThresholdValue: null,
+      currentValue: exceeded ? 10n : 5n,
+      projectedValue: 1n,
+      remainingValue: exceeded ? 0n : 4n,
+      wouldExceed: exceeded,
+      wouldWarn: exceeded,
+      reason: exceeded ? 'limit_exceeded' : 'within_limit',
+      windowStart: new Date('2026-07-17T00:00:00.000Z'),
+      windowEnd: new Date('2026-07-18T00:00:00.000Z'),
+    }] : [],
+  };
+}
+
 function eventFixture(type = 'run.completed', sequence = 1, status = 'completed') {
   return {
     id: `00000000-0000-0000-0000-00000000050${sequence}`,
@@ -291,6 +330,7 @@ describe('agent run governance endpoints', () => {
     configureRuntime();
     mocks.recordAuditEvent.mockResolvedValue(undefined);
     mocks.recordAiUsageEvent.mockResolvedValue(undefined);
+    mocks.evaluateAiUsageLimits.mockResolvedValue(usageLimitEvaluationFixture({ applied: false }));
     mocks.knowledgeService.queryRag.mockResolvedValue({
       queryId: '00000000-0000-0000-0000-000000000950',
       status: 'no_results',
@@ -456,7 +496,147 @@ describe('agent run governance endpoints', () => {
     expect(mocks.recordAuditEvent).toHaveBeenCalledWith(expect.objectContaining({ action: 'runtime_adapter_resolved' }));
     expect(mocks.recordAuditEvent).toHaveBeenCalledWith(expect.objectContaining({ action: 'runtime_execution_completed' }));
     expect(mocks.recordAuditEvent).toHaveBeenCalledWith(expect.objectContaining({ action: 'agent_run_completed' }));
+    expect(mocks.evaluateAiUsageLimits).toHaveBeenCalledWith(expect.objectContaining({
+      tenantId,
+      workspaceId,
+      assistantId,
+      userId,
+      source: 'runtime_adapter',
+      operation: 'agent_run.runtime_execute',
+      projectedUsage: { runCount: 1n },
+    }));
+    expect(response.body.data.metadata.runtime).toEqual(expect.objectContaining({
+      usageLimitEvaluationApplied: false,
+      usageLimitBlocked: false,
+      usageLimitReason: 'not_applicable',
+    }));
+    expect(mocks.recordAiUsageEvent).toHaveBeenCalledWith(expect.objectContaining({
+      costCurrency: undefined,
+      estimatedCostMinorUnits: undefined,
+    }));
     expect(mocks.knowledgeService.queryRag).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ['monitor_only', false],
+    ['enforce', false],
+  ] as const)('allows an AgentRun below an active %s usage limit', async (mode, exceeded) => {
+    mocks.evaluateAiUsageLimits.mockResolvedValueOnce(usageLimitEvaluationFixture({ mode, exceeded }));
+
+    const response = await request(createApp())
+      .post(`/api/v1/assistants/${assistantId}/runs`)
+      .set('Cookie', [sessionCookie()])
+      .send({ mode: 'sandbox', input: 'Safe below-limit execution.' })
+      .expect(201);
+
+    expect(response.body.data.status).toBe('completed');
+    expect(response.body.data.metadata.runtime).toEqual(expect.objectContaining({
+      usageLimitEvaluationApplied: true,
+      usageLimitMode: mode,
+      usageLimitExceeded: false,
+      usageLimitEnforced: mode === 'enforce',
+      usageLimitBlocked: false,
+      usageLimitMetric: 'run_count',
+      usageLimitScope: 'assistant',
+      usageLimitWindow: 'day',
+      usageLimitCurrentValue: '5',
+      usageLimitThreshold: '10',
+    }));
+  });
+
+  it('allows and audits an exceeded monitor_only usage limit', async () => {
+    mocks.evaluateAiUsageLimits.mockResolvedValueOnce(usageLimitEvaluationFixture({
+      mode: 'monitor_only',
+      exceeded: true,
+    }));
+
+    const response = await request(createApp())
+      .post(`/api/v1/assistants/${assistantId}/runs`)
+      .set('Cookie', [sessionCookie()])
+      .send({ mode: 'sandbox', input: 'Monitor-only execution remains allowed.' })
+      .expect(201);
+
+    expect(response.body.data.status).toBe('completed');
+    expect(response.body.data.metadata.runtime).toEqual(expect.objectContaining({
+      usageLimitMode: 'monitor_only',
+      usageLimitExceeded: true,
+      usageLimitEnforced: false,
+      usageLimitBlocked: false,
+      usageLimitReason: 'limit_exceeded',
+    }));
+    expect(response.body.data.events).toEqual(expect.arrayContaining([
+      expect.objectContaining({ type: 'run.usage_limit_violation' }),
+    ]));
+    expect(mocks.recordAuditEvent).toHaveBeenCalledWith(expect.objectContaining({
+      action: 'agent_run_usage_limit_monitor_violation',
+    }));
+    expect(mocks.recordAuditEvent).not.toHaveBeenCalledWith(expect.objectContaining({
+      action: 'agent_run_usage_limit_blocked',
+    }));
+  });
+
+  it('blocks an exceeded enforce usage limit before RAG, runtime, provider or tools', async () => {
+    configureRuntime({
+      RUNTIME_PROVIDER: 'agno_http',
+      AGNO_RUNTIME_HTTP_ENABLED: true,
+      AGNO_RUNTIME_HTTP_BASE_URL: 'http://127.0.0.1:8091',
+      AGNO_RUNTIME_HTTP_RAG_CONTEXT_ENABLED: true,
+      AGNO_RUNTIME_HTTP_TOOL_GATEWAY_ENABLED: true,
+    });
+    mocks.evaluateAiUsageLimits.mockResolvedValueOnce(usageLimitEvaluationFixture({
+      mode: 'enforce',
+      exceeded: true,
+    }));
+    const executeSpy = vi.spyOn(runtimeService, 'execute');
+    const fetchSpy = vi.fn();
+    vi.stubGlobal('fetch', fetchSpy);
+    const rawInput = 'RAW_INPUT_16N_MUST_NOT_LEAK';
+    const rawContext = 'RAW_CONTEXT_16N_MUST_NOT_LEAK';
+    const rawProviderPayload = 'RAW_PROVIDER_PAYLOAD_16N_MUST_NOT_LEAK';
+
+    const response = await request(createApp())
+      .post(`/api/v1/assistants/${assistantId}/runs`)
+      .set('Cookie', [sessionCookie()])
+      .send({
+        mode: 'sandbox',
+        input: rawInput,
+        metadata: { context: rawContext, providerPayload: rawProviderPayload },
+      })
+      .expect(201);
+
+    expect(response.body.data.status).toBe('blocked');
+    expect(response.body.data.errorCode).toBe('AI_USAGE_LIMIT_EXCEEDED');
+    expect(response.body.data.metadata.runtime).toEqual(expect.objectContaining({
+      usageLimitMode: 'enforce',
+      usageLimitExceeded: true,
+      usageLimitEnforced: true,
+      usageLimitBlocked: true,
+      usageLimitPolicyId: '00000000-0000-0000-0000-00000000016a',
+    }));
+    expect(response.body.data.events).toEqual(expect.arrayContaining([
+      expect.objectContaining({ type: 'run.usage_limit_blocked', status: 'blocked' }),
+    ]));
+    expect(executeSpy).not.toHaveBeenCalled();
+    expect(fetchSpy).not.toHaveBeenCalled();
+    expect(mocks.agentRunsRepository.getRuntimeContextSummary).not.toHaveBeenCalled();
+    expect(mocks.knowledgeService.queryRag).not.toHaveBeenCalled();
+    expect(mocks.recordAiUsageEvent).toHaveBeenCalledWith(expect.objectContaining({
+      status: 'blocked',
+      blockedReason: 'AI_USAGE_LIMIT_EXCEEDED',
+    }));
+    expect(mocks.recordAuditEvent).toHaveBeenCalledWith(expect.objectContaining({
+      action: 'agent_run_usage_limit_blocked',
+    }));
+    const persistedAndReturned = JSON.stringify({
+      response: response.body,
+      run: mocks.agentRunsRepository.createRun.mock.calls.at(-1),
+      usage: mocks.recordAiUsageEvent.mock.calls.at(-1),
+      audit: mocks.recordAuditEvent.mock.calls,
+    });
+    expect(persistedAndReturned).not.toContain(rawInput);
+    expect(persistedAndReturned).not.toContain(rawContext);
+    expect(persistedAndReturned).not.toContain(rawProviderPayload);
+    executeSpy.mockRestore();
   });
 
   it('routes a governed published AgentRun through fake agno_http real-LLM execution', async () => {
@@ -490,6 +670,9 @@ describe('agent run governance endpoints', () => {
         providerStatus: 'healthy',
         externalProviderCalled: true,
         simulated: false,
+      }, {
+        estimatedCostMinorUnits: '37',
+        costCurrency: 'USD',
       })), { status: 200 });
     }));
 
@@ -541,6 +724,8 @@ describe('agent run governance endpoints', () => {
       outputTokens: 7,
       totalTokens: 10,
       latencyMs: 2,
+      estimatedCostMinorUnits: '37',
+      costCurrency: 'USD',
     }));
     expect(response.body.data.events).toEqual(expect.arrayContaining([
       expect.objectContaining({ type: 'agno.request_completed' }),
@@ -1587,6 +1772,7 @@ function runtimeExecuteResponse(
   requestBody: unknown,
   status: 'succeeded' | 'blocked' = 'succeeded',
   outputMetadata: Record<string, unknown> = {},
+  usageMetadata: Record<string, unknown> = {},
 ) {
   const request = runtimeExecuteRequestV1Schema.parse(requestBody);
   const trace = request.assistantRuntimeSpec.trace;
@@ -1605,7 +1791,7 @@ function runtimeExecuteResponse(
       }
       : undefined,
     usage: status === 'succeeded'
-      ? { inputTokens: 3, outputTokens: 7, totalTokens: 10, latencyMs: 2 }
+      ? { inputTokens: 3, outputTokens: 7, totalTokens: 10, latencyMs: 2, ...usageMetadata }
       : undefined,
     events: [
       ...(request.assistantRuntimeSpec.rag.sources.length > 0
