@@ -39,6 +39,7 @@ function observationFrom(row: RuntimeRunListRow) {
   const llm = asRecord(adapter?.llm);
   const persistedUsage = row.usage;
   const metadataUsage = asRecord(runtime?.usage);
+  const persistedCost = mapCost(persistedUsage);
 
   return {
     runtimeProvider: firstPresent(safeString(runtime?.provider, 80), safeString(persistedUsage?.provider, 80)),
@@ -60,6 +61,18 @@ function observationFrom(row: RuntimeRunListRow) {
     ragSkippedReason: safeString(runtime?.ragSkippedReason, 160),
     fallbackOutsideKnowledgeUsed: safeBoolean(runtime?.fallbackOutsideKnowledgeUsed),
     rawContentLogged: safeBoolean(runtime?.rawContentLogged),
+    usageLimitEvaluationApplied: safeBoolean(runtime?.usageLimitEvaluationApplied),
+    usageLimitMode: safeString(runtime?.usageLimitMode, 20),
+    usageLimitExceeded: safeBoolean(runtime?.usageLimitExceeded),
+    usageLimitEnforced: safeBoolean(runtime?.usageLimitEnforced),
+    usageLimitBlocked: safeBoolean(runtime?.usageLimitBlocked),
+    usageLimitMetric: safeString(runtime?.usageLimitMetric, 40),
+    usageLimitScope: safeString(runtime?.usageLimitScope, 20),
+    usageLimitPolicyId: safeString(runtime?.usageLimitPolicyId, 80),
+    usageLimitWindow: safeString(runtime?.usageLimitWindow, 20),
+    usageLimitCurrentValue: safeString(runtime?.usageLimitCurrentValue, 40),
+    usageLimitThreshold: safeString(runtime?.usageLimitThreshold, 40),
+    usageLimitReason: safeString(runtime?.usageLimitReason, 80),
     externalProviderCalled: firstPresent(
       safeBoolean(runtime?.externalProviderCalled),
       safeBoolean(adapter?.externalProviderCalled),
@@ -75,7 +88,8 @@ function observationFrom(row: RuntimeRunListRow) {
     inputTokens: firstPresent(persistedUsage?.inputTokens, safeNumber(metadataUsage?.inputTokens)),
     outputTokens: firstPresent(persistedUsage?.outputTokens, safeNumber(metadataUsage?.outputTokens)),
     totalTokens: firstPresent(persistedUsage?.totalTokens, safeNumber(metadataUsage?.totalTokens)),
-    cost: mapCost(persistedUsage),
+    costCurrency: persistedCost?.currency ?? null,
+    costMinorUnits: persistedCost?.minorUnits ?? null,
   };
 }
 
@@ -83,7 +97,7 @@ function mapCost(usage: RuntimeUsageRecord | null) {
   if (!usage?.costCurrency || usage.estimatedCostMinorUnits === null) return null;
   return {
     currency: usage.costCurrency,
-    estimatedMinorUnits: usage.estimatedCostMinorUnits.toString(),
+    minorUnits: usage.estimatedCostMinorUnits.toString(),
   };
 }
 
@@ -124,6 +138,18 @@ function mapEventMetadata(value: unknown) {
     ragSkippedReason: safeString(metadata?.ragSkippedReason, 160),
     fallbackOutsideKnowledgeUsed: safeBoolean(metadata?.fallbackOutsideKnowledgeUsed),
     rawContentLogged: safeBoolean(metadata?.rawContentLogged),
+    usageLimitEvaluationApplied: safeBoolean(metadata?.usageLimitEvaluationApplied),
+    usageLimitMode: safeString(metadata?.usageLimitMode, 20),
+    usageLimitExceeded: safeBoolean(metadata?.usageLimitExceeded),
+    usageLimitEnforced: safeBoolean(metadata?.usageLimitEnforced),
+    usageLimitBlocked: safeBoolean(metadata?.usageLimitBlocked),
+    usageLimitMetric: safeString(metadata?.usageLimitMetric, 40),
+    usageLimitScope: safeString(metadata?.usageLimitScope, 20),
+    usageLimitPolicyId: safeString(metadata?.usageLimitPolicyId, 80),
+    usageLimitWindow: safeString(metadata?.usageLimitWindow, 20),
+    usageLimitCurrentValue: safeString(metadata?.usageLimitCurrentValue, 40),
+    usageLimitThreshold: safeString(metadata?.usageLimitThreshold, 40),
+    usageLimitReason: safeString(metadata?.usageLimitReason, 80),
     externalProviderCalled: firstPresent(
       safeBoolean(metadata?.externalProviderCalled),
       safeBoolean(metadata?.externalProvidersCalled),
@@ -191,6 +217,8 @@ export function mapRuntimeSummary(record: Awaited<ReturnType<import('./runtime-o
     completedRuns: statusCounts.completed ?? 0,
     failedRuns: statusCounts.failed ?? 0,
     blockedRuns: statusCounts.blocked ?? 0,
+    usageLimitBlockedRuns: record.usageLimitBlockedRuns,
+    monitorOnlyViolations: record.monitorOnlyViolations,
     runningRuns: statusCounts.running ?? 0,
     successRate: record.totalRuns > 0
       ? Number((((statusCounts.completed ?? 0) / record.totalRuns) * 100).toFixed(1))

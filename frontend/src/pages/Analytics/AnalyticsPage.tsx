@@ -44,6 +44,7 @@ type FilterState = {
   fallbackOutsideKnowledgeUsed: string;
   externalProviderCalled: string;
   externalMcpCalled: string;
+  usageLimitBlocked: string;
 };
 
 const initialFilters: FilterState = {
@@ -54,6 +55,7 @@ const initialFilters: FilterState = {
   fallbackOutsideKnowledgeUsed: 'all',
   externalProviderCalled: 'all',
   externalMcpCalled: 'all',
+  usageLimitBlocked: 'all',
 };
 
 const booleanFilter = (value: string) => value === 'all' ? undefined : value === 'true';
@@ -77,6 +79,11 @@ function formatInteger(value: number | string | null) {
 
 function formatLatency(value: number | null) {
   return value === null ? 'Não informado' : `${new Intl.NumberFormat('pt-BR').format(value)} ms`;
+}
+
+function formatPersistedCost(currency: string | null, minorUnits: string | null) {
+  if (!currency || !minorUnits) return 'Não informado';
+  return `${currency} ${formatInteger(minorUnits)} minor units`;
 }
 
 function compactId(value: string | null) {
@@ -134,6 +141,7 @@ export default function AnalyticsPage() {
     fallbackOutsideKnowledgeUsed: booleanFilter(filterState.fallbackOutsideKnowledgeUsed),
     externalProviderCalled: booleanFilter(filterState.externalProviderCalled),
     externalMcpCalled: booleanFilter(filterState.externalMcpCalled),
+    usageLimitBlocked: booleanFilter(filterState.usageLimitBlocked),
     search: search || undefined,
   }), [filterState, page, search]);
 
@@ -170,7 +178,7 @@ export default function AnalyticsPage() {
           description="Runtime Chat/RAG por run, com metadata allowlistada e escopo do workspace"
         />
 
-        <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+        <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-6">
           <KpiCard
             label="Runs totais"
             value={summaryQuery.isLoading ? '…' : summary?.totalRuns ?? 'Não informado'}
@@ -190,6 +198,16 @@ export default function AnalyticsPage() {
             label="Tokens persistidos"
             value={summaryQuery.isLoading ? '…' : formatInteger(summary?.totalTokens ?? null)}
             icon={<Braces className="h-5 w-5" />}
+          />
+          <KpiCard
+            label="Bloqueados por limite"
+            value={summaryQuery.isLoading ? '…' : summary?.usageLimitBlockedRuns ?? 'Não informado'}
+            icon={<ShieldCheck className="h-5 w-5" />}
+          />
+          <KpiCard
+            label="Violações monitor_only"
+            value={summaryQuery.isLoading ? '…' : summary?.monitorOnlyViolations ?? 'Não informado'}
+            icon={<AlertCircle className="h-5 w-5" />}
           />
         </div>
 
@@ -225,7 +243,7 @@ export default function AnalyticsPage() {
             )}
           </div>
 
-          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4 xl:grid-cols-7">
+          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4 xl:grid-cols-8">
             <FilterSelect label="Status" value={filterState.status} onValueChange={(value) => updateFilter('status', value)}>
               <SelectItem value="all">Todos</SelectItem>
               {['queued', 'prechecking', 'running', 'completed', 'failed', 'blocked', 'cancelled'].map((status) => (
@@ -265,6 +283,11 @@ export default function AnalyticsPage() {
               <SelectItem value="true">Chamado</SelectItem>
               <SelectItem value="false">Não chamado</SelectItem>
             </FilterSelect>
+            <FilterSelect label="Bloqueado por limite" value={filterState.usageLimitBlocked} onValueChange={(value) => updateFilter('usageLimitBlocked', value)}>
+              <SelectItem value="all">Todos</SelectItem>
+              <SelectItem value="true">Sim</SelectItem>
+              <SelectItem value="false">Não</SelectItem>
+            </FilterSelect>
           </div>
         </section>
 
@@ -301,6 +324,7 @@ export default function AnalyticsPage() {
                     <TableHead>Runtime / LLM</TableHead>
                     <TableHead>RAG / escopo</TableHead>
                     <TableHead>Flags externas</TableHead>
+                    <TableHead>Limite de uso</TableHead>
                     <TableHead className="text-right">Latência / tokens</TableHead>
                     <TableHead>Criado em</TableHead>
                   </TableRow>
@@ -338,6 +362,13 @@ export default function AnalyticsPage() {
                           <FlagBadge value={run.externalMcpCalled} trueLabel="MCP externo" falseLabel="Sem MCP externo" />
                           {run.fallbackOutsideKnowledgeUsed === true && <Badge variant="outline">Fallback</Badge>}
                         </div>
+                      </TableCell>
+                      <TableCell>
+                        <div className="flex flex-wrap gap-1">
+                          <Badge variant="outline">{run.usageLimitMode ?? 'Não informado'}</Badge>
+                          <FlagBadge value={run.usageLimitBlocked} trueLabel="Bloqueado" falseLabel="Permitido" />
+                        </div>
+                        <div className="mt-1 text-xs text-muted-foreground">{run.usageLimitMetric ?? 'Métrica não informada'}</div>
                       </TableCell>
                       <TableCell className="text-right">
                         <div>{formatLatency(run.latencyMs)}</div>
@@ -462,8 +493,27 @@ function RuntimeRunDetailContent({ run }: { run: RuntimeRunDetail }) {
           <DataItem label="Tokens de saída">{formatInteger(run.outputTokens)}</DataItem>
           <DataItem label="Tokens totais">{formatInteger(run.totalTokens)}</DataItem>
           <DataItem label="Custo estimado persistido">
-            {run.cost ? `${run.cost.currency} ${run.cost.estimatedMinorUnits} minor units` : 'Não informado'}
+            {formatPersistedCost(run.costCurrency, run.costMinorUnits)}
           </DataItem>
+        </dl>
+      </Section>
+
+      <Section title="Avaliação de custos, quotas e limites" icon={<ShieldCheck className="h-4 w-4 text-primary" />}>
+        <dl className="grid gap-4 sm:grid-cols-3">
+          <DataItem label="usageLimitEvaluationApplied"><FlagBadge value={run.usageLimitEvaluationApplied} /></DataItem>
+          <DataItem label="usageLimitMode">{run.usageLimitMode ?? 'Não informado'}</DataItem>
+          <DataItem label="usageLimitExceeded"><FlagBadge value={run.usageLimitExceeded} /></DataItem>
+          <DataItem label="usageLimitEnforced"><FlagBadge value={run.usageLimitEnforced} /></DataItem>
+          <DataItem label="usageLimitBlocked"><FlagBadge value={run.usageLimitBlocked} /></DataItem>
+          <DataItem label="usageLimitReason">{run.usageLimitReason ?? 'Não informado'}</DataItem>
+          <DataItem label="usageLimitMetric">{run.usageLimitMetric ?? 'Não informado'}</DataItem>
+          <DataItem label="usageLimitScope">{run.usageLimitScope ?? 'Não informado'}</DataItem>
+          <DataItem label="usageLimitWindow">{run.usageLimitWindow ?? 'Não informado'}</DataItem>
+          <DataItem label="usageLimitCurrentValue">{formatInteger(run.usageLimitCurrentValue)}</DataItem>
+          <DataItem label="usageLimitThreshold">{formatInteger(run.usageLimitThreshold)}</DataItem>
+          <DataItem label="usageLimitPolicyId" mono>{run.usageLimitPolicyId ?? 'Não informado'}</DataItem>
+          <DataItem label="costCurrency">{run.costCurrency ?? 'Não informado'}</DataItem>
+          <DataItem label="costMinorUnits">{run.costCurrency && run.costMinorUnits ? formatInteger(run.costMinorUnits) : 'Não informado'}</DataItem>
         </dl>
       </Section>
 

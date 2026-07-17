@@ -15,12 +15,8 @@ export interface RuntimeRunFilters {
   fallbackOutsideKnowledgeUsed?: boolean;
   externalProviderCalled?: boolean;
   externalMcpCalled?: boolean;
+  usageLimitBlocked?: boolean;
   search?: string;
-}
-
-export interface RuntimeRunCost {
-  currency: string;
-  estimatedMinorUnits: string;
 }
 
 export interface RuntimeRunSummary {
@@ -44,6 +40,18 @@ export interface RuntimeRunSummary {
   ragSkippedReason: string | null;
   fallbackOutsideKnowledgeUsed: boolean | null;
   rawContentLogged: boolean | null;
+  usageLimitEvaluationApplied: boolean | null;
+  usageLimitMode: string | null;
+  usageLimitExceeded: boolean | null;
+  usageLimitEnforced: boolean | null;
+  usageLimitBlocked: boolean | null;
+  usageLimitMetric: string | null;
+  usageLimitScope: string | null;
+  usageLimitPolicyId: string | null;
+  usageLimitWindow: string | null;
+  usageLimitCurrentValue: string | null;
+  usageLimitThreshold: string | null;
+  usageLimitReason: string | null;
   externalProviderCalled: boolean | null;
   externalMcpCalled: boolean | null;
   toolCallsExecuted: number | null;
@@ -51,7 +59,8 @@ export interface RuntimeRunSummary {
   inputTokens: number | null;
   outputTokens: number | null;
   totalTokens: number | null;
-  cost: RuntimeRunCost | null;
+  costCurrency: string | null;
+  costMinorUnits: string | null;
   startedAt: string | null;
   completedAt: string | null;
   createdAt: string;
@@ -68,6 +77,18 @@ export interface RuntimeRunEventMetadata {
   ragSkippedReason?: string;
   fallbackOutsideKnowledgeUsed?: boolean;
   rawContentLogged?: boolean;
+  usageLimitEvaluationApplied?: boolean;
+  usageLimitMode?: string;
+  usageLimitExceeded?: boolean;
+  usageLimitEnforced?: boolean;
+  usageLimitBlocked?: boolean;
+  usageLimitMetric?: string;
+  usageLimitScope?: string;
+  usageLimitPolicyId?: string;
+  usageLimitWindow?: string;
+  usageLimitCurrentValue?: string;
+  usageLimitThreshold?: string;
+  usageLimitReason?: string;
   externalProviderCalled?: boolean;
   externalMcpCalled?: boolean;
   toolCallsExecuted?: number;
@@ -116,6 +137,8 @@ export interface RuntimeSummary {
   completedRuns: number;
   failedRuns: number;
   blockedRuns: number;
+  usageLimitBlockedRuns: number;
+  monitorOnlyViolations: number;
   runningRuns: number;
   successRate: number | null;
   avgLatencyMs: number | null;
@@ -127,6 +150,7 @@ export interface RuntimeRunsPage {
   pagination: PaginatedApiEnvelope<RuntimeRunSummary>['pagination'];
 }
 
+// Demo-only fixture. It is reachable exclusively through the VITE_USE_MOCKS guard below.
 const mockRun: RuntimeRunDetail = {
   runId: '00000000-0000-0000-0000-00000000016d',
   assistantId: '1',
@@ -148,6 +172,18 @@ const mockRun: RuntimeRunDetail = {
   ragSkippedReason: null,
   fallbackOutsideKnowledgeUsed: false,
   rawContentLogged: false,
+  usageLimitEvaluationApplied: true,
+  usageLimitMode: 'monitor_only',
+  usageLimitExceeded: true,
+  usageLimitEnforced: false,
+  usageLimitBlocked: false,
+  usageLimitMetric: 'run_count',
+  usageLimitScope: 'assistant',
+  usageLimitPolicyId: '00000000-0000-0000-0000-00000000016a',
+  usageLimitWindow: 'day',
+  usageLimitCurrentValue: '10',
+  usageLimitThreshold: '10',
+  usageLimitReason: 'limit_exceeded',
   externalProviderCalled: false,
   externalMcpCalled: false,
   toolCallsExecuted: 0,
@@ -155,7 +191,8 @@ const mockRun: RuntimeRunDetail = {
   inputTokens: null,
   outputTokens: null,
   totalTokens: null,
-  cost: null,
+  costCurrency: null,
+  costMinorUnits: null,
   startedAt: new Date().toISOString(),
   completedAt: new Date().toISOString(),
   createdAt: new Date().toISOString(),
@@ -191,6 +228,8 @@ const mockSummary: RuntimeSummary = {
   completedRuns: 1,
   failedRuns: 0,
   blockedRuns: 0,
+  usageLimitBlockedRuns: 0,
+  monitorOnlyViolations: 1,
   runningRuns: 0,
   successRate: 100,
   avgLatencyMs: 18,
@@ -205,6 +244,7 @@ function filteredMockRuns(filters: RuntimeRunFilters) {
     && (filters.fallbackOutsideKnowledgeUsed === undefined || mockRun.fallbackOutsideKnowledgeUsed === filters.fallbackOutsideKnowledgeUsed)
     && (filters.externalProviderCalled === undefined || mockRun.externalProviderCalled === filters.externalProviderCalled)
     && (filters.externalMcpCalled === undefined || mockRun.externalMcpCalled === filters.externalMcpCalled)
+    && (filters.usageLimitBlocked === undefined || mockRun.usageLimitBlocked === filters.usageLimitBlocked)
     && (!filters.search || mockRun.inputSummary?.toLowerCase().includes(filters.search.toLowerCase()));
   return matches ? [mockRun] : [];
 }
@@ -232,8 +272,8 @@ function toLegacyAnalytics(runs: RuntimeRunSummary[]): AnalyticsData[] {
       current.latencyTotal += run.latencyMs;
       current.latencyCount += 1;
     }
-    if (run.cost) {
-      const minorUnits = Number(run.cost.estimatedMinorUnits);
+    if (run.costCurrency && run.costMinorUnits) {
+      const minorUnits = Number(run.costMinorUnits);
       if (Number.isSafeInteger(minorUnits)) current.cost += minorUnits / 100;
     }
     days.set(date, current);

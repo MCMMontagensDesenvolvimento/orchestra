@@ -7,6 +7,11 @@ import type { AuthenticatedUser } from '../../shared/types/auth';
 import { paginationMeta } from '../../shared/validation/pagination';
 import { recordAuditEvent } from '../audit/audit.service';
 import { recordAiUsageEvent } from '../ai-observability/ai-observability.service';
+import { evaluateAiUsageLimits } from '../ai-observability/ai-usage-limits.service';
+import type {
+  AiUsageLimitDecision,
+  AiUsageLimitEvaluation,
+} from '../ai-observability/ai-usage-limits.types';
 import { knowledgeService } from '../knowledge/knowledge.service';
 import { buildAssistantRuntimeSpecV1 } from '../runtime/runtime.assistant-spec.builder';
 import { getRuntimeConfig } from '../runtime/runtime.config';
@@ -33,6 +38,21 @@ import type { AgentRunEventInput, AgentRunPrecheckSnapshot, PrecheckReason, Requ
 type AssistantForRun = NonNullable<Awaited<ReturnType<typeof agentRunsRepository.findAssistantForRun>>>;
 type PolicyForRun = Awaited<ReturnType<typeof agentRunsRepository.getExecutionPolicy>>;
 type RuntimeSummaryForRun = Awaited<ReturnType<typeof agentRunsRepository.getRuntimeContextSummary>>;
+
+interface UsageLimitMetadata {
+  usageLimitEvaluationApplied: boolean;
+  usageLimitMode: 'monitor_only' | 'enforce' | null;
+  usageLimitExceeded: boolean;
+  usageLimitEnforced: boolean;
+  usageLimitBlocked: boolean;
+  usageLimitMetric: string | null;
+  usageLimitScope: string | null;
+  usageLimitPolicyId: string | null;
+  usageLimitWindow: string | null;
+  usageLimitCurrentValue: string | null;
+  usageLimitThreshold: string | null;
+  usageLimitReason: 'not_applicable' | 'within_limit' | 'warning_threshold_reached' | 'limit_exceeded' | 'evaluator_error';
+}
 
 const userWorkspaceIds = (user: AuthenticatedUser) => user.workspaces.map((workspace) => workspace.id);
 const unsafeMetadataFragments = [
@@ -129,6 +149,7 @@ function mergeRuntimeMetadata(input: {
   ragSummary?: { ragReady: boolean; knowledgeBindingsCount: number; chunkCount: number; sourceReferenceCount: number; lastRagQueryId: string | null };
   mcpSummary?: { mcpBindingsCount: number; allowedSandboxTools: unknown[]; blockedTools: unknown[]; requiresApproval: unknown[]; lastToolCallIds: string[] };
   responseScopeSummary?: RuntimeResponseScopeSummary;
+  usageLimitMetadata?: UsageLimitMetadata;
 }): Prisma.InputJsonValue {
   const base = typeof input.metadata === 'object' && input.metadata && !Array.isArray(input.metadata)
     ? input.metadata as Record<string, unknown>
@@ -161,6 +182,7 @@ function mergeRuntimeMetadata(input: {
       ragSkippedReason: input.responseScopeSummary ? input.responseScopeSummary.ragSkippedReason : stringValue(adapterMetadata?.ragSkippedReason) ?? null,
       fallbackOutsideKnowledgeUsed: input.responseScopeSummary ? input.responseScopeSummary.fallbackOutsideKnowledgeUsed : booleanValue(adapterMetadata?.fallbackOutsideKnowledgeUsed),
       rawContentLogged: input.responseScopeSummary ? input.responseScopeSummary.rawContentLogged : booleanValue(adapterMetadata?.rawContentLogged) ?? false,
+      ...input.usageLimitMetadata,
       latencyMs: numberValue(adapterMetadata?.runtimeLatencyMs ?? adapterMetadata?.latencyMs),
       usage,
       ...summary,
@@ -230,8 +252,21 @@ function runtimeUsage(metadata: Record<string, unknown> | undefined) {
     outputTokens: numberValue(usage.outputTokens),
     totalTokens: numberValue(usage.totalTokens),
     latencyMs: numberValue(usage.latencyMs),
+    estimatedCostMinorUnits: costMinorUnitsValue(usage.estimatedCostMinorUnits),
+    costCurrency: costCurrencyValue(usage.costCurrency),
   };
   return Object.values(normalized).some((value) => typeof value !== 'undefined') ? normalized : undefined;
+}
+
+function costMinorUnitsValue(value: unknown) {
+  if (typeof value === 'string' && /^\d{1,30}$/.test(value)) return value;
+  if (typeof value === 'bigint' && value >= 0n) return value.toString();
+  if (typeof value === 'number' && Number.isSafeInteger(value) && value >= 0) return String(value);
+  return undefined;
+}
+
+function costCurrencyValue(value: unknown) {
+  return typeof value === 'string' && /^[A-Z]{3}$/.test(value) ? value : undefined;
 }
 
 function asRecord(value: unknown): Record<string, unknown> | undefined {
@@ -726,6 +761,201 @@ async function recordRunAudit(input: {
   });
 }
 
+function primaryUsageLimitDecision(decisions: AiUsageLimitDecision[]) {
+  return decisions.find((decision) => decision.status === 'blocked')
+    ?? decisions.find((decision) => decision.wouldExceed)
+    ?? decisions.find((decision) => decision.wouldWarn)
+    ?? decisions.find((decision) => decision.mode === 'enforce')
+    ?? decisions[0];
+}
+
+function usageLimitMetadataFromEvaluation(evaluation: AiUsageLimitEvaluation): UsageLimitMetadata {
+  const primary = primaryUsageLimitDecision(evaluation.decisions);
+  const exceeded = evaluation.decisions.some((decision) => decision.wouldExceed);
+  const enforced = evaluation.decisions.some((decision) => decision.mode === 'enforce');
+  return {
+    usageLimitEvaluationApplied: evaluation.decisions.length > 0,
+    usageLimitMode: primary?.mode ?? null,
+    usageLimitExceeded: exceeded,
+    usageLimitEnforced: enforced,
+    usageLimitBlocked: !evaluation.allowed,
+    usageLimitMetric: primary?.metric ?? null,
+    usageLimitScope: primary?.scopeType ?? null,
+    usageLimitPolicyId: primary?.policyId ?? null,
+    usageLimitWindow: primary?.period ?? null,
+    usageLimitCurrentValue: primary?.currentValue.toString() ?? null,
+    usageLimitThreshold: primary?.limitValue.toString() ?? null,
+    usageLimitReason: primary?.reason ?? 'not_applicable',
+  };
+}
+
+function usageLimitEvaluatorErrorMetadata(): UsageLimitMetadata {
+  return {
+    usageLimitEvaluationApplied: false,
+    usageLimitMode: null,
+    usageLimitExceeded: false,
+    usageLimitEnforced: false,
+    usageLimitBlocked: false,
+    usageLimitMetric: null,
+    usageLimitScope: null,
+    usageLimitPolicyId: null,
+    usageLimitWindow: null,
+    usageLimitCurrentValue: null,
+    usageLimitThreshold: null,
+    usageLimitReason: 'evaluator_error',
+  };
+}
+
+function usageLimitEvents(metadata: UsageLimitMetadata): AgentRunEventInput[] {
+  const events: AgentRunEventInput[] = [{
+    type: 'run.usage_limit_evaluated',
+    status: 'prechecking',
+    message: metadata.usageLimitReason === 'evaluator_error'
+      ? 'Avaliacao de limite indisponivel; execucao mantida em fail-open auditavel.'
+      : 'Limites de uso governados avaliados antes do runtime.',
+    metadata: metadata as unknown as Prisma.InputJsonValue,
+  }];
+  if (metadata.usageLimitExceeded && metadata.usageLimitMode === 'monitor_only') {
+    events.push({
+      type: 'run.usage_limit_violation',
+      status: 'prechecking',
+      message: 'Limite monitor_only excedido; execucao permitida.',
+      metadata: metadata as unknown as Prisma.InputJsonValue,
+    });
+  }
+  if (metadata.usageLimitBlocked) {
+    events.push({
+      type: 'run.usage_limit_blocked',
+      status: 'blocked',
+      message: 'Execucao bloqueada por limite de uso governado.',
+      metadata: metadata as unknown as Prisma.InputJsonValue,
+    });
+  }
+  return events;
+}
+
+async function evaluateRunUsageLimits(input: {
+  user: AuthenticatedUser;
+  assistant: AssistantForRun;
+  runId: string;
+  traceId: string;
+  mode: AgentRunMode;
+  context: RequestContext;
+  runtimeProvider: RuntimeProvider;
+  model: string | null;
+}) {
+  try {
+    const evaluation = await evaluateAiUsageLimits({
+      tenantId: input.user.tenant.id,
+      workspaceId: input.assistant.workspaceId,
+      assistantId: input.assistant.id,
+      userId: input.user.id,
+      source: 'runtime_adapter',
+      operation: 'agent_run.runtime_execute',
+      provider: input.runtimeProvider,
+      model: input.model,
+      projectedUsage: { runCount: 1n },
+    });
+    const metadata = usageLimitMetadataFromEvaluation(evaluation);
+    await recordRunAudit({
+      user: input.user,
+      assistant: input.assistant,
+      runId: input.runId,
+      traceId: input.traceId,
+      action: 'agent_run_usage_limit_evaluated',
+      mode: input.mode,
+      status: evaluation.status,
+      context: input.context,
+      metadata: metadata as unknown as Prisma.InputJsonValue,
+    });
+    if (metadata.usageLimitExceeded && metadata.usageLimitMode === 'monitor_only') {
+      await recordRunAudit({
+        user: input.user,
+        assistant: input.assistant,
+        runId: input.runId,
+        traceId: input.traceId,
+        action: 'agent_run_usage_limit_monitor_violation',
+        mode: input.mode,
+        status: 'warn',
+        context: input.context,
+        metadata: metadata as unknown as Prisma.InputJsonValue,
+      });
+    }
+    if (metadata.usageLimitBlocked) {
+      await recordRunAudit({
+        user: input.user,
+        assistant: input.assistant,
+        runId: input.runId,
+        traceId: input.traceId,
+        action: 'agent_run_usage_limit_blocked',
+        mode: input.mode,
+        status: 'blocked',
+        context: input.context,
+        metadata: metadata as unknown as Prisma.InputJsonValue,
+      });
+    }
+    return { metadata, events: usageLimitEvents(metadata) };
+  } catch (error) {
+    const metadata = usageLimitEvaluatorErrorMetadata();
+    await recordRunAudit({
+      user: input.user,
+      assistant: input.assistant,
+      runId: input.runId,
+      traceId: input.traceId,
+      action: 'agent_run_usage_limit_evaluator_failed',
+      mode: input.mode,
+      status: 'error',
+      context: input.context,
+      metadata: metadata as unknown as Prisma.InputJsonValue,
+    });
+    logger.warn({
+      requestId: input.context.requestId,
+      traceId: input.traceId,
+      runId: input.runId,
+      errorName: error instanceof Error ? error.name : 'unknown',
+    }, 'usage limit evaluator failed open');
+    return { metadata, events: usageLimitEvents(metadata) };
+  }
+}
+
+async function recordUsageLimitBlockedEvent(input: {
+  user: AuthenticatedUser;
+  assistant: Pick<AssistantForRun, 'id' | 'workspaceId'>;
+  runId: string;
+  traceId: string;
+  runtimeProvider: RuntimeProvider;
+  model: string | null;
+  metadata: UsageLimitMetadata;
+  occurredAt: Date;
+}) {
+  try {
+    await recordAiUsageEvent({
+      tenantId: input.user.tenant.id,
+      workspaceId: input.assistant.workspaceId,
+      assistantId: input.assistant.id,
+      userId: input.user.id,
+      runId: input.runId,
+      traceId: input.traceId,
+      source: 'runtime_adapter',
+      operation: 'agent_run.runtime_execute',
+      provider: input.runtimeProvider,
+      model: input.model,
+      status: 'blocked',
+      blockedReason: 'AI_USAGE_LIMIT_EXCEEDED',
+      errorCode: 'AI_USAGE_LIMIT_EXCEEDED',
+      metadata: input.metadata,
+      startedAt: input.occurredAt,
+      completedAt: input.occurredAt,
+    });
+  } catch (error) {
+    logger.warn({
+      traceId: input.traceId,
+      runId: input.runId,
+      errorName: error instanceof Error ? error.name : 'unknown',
+    }, 'failed to record usage limit blocked event');
+  }
+}
+
 async function recordRuntimeUsageEvent(input: {
   user: AuthenticatedUser;
   assistant: Pick<AssistantForRun, 'id' | 'workspaceId'>;
@@ -734,6 +964,7 @@ async function recordRuntimeUsageEvent(input: {
   requestId: string;
   runtimeContext: RuntimeExecutionContext;
   runtimeResult: RuntimeExecutionResult;
+  usageLimitMetadata: UsageLimitMetadata;
   startedAt: Date;
   completedAt: Date;
 }) {
@@ -761,6 +992,8 @@ async function recordRuntimeUsageEvent(input: {
       outputTokens: numberValue(usage?.outputTokens),
       totalTokens: numberValue(usage?.totalTokens),
       latencyMs: numberValue(usage?.latencyMs) ?? numberValue(runtimeMetadata?.runtimeLatencyMs ?? runtimeMetadata?.latencyMs),
+      costCurrency: costCurrencyValue(usage?.costCurrency),
+      estimatedCostMinorUnits: costMinorUnitsValue(usage?.estimatedCostMinorUnits),
       metadata: {
         runtimeProvider: input.runtimeResult.provider,
         runtimeStatus: input.runtimeResult.status,
@@ -768,6 +1001,7 @@ async function recordRuntimeUsageEvent(input: {
         traceId: input.traceId,
         runId: input.runId,
         inputHash: input.runtimeContext.input.hash,
+        ...input.usageLimitMetadata,
         ...summary,
         policy: {
           maxContextChars: numberValue(runtimeMetadata?.policyMaxContextChars),
@@ -861,6 +1095,9 @@ export const agentRunsService = {
       ...conversationContextEvents(sanitizedMetadata),
     ];
     const runtimeProvider = runtimeAdapterRegistry.currentProvider();
+    const selectedVersion = assistant.versions.find((version) => version.id === assistantVersionId)
+      ?? assistant.versions[0];
+    const usageLimitModel = selectedVersion?.modelName ?? null;
 
     await recordRunAudit({ user, assistant, runId, traceId, action: 'agent_run_requested', mode: input.mode, status: 'queued', context });
 
@@ -957,6 +1194,105 @@ export const agentRunsService = {
     }
 
     await recordRunAudit({ user, assistant, runId, traceId, action: 'agent_run_precheck_passed', mode: input.mode, status: 'prechecking', context });
+    const usageLimitPrecheck = await evaluateRunUsageLimits({
+      user,
+      assistant,
+      runId,
+      traceId,
+      mode: input.mode,
+      context,
+      runtimeProvider,
+      model: usageLimitModel,
+    });
+    if (usageLimitPrecheck.metadata.usageLimitBlocked) {
+      const now = new Date();
+      const run = await agentRunsRepository.createRun({
+        id: runId,
+        tenantId: user.tenant.id,
+        workspaceId: assistant.workspaceId,
+        assistantId: assistant.id,
+        assistantVersionId,
+        assistantPublicationId,
+        conversationId: options.conversationId,
+        requestedById: user.id,
+        status: 'blocked',
+        mode: input.mode,
+        source: input.source,
+        requestId: context.requestId,
+        traceId,
+        blockedAt: now,
+        errorCode: 'AI_USAGE_LIMIT_EXCEEDED',
+        errorMessage: 'Execucao bloqueada por limite de uso governado.',
+        precheckSnapshot: precheck as unknown as Prisma.InputJsonValue,
+        metadata: mergeRuntimeMetadata({
+          provider: runtimeProvider,
+          runtimeStatus: 'blocked',
+          requestId: context.requestId,
+          traceId,
+          runId,
+          tenantId: user.tenant.id,
+          workspaceId: assistant.workspaceId,
+          assistantId: assistant.id,
+          assistantVersionId,
+          assistantPublicationId,
+          actorUserId: user.id,
+          inputHash: 'not_computed_usage_limit_blocked',
+          errorCode: 'AI_USAGE_LIMIT_EXCEEDED',
+          usageLimitMetadata: usageLimitPrecheck.metadata,
+        }),
+        events: [
+          ...requestedEvents,
+          {
+            type: 'run.precheck_passed',
+            status: 'prechecking',
+            message: 'Precheck estrutural aprovado.',
+            metadata: { traceId, runtimeProvider },
+          },
+          ...usageLimitPrecheck.events,
+        ],
+      });
+      await recordUsageLimitBlockedEvent({
+        user,
+        assistant,
+        runId,
+        traceId,
+        runtimeProvider,
+        model: usageLimitModel,
+        metadata: usageLimitPrecheck.metadata,
+        occurredAt: now,
+      });
+      await recordRunAudit({
+        user,
+        assistant,
+        runId,
+        traceId,
+        action: 'runtime_execution_blocked',
+        mode: input.mode,
+        status: 'blocked',
+        context,
+        metadata: usageLimitPrecheck.metadata as unknown as Prisma.InputJsonValue,
+      });
+      await recordRunAudit({
+        user,
+        assistant,
+        runId,
+        traceId,
+        action: 'agent_run_blocked',
+        mode: input.mode,
+        status: 'blocked',
+        context,
+        metadata: usageLimitPrecheck.metadata as unknown as Prisma.InputJsonValue,
+      });
+      logger.info({
+        requestId: context.requestId,
+        traceId,
+        runId,
+        assistantId: assistant.id,
+        status: 'blocked',
+        blockedReason: 'AI_USAGE_LIMIT_EXCEEDED',
+      }, 'agent run blocked by usage limit');
+      return mapAgentRun(run);
+    }
     const runtimeConfig = getRuntimeConfig();
     const responseScopeMode = responseScopeModeFromPolicy(policy);
     let runtimeSummary: RuntimeSummaryForRun | undefined;
@@ -1202,6 +1538,7 @@ export const agentRunsService = {
               lastRagQueryId: runtimeContext.rag.lastRagQueryId,
             },
             mcpSummary: runtimeContext.mcp,
+            usageLimitMetadata: usageLimitPrecheck.metadata,
           }),
           events: [
             ...requestedEvents,
@@ -1211,6 +1548,7 @@ export const agentRunsService = {
               message: 'Precheck aprovado.',
               metadata: { traceId, runtimeProvider },
             },
+            ...usageLimitPrecheck.events,
           ],
         });
         gatewayRunPersisted = true;
@@ -1260,6 +1598,7 @@ export const agentRunsService = {
       },
       mcpSummary: runtimeContext.mcp,
       responseScopeSummary: runtimeContext.responseScope,
+      usageLimitMetadata: usageLimitPrecheck.metadata,
     });
     const finalEvents = [
       ...requestedEvents,
@@ -1269,6 +1608,7 @@ export const agentRunsService = {
         message: 'Precheck aprovado.',
         metadata: { traceId, runtimeProvider },
       },
+      ...usageLimitPrecheck.events,
       ...normalizedRuntimeEvents,
     ];
     const run = gatewayRunPersisted
@@ -1329,6 +1669,7 @@ export const agentRunsService = {
       requestId: context.requestId,
       runtimeContext,
       runtimeResult,
+      usageLimitMetadata: usageLimitPrecheck.metadata,
       startedAt: now,
       completedAt: now,
     });

@@ -117,6 +117,28 @@ describe('ai observability usage service', () => {
     expect(normalized.estimatedCostMinorUnits).toBe(123456n);
   });
 
+  it('omits incomplete cost when currency or minor units are not both reliable', () => {
+    const missingCurrency = normalizeAiUsageEventInput({
+      tenantId,
+      workspaceId,
+      runId: 'cost_without_currency',
+      operation: 'chat.completion',
+      estimatedCostMinorUnits: '123',
+    });
+    const missingValue = normalizeAiUsageEventInput({
+      tenantId,
+      workspaceId,
+      runId: 'currency_without_cost',
+      operation: 'chat.completion',
+      costCurrency: 'USD',
+    });
+
+    expect(missingCurrency.costCurrency).toBeUndefined();
+    expect(missingCurrency.estimatedCostMinorUnits).toBeUndefined();
+    expect(missingValue.costCurrency).toBeUndefined();
+    expect(missingValue.estimatedCostMinorUnits).toBeUndefined();
+  });
+
   it('supports failed and blocked statuses with hashed error message', () => {
     const failed = normalizeAiUsageEventInput({
       tenantId,

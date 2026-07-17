@@ -5,7 +5,7 @@ import type { RuntimeRunsQuery } from './runtime-observability.schema';
 
 type RuntimeObservabilityPrisma = Pick<
   PrismaClient,
-  'agentRun' | 'aiRunUsageEvent' | 'ragQuery'
+  'agentRun' | 'agentRunEvent' | 'aiRunUsageEvent' | 'ragQuery'
 >;
 
 const runtimeRunListSelect = {
@@ -140,6 +140,13 @@ function runtimeRunsWhere(
   if (query.externalMcpCalled !== undefined) {
     and.push(metadataEquals(['runtime', 'externalMcpCalled'], query.externalMcpCalled));
   }
+  if (query.usageLimitBlocked !== undefined) {
+    and.push({
+      events: query.usageLimitBlocked
+        ? { some: { type: 'run.usage_limit_blocked' } }
+        : { none: { type: 'run.usage_limit_blocked' } },
+    });
+  }
 
   return {
     tenantId,
@@ -227,7 +234,7 @@ export class RuntimeObservabilityPersistenceRepository {
 
   async summarizeRuntime(tenantId: string, workspaceIds: string[]) {
     const runWhere = { tenantId, workspaceId: { in: workspaceIds } } satisfies Prisma.AgentRunWhereInput;
-    const [totalRuns, statusGroups, usage] = await Promise.all([
+    const [totalRuns, statusGroups, usage, usageLimitBlockedRuns, monitorOnlyViolations] = await Promise.all([
       this.db.agentRun.count({ where: runWhere }),
       this.db.agentRun.groupBy({
         by: ['status'],
@@ -239,8 +246,22 @@ export class RuntimeObservabilityPersistenceRepository {
         _sum: { totalTokens: true },
         _avg: { latencyMs: true },
       }),
+      this.db.agentRunEvent.count({
+        where: {
+          tenantId,
+          workspaceId: { in: workspaceIds },
+          type: 'run.usage_limit_blocked',
+        },
+      }),
+      this.db.agentRunEvent.count({
+        where: {
+          tenantId,
+          workspaceId: { in: workspaceIds },
+          type: 'run.usage_limit_violation',
+        },
+      }),
     ]);
-    return { totalRuns, statusGroups, usage };
+    return { totalRuns, statusGroups, usage, usageLimitBlockedRuns, monitorOnlyViolations };
   }
 }
 

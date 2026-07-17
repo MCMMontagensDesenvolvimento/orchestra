@@ -66,6 +66,18 @@ function runFixture() {
         ragSkippedReason: null,
         fallbackOutsideKnowledgeUsed: false,
         rawContentLogged: false,
+        usageLimitEvaluationApplied: true,
+        usageLimitMode: 'monitor_only',
+        usageLimitExceeded: true,
+        usageLimitEnforced: false,
+        usageLimitBlocked: false,
+        usageLimitMetric: 'run_count',
+        usageLimitScope: 'assistant',
+        usageLimitPolicyId: '00000000-0000-0000-0000-00000000016a',
+        usageLimitWindow: 'day',
+        usageLimitCurrentValue: '10',
+        usageLimitThreshold: '10',
+        usageLimitReason: 'limit_exceeded',
         externalProviderCalled: false,
         externalMcpCalled: false,
         toolCallsExecuted: 0,
@@ -88,7 +100,7 @@ function runFixture() {
   };
 }
 
-function usageFixture() {
+function usageFixture(overrides: Record<string, unknown> = {}) {
   return {
     provider: 'local',
     modelName: 'local-deterministic-v1',
@@ -99,6 +111,7 @@ function usageFixture() {
     costCurrency: null,
     estimatedCostMinorUnits: null,
     startedAt: now,
+    ...overrides,
   };
 }
 
@@ -114,6 +127,10 @@ function detailFixture() {
         metadata: {
           provider: 'local',
           latencyMs: 18,
+          usageLimitMode: 'monitor_only',
+          usageLimitExceeded: true,
+          usageLimitBlocked: false,
+          usageLimitMetric: 'run_count',
           prompt: 'must-not-leak-event-prompt',
         },
         createdAt: now,
@@ -155,6 +172,8 @@ describe('runtime observability read API', () => {
         { status: 'failed', _count: { _all: 1 } },
       ],
       usage: { _sum: { totalTokens: 15 }, _avg: { latencyMs: 18 } },
+      usageLimitBlockedRuns: 1,
+      monitorOnlyViolations: 2,
     });
   });
 
@@ -181,6 +200,7 @@ describe('runtime observability read API', () => {
         fallbackOutsideKnowledgeUsed: 'false',
         externalProviderCalled: 'false',
         externalMcpCalled: 'false',
+        usageLimitBlocked: 'false',
         search: 'Resumo',
       })
       .set('Cookie', sessionCookie())
@@ -194,6 +214,7 @@ describe('runtime observability read API', () => {
         status: 'completed',
         fallbackOutsideKnowledgeUsed: false,
         externalProviderCalled: false,
+        usageLimitBlocked: false,
       }),
     );
     expect(response.body.data[0]).toMatchObject({
@@ -203,6 +224,15 @@ describe('runtime observability read API', () => {
       responseScopeMode: 'knowledge_first',
       rawContentLogged: false,
       totalTokens: 15,
+      usageLimitEvaluationApplied: true,
+      usageLimitMode: 'monitor_only',
+      usageLimitExceeded: true,
+      usageLimitBlocked: false,
+      usageLimitMetric: 'run_count',
+      usageLimitScope: 'assistant',
+      usageLimitReason: 'limit_exceeded',
+      costCurrency: null,
+      costMinorUnits: null,
     });
     expect(JSON.stringify(response.body)).not.toContain('must-not-leak');
   });
@@ -216,7 +246,14 @@ describe('runtime observability read API', () => {
 
     expect(response.body.data.events[0]).toEqual(expect.objectContaining({
       type: 'runtime.run_completed',
-      metadata: { runtimeProvider: 'local', latencyMs: 18 },
+      metadata: {
+        runtimeProvider: 'local',
+        latencyMs: 18,
+        usageLimitMode: 'monitor_only',
+        usageLimitExceeded: true,
+        usageLimitBlocked: false,
+        usageLimitMetric: 'run_count',
+      },
     }));
     expect(response.body.data.ragSources[0].excerpt).toHaveLength(240);
     expect(response.body.data.ragSources[0]).toMatchObject({
@@ -227,6 +264,28 @@ describe('runtime observability read API', () => {
     const serialized = JSON.stringify(response.body);
     expect(serialized).not.toContain('must-not-leak');
     expect(response.body.data.events[0]).not.toHaveProperty('message');
+  });
+
+  it('exposes cost only when persisted currency and minor units are both present', async () => {
+    mocks.repository.findRuntimeRun.mockResolvedValueOnce({
+      ...detailFixture(),
+      usage: usageFixture({ costCurrency: 'USD', estimatedCostMinorUnits: 37n }),
+    });
+    const costed = await request(createApp())
+      .get(`/api/v1/ai-observability/runtime-runs/${runId}`)
+      .set('Cookie', sessionCookie())
+      .expect(200);
+    expect(costed.body.data).toMatchObject({ costCurrency: 'USD', costMinorUnits: '37' });
+
+    mocks.repository.findRuntimeRun.mockResolvedValueOnce({
+      ...detailFixture(),
+      usage: usageFixture({ costCurrency: null, estimatedCostMinorUnits: 37n }),
+    });
+    const incomplete = await request(createApp())
+      .get(`/api/v1/ai-observability/runtime-runs/${runId}`)
+      .set('Cookie', sessionCookie())
+      .expect(200);
+    expect(incomplete.body.data).toMatchObject({ costCurrency: null, costMinorUnits: null });
   });
 
   it('rejects out-of-scope workspace and reports the operational summary', async () => {
@@ -245,6 +304,8 @@ describe('runtime observability read API', () => {
       totalRuns: 2,
       completedRuns: 1,
       failedRuns: 1,
+      usageLimitBlockedRuns: 1,
+      monitorOnlyViolations: 2,
       successRate: 50,
       totalTokens: '15',
     }));
