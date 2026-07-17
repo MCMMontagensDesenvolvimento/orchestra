@@ -148,6 +148,8 @@ export const endpoints = {
     send: (conversationId: string) => `/chat/conversations/${conversationId}/messages`,
   },
   analytics: {
-    overview: '/analytics/overview',
+    runtimeRuns: '/ai-observability/runtime-runs',
+    runtimeRun: (runId: string) => `/ai-observability/runtime-runs/${runId}`,
+    runtimeSummary: '/ai-observability/runtime-summary',
   },
 } as const;

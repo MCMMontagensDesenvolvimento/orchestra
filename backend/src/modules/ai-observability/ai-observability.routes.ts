@@ -3,6 +3,8 @@ import { requireAuth, requirePermission } from '../../shared/middleware/auth.mid
 import { idParamsSchema } from '../../shared/validation/pagination';
 import { validateBody, validateParams, validateQuery } from '../../shared/validation/validate';
 import { aiObservabilityAdminController } from './ai-observability-admin.controller';
+import { runtimeObservabilityController } from './runtime-observability.controller';
+import { runtimeRunsQuerySchema } from './runtime-observability.schema';
 import {
   aiObservabilityAlertEvaluationSchema,
   aiObservabilityAlertRulesQuerySchema,
@@ -15,6 +17,33 @@ import {
 export function createAiObservabilityRouter() {
   const router = Router();
   const readPermission = requirePermission('audit.read');
+
+  router.get(
+    '/runtime-runs',
+    requireAuth,
+    readPermission,
+    validateQuery(runtimeRunsQuerySchema),
+    (req, res, next) => {
+      void runtimeObservabilityController.list(req, res).catch(next);
+    },
+  );
+  router.get(
+    '/runtime-runs/:id',
+    requireAuth,
+    readPermission,
+    validateParams(idParamsSchema),
+    (req, res, next) => {
+      void runtimeObservabilityController.get(req, res).catch(next);
+    },
+  );
+  router.get(
+    '/runtime-summary',
+    requireAuth,
+    readPermission,
+    (req, res, next) => {
+      void runtimeObservabilityController.summary(req, res).catch(next);
+    },
+  );
 
   router.get(
     '/usage-events',
