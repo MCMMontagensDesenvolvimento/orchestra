@@ -6,6 +6,7 @@ import {
   normalizeAgnoRuntimeHttpBaseUrl,
   normalizeAgnoRuntimeHttpSecurityKey,
 } from './agno-runtime-http-security';
+import { productionJwtSecretIssue } from './production-secrets';
 
 dotenv.config();
 
@@ -169,6 +170,14 @@ const envSchema = z.object({
   ANTHROPIC_DEFAULT_MODEL: z.preprocess(emptyToUndefined, z.string().optional()),
   ANTHROPIC_EXECUTION_ENABLED: booleanString('false'),
 }).superRefine((value, ctx) => {
+  const jwtSecretIssue = productionJwtSecretIssue(value.NODE_ENV, value.JWT_SECRET);
+  if (jwtSecretIssue) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ['JWT_SECRET'],
+      message: jwtSecretIssue,
+    });
+  }
   if (value.AGNO_RUNTIME_HTTP_ENABLED && !value.AGNO_RUNTIME_HTTP_BASE_URL) {
     ctx.addIssue({
       code: z.ZodIssueCode.custom,
