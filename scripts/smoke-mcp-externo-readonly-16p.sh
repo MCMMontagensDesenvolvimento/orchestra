@@ -135,7 +135,7 @@ require_pattern "$ENV_CONFIG" "MCP_REMOTE_ALLOW_WRITE_TOOLS: booleanString('fals
 for pattern in 'localhost' '169' '127' '192' 'metadata.google.internal' "parsed.protocol !== 'https:'" 'parsed.username || parsed.password' 'parsed.search' 'isBlockedMcpRemoteAddress'; do
   require_pattern "$EGRESS" "$pattern" "egress guard $pattern"
 done
-require_pattern "$EGRESS" 'parseAllowedOrigins(allowlist).has(origin)' 'explicit normalized origin allowlist'
+require_pattern "$EGRESS" 'parseAllowedOrigins(allowlist, policy).has(origin)' 'explicit normalized origin allowlist'
 
 require_pattern "$SCHEMA" 'logicalSecretRef' 'logical secret reference schema'
 require_pattern "$SCHEMA" 'URLs nao devem conter credenciais, query string ou fragment embutidos.' 'embedded credential/query rejection'

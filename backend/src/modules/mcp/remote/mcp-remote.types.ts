@@ -63,6 +63,9 @@ export interface McpRemoteFeatureConfig {
   maxResponseBytes: number;
   requireSecretRef: boolean;
   allowWriteTools: boolean;
+  environment?: 'development' | 'test' | 'production';
+  allowInsecureLocalDemo?: boolean;
+  localDemoOrigin?: string;
 }
 
 export interface McpRemoteOperationalLimits {
@@ -100,6 +103,10 @@ export interface McpRemoteReadiness {
   credentialsConfigured: boolean;
   authType?: string;
   timeoutMs: number;
+  transportChecked?: boolean;
+  transportHealthy?: boolean;
+  simulated?: boolean;
+  mcpRemoteHost?: string;
 }
 
 export interface GovernedMcpRemoteServer {

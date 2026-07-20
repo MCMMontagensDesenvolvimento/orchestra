@@ -198,6 +198,43 @@ export interface McpToolPayload {
   metadata?: Record<string, unknown>;
 }
 
+export interface McpRemoteReadinessResult {
+  status: 'disabled' | 'ready' | 'misconfigured' | 'blocked' | 'auth_required' | 'execution_disabled' | 'discovery_disabled' | 'readonly_disabled';
+  failClosed: boolean;
+  remoteEnabled: boolean;
+  discoveryEnabled: boolean;
+  executionEnabled: boolean;
+  reason: string;
+  checks: Array<{ name: string; status: 'pass' | 'fail' | 'skipped'; message?: string }>;
+  credentialsConfigured: boolean;
+  timeoutMs: number;
+  transportChecked?: boolean;
+  transportHealthy?: boolean;
+  simulated?: boolean;
+  mcpRemoteHost?: string;
+}
+
+export interface McpRemoteDiscoveryResult {
+  serverId: string;
+  status: 'completed' | 'blocked' | 'failed';
+  protocolVersion?: string;
+  tools: Array<{
+    externalName: string;
+    displayName: string;
+    description?: string;
+    inferredRiskLevel: RiskLevel;
+    requiresApproval: boolean;
+  }>;
+  warnings: Array<{ code: string; message: string }>;
+  readiness: McpRemoteReadinessResult;
+  sanitizedMetadata: {
+    transportCalled?: boolean;
+    mcpRemoteHost?: string;
+    toolCount?: number;
+    reason?: string;
+  };
+}
+
 function formatDate(value?: string | null) {
   return value ? value.split('T')[0] : '';
 }
@@ -507,6 +544,38 @@ export const mcpService = {
     if (env.useMocks) return mockFind(mockMcpServers, id);
     const response = await apiClient.get<ApiEnvelope<ApiMcpServer>>(endpoints.mcp.server(id));
     return mapServer(response.data.data);
+  },
+
+  async remoteReadiness(id: string): Promise<McpRemoteReadinessResult> {
+    if (env.useMocks) return mockResponse({
+      status: 'disabled',
+      failClosed: true,
+      remoteEnabled: false,
+      discoveryEnabled: false,
+      executionEnabled: false,
+      reason: 'MCP remoto permanece desabilitado no modo mock.',
+      checks: [{ name: 'feature_flag', status: 'fail', message: 'MCP_REMOTE_ENABLED=false.' }],
+      credentialsConfigured: false,
+      timeoutMs: 5000,
+      transportChecked: false,
+      transportHealthy: false,
+      simulated: true,
+    });
+    const response = await apiClient.get<ApiEnvelope<McpRemoteReadinessResult>>(endpoints.mcp.remoteReadiness(id));
+    return response.data.data;
+  },
+
+  async remoteDiscovery(id: string): Promise<McpRemoteDiscoveryResult> {
+    if (env.useMocks) return mockResponse({
+      serverId: id,
+      status: 'blocked',
+      tools: [],
+      warnings: [{ code: 'MCP_REMOTE_DISABLED', message: 'Discovery remoto não é simulado pela interface.' }],
+      readiness: await mcpService.remoteReadiness(id),
+      sanitizedMetadata: { transportCalled: false, reason: 'remote_disabled' },
+    });
+    const response = await apiClient.get<ApiEnvelope<McpRemoteDiscoveryResult>>(endpoints.mcp.remoteDiscovery(id));
+    return response.data.data;
   },
 
   async createServer(payload: McpServerPayload): Promise<McpServer> {

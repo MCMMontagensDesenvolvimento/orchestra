@@ -2,6 +2,7 @@ import { createHash } from 'crypto';
 import { AppError } from '../../../shared/errors/app-error';
 import { validateMcpRemoteEgress, type McpRemoteHostResolver } from './mcp-remote-egress';
 import { getMcpRemoteConfig } from './mcp-remote.config';
+import { createMcpReadonlyDemoHttpTransport } from './mcp-readonly-demo-http.transport';
 import { FailClosedMcpRemoteDiscoveryTransport, type McpRemoteDiscoveryTransport, type McpRemoteDiscoveryTransportTool } from './mcp-remote-transport';
 import { McpRemoteReadinessService, mcpRemoteReadinessService } from './mcp-remote-readiness.service';
 import type {
@@ -277,8 +278,12 @@ export class McpRemoteDiscoveryService {
     resolveHost?: McpRemoteHostResolver;
   } = {}) {
     this.readinessService = options.readinessService ?? mcpRemoteReadinessService;
-    this.transport = options.transport ?? new FailClosedMcpRemoteDiscoveryTransport();
     this.config = options.config ?? getMcpRemoteConfig();
+    this.transport = options.transport ?? (
+      this.config.localDemoOrigin
+        ? createMcpReadonlyDemoHttpTransport(this.config)
+        : new FailClosedMcpRemoteDiscoveryTransport()
+    );
     this.resolveHost = options.resolveHost;
   }
 
@@ -308,6 +313,11 @@ export class McpRemoteDiscoveryService {
         input.server.baseUrl,
         this.config.egressAllowlist,
         this.resolveHost,
+        {
+          environment: this.config.environment,
+          allowInsecureLocalDemo: this.config.allowInsecureLocalDemo,
+          localDemoOrigin: this.config.localDemoOrigin,
+        },
       );
       transportCalled = true;
       const transportOutput = await this.transport.discoverTools({

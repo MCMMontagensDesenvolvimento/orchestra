@@ -30,7 +30,8 @@ import {
   MoreHorizontal, Search, Zap, Users, Lock, ExternalLink, Copy, Plus
 } from 'lucide-react';
 import type { RiskLevel } from '@/types';
-import type { McpToolPayload } from '@/services/mcp.service';
+import { mcpService } from '@/services/mcp.service';
+import type { McpRemoteDiscoveryResult, McpRemoteReadinessResult, McpToolPayload } from '@/services/mcp.service';
 import { toast } from '@/hooks/use-toast';
 
 const riskColors: Record<RiskLevel, string> = {
@@ -94,6 +95,9 @@ export default function McpDetailPage() {
   );
   const [toolDialogOpen, setToolDialogOpen] = useState(false);
   const [toolForm, setToolForm] = useState(defaultToolForm);
+  const [remoteReadiness, setRemoteReadiness] = useState<McpRemoteReadinessResult | null>(null);
+  const [remoteDiscovery, setRemoteDiscovery] = useState<McpRemoteDiscoveryResult | null>(null);
+  const [remoteCheckPending, setRemoteCheckPending] = useState<'readiness' | 'discovery' | null>(null);
 
   useEffect(() => {
     setApprovalStates(Object.fromEntries(tools.map(t => [t.id, t.requiresApproval])));
@@ -112,6 +116,47 @@ export default function McpDetailPage() {
   if (!server) {
     return <AppShell><EmptyState icon={<Server className="h-6 w-6" />} title="Servidor não encontrado" description="O servidor MCP solicitado não existe." action={<Button onClick={() => navigate('/app/mcp')}>Voltar</Button>} /></AppShell>;
   }
+
+  const isRemoteServer = server.serverType === 'remote' || server.serverType === 'external';
+
+  const checkRemoteReadiness = async () => {
+    if (!id) return;
+    setRemoteCheckPending('readiness');
+    try {
+      const result = await mcpService.remoteReadiness(id);
+      setRemoteReadiness(result);
+      toast({
+        title: result.status === 'ready' ? 'Demo read-only disponível' : 'MCP remoto bloqueado',
+        description: result.reason,
+        variant: result.status === 'ready' ? 'default' : 'destructive',
+      });
+    } catch (error) {
+      toast({ title: 'Readiness indisponível', description: error instanceof Error ? error.message : 'Falha sanitizada no transporte.', variant: 'destructive' });
+    } finally {
+      setRemoteCheckPending(null);
+    }
+  };
+
+  const discoverRemoteCatalog = async () => {
+    if (!id) return;
+    setRemoteCheckPending('discovery');
+    try {
+      const result = await mcpService.remoteDiscovery(id);
+      setRemoteDiscovery(result);
+      setRemoteReadiness(result.readiness);
+      toast({
+        title: result.status === 'completed' ? 'Catálogo read-only consultado' : 'Discovery bloqueado',
+        description: result.status === 'completed'
+          ? `${result.tools.length} tools read-only encontradas.`
+          : result.warnings[0]?.message ?? 'O boundary permaneceu fail-closed.',
+        variant: result.status === 'completed' ? 'default' : 'destructive',
+      });
+    } catch (error) {
+      toast({ title: 'Discovery indisponível', description: error instanceof Error ? error.message : 'Falha sanitizada no transporte.', variant: 'destructive' });
+    } finally {
+      setRemoteCheckPending(null);
+    }
+  };
 
   const toggleApproval = async (toolId: string) => {
     const tool = tools.find(t => t.id === toolId);
@@ -179,8 +224,46 @@ export default function McpDetailPage() {
 
         <div className="flex gap-3 rounded-lg border border-warning/30 bg-warning/5 p-4">
           <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-warning" />
-          <p className="text-xs text-muted-foreground">Discovery e readiness reais não são disparados por esta tela. Escrita remota permanece bloqueada; a execução exige flags, allowlist, risco baixo, policy explícita e transporte controlado no backend.</p>
+          <div className="space-y-2">
+            <p className="text-xs text-muted-foreground">MCP remoto segue desligado por padrão. Somente o demo local de homologação, read-only e sem segredo, pode ser consultado quando flags e allowlist explícitas estiverem configuradas. Nenhuma ação de escrita ou conector corporativo é oferecido.</p>
+            {isRemoteServer && (
+              <div className="flex flex-wrap gap-2">
+                <Button variant="outline" size="sm" disabled={remoteCheckPending !== null} onClick={() => { void checkRemoteReadiness(); }}>
+                  {remoteCheckPending === 'readiness' ? <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" /> : <Shield className="mr-1 h-3.5 w-3.5" />}
+                  Testar readiness seguro
+                </Button>
+                <Button variant="outline" size="sm" disabled={remoteCheckPending !== null} onClick={() => { void discoverRemoteCatalog(); }}>
+                  {remoteCheckPending === 'discovery' ? <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" /> : <Search className="mr-1 h-3.5 w-3.5" />}
+                  Consultar catálogo read-only
+                </Button>
+              </div>
+            )}
+          </div>
         </div>
+
+        {isRemoteServer && (remoteReadiness || remoteDiscovery) && (
+          <div className="rounded-lg border bg-card p-4 text-xs">
+            <div className="flex flex-wrap items-center gap-2">
+              <Badge variant={remoteReadiness?.status === 'ready' ? 'default' : 'destructive'}>
+                {remoteReadiness?.status ?? remoteDiscovery?.status}
+              </Badge>
+              <Badge variant="outline">fail-closed: {remoteReadiness?.failClosed ? 'sim' : 'não'}</Badge>
+              <Badge variant="outline">simulated: {String(remoteReadiness?.simulated ?? false)}</Badge>
+              {remoteReadiness?.mcpRemoteHost && <Badge variant="outline">host: {remoteReadiness.mcpRemoteHost}</Badge>}
+            </div>
+            <p className="mt-2 text-muted-foreground">{remoteReadiness?.reason}</p>
+            {remoteDiscovery && (
+              <div className="mt-3 flex flex-wrap gap-2">
+                {remoteDiscovery.tools.map((tool) => (
+                  <Badge key={tool.externalName} variant="secondary">
+                    {tool.externalName} · {tool.inferredRiskLevel} · read-only
+                  </Badge>
+                ))}
+                {remoteDiscovery.tools.length === 0 && <span className="text-muted-foreground">Nenhuma tool exposta.</span>}
+              </div>
+            )}
+          </div>
+        )}
 
         {/* KPIs */}
         <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-6 gap-3">
@@ -217,12 +300,14 @@ export default function McpDetailPage() {
                 <Search className="h-3.5 w-3.5 text-muted-foreground" />
                 <input type="text" value={toolSearch} onChange={e => setToolSearch(e.target.value)} placeholder="Buscar tools..." className="bg-transparent text-sm outline-none w-full" />
               </div>
-              <Button size="sm" onClick={() => setToolDialogOpen(true)}>
-                <Plus className="h-4 w-4 mr-1" />Nova tool
-              </Button>
+              {!isRemoteServer && (
+                <Button size="sm" onClick={() => setToolDialogOpen(true)}>
+                  <Plus className="h-4 w-4 mr-1" />Nova tool
+                </Button>
+              )}
             </div>
             {filteredTools.length === 0 ? (
-              <EmptyState icon={<Wrench className="h-6 w-6" />} title="Nenhuma tool" description="Este servidor não possui tools registradas." action={<Button variant="outline" onClick={() => setToolDialogOpen(true)}><Plus className="h-4 w-4 mr-1" />Nova tool</Button>} />
+              <EmptyState icon={<Wrench className="h-6 w-6" />} title="Nenhuma tool" description={isRemoteServer ? 'Use o discovery seguro para consultar o catálogo read-only homologado.' : 'Este servidor não possui tools registradas.'} action={isRemoteServer ? undefined : <Button variant="outline" onClick={() => setToolDialogOpen(true)}><Plus className="h-4 w-4 mr-1" />Nova tool</Button>} />
             ) : (
               <div className="rounded-lg border">
                 <Table>
@@ -248,8 +333,8 @@ export default function McpDetailPage() {
                         <TableCell><span className={`inline-flex rounded-full border px-2 py-0.5 text-[10px] font-medium ${riskColors[tool.riskLevel]}`}>{tool.riskLevel}</span></TableCell>
                         <TableCell>
                           <div className="flex items-center gap-2">
-                            <Switch checked={approvalStates[tool.id] ?? false} onCheckedChange={() => { void toggleApproval(tool.id); }} disabled={updateMcpToolMutation.isPending} />
-                            <span className="text-xs text-muted-foreground">{approvalStates[tool.id] ? 'Sim' : 'Não'}</span>
+                            <Switch checked={approvalStates[tool.id] ?? false} onCheckedChange={() => { void toggleApproval(tool.id); }} disabled={isRemoteServer || updateMcpToolMutation.isPending} />
+                            <span className="text-xs text-muted-foreground">{isRemoteServer ? 'Governada' : approvalStates[tool.id] ? 'Sim' : 'Não'}</span>
                           </div>
                         </TableCell>
                         <TableCell className="text-center font-medium">{tool.executionCount.toLocaleString()}</TableCell>

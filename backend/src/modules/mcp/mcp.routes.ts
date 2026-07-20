@@ -75,6 +75,12 @@ export function createMcpRouter() {
   router.get('/servers/:id', requireAuth, requirePermission('mcp.read'), validateParams(idParamsSchema), (req, res, next) => {
     void mcpController.getServer(req, res).catch(next);
   });
+  router.get('/servers/:id/remote-readiness', requireAuth, requirePermission('mcp.read'), validateParams(idParamsSchema), (req, res, next) => {
+    void mcpController.getRemoteReadiness(req, res).catch(next);
+  });
+  router.get('/servers/:id/remote-discovery', requireAuth, requirePermission('mcp.tools.read'), validateParams(idParamsSchema), (req, res, next) => {
+    void mcpController.discoverRemoteTools(req, res).catch(next);
+  });
   router.patch(
     '/servers/:id',
     requireAuth,

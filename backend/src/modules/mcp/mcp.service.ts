@@ -14,6 +14,11 @@ import {
   mapMcpTool,
 } from './mcp.mapper';
 import { mcpRepository } from './mcp.repository';
+import { McpRemoteClient } from './remote/mcp-remote.client';
+import { getMcpRemoteConfig } from './remote/mcp-remote.config';
+import { mcpRemoteDiscoveryService } from './remote/mcp-remote-discovery.service';
+import { mcpRemoteReadinessService } from './remote/mcp-remote-readiness.service';
+import { createMcpReadonlyDemoHttpTransport } from './remote/mcp-readonly-demo-http.transport';
 import type {
   AssistantMcpBindingCreateInput,
   AssistantMcpBindingUpdateInput,
@@ -244,6 +249,23 @@ async function getServerOrThrow(id: string, user: AuthenticatedUser) {
   return server;
 }
 
+function assertRemoteServer(server: Awaited<ReturnType<typeof getServerOrThrow>>) {
+  if (server.serverType !== 'remote' && server.serverType !== 'external') {
+    throw new AppError(409, 'MCP_REMOTE_SERVER_REQUIRED', 'MCP remote readiness is available only for remote servers.');
+  }
+}
+
+function governedRemotePolicy(server: Awaited<ReturnType<typeof getServerOrThrow>>) {
+  const policy = server.policies[0];
+  return {
+    allowDiscovery: true,
+    allowRuntimeExecution: policy?.allowRuntimeExecution === true,
+    sandboxOnly: policy?.sandboxOnly !== false,
+    blockedByDefault: policy?.blockedByDefault !== false,
+    requiresApproval: policy?.requiresApproval !== false,
+  };
+}
+
 async function getAssistantOrThrow(id: string, user: AuthenticatedUser) {
   const assistant = await mcpRepository.findAssistant(id, user.tenant.id, userWorkspaceIds(user));
   if (!assistant) {
@@ -370,6 +392,62 @@ export const mcpService = {
   async getServer(id: string, user: AuthenticatedUser) {
     const server = await getServerOrThrow(id, user);
     return mapMcpServer(server);
+  },
+
+  async getRemoteReadiness(id: string, user: AuthenticatedUser) {
+    const server = await getServerOrThrow(id, user);
+    assertRemoteServer(server);
+    const config = getMcpRemoteConfig();
+    const readiness = mcpRemoteReadinessService.getReadiness({
+      server,
+      policy: governedRemotePolicy(server),
+      credentialsConfigured: Boolean(server.secretRef),
+      purpose: 'discovery',
+      config,
+    });
+    if (readiness.status !== 'ready') return readiness;
+
+    const client = new McpRemoteClient({
+      serverId: server.id,
+      baseUrl: server.baseUrl,
+      authType: server.authType,
+      secretRef: server.secretRef,
+      credentialsConfigured: Boolean(server.secretRef),
+      timeoutMs: config.defaultTimeoutMs,
+    }, config, { transport: createMcpReadonlyDemoHttpTransport(config) });
+    return client.checkHealth(readiness);
+  },
+
+  async discoverRemoteTools(id: string, user: AuthenticatedUser, context: RequestContext) {
+    const server = await getServerOrThrow(id, user);
+    assertRemoteServer(server);
+    const result = await mcpRemoteDiscoveryService.runGovernedDiscovery({
+      tenantId: user.tenant.id,
+      workspaceId: server.workspaceId,
+      server,
+      policy: governedRemotePolicy(server),
+      credentialsConfigured: Boolean(server.secretRef),
+      requestedByUserId: user.id,
+      requestId: context.requestId,
+      existingTools: [],
+    });
+    await audit({
+      user,
+      context,
+      action: 'mcp_remote_readonly_discovery_checked',
+      entity: 'mcp_server',
+      entityId: server.id,
+      workspaceId: server.workspaceId,
+      metadata: {
+        status: result.status,
+        toolCount: result.tools.length,
+        transportCalled: result.sanitizedMetadata.transportCalled === true,
+        ...(typeof result.sanitizedMetadata.mcpRemoteHost === 'string'
+          ? { mcpRemoteHost: result.sanitizedMetadata.mcpRemoteHost }
+          : {}),
+      },
+    });
+    return result;
   },
 
   async createServer(input: McpServerCreateInput, user: AuthenticatedUser, context: RequestContext) {

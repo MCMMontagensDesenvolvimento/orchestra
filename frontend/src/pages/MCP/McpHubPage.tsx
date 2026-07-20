@@ -53,7 +53,7 @@ interface ServerFormData {
 }
 
 const defaultForm: ServerFormData = {
-  name: '', description: '', url: '', authType: 'API Key', riskLevel: 'low',
+  name: '', description: '', url: '', authType: 'none', riskLevel: 'low',
   version: '1.0.0', owner: '', status: 'disabled',
   credentialRef: '',
 };
@@ -76,7 +76,7 @@ function authTypeForForm(authType: string) {
   if (authType === 'oauth') return 'OAuth 2.0';
   if (authType === 'mTLS') return 'mTLS';
   if (authType === 'none') return 'none';
-  return authType || 'API Key';
+  return authType || 'none';
 }
 
 function statusForForm(status: McpServerStatus): McpServerStatus {
@@ -104,7 +104,7 @@ function buildServerPayload(formData: ServerFormData): McpServerPayload {
     metadata: {
       version: formData.version,
       owner: formData.owner,
-      phase: 'remote_readonly_foundation',
+      phase: 'remote_readonly_homologation',
     },
   };
 }
@@ -219,7 +219,7 @@ export default function McpHubPage() {
           ...(typeof server.metadata === 'object' && server.metadata ? server.metadata : {}),
           version: server.version,
           owner: server.owner,
-          phase: 'remote_readonly_foundation',
+          phase: 'remote_readonly_homologation',
         },
       });
       setServers(prev => [duplicated, ...prev]);
@@ -337,7 +337,7 @@ export default function McpHubPage() {
         </div>
         <div className="rounded-lg border border-warning/30 bg-warning/5 p-4">
           <p className="text-sm font-medium">Conectividade governada</p>
-          <p className="mt-1 text-xs text-muted-foreground">Health check real não está disponível nesta tela. Chamadas só podem ocorrer no backend, com flags explícitas, allowlist de egress e política read-only.</p>
+          <p className="mt-1 text-xs text-muted-foreground">Readiness e discovery seguros estão disponíveis no detalhe somente para o demo local homologado. Toda chamada exige flags explícitas, allowlist de egress e política read-only.</p>
         </div>
       </TabsContent>
 
@@ -435,8 +435,8 @@ export default function McpHubPage() {
         <div className="flex gap-3 rounded-lg border border-warning/30 bg-warning/5 p-4">
           <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-warning" />
           <div>
-            <p className="text-sm font-medium">MCP externo em fundação read-only e opt-in</p>
-            <p className="mt-1 text-xs text-muted-foreground">Discovery, health e escrita remota não são simulados pela interface. O backend permanece fail-closed até que flags, allowlist, política e transporte controlado estejam configurados.</p>
+            <p className="text-sm font-medium">MCP demo homologado, read-only e opt-in</p>
+            <p className="mt-1 text-xs text-muted-foreground">O servidor fictício local permite readiness/discovery reais quando configurado. Escrita e conectores corporativos não estão disponíveis; o backend permanece fail-closed sem flags, allowlist e política explícitas.</p>
           </div>
         </div>
 

@@ -124,6 +124,8 @@ export const endpoints = {
   mcp: {
     servers: '/mcp/servers',
     server: (id: string) => `/mcp/servers/${id}`,
+    remoteReadiness: (id: string) => `/mcp/servers/${id}/remote-readiness`,
+    remoteDiscovery: (id: string) => `/mcp/servers/${id}/remote-discovery`,
     serverArchive: (id: string) => `/mcp/servers/${id}/archive`,
     serverRestore: (id: string) => `/mcp/servers/${id}/restore`,
     serverTools: (id: string) => `/mcp/servers/${id}/tools`,

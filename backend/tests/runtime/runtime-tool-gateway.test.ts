@@ -1,4 +1,6 @@
 import request from 'supertest';
+import { createServer } from 'node:http';
+import { once } from 'node:events';
 import { afterAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { createApp } from '../../src/app/app';
 import { env } from '../../src/config/env';
@@ -8,6 +10,8 @@ import {
   runtimeToolGatewayService,
   type AssistantRuntimeSpecV1,
 } from '../../src/modules/runtime';
+import { McpRemoteClient } from '../../src/modules/mcp/remote/mcp-remote.client';
+import { McpReadonlyDemoHttpTransport } from '../../src/modules/mcp/remote/mcp-readonly-demo-http.transport';
 
 const mocks = vi.hoisted(() => ({
   agentRunsRepository: {
@@ -62,6 +66,8 @@ const originalEnv = {
   MCP_REMOTE_EGRESS_ALLOWLIST: env.MCP_REMOTE_EGRESS_ALLOWLIST,
   MCP_REMOTE_ALLOW_WRITE_TOOLS: env.MCP_REMOTE_ALLOW_WRITE_TOOLS,
   MCP_REMOTE_REQUIRE_SECRET_REF: env.MCP_REMOTE_REQUIRE_SECRET_REF,
+  MCP_REMOTE_ALLOW_INSECURE_LOCAL_DEMO: env.MCP_REMOTE_ALLOW_INSECURE_LOCAL_DEMO,
+  MCP_REMOTE_LOCAL_DEMO_ORIGIN: env.MCP_REMOTE_LOCAL_DEMO_ORIGIN,
 };
 
 function configureEnv(overrides: Partial<typeof originalEnv> = {}) {
@@ -79,6 +85,8 @@ function configureEnv(overrides: Partial<typeof originalEnv> = {}) {
     MCP_REMOTE_EGRESS_ALLOWLIST: '',
     MCP_REMOTE_ALLOW_WRITE_TOOLS: false,
     MCP_REMOTE_REQUIRE_SECRET_REF: true,
+    MCP_REMOTE_ALLOW_INSECURE_LOCAL_DEMO: false,
+    MCP_REMOTE_LOCAL_DEMO_ORIGIN: undefined,
     ...overrides,
   });
 }
@@ -388,6 +396,89 @@ describe('Agno governed tool gateway', () => {
       metadata: expect.objectContaining({ externalMcpCalled: true, mcpRemoteReadOnly: true }),
     }));
     service.deactivateRun(runId);
+  });
+
+  it('passes a real local demo HTTP call through gateway governance with simulated=false', async () => {
+    const demo = createServer(async (incoming, outgoing) => {
+      if (incoming.method !== 'POST' || incoming.url !== '/v1/tools/call') {
+        outgoing.writeHead(404, { 'content-type': 'application/json' });
+        outgoing.end('{}');
+        return;
+      }
+      for await (const _chunk of incoming) { /* consume without persisting or logging raw arguments */ }
+      const body = JSON.stringify({ status: 'completed', content: '{"matches":[]}', simulated: false });
+      outgoing.writeHead(200, { 'content-type': 'application/json', 'content-length': Buffer.byteLength(body) });
+      outgoing.end(body);
+    });
+    demo.listen(0, '127.0.0.1');
+    await once(demo, 'listening');
+    const address = demo.address();
+    if (!address || typeof address === 'string') throw new Error('demo test server did not bind');
+    const origin = `http://127.0.0.1:${address.port}`;
+
+    configureEnv({
+      MCP_REMOTE_ENABLED: true,
+      MCP_REMOTE_EXECUTION_ENABLED: true,
+      MCP_REMOTE_DISCOVERY_ENABLED: true,
+      MCP_REMOTE_READONLY_ENABLED: true,
+      MCP_REMOTE_EGRESS_ALLOWLIST: origin,
+      MCP_REMOTE_ALLOW_INSECURE_LOCAL_DEMO: true,
+      MCP_REMOTE_LOCAL_DEMO_ORIGIN: origin,
+    });
+    mocks.mcpRepository.findToolForExecution.mockResolvedValue(toolFixture({
+      name: 'catalog.search',
+      description: 'Read matching fictitious catalog entries.',
+      metadata: { readOnly: true },
+      server: {
+        id: serverId,
+        serverType: 'remote',
+        baseUrl: origin,
+        status: 'active',
+        trustLevel: 'trusted',
+        riskLevel: 'low',
+        authType: 'none',
+        secretRef: null,
+        deletedAt: null,
+      },
+      policies: [{ sandboxOnly: false, requiresApproval: false, allowRuntimeExecution: true, blockedByDefault: false }],
+    }));
+    mocks.mcpRepository.listMatchingBindings.mockResolvedValue([bindingFixture({ mode: 'enabled_placeholder' })]);
+    const service = createRuntimeToolGatewayService({
+      createRemoteClient: (options, config) => new McpRemoteClient(options, config, {
+        transport: new McpReadonlyDemoHttpTransport({
+          allowedOrigin: config.localDemoOrigin,
+          maxResponseBytes: config.maxResponseBytes,
+        }),
+      }),
+    });
+    service.activateRun(specFixture({ descriptor: { name: 'catalog.search' } }), {
+      provider: 'agno_http',
+      assistantPublicationId: publicationId,
+    });
+
+    try {
+      const response = await service.execute(toolRequest(), { requestId: 'req_remote_demo_real' });
+      expect(response).toEqual(expect.objectContaining({
+        status: 'succeeded',
+        metadata: expect.objectContaining({
+          externalMcpCalled: true,
+          simulated: false,
+          mcpRemoteAllowed: true,
+          mcpRemoteReadOnly: true,
+          mcpRemoteHost: '127.0.0.1',
+        }),
+      }));
+      const persisted = mocks.mcpRepository.createMcpToolCallWithEvents.mock.calls[0][0];
+      expect(persisted.metadata).toEqual(expect.objectContaining({ externalMcpCalled: true, simulated: false }));
+      expect(persisted).not.toHaveProperty('inputPreview');
+      expect(persisted).not.toHaveProperty('outputPreview');
+      expect(JSON.stringify(persisted)).not.toContain('safe lookup');
+      expect(JSON.stringify(persisted)).not.toContain('{"matches":[]}');
+    } finally {
+      service.deactivateRun(runId);
+      demo.close();
+      await once(demo, 'close');
+    }
   });
 
   it('blocks a remote tool without an explicit read-only marker before creating a client', async () => {
