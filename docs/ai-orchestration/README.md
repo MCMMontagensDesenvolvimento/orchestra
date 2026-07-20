@@ -34,6 +34,8 @@ A Fase 14F adiciona descriptors governados de tools/MCP ao runtime Agno HTTP, us
 
 A Fase 14G adiciona observabilidade, limites e auditoria ponta a ponta no caminho `AgentRun -> agno_http -> runtime HTTP`, com traceId/runId/requestId, usage, latencia, status, erro, summaries de RAG/tools e audit metadata sanitizada, sem payload bruto, provider externo, MCP remoto direto ou tool execution nova.
 
+A Fase 16P adiciona a fundação opt-in de MCP externo read-only: allowlist/SSRF, referências lógicas de secret, client/transporte injetável, revalidação no gateway e observabilidade sanitizada. O transporte default permanece fail-closed e nenhuma chamada externa produtiva é habilitada por padrão. Consulte `ORCHESTRA_MCP_EXTERNO_READONLY_16P.md`.
+
 A Fase 14H consolida o MVP tecnico da integracao com Agno Runtime, adicionando handoff operacional, checklist de homologacao/rollback e smoke seguro de MVP para runtime HTTP minimo e fronteira de frontend, sem feature nova, migration, frontend ou mudanca de defaults.
 
 A Fase 15C adiciona conversas persistentes privadas por usuario no Chat, mensagens persistidas, arquivamento logico, envio de mensagem pelo backend de conversa e resposta do assistente vinculada ao `AgentRun`.

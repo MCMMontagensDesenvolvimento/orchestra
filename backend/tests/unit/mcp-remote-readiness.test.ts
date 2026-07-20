@@ -10,32 +10,51 @@ import type {
 
 const originalEnv = { ...process.env };
 
+const safetyConfig = {
+  egressAllowlist: 'https://mcp.example.invalid',
+  maxTimeoutMs: 5000,
+  maxResponseBytes: 65_536,
+  requireSecretRef: true,
+  allowWriteTools: false,
+} as const;
+
+const resolvePublicHost = async () => ['93.184.216.34'];
+
 const failClosedConfig: McpRemoteFeatureConfig = {
   remoteEnabled: false,
   discoveryEnabled: false,
   executionEnabled: false,
+  readOnlyEnabled: false,
   defaultTimeoutMs: 5000,
+  ...safetyConfig,
+  egressAllowlist: '',
 };
 
 const enabledConfig: McpRemoteFeatureConfig = {
   remoteEnabled: true,
   discoveryEnabled: true,
   executionEnabled: true,
+  readOnlyEnabled: true,
   defaultTimeoutMs: 5000,
+  ...safetyConfig,
 };
 
 const executionDisabledConfig: McpRemoteFeatureConfig = {
   remoteEnabled: true,
   discoveryEnabled: true,
   executionEnabled: false,
+  readOnlyEnabled: true,
   defaultTimeoutMs: 5000,
+  ...safetyConfig,
 };
 
 const discoveryDisabledConfig: McpRemoteFeatureConfig = {
   remoteEnabled: true,
   discoveryEnabled: false,
   executionEnabled: true,
+  readOnlyEnabled: true,
   defaultTimeoutMs: 5000,
+  ...safetyConfig,
 };
 
 function server(overrides: Partial<GovernedMcpRemoteServer> = {}): GovernedMcpRemoteServer {
@@ -102,8 +121,10 @@ function executionSpec(): GovernedMcpToolExecutionSpec {
     tool: {
       externalName: 'search_records',
       displayName: 'Search Records',
+      description: 'Read matching records.',
       riskLevel: 'low',
       requiresApproval: false,
+      readOnly: true,
     },
     policyDecision: {
       status: 'allowed',
@@ -136,6 +157,12 @@ async function loadRemote(overrides: Record<string, string | undefined> = {}) {
     MCP_REMOTE_ENABLED: undefined,
     MCP_REMOTE_EXECUTION_ENABLED: undefined,
     MCP_REMOTE_DISCOVERY_ENABLED: undefined,
+    MCP_REMOTE_READONLY_ENABLED: undefined,
+    MCP_REMOTE_EGRESS_ALLOWLIST: undefined,
+    MCP_REMOTE_MAX_TIMEOUT_MS: undefined,
+    MCP_REMOTE_MAX_RESPONSE_BYTES: undefined,
+    MCP_REMOTE_REQUIRE_SECRET_REF: undefined,
+    MCP_REMOTE_ALLOW_WRITE_TOOLS: undefined,
     MCP_REMOTE_DEFAULT_TIMEOUT_MS: undefined,
     ...overrides,
   };
@@ -219,10 +246,7 @@ describe('MCP remote fail-closed readiness', () => {
   it('requires backend credentials for credentialed auth types without exposing references', async () => {
     const { McpRemoteReadinessService } = await loadRemote();
     const readiness = new McpRemoteReadinessService().getReadiness({
-      server: {
-        ...server({ authType: 'bearer' }),
-        secretRef: 'vault://mcp/raw-reference',
-      } as GovernedMcpRemoteServer,
+      server: server({ authType: 'bearer' }),
       policy: remotePolicy(),
       credentialsConfigured: false,
       config: enabledConfig,
@@ -235,7 +259,7 @@ describe('MCP remote fail-closed readiness', () => {
       credentialsConfigured: false,
       authType: 'bearer',
     });
-    expect(serialized).not.toContain('vault://mcp/raw-reference');
+    expect(serialized).not.toContain('secretRef');
   });
 
   it('keeps readiness fail-closed when discovery is disabled', async () => {
@@ -305,7 +329,7 @@ describe('MCP remote client stub', () => {
     const fetchMock = vi.fn();
     vi.stubGlobal('fetch', fetchMock);
     const { McpRemoteClient } = await loadRemote();
-    const client = new McpRemoteClient(clientOptions(), enabledConfig);
+    const client = new McpRemoteClient(clientOptions(), enabledConfig, { resolveHost: resolvePublicHost });
 
     await expect(client.checkHealth()).rejects.toMatchObject({
       status: 409,
@@ -326,7 +350,7 @@ describe('MCP remote client stub', () => {
     const fetchMock = vi.fn();
     vi.stubGlobal('fetch', fetchMock);
     const { McpRemoteClient } = await loadRemote();
-    const client = new McpRemoteClient(clientOptions(), failClosedConfig);
+    const client = new McpRemoteClient(clientOptions(), failClosedConfig, { resolveHost: resolvePublicHost });
 
     await expect(client.checkHealth()).rejects.toMatchObject({ code: 'MCP_REMOTE_DISABLED' });
     await expect(client.discoverTools(discoveryRequest())).rejects.toMatchObject({ code: 'MCP_REMOTE_DISABLED' });
@@ -336,8 +360,8 @@ describe('MCP remote client stub', () => {
 
   it('returns controlled discovery and execution disabled errors', async () => {
     const { McpRemoteClient } = await loadRemote();
-    const discoveryClient = new McpRemoteClient(clientOptions(), discoveryDisabledConfig);
-    const executionClient = new McpRemoteClient(clientOptions(), executionDisabledConfig);
+    const discoveryClient = new McpRemoteClient(clientOptions(), discoveryDisabledConfig, { resolveHost: resolvePublicHost });
+    const executionClient = new McpRemoteClient(clientOptions(), executionDisabledConfig, { resolveHost: resolvePublicHost });
 
     await expect(discoveryClient.discoverTools(discoveryRequest())).rejects.toMatchObject({
       code: 'MCP_REMOTE_DISCOVERY_DISABLED',

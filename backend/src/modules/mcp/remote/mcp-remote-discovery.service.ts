@@ -1,5 +1,6 @@
 import { createHash } from 'crypto';
 import { AppError } from '../../../shared/errors/app-error';
+import { validateMcpRemoteEgress, type McpRemoteHostResolver } from './mcp-remote-egress';
 import { getMcpRemoteConfig } from './mcp-remote.config';
 import { FailClosedMcpRemoteDiscoveryTransport, type McpRemoteDiscoveryTransport, type McpRemoteDiscoveryTransportTool } from './mcp-remote-transport';
 import { McpRemoteReadinessService, mcpRemoteReadinessService } from './mcp-remote-readiness.service';
@@ -267,15 +268,18 @@ export class McpRemoteDiscoveryService {
   private readonly readinessService: McpRemoteReadinessService;
   private readonly transport: McpRemoteDiscoveryTransport;
   private readonly config: McpRemoteFeatureConfig;
+  private readonly resolveHost?: McpRemoteHostResolver;
 
   constructor(options: {
     readinessService?: McpRemoteReadinessService;
     transport?: McpRemoteDiscoveryTransport;
     config?: McpRemoteFeatureConfig;
+    resolveHost?: McpRemoteHostResolver;
   } = {}) {
     this.readinessService = options.readinessService ?? mcpRemoteReadinessService;
     this.transport = options.transport ?? new FailClosedMcpRemoteDiscoveryTransport();
     this.config = options.config ?? getMcpRemoteConfig();
+    this.resolveHost = options.resolveHost;
   }
 
   async runGovernedDiscovery(input: McpRemoteDiscoveryInput): Promise<McpRemoteDiscoveryOutput> {
@@ -298,7 +302,14 @@ export class McpRemoteDiscoveryService {
       return blockedOutput(input, readiness, warnings);
     }
 
+    let transportCalled = false;
     try {
+      const egress = await validateMcpRemoteEgress(
+        input.server.baseUrl,
+        this.config.egressAllowlist,
+        this.resolveHost,
+      );
+      transportCalled = true;
       const transportOutput = await this.transport.discoverTools({
         serverId: input.server.id,
         baseUrl: input.server.baseUrl,
@@ -330,6 +341,7 @@ export class McpRemoteDiscoveryService {
         sanitizedMetadata: {
           executionBlocked: true,
           transportCalled: true,
+          mcpRemoteHost: egress.host,
           toolCount: tools.length,
           timeoutMs: this.config.defaultTimeoutMs,
         },
@@ -350,7 +362,7 @@ export class McpRemoteDiscoveryService {
         readiness,
         sanitizedMetadata: {
           executionBlocked: true,
-          transportCalled: true,
+          transportCalled,
           timeoutMs: this.config.defaultTimeoutMs,
         },
       };

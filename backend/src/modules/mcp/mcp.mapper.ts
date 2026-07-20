@@ -51,7 +51,7 @@ export function mapMcpServer(
     trustLevel: server.trustLevel,
     riskLevel: server.riskLevel,
     authType: server.authType,
-    secretRef: server.secretRef,
+    credentialConfigured: Boolean(server.secretRef),
     metadata: server.metadata,
     createdById: server.createdById,
     createdBy: server.createdBy,

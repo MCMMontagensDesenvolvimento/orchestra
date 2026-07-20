@@ -74,6 +74,19 @@ const safeExecutionInput = z.unknown()
     message: 'Nao informe secrets, tokens, passwords, api keys ou authorization no input de sandbox.',
   });
 
+const credentialFreeUrl = z.string().trim().max(1000).url().refine((value) => {
+  const parsed = new URL(value);
+  return !parsed.username && !parsed.password && !parsed.search && !parsed.hash;
+}, { message: 'URLs nao devem conter credenciais, query string ou fragment embutidos.' });
+
+const logicalSecretRef = z.string()
+  .trim()
+  .min(4)
+  .max(240)
+  .regex(/^[a-z][a-z0-9+.-]*:\/\/[A-Za-z0-9/_.:-]+$/i, {
+    message: 'Informe somente uma referencia logica de secret, nunca o valor da credencial.',
+  });
+
 export const mcpServersQuerySchema = paginationQuerySchema.extend({
   sortBy: z.enum(['name', 'status', 'updatedAt', 'createdAt']).default('updatedAt'),
   sortDirection: z.enum(['asc', 'desc']).default('desc'),
@@ -88,27 +101,27 @@ export const mcpServerCreateSchema = z.object({
   name: z.string().trim().min(2).max(160),
   description: z.string().trim().max(1000).optional(),
   serverType: z.enum(mcpServerTypeValues).default('remote'),
-  baseUrl: z.string().trim().max(1000).url().optional(),
+  baseUrl: credentialFreeUrl.optional(),
   status: z.enum(mcpServerStatusValues).default('disabled'),
   trustLevel: z.enum(mcpTrustLevelValues).default('restricted'),
   riskLevel: z.enum(mcpRiskLevelValues).default('medium'),
   authType: z.enum(mcpAuthTypeValues).default('none'),
-  secretRef: z.string().trim().max(240).optional(),
+  secretRef: logicalSecretRef.optional(),
   metadata: safeJsonRecord.optional(),
-});
+}).strict();
 
 export const mcpServerUpdateSchema = z.object({
   name: z.string().trim().min(2).max(160).optional(),
   description: z.string().trim().max(1000).nullable().optional(),
   serverType: z.enum(mcpServerTypeValues).optional(),
-  baseUrl: z.string().trim().max(1000).url().nullable().optional(),
+  baseUrl: credentialFreeUrl.nullable().optional(),
   status: z.enum(mcpServerStatusValues).optional(),
   trustLevel: z.enum(mcpTrustLevelValues).optional(),
   riskLevel: z.enum(mcpRiskLevelValues).optional(),
   authType: z.enum(mcpAuthTypeValues).optional(),
-  secretRef: z.string().trim().max(240).nullable().optional(),
+  secretRef: logicalSecretRef.nullable().optional(),
   metadata: safeJsonRecord.nullable().optional(),
-}).refine((input) => Object.keys(input).length > 0, {
+}).strict().refine((input) => Object.keys(input).length > 0, {
   message: 'Informe ao menos uma propriedade para atualizar.',
 });
 
@@ -125,7 +138,7 @@ export const mcpToolCreateSchema = z.object({
   requiresApproval: z.boolean().optional(),
   isEnabled: z.boolean().default(true),
   metadata: safeJsonRecord.optional(),
-});
+}).strict();
 
 export const mcpToolUpdateSchema = z.object({
   name: z.string().trim().min(2).max(160).optional(),
@@ -136,7 +149,7 @@ export const mcpToolUpdateSchema = z.object({
   requiresApproval: z.boolean().optional(),
   isEnabled: z.boolean().optional(),
   metadata: safeJsonRecord.nullable().optional(),
-}).refine((input) => Object.keys(input).length > 0, {
+}).strict().refine((input) => Object.keys(input).length > 0, {
   message: 'Informe ao menos uma propriedade para atualizar.',
 });
 
@@ -150,7 +163,7 @@ export const mcpResourceCreateSchema = z.object({
   description: z.string().trim().max(1000).optional(),
   mimeType: z.string().trim().max(160).optional(),
   metadata: safeJsonRecord.optional(),
-});
+}).strict();
 
 export const mcpPromptCreateSchema = z.object({
   name: z.string().trim().min(2).max(160),
@@ -159,7 +172,7 @@ export const mcpPromptCreateSchema = z.object({
     message: 'Templates nao devem conter secrets, tokens, passwords, api keys ou authorization.',
   }),
   metadata: safeJsonRecord.optional(),
-});
+}).strict();
 
 export const assistantMcpBindingCreateSchema = z.object({
   mcpServerId: z.string().uuid(),
@@ -167,13 +180,13 @@ export const assistantMcpBindingCreateSchema = z.object({
   isEnabled: z.boolean().default(true),
   mode: z.enum(assistantMcpModeValues).default('sandbox_only'),
   requiresApprovalOverride: z.boolean().nullable().optional(),
-});
+}).strict();
 
 export const assistantMcpBindingUpdateSchema = z.object({
   isEnabled: z.boolean().optional(),
   mode: z.enum(assistantMcpModeValues).optional(),
   requiresApprovalOverride: z.boolean().nullable().optional(),
-}).refine((input) => Object.keys(input).length > 0, {
+}).strict().refine((input) => Object.keys(input).length > 0, {
   message: 'Informe ao menos uma propriedade para atualizar.',
 });
 
@@ -187,7 +200,7 @@ export const mcpExecutionRequestSchema = z.object({
   agentRunId: z.string().uuid().optional(),
   mode: z.literal('sandbox').default('sandbox'),
   input: safeExecutionInput,
-});
+}).strict();
 
 export const mcpToolCallsQuerySchema = paginationQuerySchema.extend({
   sortBy: z.enum(['createdAt', 'updatedAt', 'status', 'durationMs']).default('createdAt'),

@@ -116,24 +116,37 @@ class RunningServer:
 class GatewayHandler(BaseHTTPRequestHandler):
     request_payload: dict | None = None
     authorization: str | None = None
+    external_mcp_called = False
 
     def do_POST(self):
         length = int(self.headers.get("Content-Length", "0"))
         GatewayHandler.request_payload = json.loads(self.rfile.read(length))
         GatewayHandler.authorization = self.headers.get("Authorization")
         payload = GatewayHandler.request_payload
+        metadata = {
+            "toolCallsExecuted": 1,
+            "externalMcpCalled": GatewayHandler.external_mcp_called,
+            "simulated": True,
+            "failedClosed": False,
+            "latencyMs": 1,
+        }
+        if GatewayHandler.external_mcp_called:
+            metadata.update({
+                "mcpRemoteEvaluationApplied": True,
+                "mcpRemoteAllowed": True,
+                "mcpRemoteBlocked": False,
+                "mcpRemoteReadOnly": True,
+                "mcpRemoteHost": "mcp.example.test",
+                "mcpRemoteToolId": "tool-1",
+                "mcpRemoteRiskLevel": "low",
+                "responseBytes": 42,
+            })
         response = {
             "data": {
                 "toolCallId": payload["toolCallId"],
                 "status": "succeeded",
                 "result": {"content": "Governed sandbox tool execution completed."},
-                "metadata": {
-                    "toolCallsExecuted": 1,
-                    "externalMcpCalled": False,
-                    "simulated": True,
-                    "failedClosed": False,
-                    "latencyMs": 1,
-                },
+                "metadata": metadata,
             },
             "requestId": "request-gateway-test",
         }
@@ -257,6 +270,7 @@ class AgnoBridgeTests(unittest.TestCase):
         self.assertNotIn("inputSchema", json.dumps(response))
 
     def test_gateway_supports_the_backend_16f_response_envelope(self):
+        GatewayHandler.external_mcp_called = False
         gateway_server = ThreadingHTTPServer(("127.0.0.1", 0), GatewayHandler)
         gateway_thread = threading.Thread(target=gateway_server.serve_forever, daemon=True)
         gateway_thread.start()
@@ -286,6 +300,34 @@ class AgnoBridgeTests(unittest.TestCase):
         self.assertEqual(GatewayHandler.request_payload["agentRunId"], "run-bridge-test")
         self.assertEqual(GatewayHandler.request_payload["assistantId"], "assistant-1")
         self.assertEqual(GatewayHandler.authorization, f"Bearer {key}")
+
+    def test_gateway_accepts_only_governed_remote_readonly_metadata(self):
+        GatewayHandler.external_mcp_called = True
+        gateway_server = ThreadingHTTPServer(("127.0.0.1", 0), GatewayHandler)
+        gateway_thread = threading.Thread(target=gateway_server.serve_forever, daemon=True)
+        gateway_thread.start()
+        try:
+            gateway_config = config(
+                AGNO_RUNTIME_HTTP_REQUIRE_SECURITY_KEY="true",
+                AGNO_RUNTIME_HTTP_SECURITY_KEY="phase-16p-gateway-placeholder",
+                AGNO_RUNTIME_HTTP_TOOLS_ENABLED="true",
+                AGNO_RUNTIME_HTTP_MAX_TOOL_CALLS="1",
+                AGNO_RUNTIME_HTTP_TOOL_GATEWAY_ENABLED="true",
+                ORCHESTRA_TOOL_GATEWAY_URL=f"http://127.0.0.1:{gateway_server.server_port}/api/v1/runtime/agno/tool-calls",
+            )
+            spec = execute_payload()["assistantRuntimeSpec"]
+            spec["policy"]["maxToolCalls"] = 1
+            session = GatewaySession(gateway_config, spec)
+            session.call({"toolId": "tool-1"}, {"query": "safe value"})
+        finally:
+            GatewayHandler.external_mcp_called = False
+            gateway_server.shutdown()
+            gateway_server.server_close()
+            gateway_thread.join(timeout=2)
+
+        self.assertTrue(session.external_mcp_called)
+        self.assertTrue(session.gateway_metadata["mcpRemoteReadOnly"])
+        self.assertEqual(session.gateway_metadata["mcpRemoteHost"], "mcp.example.test")
 
     def test_real_mode_without_provider_key_is_misconfigured_and_fails_closed(self):
         real = config(

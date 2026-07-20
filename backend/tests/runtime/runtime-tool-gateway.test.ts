@@ -4,6 +4,7 @@ import { createApp } from '../../src/app/app';
 import { env } from '../../src/config/env';
 import {
   assistantRuntimeSpecV1Schema,
+  createRuntimeToolGatewayService,
   runtimeToolGatewayService,
   type AssistantRuntimeSpecV1,
 } from '../../src/modules/runtime';
@@ -54,6 +55,13 @@ const originalEnv = {
   AGNO_RUNTIME_HTTP_SECURITY_KEY: env.AGNO_RUNTIME_HTTP_SECURITY_KEY,
   AGNO_RUNTIME_HTTP_TOOL_GATEWAY_ENABLED: env.AGNO_RUNTIME_HTTP_TOOL_GATEWAY_ENABLED,
   AGNO_RUNTIME_HTTP_TOOL_GATEWAY_MAX_PAYLOAD_BYTES: env.AGNO_RUNTIME_HTTP_TOOL_GATEWAY_MAX_PAYLOAD_BYTES,
+  MCP_REMOTE_ENABLED: env.MCP_REMOTE_ENABLED,
+  MCP_REMOTE_EXECUTION_ENABLED: env.MCP_REMOTE_EXECUTION_ENABLED,
+  MCP_REMOTE_DISCOVERY_ENABLED: env.MCP_REMOTE_DISCOVERY_ENABLED,
+  MCP_REMOTE_READONLY_ENABLED: env.MCP_REMOTE_READONLY_ENABLED,
+  MCP_REMOTE_EGRESS_ALLOWLIST: env.MCP_REMOTE_EGRESS_ALLOWLIST,
+  MCP_REMOTE_ALLOW_WRITE_TOOLS: env.MCP_REMOTE_ALLOW_WRITE_TOOLS,
+  MCP_REMOTE_REQUIRE_SECRET_REF: env.MCP_REMOTE_REQUIRE_SECRET_REF,
 };
 
 function configureEnv(overrides: Partial<typeof originalEnv> = {}) {
@@ -64,6 +72,13 @@ function configureEnv(overrides: Partial<typeof originalEnv> = {}) {
     AGNO_RUNTIME_HTTP_SECURITY_KEY: gatewayKey,
     AGNO_RUNTIME_HTTP_TOOL_GATEWAY_ENABLED: true,
     AGNO_RUNTIME_HTTP_TOOL_GATEWAY_MAX_PAYLOAD_BYTES: 32_768,
+    MCP_REMOTE_ENABLED: false,
+    MCP_REMOTE_EXECUTION_ENABLED: false,
+    MCP_REMOTE_DISCOVERY_ENABLED: false,
+    MCP_REMOTE_READONLY_ENABLED: false,
+    MCP_REMOTE_EGRESS_ALLOWLIST: '',
+    MCP_REMOTE_ALLOW_WRITE_TOOLS: false,
+    MCP_REMOTE_REQUIRE_SECRET_REF: true,
     ...overrides,
   });
 }
@@ -291,6 +306,185 @@ describe('Agno governed tool gateway', () => {
     }));
     expect(JSON.stringify(audit)).not.toContain('safe lookup');
     expect(JSON.stringify(audit)).not.toMatch(/schema|header|secret|url/i);
+  });
+
+  it('executes a low-risk read-only remote tool only through an injected controlled client', async () => {
+    configureEnv({
+      MCP_REMOTE_ENABLED: true,
+      MCP_REMOTE_EXECUTION_ENABLED: true,
+      MCP_REMOTE_DISCOVERY_ENABLED: true,
+      MCP_REMOTE_READONLY_ENABLED: true,
+      MCP_REMOTE_EGRESS_ALLOWLIST: 'https://mcp.example.test',
+    });
+    const remoteTool = toolFixture({
+      name: 'search_records',
+      description: 'Read matching records.',
+      metadata: { readOnly: true },
+      server: {
+        id: serverId,
+        serverType: 'remote',
+        baseUrl: 'https://mcp.example.test/v1',
+        status: 'active',
+        trustLevel: 'trusted',
+        riskLevel: 'low',
+        authType: 'none',
+        secretRef: null,
+        deletedAt: null,
+      },
+      policies: [{ sandboxOnly: false, requiresApproval: false, allowRuntimeExecution: true, blockedByDefault: false }],
+    });
+    mocks.mcpRepository.findToolForExecution.mockResolvedValue(remoteTool);
+    mocks.mcpRepository.listMatchingBindings.mockResolvedValue([bindingFixture({ mode: 'enabled_placeholder' })]);
+    const executeTool = vi.fn(async () => ({
+      executionId: 'controlled-fake',
+      status: 'completed' as const,
+      content: '{"matches":2}',
+      outputHash: 'safe-output-hash',
+      durationMs: 4,
+      externalMcpCalled: true,
+      simulated: true,
+      responseBytes: 13,
+      remoteHost: 'mcp.example.test',
+      events: [],
+      sanitizedMetadata: {},
+    }));
+    const createRemoteClient = vi.fn(() => ({ executeTool }));
+    const service = createRuntimeToolGatewayService({ createRemoteClient });
+    service.activateRun(specFixture({ descriptor: { name: 'search_records' } }), {
+      provider: 'agno_http',
+      assistantPublicationId: publicationId,
+    });
+
+    const response = await service.execute(toolRequest(), { requestId: 'req_remote_controlled' });
+
+    expect(response).toEqual(expect.objectContaining({
+      status: 'succeeded',
+      result: { content: '{"matches":2}' },
+      metadata: expect.objectContaining({
+        externalMcpCalled: true,
+        simulated: true,
+        mcpRemoteEvaluationApplied: true,
+        mcpRemoteAllowed: true,
+        mcpRemoteBlocked: false,
+        mcpRemoteReadOnly: true,
+        mcpRemoteHost: 'mcp.example.test',
+        mcpRemoteToolId: toolId,
+      }),
+    }));
+    expect(createRemoteClient).toHaveBeenCalledOnce();
+    expect(executeTool).toHaveBeenCalledOnce();
+    const persisted = mocks.mcpRepository.createMcpToolCallWithEvents.mock.calls[0][0];
+    expect(persisted).toEqual(expect.objectContaining({
+      mode: 'remote_controlled',
+      inputHash: expect.stringMatching(/^[a-f0-9]{64}$/),
+      metadata: expect.objectContaining({ externalMcpCalled: true, mcpRemoteReadOnly: true }),
+    }));
+    expect(persisted).not.toHaveProperty('inputPreview');
+    expect(persisted).not.toHaveProperty('outputPreview');
+    expect(JSON.stringify(persisted)).not.toContain('safe lookup');
+    expect(JSON.stringify(persisted)).not.toContain('{"matches":2}');
+    expect(mocks.recordAuditEvent).toHaveBeenCalledWith(expect.objectContaining({
+      action: 'runtime_tool_gateway_mcp_remote_readonly_executed',
+      metadata: expect.objectContaining({ externalMcpCalled: true, mcpRemoteReadOnly: true }),
+    }));
+    service.deactivateRun(runId);
+  });
+
+  it('blocks a remote tool without an explicit read-only marker before creating a client', async () => {
+    configureEnv({
+      MCP_REMOTE_ENABLED: true,
+      MCP_REMOTE_EXECUTION_ENABLED: true,
+      MCP_REMOTE_DISCOVERY_ENABLED: true,
+      MCP_REMOTE_READONLY_ENABLED: true,
+      MCP_REMOTE_EGRESS_ALLOWLIST: 'https://mcp.example.test',
+    });
+    mocks.mcpRepository.findToolForExecution.mockResolvedValue(toolFixture({
+      metadata: {},
+      server: {
+        id: serverId,
+        serverType: 'remote',
+        baseUrl: 'https://mcp.example.test',
+        status: 'active',
+        trustLevel: 'trusted',
+        riskLevel: 'low',
+        authType: 'none',
+        secretRef: null,
+        deletedAt: null,
+      },
+      policies: [{ sandboxOnly: false, requiresApproval: false, allowRuntimeExecution: true, blockedByDefault: false }],
+    }));
+    mocks.mcpRepository.listMatchingBindings.mockResolvedValue([bindingFixture({ mode: 'enabled_placeholder' })]);
+    const createRemoteClient = vi.fn();
+    const service = createRuntimeToolGatewayService({ createRemoteClient });
+    service.activateRun(specFixture(), { provider: 'agno_http', assistantPublicationId: publicationId });
+
+    const response = await service.execute(toolRequest(), { requestId: 'req_remote_blocked' });
+
+    expect(response).toEqual(expect.objectContaining({
+      status: 'blocked',
+      metadata: expect.objectContaining({
+        reason: 'mcp_remote_policy_blocked',
+        externalMcpCalled: false,
+        mcpRemoteEvaluationApplied: true,
+        mcpRemoteAllowed: false,
+        mcpRemoteBlocked: true,
+        mcpRemoteBlockedReason: 'tool_not_readonly',
+      }),
+    }));
+    expect(createRemoteClient).not.toHaveBeenCalled();
+    expect(mocks.mcpRepository.createMcpToolCallWithEvents).not.toHaveBeenCalled();
+    service.deactivateRun(runId);
+  });
+
+  it('keeps remote tools blocked in sandbox runs before creating a client', async () => {
+    configureEnv({
+      MCP_REMOTE_ENABLED: true,
+      MCP_REMOTE_EXECUTION_ENABLED: true,
+      MCP_REMOTE_DISCOVERY_ENABLED: true,
+      MCP_REMOTE_READONLY_ENABLED: true,
+      MCP_REMOTE_EGRESS_ALLOWLIST: 'https://mcp.example.test',
+    });
+    mocks.agentRunsRepository.findToolGatewayRun.mockResolvedValue(runFixture({
+      mode: 'sandbox',
+      assistantPublicationId: null,
+    }));
+    mocks.mcpRepository.findToolForExecution.mockResolvedValue(toolFixture({
+      name: 'search_records',
+      description: 'Read matching records.',
+      metadata: { readOnly: true },
+      server: {
+        id: serverId,
+        serverType: 'remote',
+        baseUrl: 'https://mcp.example.test/v1',
+        status: 'active',
+        trustLevel: 'trusted',
+        riskLevel: 'low',
+        authType: 'none',
+        secretRef: null,
+        deletedAt: null,
+      },
+      policies: [{ sandboxOnly: false, requiresApproval: false, allowRuntimeExecution: true, blockedByDefault: false }],
+    }));
+    mocks.mcpRepository.listMatchingBindings.mockResolvedValue([bindingFixture({ mode: 'enabled_placeholder' })]);
+    const createRemoteClient = vi.fn();
+    const service = createRuntimeToolGatewayService({ createRemoteClient });
+    service.activateRun(specFixture({ descriptor: { name: 'search_records' } }), {
+      provider: 'agno_http',
+      assistantPublicationId: null,
+    });
+
+    const response = await service.execute(toolRequest(), { requestId: 'req_remote_sandbox_blocked' });
+
+    expect(response).toEqual(expect.objectContaining({
+      status: 'blocked',
+      metadata: expect.objectContaining({
+        externalMcpCalled: false,
+        mcpRemoteBlocked: true,
+        mcpRemoteBlockedReason: 'sandbox_only',
+      }),
+    }));
+    expect(createRemoteClient).not.toHaveBeenCalled();
+    service.deactivateRun(runId);
   });
 
   it('is idempotent by toolCallId and rejects reuse with different arguments', async () => {

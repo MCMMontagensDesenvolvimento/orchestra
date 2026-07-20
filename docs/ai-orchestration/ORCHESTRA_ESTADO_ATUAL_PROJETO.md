@@ -188,7 +188,7 @@ Todas as rotas de domínio são registradas sob `/api/v1`, exceto health. Evidê
 | Runtime | Implementado com modos | providers, capabilities, health, config, callback de tool | metadata/eventos em AgentRun | produção do bridge, HA, retry/circuit breaker e streaming | `modules/runtime` |
 | Knowledge/RAG | Implementado | bases, docs, upload, ingestão, chunks, sources, readiness, queries, embeddings, bindings/policy | modelos Knowledge/RAG/embedding | formatos avançados, evals, conectores e políticas de retenção | `modules/knowledge`, `modules/embeddings` |
 | MCP catálogo/sandbox | Parcial | servers/tools/resources/prompts/bindings/precheck/tool-calls | modelos MCP e eventos | transporte externo real e approval operacional | `modules/mcp`, `mcp.routes.ts` |
-| MCP remoto | Fundação parcial | discovery/readiness/import plan/apply e catálogo admin | catálogo remoto/ledger | client de health/discovery/execution lança `MCP_REMOTE_NOT_IMPLEMENTED` | `modules/mcp/remote` |
+| MCP remoto | Fundação read-only opt-in | discovery/readiness, import/apply, egress/SSRF, client injetável e gateway governado | catálogo remoto/ledger e tool-calls sanitizados | transporte produtivo e secret manager ainda não homologados; default retorna `MCP_REMOTE_NOT_IMPLEMENTED` | `modules/mcp/remote`, `runtime.tool-gateway.service.ts` |
 | LLM | Implementado condicional | providers, health, capabilities, config, test generation | ProviderConfig/usage onde aplicável | ampliar providers e observabilidade de custo | `modules/llm` |
 | Auditoria | Implementado | `/audit-logs` | `AuditLog` | filtros/UI, retenção, export e SIEM | `modules/audit` |
 | Observabilidade IA | Backend implementado | usage events/summary, policies, regras e endpoints de avaliação | `AiRunUsageEvent`, `AiUsageLimitPolicy`, `AiObservabilityAlertRule` | enforcement no AgentRun, custo e UI | `modules/ai-observability` |
@@ -299,15 +299,15 @@ Evidências: `backend/src/modules/mcp`, `backend/src/modules/runtime/runtime.too
 ### Stub/simulado
 
 - `mcpService` produz output sandbox declarando que nenhum servidor externo foi chamado.
-- `runtime.tool-gateway.service.ts` retorna conteúdo fixo, `simulated=true` e `externalMcpCalled=false`.
+- `runtime.tool-gateway.service.ts` mantém o sandbox fixo e aceita um ramo remoto somente após revalidação; testes usam client fake com `simulated=true`.
 - `activeRuns` do gateway é um `Map` em memória; reinício perde sessões de callback ativas.
-- o client MCP remoto lança `MCP_REMOTE_NOT_IMPLEMENTED` para health, discovery e execution.
-- sincronização, health e credenciais em partes do frontend são toasts/placeholders.
+- o transporte MCP remoto default lança `MCP_REMOTE_NOT_IMPLEMENTED`; somente transportes injetados e aprovados atravessam o boundary.
+- sincronização, health, rotação e revogação fictícios foram removidos da UI MCP; readiness real continua fora da tela.
 
 ### Pendente antes de ampliar uso real
 
-1. Escolher transporte MCP suportado, autenticação, secret manager e egress allowlist.
-2. Implementar discovery e execução reais mantendo diff, approval e import ledger.
+1. Homologar um transporte MCP produtivo e integrar o secret manager sem expor referências/valores.
+2. Homologar discovery e execução externas reais mantendo allowlist, diff, approval e import ledger.
 3. Substituir estado em memória do gateway por coordenação persistente/distribuída.
 4. Definir idempotência, timeout, retry, circuit breaker, concorrência e compensação por tool.
 5. Implementar fila de approval com expiração, segregação de função e trilha de decisão.
@@ -493,10 +493,10 @@ Recomendação de pipeline mínimo:
 | `agno-mock-runtime.mjs` | Mock de smoke | Sim | Nunca usar como provider produtivo | `/scripts` |
 | MCP sandbox output | Simulação | Sim | Sim antes de alegar execução externa | `mcp.service.ts` |
 | Gateway 16F | Simulação governada | Sim | Sim para execução MCP real; preservar governança | `runtime.tool-gateway.service.ts` |
-| MCP remote client | Não implementado/fail-closed | Sim | Implementar/homologar antes de habilitar flags | `mcp-remote.client.ts` |
+| MCP remote client | Boundary read-only injetável; transporte default fail-closed | Sim | Homologar transporte/secret manager antes de habilitar flags | `mcp-remote.client.ts` |
 | Data source Knowledge | Catálogo placeholder | Sim | Implementar workers/conectores | `KnowledgeDetailPage.tsx` |
 | Reindex Knowledge global | Simulação UI por timeout | Protótipo | Sim | `KnowledgePage.tsx:172-177` |
-| Sincronizar/health/credenciais MCP | Placeholder UI | Protótipo | Sim e urgente para evitar falsa percepção | `McpHubPage.tsx`, `McpDetailPage.tsx` |
+| Readiness/discovery MCP na UI | Informativo e desabilitado | Sim | Integrar endpoint read-only somente após homologação | `McpHubPage.tsx`, `McpDetailPage.tsx` |
 | Duplicar Assistant | Toast sem mutation | Protótipo | Sim | `AssistantsPage.tsx:89-91` |
 | Prompt compilado/diff/edição | Derivação local e diff sintético | Protótipo interno | Persistir via contrato ou marcar claramente read-only/local | `AssistantDetailPage.tsx:2050-2135` |
 | Feedback de mensagem | Estado local e componente não integrado | Protótipo | Integrar `AssistantFeedback`/mensagem ou remover | `FeedbackBar.tsx` |
@@ -597,9 +597,9 @@ Como a 16L atual é a documentação de estado, a numeração abaixo começa na 
 
 ### Sprint 16P — MCP Externo Read-only Homologado
 
-- **Descrição:** implementar primeiro transporte externo com risco baixo.
-- **Subtarefas:** transport/discovery; secret manager; allowlist egress; approval; persistência do gateway; tool read-only; testes de segurança; UI e rollback.
-- **Status sugerido:** Bloqueado por dependências técnicas.
+- **Descrição:** fundação opt-in para o primeiro caminho externo de risco baixo e somente leitura.
+- **Subtarefas concluídas:** boundary de transporte injetável; allowlist/SSRF; secret reference lógica; revalidação no gateway; tool read-only; testes de segurança; UI, observabilidade e rollback.
+- **Status atual:** Fundação implementada e fail-closed; transporte produtivo e secret manager ainda pendentes de homologação.
 - **Prioridade:** Alta.
 - **Evidências:** `mcp-remote.client.ts`, `runtime.tool-gateway.service.ts`, docs MCP.
 - **Dependências:** 16M, 16N e 16O.

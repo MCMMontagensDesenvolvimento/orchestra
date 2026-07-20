@@ -6,6 +6,7 @@ export const mcpRemoteReadinessStatusValues = [
   'auth_required',
   'execution_disabled',
   'discovery_disabled',
+  'readonly_disabled',
 ] as const;
 
 export const mcpRemoteReadinessCheckNameValues = [
@@ -16,6 +17,7 @@ export const mcpRemoteReadinessCheckNameValues = [
   'policy',
   'discovery',
   'execution',
+  'readonly',
 ] as const;
 
 export const mcpRemoteReadinessCheckStatusValues = ['pass', 'fail', 'skipped'] as const;
@@ -24,6 +26,15 @@ export const mcpRemoteClientErrorCodeValues = [
   'MCP_REMOTE_DISABLED',
   'MCP_REMOTE_DISCOVERY_DISABLED',
   'MCP_REMOTE_EXECUTION_DISABLED',
+  'MCP_REMOTE_READONLY_DISABLED',
+  'MCP_REMOTE_EGRESS_BLOCKED',
+  'MCP_REMOTE_SECRET_REF_REQUIRED',
+  'MCP_REMOTE_TOOL_NOT_READONLY',
+  'MCP_REMOTE_TOOL_OPERATION_BLOCKED',
+  'MCP_REMOTE_POLICY_BLOCKED',
+  'MCP_REMOTE_RESPONSE_TOO_LARGE',
+  'MCP_REMOTE_TIMEOUT',
+  'MCP_REMOTE_TRANSPORT_FAILED',
   'MCP_REMOTE_NOT_IMPLEMENTED',
 ] as const;
 
@@ -45,7 +56,13 @@ export interface McpRemoteFeatureConfig {
   remoteEnabled: boolean;
   discoveryEnabled: boolean;
   executionEnabled: boolean;
+  readOnlyEnabled: boolean;
+  egressAllowlist: string;
   defaultTimeoutMs: number;
+  maxTimeoutMs: number;
+  maxResponseBytes: number;
+  requireSecretRef: boolean;
+  allowWriteTools: boolean;
 }
 
 export interface McpRemoteOperationalLimits {
@@ -95,6 +112,7 @@ export interface GovernedMcpRemoteServer {
   serverType?: string | null;
   baseUrl?: string | null;
   authType?: string | null;
+  secretRef?: string | null;
   trustLevel?: string | null;
   riskLevel?: string | null;
 }
@@ -732,8 +750,11 @@ export interface GovernedMcpToolExecutionSpec {
     displayName: string;
     inputSchema?: unknown;
     outputSchema?: unknown;
+    metadata?: unknown;
     riskLevel: 'low' | 'medium' | 'high' | 'critical';
     requiresApproval: boolean;
+    readOnly: boolean;
+    description?: string | null;
   };
   policyDecision: GovernedMcpPolicyDecision & { status: 'allowed' };
   limits: Pick<McpRemoteOperationalLimits, 'timeoutMs' | 'maxInputBytes' | 'maxOutputBytes'>;
@@ -749,9 +770,14 @@ export interface GovernedMcpToolExecutionResult {
   status: McpRemoteToolExecutionStatus;
   outputPreview?: string;
   outputHash?: string;
+  content?: string;
   errorCode?: McpRemoteClientErrorCode | string;
   errorMessage?: string;
   durationMs: number;
+  externalMcpCalled: boolean;
+  simulated: boolean;
+  responseBytes?: number;
+  remoteHost?: string;
   events: Array<{
     type: string;
     status?: string;
@@ -765,6 +791,28 @@ export interface McpRemoteClientOptions {
   serverId: string;
   baseUrl?: string | null;
   authType?: string | null;
+  secretRef?: string | null;
   credentialsConfigured?: boolean;
   timeoutMs: number;
+}
+
+export type McpRemoteReadOnlyBlockedReason =
+  | 'remote_disabled'
+  | 'execution_disabled'
+  | 'readonly_disabled'
+  | 'write_tools_not_allowed'
+  | 'tool_not_readonly'
+  | 'dangerous_operation'
+  | 'risk_not_low'
+  | 'approval_required'
+  | 'runtime_execution_not_allowed'
+  | 'sandbox_only'
+  | 'blocked_by_default'
+  | 'secret_ref_required';
+
+export interface McpRemoteReadOnlyEvaluation {
+  applied: true;
+  allowed: boolean;
+  readOnly: boolean;
+  blockedReason?: McpRemoteReadOnlyBlockedReason;
 }

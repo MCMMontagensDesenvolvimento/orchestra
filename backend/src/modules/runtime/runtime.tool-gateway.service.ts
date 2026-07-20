@@ -1,9 +1,18 @@
 import { createHash } from 'node:crypto';
 import type { Prisma } from '@prisma/client';
+import { AppError } from '../../shared/errors/app-error';
 import { recordAuditEvent } from '../audit/audit.service';
 import { agentRunsRepository } from '../agent-runs/agent-runs.repository';
 import type { AgentRunEventInput } from '../agent-runs/agent-runs.types';
 import { mcpRepository } from '../mcp/mcp.repository';
+import { McpRemoteClient } from '../mcp/remote/mcp-remote.client';
+import { getMcpRemoteConfig } from '../mcp/remote/mcp-remote.config';
+import { evaluateMcpRemoteReadOnly } from '../mcp/remote/mcp-remote-readonly-policy';
+import type {
+  McpRemoteClientOptions,
+  McpRemoteFeatureConfig,
+  McpRemoteReadOnlyBlockedReason,
+} from '../mcp/remote/mcp-remote.types';
 import {
   assistantRuntimeSpecV1Schema,
   runtimeToolGatewayResponseSchema,
@@ -36,6 +45,20 @@ interface ActiveGatewayRun {
 }
 
 type GatewayReason = NonNullable<RuntimeToolGatewayResponse['metadata']['reason']>;
+type GatewayMetadataOverrides = Partial<Omit<RuntimeToolGatewayResponse['metadata'], 'toolCallsExecuted' | 'failedClosed' | 'latencyMs' | 'reason'>> & {
+  mcpRemoteBlockedReason?: RuntimeToolGatewayResponse['metadata']['mcpRemoteBlockedReason'];
+};
+
+export interface RuntimeToolGatewayDependencies {
+  createRemoteClient?: (
+    options: McpRemoteClientOptions,
+    config: McpRemoteFeatureConfig,
+  ) => Pick<McpRemoteClient, 'executeTool'>;
+}
+
+const defaultDependencies: Required<RuntimeToolGatewayDependencies> = {
+  createRemoteClient: (options, config) => new McpRemoteClient(options, config),
+};
 
 const activeRuns = new Map<string, ActiveGatewayRun>();
 
@@ -83,6 +106,7 @@ function blockedResponse(
   executed: number,
   reason: GatewayReason,
   startedAt: number,
+  overrides: GatewayMetadataOverrides = {},
 ): RuntimeToolGatewayResponse {
   return runtimeToolGatewayResponseSchema.parse({
     toolCallId,
@@ -98,23 +122,31 @@ function blockedResponse(
       simulated: true,
       failedClosed: true,
       reason,
+      ...overrides,
       latencyMs: Math.max(0, Date.now() - startedAt),
     },
   });
 }
 
-function successResponse(toolCallId: string, executed: number, startedAt: number): RuntimeToolGatewayResponse {
+function successResponse(
+  toolCallId: string,
+  executed: number,
+  startedAt: number,
+  content = 'Governed sandbox tool execution completed.',
+  overrides: GatewayMetadataOverrides = {},
+): RuntimeToolGatewayResponse {
   return runtimeToolGatewayResponseSchema.parse({
     toolCallId,
     status: 'succeeded',
     result: {
-      content: 'Governed sandbox tool execution completed.',
+      content,
     },
     metadata: {
       toolCallsExecuted: executed,
       externalMcpCalled: false,
       simulated: true,
       failedClosed: false,
+      ...overrides,
       latencyMs: Math.max(0, Date.now() - startedAt),
     },
   });
@@ -129,12 +161,13 @@ function publicEvent(
   return { type, status, message, metadata: metadata as Prisma.InputJsonValue };
 }
 
-function gatewayMetadata(executed: number, reason?: GatewayReason) {
+function gatewayMetadata(executed: number, reason?: GatewayReason, overrides: GatewayMetadataOverrides = {}) {
   return {
     toolCallsExecuted: executed,
     externalMcpCalled: false,
     failedClosed: Boolean(reason),
     simulated: true,
+    ...overrides,
     ...(reason ? { reason } : {}),
   };
 }
@@ -143,6 +176,7 @@ async function recordBlocked(
   active: ActiveGatewayRun,
   context: GatewayRequestContext,
   reason: GatewayReason,
+  overrides: GatewayMetadataOverrides = {},
 ) {
   const spec = active.spec;
   await Promise.allSettled([
@@ -151,8 +185,8 @@ async function recordBlocked(
       tenantId: spec.tenant.id,
       workspaceId: spec.workspace.id ?? '',
     }, [
-      publicEvent('runtime.tool_requested', 'running', 'Runtime requested a governed tool call.', gatewayMetadata(active.executed)),
-      publicEvent('runtime.tool_blocked', 'blocked', 'Tool call blocked by governance policy.', gatewayMetadata(active.executed, reason)),
+      publicEvent('runtime.tool_requested', 'running', 'Runtime requested a governed tool call.', gatewayMetadata(active.executed, undefined, overrides)),
+      publicEvent('runtime.tool_blocked', 'blocked', 'Tool call blocked by governance policy.', gatewayMetadata(active.executed, reason, overrides)),
     ]),
     recordAuditEvent({
       tenantId: spec.tenant.id,
@@ -161,7 +195,7 @@ async function recordBlocked(
       action: 'runtime_tool_gateway_blocked',
       entity: 'agent_run',
       entityId: spec.trace.runId,
-      metadata: gatewayMetadata(active.executed, reason) as Prisma.InputJsonValue,
+      metadata: gatewayMetadata(active.executed, reason, overrides) as Prisma.InputJsonValue,
       requestId: context.requestId,
       ipAddress: context.ipAddress,
       userAgent: context.userAgent,
@@ -301,32 +335,72 @@ function validateSchemaValue(value: unknown, schema: unknown, depth = 0): boolea
 function selectBinding(
   bindings: Awaited<ReturnType<typeof mcpRepository.listMatchingBindings>>,
   descriptor: AssistantRuntimeSpecV1['tools']['descriptors'][number],
+  mode: 'sandbox_only' | 'enabled_placeholder',
 ) {
   const bindingId = descriptor.metadata?.bindingId;
   if (!bindingId) return null;
   return bindings.find((binding) => (
     binding.id === bindingId
     && binding.isEnabled
-    && binding.mode === 'sandbox_only'
+    && binding.mode === mode
     && (binding.mcpToolId === descriptor.toolId || binding.mcpToolId === null)
   )) ?? null;
+}
+
+interface GovernanceFailure {
+  reason: GatewayReason;
+  metadata?: GatewayMetadataOverrides;
+}
+
+interface GovernanceSuccess {
+  tool: NonNullable<Awaited<ReturnType<typeof mcpRepository.findToolForExecution>>>;
+  binding: Awaited<ReturnType<typeof mcpRepository.listMatchingBindings>>[number];
+  remote: boolean;
+}
+
+function isRemoteServerType(value: string | null | undefined) {
+  return value === 'remote' || value === 'external';
+}
+
+function readOnlyMetadata(value: unknown) {
+  return isRecord(value) && value.readOnly === true;
+}
+
+function remoteGovernanceFailure(
+  toolId: string,
+  blockedReason: McpRemoteReadOnlyBlockedReason,
+  readOnly = false,
+): GovernanceFailure {
+  return {
+    reason: 'mcp_remote_policy_blocked',
+    metadata: {
+      externalMcpCalled: false,
+      simulated: true,
+      mcpRemoteEvaluationApplied: true,
+      mcpRemoteAllowed: false,
+      mcpRemoteBlocked: true,
+      mcpRemoteReadOnly: readOnly,
+      mcpRemoteBlockedReason: blockedReason,
+      mcpRemoteToolId: toolId,
+    },
+  };
 }
 
 async function validateCurrentGovernance(
   active: ActiveGatewayRun,
   request: RuntimeToolGatewayRequest,
   descriptor: AssistantRuntimeSpecV1['tools']['descriptors'][number],
-): Promise<GatewayReason | null> {
+): Promise<GovernanceFailure | GovernanceSuccess> {
   const spec = active.spec;
   const workspaceId = spec.workspace.id;
-  if (!workspaceId) return 'tool_policy_blocked';
+  if (!workspaceId) return { reason: 'tool_policy_blocked' };
 
   const [assistant, tool] = await Promise.all([
     mcpRepository.findAssistantForExecution(spec.assistant.id, spec.tenant.id, [workspaceId]),
     mcpRepository.findToolForExecution(request.toolId, spec.tenant.id, [workspaceId]),
   ]);
   if (!assistant || !tool || assistant.workspaceId !== workspaceId || tool.workspaceId !== workspaceId) {
-    return 'tool_policy_blocked';
+    return { reason: 'tool_policy_blocked' };
   }
   const executionPolicy = assistant.executionPolicy ?? await mcpRepository.getExecutionPolicy(assistant);
   if (
@@ -336,8 +410,8 @@ async function validateCurrentGovernance(
     || !executionPolicy.sandboxBlocksExternalTools
     || !executionPolicy.sandboxBlocksRealProviders
     || !executionPolicy.sandboxLogsRequired
-  ) return 'tool_policy_blocked';
-  if (spec.assistant.status === 'published' && !executionPolicy.allowPublishedExecution) return 'tool_policy_blocked';
+  ) return { reason: 'tool_policy_blocked' };
+  if (spec.assistant.status === 'published' && !executionPolicy.allowPublishedExecution) return { reason: 'tool_policy_blocked' };
 
   const bindings = await mcpRepository.listMatchingBindings(
     assistant.id,
@@ -346,7 +420,9 @@ async function validateCurrentGovernance(
     spec.tenant.id,
     [workspaceId],
   );
-  const binding = selectBinding(bindings, descriptor);
+  const remote = isRemoteServerType(tool.server.serverType);
+  const readOnly = readOnlyMetadata(tool.metadata);
+  const binding = selectBinding(bindings, descriptor, remote ? 'enabled_placeholder' : 'sandbox_only');
   const toolPolicy = tool.policies?.[0];
   if (
     !binding
@@ -355,46 +431,163 @@ async function validateCurrentGovernance(
     || tool.server.deletedAt
     || tool.server.status !== 'active'
     || tool.server.trustLevel !== 'trusted'
-    || toolPolicy?.sandboxOnly !== true
-  ) return 'tool_policy_blocked';
+  ) return remote
+    ? remoteGovernanceFailure(tool.id, 'runtime_execution_not_allowed', readOnly)
+    : { reason: 'tool_policy_blocked' };
   if (
     descriptor.approvalRequired
     || tool.requiresApproval
     || toolPolicy?.requiresApproval
     || binding.requiresApprovalOverride === true
-  ) return 'approval_required';
-  if (descriptor.riskLevel !== 'low' || tool.riskLevel !== 'low') return 'risk_not_low';
-  if (!descriptor.inputSchema || !tool.inputSchema) return 'invalid_arguments';
-  if (sha256(descriptor.inputSchema) !== sha256(tool.inputSchema)) return 'tool_policy_blocked';
-  if (!validateSchemaValue(request.arguments, descriptor.inputSchema)) return 'invalid_arguments';
-  return null;
+  ) return remote
+    ? remoteGovernanceFailure(tool.id, 'approval_required', readOnly)
+    : { reason: 'approval_required' };
+  if (descriptor.riskLevel !== 'low' || tool.riskLevel !== 'low' || (remote && tool.server.riskLevel !== 'low')) {
+    return remote
+      ? remoteGovernanceFailure(tool.id, 'risk_not_low', readOnly)
+      : { reason: 'risk_not_low' };
+  }
+  if (!descriptor.inputSchema || !tool.inputSchema) return { reason: 'invalid_arguments' };
+  if (sha256(descriptor.inputSchema) !== sha256(tool.inputSchema)) {
+    return remote
+      ? remoteGovernanceFailure(tool.id, 'runtime_execution_not_allowed', readOnly)
+      : { reason: 'tool_policy_blocked' };
+  }
+  if (!validateSchemaValue(request.arguments, descriptor.inputSchema)) return { reason: 'invalid_arguments' };
+
+  if (remote) {
+    const evaluation = evaluateMcpRemoteReadOnly({
+      config: getMcpRemoteConfig(),
+      tool: {
+        externalName: tool.name,
+        displayName: tool.name,
+        description: tool.description,
+        inputSchema: tool.inputSchema,
+        outputSchema: tool.outputSchema,
+        metadata: tool.metadata,
+        riskLevel: tool.riskLevel,
+        requiresApproval: tool.requiresApproval,
+        readOnly,
+      },
+      policy: {
+        status: 'allowed',
+        reasons: [],
+        allowRuntimeExecution: toolPolicy?.allowRuntimeExecution === true,
+        sandboxOnly: toolPolicy?.sandboxOnly === true,
+        blockedByDefault: toolPolicy?.blockedByDefault !== false,
+        approvalSatisfied: true,
+      },
+      authType: tool.server.authType,
+      secretRef: tool.server.secretRef,
+    });
+    if (!evaluation.allowed) {
+      return remoteGovernanceFailure(
+        tool.id,
+        evaluation.blockedReason ?? 'runtime_execution_not_allowed',
+        evaluation.readOnly,
+      );
+    }
+  } else if (toolPolicy?.sandboxOnly !== true) {
+    return { reason: 'tool_policy_blocked' };
+  }
+  return { tool, binding, remote };
 }
 
 async function recordSuccess(
   active: ActiveGatewayRun,
   request: RuntimeToolGatewayRequest,
   context: GatewayRequestContext,
-  descriptor: AssistantRuntimeSpecV1['tools']['descriptors'][number],
+  governance: GovernanceSuccess,
   startedAt: number,
+  dependencies: Required<RuntimeToolGatewayDependencies>,
 ) {
   const spec = active.spec;
   const workspaceId = spec.workspace.id!;
-  const tool = await mcpRepository.findToolForExecution(request.toolId, spec.tenant.id, [workspaceId]);
-  if (!tool) throw new Error('governed tool disappeared before persistence');
-  const bindings = await mcpRepository.listMatchingBindings(
-    spec.assistant.id,
-    tool.mcpServerId,
-    tool.id,
-    spec.tenant.id,
-    [workspaceId],
-  );
-  const binding = selectBinding(bindings, descriptor);
-  if (!binding) throw new Error('governed binding disappeared before persistence');
+  const { tool, binding, remote } = governance;
 
   const executed = active.executed + 1;
-  const durationMs = Math.max(0, Date.now() - startedAt);
-  const metadata = gatewayMetadata(executed);
   const internalCallId = deterministicCallId(spec.trace.runId, request.toolCallId);
+  let content = 'Governed sandbox tool execution completed.';
+  let metadataOverrides: GatewayMetadataOverrides = {};
+
+  if (remote) {
+    const remoteConfig = getMcpRemoteConfig();
+    const client = dependencies.createRemoteClient({
+      serverId: tool.server.id,
+      baseUrl: tool.server.baseUrl,
+      authType: tool.server.authType,
+      secretRef: tool.server.secretRef,
+      credentialsConfigured: Boolean(tool.server.secretRef),
+      timeoutMs: Math.min(remoteConfig.defaultTimeoutMs, spec.policy.timeoutMs),
+    }, remoteConfig);
+    const remoteResult = await client.executeTool({
+      executionId: internalCallId,
+      tenantId: spec.tenant.id,
+      workspaceId,
+      assistantId: spec.assistant.id,
+      assistantVersionId: spec.assistant.versionId ?? null,
+      agentRunId: spec.trace.runId,
+      mcpServerId: tool.mcpServerId,
+      mcpToolId: tool.id,
+      assistantMcpBindingId: binding.id,
+      requestedByUserId: spec.actor.userId,
+      mode: 'remote_controlled',
+      requestId: context.requestId,
+      traceId: spec.trace.traceId,
+      tool: {
+        externalName: tool.name,
+        displayName: tool.name,
+        description: tool.description,
+        inputSchema: tool.inputSchema,
+        outputSchema: tool.outputSchema,
+        metadata: tool.metadata,
+        riskLevel: 'low',
+        requiresApproval: false,
+        readOnly: true,
+      },
+      policyDecision: {
+        status: 'allowed',
+        reasons: [],
+        allowRuntimeExecution: true,
+        sandboxOnly: false,
+        blockedByDefault: false,
+        approvalSatisfied: true,
+      },
+      limits: {
+        timeoutMs: Math.min(remoteConfig.defaultTimeoutMs, spec.policy.timeoutMs),
+        maxInputBytes: getRuntimeToolGatewayConfig().maxPayloadBytes,
+        maxOutputBytes: remoteConfig.maxResponseBytes,
+      },
+      input: {
+        hash: sha256(request.arguments),
+        value: request.arguments,
+      },
+    });
+    if (remoteResult.status !== 'completed' || !remoteResult.content) {
+      throw new AppError(409, 'MCP_REMOTE_TRANSPORT_FAILED', 'MCP remote read-only execution did not complete.');
+    }
+    content = remoteResult.content;
+    metadataOverrides = {
+      externalMcpCalled: remoteResult.externalMcpCalled,
+      simulated: remoteResult.simulated,
+      mcpRemoteEvaluationApplied: true,
+      mcpRemoteAllowed: true,
+      mcpRemoteBlocked: false,
+      mcpRemoteReadOnly: true,
+      mcpRemoteToolId: tool.id,
+      mcpRemoteRiskLevel: 'low',
+      ...(remoteResult.remoteHost ? { mcpRemoteHost: remoteResult.remoteHost } : {}),
+      ...(remoteResult.responseBytes !== undefined ? { responseBytes: remoteResult.responseBytes } : {}),
+    };
+  }
+
+  const durationMs = Math.max(0, Date.now() - startedAt);
+  const metadata = gatewayMetadata(executed, undefined, metadataOverrides);
+  const previousMetadata = gatewayMetadata(active.executed, undefined, remote ? {
+    ...metadataOverrides,
+    externalMcpCalled: false,
+  } : {});
+  const executionLabel = remote ? 'Governed MCP remote read-only execution' : 'Deterministic sandbox execution';
   await mcpRepository.createMcpToolCallWithEvents({
     id: internalCallId,
     tenantId: spec.tenant.id,
@@ -406,7 +599,7 @@ async function recordSuccess(
     mcpToolId: tool.id,
     assistantMcpBindingId: binding.id,
     requestedByUserId: spec.actor.userId,
-    mode: 'sandbox',
+    mode: remote ? 'remote_controlled' : 'sandbox',
     status: 'completed',
     riskLevelSnapshot: 'low',
     approvalRequiredSnapshot: false,
@@ -414,8 +607,9 @@ async function recordSuccess(
     traceId: spec.trace.traceId,
     inputHash: sha256(request.arguments),
     policySnapshot: {
-      sandboxOnly: true,
-      externalMcpAllowed: false,
+      sandboxOnly: !remote,
+      externalMcpAllowed: remote,
+      remoteReadOnly: remote,
       maxToolCalls: spec.policy.maxToolCalls,
       sequence: request.sequence,
     },
@@ -424,15 +618,15 @@ async function recordSuccess(
     completedAt: new Date(),
     durationMs,
     events: [
-      { type: 'precheck_started', message: 'Governed runtime tool precheck started.', metadata: gatewayMetadata(active.executed) as Prisma.InputJsonValue },
-      { type: 'precheck_passed', message: 'Governed runtime tool precheck passed.', metadata: gatewayMetadata(active.executed) as Prisma.InputJsonValue },
-      { type: 'execution_started', message: 'Deterministic sandbox execution started.', metadata: gatewayMetadata(active.executed) as Prisma.InputJsonValue },
-      { type: 'execution_completed', message: 'Deterministic sandbox execution completed.', metadata: metadata as Prisma.InputJsonValue },
+      { type: 'precheck_started', message: 'Governed runtime tool precheck started.', metadata: previousMetadata as Prisma.InputJsonValue },
+      { type: 'precheck_passed', message: 'Governed runtime tool precheck passed.', metadata: previousMetadata as Prisma.InputJsonValue },
+      { type: 'execution_started', message: `${executionLabel} started.`, metadata: previousMetadata as Prisma.InputJsonValue },
+      { type: 'execution_completed', message: `${executionLabel} completed.`, metadata: metadata as Prisma.InputJsonValue },
     ],
     agentRunEvents: [
-      publicEvent('runtime.tool_requested', 'running', 'Runtime requested a governed tool call.', gatewayMetadata(active.executed)),
-      publicEvent('runtime.tool_prechecked', 'running', 'Governed tool precheck passed.', gatewayMetadata(active.executed)),
-      publicEvent('runtime.tool_executed', 'completed', 'Deterministic sandbox tool execution completed.', metadata),
+      publicEvent('runtime.tool_requested', 'running', 'Runtime requested a governed tool call.', previousMetadata),
+      publicEvent('runtime.tool_prechecked', 'running', 'Governed tool precheck passed.', previousMetadata),
+      publicEvent('runtime.tool_executed', 'completed', `${executionLabel} completed.`, metadata),
       publicEvent('runtime.tool_result_returned', 'completed', 'Minimized tool result returned to runtime.', metadata),
     ],
   });
@@ -442,7 +636,7 @@ async function recordSuccess(
     tenantId: spec.tenant.id,
     workspaceId,
     actorUserId: spec.actor.userId,
-    action: 'runtime_tool_gateway_executed',
+    action: remote ? 'runtime_tool_gateway_mcp_remote_readonly_executed' : 'runtime_tool_gateway_executed',
     entity: 'agent_run',
     entityId: spec.trace.runId,
     metadata: metadata as Prisma.InputJsonValue,
@@ -450,7 +644,7 @@ async function recordSuccess(
     ipAddress: context.ipAddress,
     userAgent: context.userAgent,
   })]);
-  return successResponse(request.toolCallId, executed, startedAt);
+  return successResponse(request.toolCallId, executed, startedAt, content, metadataOverrides);
 }
 
 async function withRunLock<T>(active: ActiveGatewayRun, operation: () => Promise<T>) {
@@ -471,6 +665,7 @@ async function executeActive(
   active: ActiveGatewayRun,
   request: RuntimeToolGatewayRequest,
   context: GatewayRequestContext,
+  dependencies: Required<RuntimeToolGatewayDependencies>,
 ): Promise<RuntimeToolGatewayResponse> {
   return withRunLock(active, async () => {
     const startedAt = Date.now();
@@ -483,10 +678,10 @@ async function executeActive(
       return response;
     }
 
-    const block = async (reason: GatewayReason) => {
-      const response = blockedResponse(request.toolCallId, active.executed, reason, startedAt);
+    const block = async (reason: GatewayReason, overrides: GatewayMetadataOverrides = {}) => {
+      const response = blockedResponse(request.toolCallId, active.executed, reason, startedAt, overrides);
       active.calls.set(request.toolCallId, { requestHash, response });
-      await recordBlocked(active, context, reason);
+      await recordBlocked(active, context, reason, overrides);
       return response;
     };
 
@@ -511,45 +706,85 @@ async function executeActive(
     if (active.executed >= spec.policy.maxToolCalls) return block('max_tool_calls_exceeded');
     if (request.sequence !== active.executed + 1) return block('sequence_out_of_order');
 
-    const governanceFailure = await validateCurrentGovernance(active, request, descriptor);
-    if (governanceFailure) return block(governanceFailure);
+    const governance = await validateCurrentGovernance(active, request, descriptor);
+    if ('reason' in governance) return block(governance.reason, governance.metadata);
+    if (governance.remote && run.mode === 'sandbox') {
+      const failure = remoteGovernanceFailure(request.toolId, 'sandbox_only', true);
+      return block(failure.reason, failure.metadata);
+    }
 
     try {
-      const response = await recordSuccess(active, request, context, descriptor, startedAt);
+      const response = await recordSuccess(active, request, context, governance, startedAt, dependencies);
       active.calls.set(request.toolCallId, { requestHash, response });
       return response;
-    } catch {
+    } catch (error) {
+      if (error instanceof AppError && error.code.startsWith('MCP_REMOTE_')) {
+        const egressBlocked = error.code === 'MCP_REMOTE_EGRESS_BLOCKED';
+        const blockedReasonByCode: Partial<Record<string, RuntimeToolGatewayResponse['metadata']['mcpRemoteBlockedReason']>> = {
+          MCP_REMOTE_DISABLED: 'remote_disabled',
+          MCP_REMOTE_EXECUTION_DISABLED: 'execution_disabled',
+          MCP_REMOTE_READONLY_DISABLED: 'readonly_disabled',
+          MCP_REMOTE_TOOL_NOT_READONLY: 'tool_not_readonly',
+          MCP_REMOTE_TOOL_OPERATION_BLOCKED: 'dangerous_operation',
+          MCP_REMOTE_SECRET_REF_REQUIRED: 'secret_ref_required',
+          MCP_REMOTE_EGRESS_BLOCKED: 'egress_blocked',
+        };
+        return block(egressBlocked ? 'mcp_remote_egress_blocked' : (
+          error.code === 'MCP_REMOTE_TRANSPORT_FAILED'
+          || error.code === 'MCP_REMOTE_TIMEOUT'
+          || error.code === 'MCP_REMOTE_NOT_IMPLEMENTED'
+            ? 'mcp_remote_client_failed'
+            : 'mcp_remote_policy_blocked'
+        ), {
+          externalMcpCalled: false,
+          simulated: true,
+          mcpRemoteEvaluationApplied: true,
+          mcpRemoteAllowed: false,
+          mcpRemoteBlocked: true,
+          mcpRemoteReadOnly: true,
+          mcpRemoteBlockedReason: blockedReasonByCode[error.code] ?? 'client_failed',
+          mcpRemoteToolId: request.toolId,
+        });
+      }
       return block('governance_failure');
     }
   });
 }
 
-export const runtimeToolGatewayService = {
-  activateRun(specInput: AssistantRuntimeSpecV1, correlation: {
-    provider: 'agno_http';
-    assistantPublicationId: string | null;
-  }) {
-    const spec = assistantRuntimeSpecV1Schema.parse(specInput);
-    activeRuns.set(spec.trace.runId, {
-      spec,
-      provider: correlation.provider,
-      assistantPublicationId: correlation.assistantPublicationId,
-      executed: 0,
-      calls: new Map(),
-      lock: Promise.resolve(),
-    });
-  },
+export function createRuntimeToolGatewayService(inputDependencies: RuntimeToolGatewayDependencies = {}) {
+  const dependencies: Required<RuntimeToolGatewayDependencies> = {
+    ...defaultDependencies,
+    ...inputDependencies,
+  };
+  return {
+    activateRun(specInput: AssistantRuntimeSpecV1, correlation: {
+      provider: 'agno_http';
+      assistantPublicationId: string | null;
+    }) {
+      const spec = assistantRuntimeSpecV1Schema.parse(specInput);
+      activeRuns.set(spec.trace.runId, {
+        spec,
+        provider: correlation.provider,
+        assistantPublicationId: correlation.assistantPublicationId,
+        executed: 0,
+        calls: new Map(),
+        lock: Promise.resolve(),
+      });
+    },
 
-  deactivateRun(runId: string) {
-    activeRuns.delete(runId);
-  },
+    deactivateRun(runId: string) {
+      activeRuns.delete(runId);
+    },
 
-  async execute(request: RuntimeToolGatewayRequest, context: GatewayRequestContext) {
-    const startedAt = Date.now();
-    const config = getRuntimeToolGatewayConfig();
-    if (!config.enabled) return blockedResponse(request.toolCallId, 0, 'gateway_disabled', startedAt);
-    const active = activeRuns.get(request.agentRunId);
-    if (!active) return blockedResponse(request.toolCallId, 0, 'run_unavailable', startedAt);
-    return executeActive(active, request, context);
-  },
-};
+    async execute(request: RuntimeToolGatewayRequest, context: GatewayRequestContext) {
+      const startedAt = Date.now();
+      const config = getRuntimeToolGatewayConfig();
+      if (!config.enabled) return blockedResponse(request.toolCallId, 0, 'gateway_disabled', startedAt);
+      const active = activeRuns.get(request.agentRunId);
+      if (!active) return blockedResponse(request.toolCallId, 0, 'run_unavailable', startedAt);
+      return executeActive(active, request, context, dependencies);
+    },
+  };
+}
+
+export const runtimeToolGatewayService = createRuntimeToolGatewayService();

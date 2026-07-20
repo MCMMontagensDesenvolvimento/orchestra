@@ -113,6 +113,7 @@ function sanitizeMetadata(value: unknown, depth = 0): unknown {
   if (typeof value !== 'object') return undefined;
 
   const entries = Object.entries(value as Record<string, unknown>)
+    .filter(([, item]) => typeof item !== 'undefined')
     .slice(0, 60)
     .map(([key, item]) => [
       key,
@@ -240,6 +241,16 @@ function runtimeObservationSummary(metadata: Record<string, unknown> | undefined
     maxToolCalls: numberValue(metadata?.maxToolCalls ?? metadata?.policyMaxToolCalls),
     toolCallsExecuted: numberValue(metadata?.toolCallsExecuted),
     externalMcpCalled: booleanValue(metadata?.externalMcpCalled),
+    mcpRemoteEvaluationApplied: booleanValue(metadata?.mcpRemoteEvaluationApplied),
+    mcpRemoteAllowed: booleanValue(metadata?.mcpRemoteAllowed),
+    mcpRemoteBlocked: booleanValue(metadata?.mcpRemoteBlocked),
+    mcpRemoteReadOnly: booleanValue(metadata?.mcpRemoteReadOnly),
+    mcpRemoteBlockedReason: stringValue(metadata?.mcpRemoteBlockedReason),
+    mcpRemoteHost: stringValue(metadata?.mcpRemoteHost),
+    mcpRemoteToolId: stringValue(metadata?.mcpRemoteToolId),
+    mcpRemoteRiskLevel: stringValue(metadata?.mcpRemoteRiskLevel),
+    responseBytes: numberValue(metadata?.responseBytes),
+    simulated: booleanValue(metadata?.simulated),
     externalProviderCalled: booleanValue(metadata?.externalProviderCalled),
   };
 }

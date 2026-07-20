@@ -693,6 +693,45 @@ describe('Agno HTTP runtime adapter', () => {
     expect(JSON.stringify(result)).not.toMatch(/apiKey|must-not-leak|invalid/);
   });
 
+  it('preserves only governed MCP remote read-only observability fields', async () => {
+    const adapter = await agnoHttpAdapter({
+      AGNO_RUNTIME_HTTP_ENABLED: 'true',
+      AGNO_RUNTIME_HTTP_BASE_URL: 'http://127.0.0.1:8091',
+    });
+    vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify(runtimeResponse({
+      outputMetadata: {
+        externalMcpCalled: true,
+        mcpRemoteEvaluationApplied: true,
+        mcpRemoteAllowed: true,
+        mcpRemoteBlocked: false,
+        mcpRemoteReadOnly: true,
+        mcpRemoteHost: 'mcp.example.test',
+        mcpRemoteToolId: '00000000-0000-0000-0000-000000000501',
+        mcpRemoteRiskLevel: 'low',
+        responseBytes: 42,
+        toolCallsExecuted: 1,
+        simulated: true,
+      },
+    })), { status: 200 })));
+
+    const result = await adapter.execute(context());
+
+    expect(result.metadata).toEqual(expect.objectContaining({
+      externalMcpCalled: true,
+      mcpRemoteEvaluationApplied: true,
+      mcpRemoteAllowed: true,
+      mcpRemoteBlocked: false,
+      mcpRemoteReadOnly: true,
+      mcpRemoteHost: 'mcp.example.test',
+      mcpRemoteToolId: '00000000-0000-0000-0000-000000000501',
+      mcpRemoteRiskLevel: 'low',
+      responseBytes: 42,
+      toolCallsExecuted: 1,
+      simulated: true,
+    }));
+    expect(JSON.stringify(result)).not.toMatch(/rawArguments|rawOutput|authorization|secretRef/i);
+  });
+
   it('fails closed when runtime returns a payload outside the contract', async () => {
     const adapter = await agnoHttpAdapter({
       AGNO_RUNTIME_HTTP_ENABLED: 'true',

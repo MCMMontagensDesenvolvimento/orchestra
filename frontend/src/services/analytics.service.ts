@@ -54,6 +54,16 @@ export interface RuntimeRunSummary {
   usageLimitReason: string | null;
   externalProviderCalled: boolean | null;
   externalMcpCalled: boolean | null;
+  mcpRemoteEvaluationApplied?: boolean | null;
+  mcpRemoteAllowed?: boolean | null;
+  mcpRemoteBlocked?: boolean | null;
+  mcpRemoteReadOnly?: boolean | null;
+  mcpRemoteBlockedReason?: string | null;
+  mcpRemoteHost?: string | null;
+  mcpRemoteToolId?: string | null;
+  mcpRemoteRiskLevel?: string | null;
+  responseBytes?: number | null;
+  simulated?: boolean | null;
   toolCallsExecuted: number | null;
   latencyMs: number | null;
   inputTokens: number | null;
@@ -91,6 +101,16 @@ export interface RuntimeRunEventMetadata {
   usageLimitReason?: string;
   externalProviderCalled?: boolean;
   externalMcpCalled?: boolean;
+  mcpRemoteEvaluationApplied?: boolean;
+  mcpRemoteAllowed?: boolean;
+  mcpRemoteBlocked?: boolean;
+  mcpRemoteReadOnly?: boolean;
+  mcpRemoteBlockedReason?: string;
+  mcpRemoteHost?: string;
+  mcpRemoteToolId?: string;
+  mcpRemoteRiskLevel?: string;
+  responseBytes?: number;
+  simulated?: boolean;
   toolCallsExecuted?: number;
   latencyMs?: number;
   inputTokens?: number;
@@ -186,6 +206,16 @@ const mockRun: RuntimeRunDetail = {
   usageLimitReason: 'limit_exceeded',
   externalProviderCalled: false,
   externalMcpCalled: false,
+  mcpRemoteEvaluationApplied: false,
+  mcpRemoteAllowed: false,
+  mcpRemoteBlocked: false,
+  mcpRemoteReadOnly: false,
+  mcpRemoteBlockedReason: null,
+  mcpRemoteHost: null,
+  mcpRemoteToolId: null,
+  mcpRemoteRiskLevel: null,
+  responseBytes: null,
+  simulated: true,
   toolCallsExecuted: 0,
   latencyMs: 18,
   inputTokens: null,
