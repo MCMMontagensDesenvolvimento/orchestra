@@ -1,0 +1,42 @@
+services:
+  backend:
+    environment:
+      MCP_REMOTE_ENABLED: "${MCP_REMOTE_ENABLED:-false}"
+      MCP_REMOTE_DISCOVERY_ENABLED: "${MCP_REMOTE_DISCOVERY_ENABLED:-false}"
+      MCP_REMOTE_EXECUTION_ENABLED: "${MCP_REMOTE_EXECUTION_ENABLED:-false}"
+      MCP_REMOTE_READONLY_ENABLED: "${MCP_REMOTE_READONLY_ENABLED:-false}"
+      MCP_REMOTE_EGRESS_ALLOWLIST: "${MCP_REMOTE_EGRESS_ALLOWLIST:-}"
+      MCP_REMOTE_ALLOW_INSECURE_LOCAL_DEMO: "${MCP_REMOTE_ALLOW_INSECURE_LOCAL_DEMO:-false}"
+      MCP_REMOTE_LOCAL_DEMO_ORIGIN: "${MCP_REMOTE_LOCAL_DEMO_ORIGIN:-http://mcp-readonly-demo:8092}"
+    networks:
+      - default
+      - mcp_demo_internal
+
+  mcp-readonly-demo:
+    profiles: ["mcp-demo"]
+    build:
+      context: ./runtime/mcp-readonly-demo
+      dockerfile: Dockerfile
+    environment:
+      MCP_READONLY_DEMO_HOST: 0.0.0.0
+      MCP_READONLY_DEMO_PORT: "8092"
+      MCP_READONLY_DEMO_MAX_PAYLOAD_BYTES: "8192"
+      MCP_READONLY_DEMO_REQUEST_TIMEOUT_MS: "5000"
+    ports:
+      - "127.0.0.1:${MCP_READONLY_DEMO_PORT:-8092}:8092"
+    expose:
+      - "8092"
+    networks:
+      - mcp_demo_internal
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:8092/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+      start_period: 5s
+    init: true
+    restart: "no"
+
+networks:
+  mcp_demo_internal:
+    internal: true

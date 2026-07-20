@@ -54,7 +54,19 @@ function clientError(code: McpRemoteClientErrorCode, message: string) {
 }
 
 function sanitizedTransportFailure(error: unknown): never {
-  if (error instanceof AppError) throw error;
+  if (error instanceof AppError) {
+    const safeFailures: Partial<Record<McpRemoteClientErrorCode, string>> = {
+      MCP_REMOTE_NOT_IMPLEMENTED: 'MCP remote transport is not configured.',
+      MCP_REMOTE_TIMEOUT: 'MCP remote operation timed out.',
+      MCP_REMOTE_RESPONSE_TOO_LARGE: 'MCP remote response exceeded the governed limit.',
+      MCP_REMOTE_EGRESS_BLOCKED: 'MCP remote destination was blocked.',
+      MCP_REMOTE_TOOL_OPERATION_BLOCKED: 'MCP remote tool operation was blocked.',
+      MCP_REMOTE_POLICY_BLOCKED: 'MCP remote operation was blocked by governance policy.',
+      MCP_REMOTE_TRANSPORT_FAILED: 'MCP remote transport failed.',
+    };
+    const code = error.code as McpRemoteClientErrorCode;
+    if (safeFailures[code]) throw clientError(code, safeFailures[code]);
+  }
   throw clientError('MCP_REMOTE_TRANSPORT_FAILED', 'MCP remote transport failed.');
 }
 
@@ -117,7 +129,16 @@ export class McpRemoteClient {
     if (this.authType !== 'none' && this.config.requireSecretRef && !this.secretRef) {
       throw clientError('MCP_REMOTE_SECRET_REF_REQUIRED', 'MCP remote authentication requires a logical secret reference.');
     }
-    const target = await validateMcpRemoteEgress(this.baseUrl, this.config.egressAllowlist, this.resolveHost);
+    const target = await validateMcpRemoteEgress(
+      this.baseUrl,
+      this.config.egressAllowlist,
+      this.resolveHost,
+      {
+        environment: this.config.environment,
+        allowInsecureLocalDemo: this.config.allowInsecureLocalDemo,
+        localDemoOrigin: this.config.localDemoOrigin,
+      },
+    );
     const controller = new AbortController();
     return {
       host: target.host,
@@ -135,10 +156,11 @@ export class McpRemoteClient {
   async checkHealth(readiness?: McpRemoteReadiness): Promise<McpRemoteReadiness> {
     this.assertRemoteEnabled();
     if (readiness && readiness.status !== 'ready') throw clientError('MCP_REMOTE_POLICY_BLOCKED', readiness.reason);
-    const { context } = await this.transportContext();
+    const { context, host } = await this.transportContext();
     const controller = new AbortController();
+    let health: { status: 'healthy'; simulated: boolean };
     try {
-      const health = await withTimeout(
+      health = await withTimeout(
         this.transport.checkHealth({ ...context, signal: controller.signal }),
         this.timeoutMs,
         controller,
@@ -149,7 +171,7 @@ export class McpRemoteClient {
     } catch (error) {
       sanitizedTransportFailure(error);
     }
-    return readiness ?? {
+    const baseReadiness = readiness ?? {
       status: 'ready',
       failClosed: false,
       remoteEnabled: true,
@@ -161,6 +183,19 @@ export class McpRemoteClient {
       credentialsConfigured: this.credentialsConfigured,
       authType: this.authType,
       timeoutMs: this.timeoutMs,
+    };
+    return {
+      ...baseReadiness,
+      status: 'ready',
+      failClosed: false,
+      reason: 'MCP read-only demo health check completed through the governed transport.',
+      checks: baseReadiness.checks.map((item) => item.name === 'transport'
+        ? { ...item, status: 'pass' as const, message: 'Controlled demo transport is healthy.' }
+        : item),
+      transportChecked: true,
+      transportHealthy: true,
+      simulated: health.simulated,
+      mcpRemoteHost: host,
     };
   }
 
@@ -184,6 +219,19 @@ export class McpRemoteClient {
 
   async executeTool(spec: GovernedMcpToolExecutionSpec): Promise<GovernedMcpToolExecutionResult> {
     const startedAt = Date.now();
+    let serializedInput: string | undefined;
+    try {
+      serializedInput = JSON.stringify(spec.input.value);
+    } catch {
+      throw clientError('MCP_REMOTE_POLICY_BLOCKED', 'MCP remote input is not a valid governed JSON value.');
+    }
+    if (typeof serializedInput !== 'string') {
+      throw clientError('MCP_REMOTE_POLICY_BLOCKED', 'MCP remote input is not a valid governed JSON value.');
+    }
+    const inputBytes = Buffer.byteLength(serializedInput, 'utf8');
+    if (!Number.isSafeInteger(inputBytes) || inputBytes > spec.limits.maxInputBytes) {
+      throw clientError('MCP_REMOTE_POLICY_BLOCKED', 'MCP remote input exceeded the governed limit.');
+    }
     const evaluation = evaluateMcpRemoteReadOnly({
       config: this.config,
       tool: spec.tool,

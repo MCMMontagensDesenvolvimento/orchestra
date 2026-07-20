@@ -13,5 +13,8 @@ export function getMcpRemoteConfig(): McpRemoteFeatureConfig {
     maxResponseBytes: env.MCP_REMOTE_MAX_RESPONSE_BYTES,
     requireSecretRef: env.MCP_REMOTE_REQUIRE_SECRET_REF,
     allowWriteTools: env.MCP_REMOTE_ALLOW_WRITE_TOOLS,
+    environment: env.NODE_ENV,
+    allowInsecureLocalDemo: env.MCP_REMOTE_ALLOW_INSECURE_LOCAL_DEMO,
+    localDemoOrigin: env.MCP_REMOTE_LOCAL_DEMO_ORIGIN,
   };
 }

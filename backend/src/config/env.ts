@@ -134,6 +134,8 @@ const envSchema = z.object({
   MCP_REMOTE_MAX_RESPONSE_BYTES: z.coerce.number().int().min(1024).max(1_048_576).default(65_536),
   MCP_REMOTE_REQUIRE_SECRET_REF: booleanString('true'),
   MCP_REMOTE_ALLOW_WRITE_TOOLS: booleanString('false'),
+  MCP_REMOTE_ALLOW_INSECURE_LOCAL_DEMO: booleanString('false'),
+  MCP_REMOTE_LOCAL_DEMO_ORIGIN: z.preprocess(blankToUndefined, z.string().url().optional()),
   LLM_PROVIDERS_ENABLED: booleanString('false'),
   LLM_DEFAULT_PROVIDER: z.enum(['local_deterministic', 'agno_local', 'openai', 'azure_openai', 'anthropic']).default('local_deterministic'),
   LLM_EXECUTION_ENABLED: booleanString('false'),
@@ -214,6 +216,13 @@ const envSchema = z.object({
       code: z.ZodIssueCode.custom,
       path: ['AGNO_RUNTIME_HTTP_TOOL_GATEWAY_ENABLED'],
       message: 'Agno tool gateway requires the authenticated Agno HTTP runtime channel.',
+    });
+  }
+  if (value.NODE_ENV === 'production' && value.MCP_REMOTE_ALLOW_INSECURE_LOCAL_DEMO) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ['MCP_REMOTE_ALLOW_INSECURE_LOCAL_DEMO'],
+      message: 'MCP insecure local demo transport is forbidden in production.',
     });
   }
 });

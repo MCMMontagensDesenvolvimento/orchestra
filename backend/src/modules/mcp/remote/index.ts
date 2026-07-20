@@ -14,4 +14,5 @@ export * from './mcp-remote-readiness.service';
 export * from './mcp-remote-transport';
 export * from './mcp-remote-egress';
 export * from './mcp-remote-readonly-policy';
+export * from './mcp-readonly-demo-http.transport';
 export * from './mcp-remote.types';

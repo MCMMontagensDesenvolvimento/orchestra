@@ -7,6 +7,7 @@ import type { AgentRunEventInput } from '../agent-runs/agent-runs.types';
 import { mcpRepository } from '../mcp/mcp.repository';
 import { McpRemoteClient } from '../mcp/remote/mcp-remote.client';
 import { getMcpRemoteConfig } from '../mcp/remote/mcp-remote.config';
+import { createMcpReadonlyDemoHttpTransport } from '../mcp/remote/mcp-readonly-demo-http.transport';
 import { evaluateMcpRemoteReadOnly } from '../mcp/remote/mcp-remote-readonly-policy';
 import type {
   McpRemoteClientOptions,
@@ -57,7 +58,9 @@ export interface RuntimeToolGatewayDependencies {
 }
 
 const defaultDependencies: Required<RuntimeToolGatewayDependencies> = {
-  createRemoteClient: (options, config) => new McpRemoteClient(options, config),
+  createRemoteClient: (options, config) => new McpRemoteClient(options, config, {
+    transport: createMcpReadonlyDemoHttpTransport(config),
+  }),
 };
 
 const activeRuns = new Map<string, ActiveGatewayRun>();

@@ -359,7 +359,8 @@ export default function AnalyticsPage() {
                       <TableCell>
                         <div className="flex flex-wrap gap-1">
                           <FlagBadge value={run.externalProviderCalled} trueLabel="LLM externo" falseLabel="LLM local" />
-                          <FlagBadge value={run.externalMcpCalled} trueLabel="MCP externo" falseLabel="Sem MCP externo" />
+                          <FlagBadge value={run.externalMcpCalled} trueLabel={run.simulated === false ? 'MCP demo real' : 'MCP controlado'} falseLabel="Sem MCP externo" />
+                          {run.mcpRemoteBlocked === true && <Badge variant="destructive">MCP fail-closed</Badge>}
                           {run.fallbackOutsideKnowledgeUsed === true && <Badge variant="outline">Fallback</Badge>}
                         </div>
                       </TableCell>
@@ -486,6 +487,7 @@ function RuntimeRunDetailContent({ run }: { run: RuntimeRunDetail }) {
       </Section>
 
       <Section title="Tools e uso" icon={<Gauge className="h-4 w-4 text-primary" />}>
+        <p className="mb-4 text-xs text-muted-foreground">`simulated=false` com `externalMcpCalled=true` identifica a integração HTTP real do demo homologado. Bloqueios permanecem fail-closed e não registram argumentos nem respostas brutas.</p>
         <dl className="grid gap-4 sm:grid-cols-3">
           <DataItem label="externalMcpCalled"><FlagBadge value={run.externalMcpCalled} /></DataItem>
           <DataItem label="mcpRemoteEvaluationApplied"><FlagBadge value={run.mcpRemoteEvaluationApplied} /></DataItem>

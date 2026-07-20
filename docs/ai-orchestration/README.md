@@ -36,6 +36,8 @@ A Fase 14G adiciona observabilidade, limites e auditoria ponta a ponta no caminh
 
 A Fase 16P adiciona a fundação opt-in de MCP externo read-only: allowlist/SSRF, referências lógicas de secret, client/transporte injetável, revalidação no gateway e observabilidade sanitizada. O transporte default permanece fail-closed e nenhuma chamada externa produtiva é habilitada por padrão. Consulte `ORCHESTRA_MCP_EXTERNO_READONLY_16P.md`.
 
+A Fase 16Q homologa a primeira integração MCP/HTTP real somente contra o servidor local fictício `runtime/mcp-readonly-demo`, com health/readiness/discovery, `catalog.search`, `catalog.get_status`, exceção HTTP exata proibida em produção, gateway governado e distinção `simulated=false` para o demo. Produção e conectores corporativos continuam fail-closed. Consulte `ORCHESTRA_MCP_READONLY_INTEGRACAO_HOMOLOGADA_16Q.md`.
+
 A Fase 14H consolida o MVP tecnico da integracao com Agno Runtime, adicionando handoff operacional, checklist de homologacao/rollback e smoke seguro de MVP para runtime HTTP minimo e fronteira de frontend, sem feature nova, migration, frontend ou mudanca de defaults.
 
 A Fase 15C adiciona conversas persistentes privadas por usuario no Chat, mensagens persistidas, arquivamento logico, envio de mensagem pelo backend de conversa e resposta do assistente vinculada ao `AgentRun`.

@@ -2,6 +2,8 @@
 
 > Auditoria técnica baseada no repositório local em 17 de julho de 2026, branch `fase-16l-documentacao-estado-atual-projeto`, commit-base `bc69d06`. O documento diferencia implementação confirmada, comportamento parcial, simulação, ausência e recomendação. Nenhum ambiente externo, segredo ou banco foi inspecionado ou alterado.
 
+> Atualização de 20 de julho de 2026: as fases 16M–16Q superaram parte das lacunas registradas nesta fotografia. Em especial, a 16Q adiciona uma integração MCP/HTTP real somente contra o demo local fictício, mantendo conectores externos/corporativos e produção fail-closed. O runbook vigente é `ORCHESTRA_MCP_READONLY_INTEGRACAO_HOMOLOGADA_16Q.md`.
+
 ## 0. Resumo Executivo
 
 O Orchestra é hoje um **control plane corporativo de IA em estágio de MVP técnico avançado / homologação local**, com frontend React, API Express, persistência PostgreSQL/Prisma, governança de assistentes, conversas persistentes, `AgentRun`, Knowledge/RAG, catálogo MCP, auditoria, observabilidade técnica, avaliações determinísticas e um bridge Python/Agno executável por HTTP. O projeto já ultrapassou a condição de protótipo puramente visual: os principais domínios têm rotas, serviços, repositórios, modelos Prisma e testes reais. Evidências centrais: `frontend/src/App.tsx`, `backend/src/app/routes.ts`, `backend/prisma/schema.prisma`, `backend/src/modules/agent-runs`, `backend/src/modules/knowledge`, `backend/src/modules/runtime` e `runtime/agno-bridge`.
@@ -150,7 +152,7 @@ Fluxo Chat atual:
 6. O bridge valida contrato/policy/modelo, chama o provider quando em modo real e retorna resposta, uso e eventos.
 7. O backend persiste o resultado no `AgentRun`, eventos, uso e mensagem do assistente; o frontend mostra a resposta e detalhes allowlistados.
 
-A fronteira MCP real termina hoje no catálogo, descriptors e sandbox. O callback 16F revalida o pedido, mas o resultado é deliberadamente simulado e não chama servidor MCP externo. Evidências: `successResponse()` em `runtime.tool-gateway.service.ts` e `sandboxOutput()` em `mcp.service.ts`.
+A fronteira MCP agora alcança o servidor local fictício da 16Q por um transporte HTTP restrito, somente em homologação opt-in. O sandbox 16F continua simulado e conectores externos/corporativos permanecem bloqueados. Evidências: `mcp-readonly-demo`, `mcp-readonly-demo-http.transport.ts` e `runtime.tool-gateway.service.ts`.
 
 ## 6. Frontend — Estado Atual
 
@@ -604,7 +606,16 @@ Como a 16L atual é a documentação de estado, a numeração abaixo começa na 
 - **Evidências:** `mcp-remote.client.ts`, `runtime.tool-gateway.service.ts`, docs MCP.
 - **Dependências:** 16M, 16N e 16O.
 
-### Sprint 16Q — Qualidade Retrieval e Embeddings Reais
+### Sprint 16Q — Integração MCP Read-only Homologada
+
+- **Descrição:** primeira integração HTTP concreta somente contra um demo local, fictício e sem segredo.
+- **Subtarefas concluídas:** servidor demo; Compose opt-in; readiness/discovery; transporte HTTP restrito; chamada real pelo gateway; `simulated=false`; UI, analytics, runbook e smoke.
+- **Status atual:** Implementada para homologação local; produção e conectores corporativos continuam fail-closed.
+- **Prioridade:** Alta.
+- **Evidências:** `runtime/mcp-readonly-demo`, `mcp-readonly-demo-http.transport.ts`, `ORCHESTRA_MCP_READONLY_INTEGRACAO_HOMOLOGADA_16Q.md`.
+- **Dependências:** 16P e hardening 16O.
+
+### Backlog posterior — Qualidade Retrieval e Embeddings Reais
 
 - **Descrição:** validar RAG com métricas e provider aprovado.
 - **Subtarefas:** corpus; labels; embeddings reais; recall/precision/MRR; grounding; tuning top-K/threshold; regressão do modo stub; painel.
@@ -655,7 +666,7 @@ O Orchestra está em uma posição tecnicamente relevante: frontend e backend re
 
 Estão prontos como baseline: governança de Assistants, Auth/RBAC condicional, Conversations/AgentRun, contexto conversacional, runtime adapters, bridge Agno, Knowledge/RAG textual, embeddings opcionais, response scope, catálogo MCP, auditoria técnica, usage events e evals determinísticas.
 
-Ainda faltam para produto operacional maduro: observabilidade visual, custo/quotas no caminho de execução, MCP externo real, infraestrutura produtiva coerente, secrets e sessão endurecidos, E2E/CI/CD, quality loop com respostas reais, conectores e formatos avançados de Knowledge, UX sem placeholders e operação de incidentes/rollback.
+Ainda faltam para produto operacional maduro: ampliação da observabilidade, conectores MCP corporativos reais, infraestrutura produtiva coerente, secret manager, sessão endurecida, E2E/CI/CD, quality loop com respostas reais, conectores e formatos avançados de Knowledge, UX sem placeholders e operação de incidentes/rollback.
 
 O próximo passo recomendado é a fase de Observabilidade Operacional do Runtime Chat/RAG, seguida imediatamente por enforcement de custos/rate limits e hardening de produção. Avançar diretamente para MCP externo sem essas frentes aumenta risco de ação indevida, exfiltração, custo sem controle, diagnóstico lento e rollback incompleto.
 

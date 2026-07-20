@@ -2,6 +2,8 @@
 
 Status: fundação implementada, opt-in e fail-closed. Nenhum transporte MCP produtivo é habilitado por padrão.
 
+Evolução: a Fase 16Q conecta esta fronteira exclusivamente ao demo local fictício e read-only, mediante exceção HTTP opt-in proibida em produção. Consulte `ORCHESTRA_MCP_READONLY_INTEGRACAO_HOMOLOGADA_16Q.md`. O transporte genérico externo permanece fora de escopo.
+
 ## Objetivo
 
 Estabelecer o primeiro caminho governado para uma tool MCP externa de leitura, risco baixo e sem aprovação pendente. A fase entrega validação de egress, contrato de client injetável, revalidação no gateway, auditoria e observabilidade, preservando os defaults desligados.

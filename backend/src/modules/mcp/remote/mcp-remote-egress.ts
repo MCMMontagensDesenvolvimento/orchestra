@@ -62,9 +62,49 @@ export async function resolveMcpRemoteHost(host: string) {
   return records.map((record) => record.address);
 }
 
-function parseAllowedOrigins(value: string) {
+export interface McpRemoteEgressPolicy {
+  environment?: 'development' | 'test' | 'production';
+  allowInsecureLocalDemo?: boolean;
+  localDemoOrigin?: string;
+}
+
+function normalizedOrigin(parsed: URL) {
+  const host = normalizedHost(parsed.hostname);
+  const defaultPort = parsed.protocol === 'https:' ? 443 : 80;
+  return `${parsed.protocol}//${isIP(host) === 6 ? `[${host}]` : host}:${Number(parsed.port || defaultPort)}`;
+}
+
+function configuredLocalDemoOrigin(policy: McpRemoteEgressPolicy) {
+  if (!policy.allowInsecureLocalDemo || policy.environment === 'production' || !policy.localDemoOrigin) return null;
+  let parsed: URL;
+  try {
+    parsed = new URL(policy.localDemoOrigin);
+  } catch {
+    blocked('MCP local demo origin is invalid.');
+  }
+  const host = normalizedHost(parsed.hostname);
+  const allowedHost = host === 'mcp-readonly-demo'
+    || host === 'localhost'
+    || host === '127.0.0.1'
+    || host === '::1';
+  if (
+    parsed.protocol !== 'http:'
+    || parsed.username
+    || parsed.password
+    || parsed.pathname !== '/'
+    || parsed.search
+    || parsed.hash
+    || !allowedHost
+  ) {
+    blocked('MCP local demo origin must be an exact credential-free loopback or mcp-readonly-demo HTTP origin.');
+  }
+  return normalizedOrigin(parsed);
+}
+
+function parseAllowedOrigins(value: string, policy: McpRemoteEgressPolicy) {
   if (!value.trim()) return new Set<string>();
   const origins = new Set<string>();
+  const localDemoOrigin = configuredLocalDemoOrigin(policy);
   for (const entry of value.split(',').map((item) => item.trim()).filter(Boolean)) {
     let parsed: URL;
     try {
@@ -72,24 +112,25 @@ function parseAllowedOrigins(value: string) {
     } catch {
       blocked('MCP remote egress allowlist contains an invalid origin.');
     }
+    const origin = normalizedOrigin(parsed);
+    const isControlledLocalDemo = parsed.protocol === 'http:' && origin === localDemoOrigin;
     if (
-      parsed.protocol !== 'https:'
+      (parsed.protocol !== 'https:' && !isControlledLocalDemo)
       || parsed.username
       || parsed.password
       || parsed.pathname !== '/'
       || parsed.search
       || parsed.hash
     ) {
-      blocked('MCP remote egress allowlist accepts only credential-free HTTPS origins.');
+      blocked('MCP remote egress allowlist accepts HTTPS origins or the explicitly enabled local demo origin.');
     }
-    const host = normalizedHost(parsed.hostname);
-    origins.add(`https://${isIP(host) === 6 ? `[${host}]` : host}:${parsed.port || '443'}`);
+    origins.add(origin);
   }
   return origins;
 }
 
 export interface McpRemoteEgressTarget {
-  protocol: 'https:';
+  protocol: 'https:' | 'http:';
   host: string;
   port: number;
   origin: string;
@@ -99,6 +140,7 @@ export async function validateMcpRemoteEgress(
   rawUrl: string,
   allowlist: string,
   resolver: McpRemoteHostResolver = resolveMcpRemoteHost,
+  policy: McpRemoteEgressPolicy = {},
 ): Promise<McpRemoteEgressTarget> {
   let parsed: URL;
   try {
@@ -106,32 +148,36 @@ export async function validateMcpRemoteEgress(
   } catch {
     blocked('MCP remote destination is invalid.');
   }
-  if (parsed.protocol !== 'https:') blocked('MCP remote destination protocol is blocked.');
+  const origin = normalizedOrigin(parsed);
+  const localDemoOrigin = configuredLocalDemoOrigin(policy);
+  const isControlledLocalDemo = parsed.protocol === 'http:' && origin === localDemoOrigin;
+  if (parsed.protocol !== 'https:' && !isControlledLocalDemo) blocked('MCP remote destination protocol is blocked.');
   if (parsed.username || parsed.password) blocked('MCP remote destination must not embed credentials.');
   if (parsed.search) blocked('MCP remote destination query strings are blocked.');
   if (parsed.hash) blocked('MCP remote destination fragments are blocked.');
 
   const host = normalizedHost(parsed.hostname);
-  if (
+  if (!isControlledLocalDemo && (
     host === 'localhost'
     || host.endsWith('.localhost')
     || host === 'local'
     || host.endsWith('.local')
     || metadataHosts.has(host)
-  ) {
+  )) {
     blocked('MCP remote destination host is blocked.');
   }
 
-  const port = Number(parsed.port || 443);
-  const origin = `https://${isIP(host) === 6 ? `[${host}]` : host}:${port}`;
-  if (!parseAllowedOrigins(allowlist).has(origin)) {
+  const port = Number(parsed.port || (parsed.protocol === 'https:' ? 443 : 80));
+  if (!parseAllowedOrigins(allowlist, policy).has(origin)) {
     blocked('MCP remote destination is not allowlisted.');
   }
 
-  const addresses = isIP(host) ? [host] : await resolver(host).catch(() => []);
-  if (addresses.length === 0 || addresses.some(isBlockedMcpRemoteAddress)) {
-    blocked('MCP remote destination resolved to a blocked address.');
+  if (!isControlledLocalDemo) {
+    const addresses = isIP(host) ? [host] : await resolver(host).catch(() => []);
+    if (addresses.length === 0 || addresses.some(isBlockedMcpRemoteAddress)) {
+      blocked('MCP remote destination resolved to a blocked address.');
+    }
   }
 
-  return { protocol: 'https:', host, port, origin };
+  return { protocol: parsed.protocol as 'https:' | 'http:', host, port, origin };
 }

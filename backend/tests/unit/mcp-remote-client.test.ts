@@ -1,6 +1,9 @@
+import { createServer } from 'node:http';
+import { once } from 'node:events';
 import { describe, expect, it, vi } from 'vitest';
 import { validateMcpRemoteEgress } from '../../src/modules/mcp/remote/mcp-remote-egress';
 import { McpRemoteClient } from '../../src/modules/mcp/remote/mcp-remote.client';
+import { McpReadonlyDemoHttpTransport } from '../../src/modules/mcp/remote/mcp-readonly-demo-http.transport';
 import type { McpRemoteClientTransport } from '../../src/modules/mcp/remote/mcp-remote-transport';
 import type {
   GovernedMcpToolExecutionSpec,
@@ -128,9 +131,153 @@ describe('MCP remote egress boundary', () => {
       async () => ['169.254.169.254'],
     )).rejects.toMatchObject({ code: 'MCP_REMOTE_EGRESS_BLOCKED' });
   });
+
+  it('allows the exact HTTP demo origin only with explicit non-production exception and allowlist', async () => {
+    const policy = {
+      environment: 'test' as const,
+      allowInsecureLocalDemo: true,
+      localDemoOrigin: 'http://127.0.0.1:8092',
+    };
+    await expect(validateMcpRemoteEgress(
+      'http://127.0.0.1:8092',
+      'http://127.0.0.1:8092',
+      async () => ['127.0.0.1'],
+      policy,
+    )).resolves.toMatchObject({ protocol: 'http:', host: '127.0.0.1', port: 8092 });
+
+    await expect(validateMcpRemoteEgress(
+      'http://127.0.0.1:8092',
+      '',
+      async () => ['127.0.0.1'],
+      policy,
+    )).rejects.toMatchObject({ code: 'MCP_REMOTE_EGRESS_BLOCKED' });
+  });
+
+  it('forbids the insecure demo exception in production and for non-demo private hosts', async () => {
+    await expect(validateMcpRemoteEgress(
+      'http://127.0.0.1:8092',
+      'http://127.0.0.1:8092',
+      async () => ['127.0.0.1'],
+      {
+        environment: 'production',
+        allowInsecureLocalDemo: true,
+        localDemoOrigin: 'http://127.0.0.1:8092',
+      },
+    )).rejects.toMatchObject({ code: 'MCP_REMOTE_EGRESS_BLOCKED' });
+
+    await expect(validateMcpRemoteEgress(
+      'http://10.0.0.8:8092',
+      'http://10.0.0.8:8092',
+      async () => ['10.0.0.8'],
+      {
+        environment: 'test',
+        allowInsecureLocalDemo: true,
+        localDemoOrigin: 'http://10.0.0.8:8092',
+      },
+    )).rejects.toMatchObject({ code: 'MCP_REMOTE_EGRESS_BLOCKED' });
+  });
 });
 
 describe('MCP remote read-only client', () => {
+  it('executes the controlled demo over real local HTTP with simulated=false', async () => {
+    const server = createServer(async (request, response) => {
+      const send = (payload: unknown) => {
+        const body = JSON.stringify(payload);
+        response.writeHead(200, { 'content-type': 'application/json', 'content-length': Buffer.byteLength(body) });
+        response.end(body);
+      };
+      if (request.method === 'GET' && request.url === '/health') {
+        send({ status: 'healthy', service: 'mcp-readonly-demo' });
+        return;
+      }
+      if (request.method === 'GET' && request.url === '/v1/catalog') {
+        send({
+          status: 'ready',
+          protocolVersion: 'orchestra-mcp-http-readonly/1.0',
+          server: { readOnly: true, dataClassification: 'fictitious' },
+          tools: [
+            {
+              externalName: 'catalog.search',
+              displayName: 'Catalog Search',
+              description: 'Read matching fictitious catalog entries.',
+              readOnly: true,
+              riskLevel: 'low',
+              inputSchema: { type: 'object', properties: { query: { type: 'string' } } },
+              outputSchema: { type: 'object', properties: { matches: { type: 'array' } } },
+            },
+            {
+              externalName: 'catalog.get_status',
+              displayName: 'Catalog Get Status',
+              description: 'Read one fictitious status.',
+              readOnly: true,
+              riskLevel: 'low',
+              inputSchema: { type: 'object', properties: { itemId: { type: 'string' } } },
+              outputSchema: { type: 'object', properties: { found: { type: 'boolean' } } },
+            },
+          ],
+        });
+        return;
+      }
+      if (request.method === 'POST' && request.url === '/v1/tools/call') {
+        for await (const _chunk of request) { /* consume the governed request without logging it */ }
+        send({ status: 'completed', content: '{"matches":[]}', simulated: false });
+        return;
+      }
+      response.writeHead(404, { 'content-type': 'application/json' });
+      response.end('{}');
+    });
+    server.listen(0, '127.0.0.1');
+    await once(server, 'listening');
+    const address = server.address();
+    if (!address || typeof address === 'string') throw new Error('test server did not bind');
+    const origin = `http://127.0.0.1:${address.port}`;
+    const config: McpRemoteFeatureConfig = {
+      ...enabledConfig,
+      environment: 'test',
+      allowInsecureLocalDemo: true,
+      localDemoOrigin: origin,
+      egressAllowlist: origin,
+    };
+    const transport = new McpReadonlyDemoHttpTransport({ allowedOrigin: origin, maxResponseBytes: 4096 });
+    const client = new McpRemoteClient({
+      serverId: 'server',
+      baseUrl: origin,
+      authType: 'none',
+      timeoutMs: 1000,
+    }, config, { transport });
+
+    try {
+      const health = await client.checkHealth();
+      const discovery = await client.discoverTools({
+        tenantId: '00000000-0000-0000-0000-000000000010',
+        workspaceId: '00000000-0000-0000-0000-000000000020',
+        serverId: 'server',
+        requestedByUserId: '00000000-0000-0000-0000-000000000030',
+        requestId: 'req-real-demo',
+        mode: 'dry_run',
+        timeoutMs: 1000,
+      });
+      const result = await client.executeTool(executionSpec({
+        externalName: 'catalog.search',
+        displayName: 'Catalog Search',
+        description: 'Read matching fictitious catalog entries.',
+      }));
+      expect(health).toMatchObject({ transportChecked: true, transportHealthy: true, simulated: false });
+      expect(discovery.tools.map((tool) => tool.externalName)).toEqual(['catalog.search', 'catalog.get_status']);
+      expect(JSON.stringify(discovery)).not.toMatch(/secretRef|authorization|cookie/i);
+      expect(result).toMatchObject({
+        status: 'completed',
+        externalMcpCalled: true,
+        simulated: false,
+        remoteHost: '127.0.0.1',
+      });
+      expect(JSON.stringify(result)).not.toContain('safe query');
+    } finally {
+      server.close();
+      await once(server, 'close');
+    }
+  });
+
   it('sanitizes arbitrary health and discovery transport failures', async () => {
     const transport = fakeTransport();
     vi.mocked(transport.checkHealth).mockRejectedValueOnce(new Error('Bearer must-not-leak-health'));
@@ -233,6 +380,22 @@ describe('MCP remote read-only client', () => {
     await expect(client.executeTool(executionSpec())).rejects.toMatchObject({
       code: 'MCP_REMOTE_RESPONSE_TOO_LARGE',
     });
+  });
+
+  it('rejects oversized input before invoking any transport', async () => {
+    const transport = fakeTransport();
+    const client = new McpRemoteClient({
+      serverId: 'server',
+      baseUrl: 'https://mcp.example.test',
+      authType: 'none',
+      timeoutMs: 1000,
+    }, enabledConfig, { transport, resolveHost: publicResolver });
+
+    await expect(client.executeTool({
+      ...executionSpec(),
+      limits: { ...executionSpec().limits, maxInputBytes: 8 },
+    })).rejects.toMatchObject({ code: 'MCP_REMOTE_POLICY_BLOCKED' });
+    expect(transport.executeReadonlyTool).not.toHaveBeenCalled();
   });
 
   it('aborts a controlled fake transport when the governed timeout is reached', async () => {
