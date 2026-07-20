@@ -46,7 +46,7 @@ interface ApiMcpServer {
   trustLevel: 'trusted' | 'restricted' | 'experimental';
   riskLevel: RiskLevel;
   authType: string;
-  secretRef: string | null;
+  credentialConfigured: boolean;
   metadata?: Record<string, unknown> | null;
   createdById: string | null;
   createdBy?: { id: string; name: string; email: string } | null;
@@ -237,7 +237,7 @@ function mapServer(server: ApiMcpServer): McpServer {
     updatedAt: server.updatedAt,
     deletedAt: server.deletedAt,
     version: metadataString(metadata, 'version', '1.0.0'),
-    secretRef: server.secretRef,
+    credentialConfigured: server.credentialConfigured,
     metadata,
   };
 }

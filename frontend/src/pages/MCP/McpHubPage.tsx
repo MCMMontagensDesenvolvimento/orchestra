@@ -9,8 +9,6 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { Badge } from '@/components/ui/badge';
-import { Switch } from '@/components/ui/switch';
-import { Checkbox } from '@/components/ui/checkbox';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
@@ -28,8 +26,8 @@ import { QueryState, ListLoading } from '@/components/shared/QueryState';
 import { useAssistants } from '@/hooks/queries/useAssistants';
 import {
   Plus, Server, Wrench, Shield, Search, MoreHorizontal, Eye, Pencil, Trash2,
-  Copy, RefreshCw, Filter, X, AlertTriangle, Zap, Link2, LayoutGrid, List, Power, PowerOff,
-  Globe, Settings, Key, RotateCcw
+  Copy, Filter, X, AlertTriangle, Link2, LayoutGrid, List, Power, PowerOff,
+  Globe, Settings, Key
 } from 'lucide-react';
 import type { McpServer, McpServerStatus, RiskLevel } from '@/types';
 import type { McpServerPayload } from '@/services/mcp.service';
@@ -51,20 +49,13 @@ interface ServerFormData {
   version: string;
   owner: string;
   status: McpServerStatus;
-  apiKey: string;
-  rotateCredentials: boolean;
-  healthCheckEnabled: boolean;
-  healthCheckInterval: string;
-  toolApprovals: Record<string, boolean>;
-  selectedAssistants: string[];
+  credentialRef: string;
 }
 
 const defaultForm: ServerFormData = {
   name: '', description: '', url: '', authType: 'API Key', riskLevel: 'low',
   version: '1.0.0', owner: '', status: 'disabled',
-  apiKey: '', rotateCredentials: false,
-  healthCheckEnabled: true, healthCheckInterval: '60',
-  toolApprovals: {}, selectedAssistants: [],
+  credentialRef: '',
 };
 
 function mapAuthType(authType: string): McpServerPayload['authType'] {
@@ -109,13 +100,11 @@ function buildServerPayload(formData: ServerFormData): McpServerPayload {
     trustLevel: formData.riskLevel === 'low' ? 'trusted' : formData.riskLevel === 'medium' ? 'restricted' : 'experimental',
     riskLevel: formData.riskLevel,
     authType: mapAuthType(formData.authType),
-    secretRef: formData.apiKey && !formData.apiKey.includes('•') ? 'vault://placeholder/mcp-secret' : undefined,
+    secretRef: formData.credentialRef.trim() || undefined,
     metadata: {
       version: formData.version,
       owner: formData.owner,
-      healthCheckEnabled: formData.healthCheckEnabled,
-      healthCheckInterval: formData.healthCheckInterval,
-      phase: 'catalog_placeholder',
+      phase: 'remote_readonly_foundation',
     },
   };
 }
@@ -215,11 +204,6 @@ export default function McpHubPage() {
     }
   };
 
-  const handleSync = (server: McpServer) => {
-    setServers(prev => prev.map(s => s.id === server.id ? { ...s, lastSync: new Date().toISOString() } : s));
-    toast({ title: 'Sincronização placeholder', description: `"${server.name}" foi marcado para descoberta futura de tools/resources.` });
-  };
-
   const handleDuplicate = async (server: McpServer) => {
     try {
       const duplicated = await createMcpServerMutation.mutateAsync({
@@ -235,7 +219,7 @@ export default function McpHubPage() {
           ...(typeof server.metadata === 'object' && server.metadata ? server.metadata : {}),
           version: server.version,
           owner: server.owner,
-          phase: 'catalog_placeholder',
+          phase: 'remote_readonly_foundation',
         },
       });
       setServers(prev => [duplicated, ...prev]);
@@ -245,25 +229,12 @@ export default function McpHubPage() {
     }
   };
 
-  const handleRotateCredentials = () => {
-    toast({ title: 'Credenciais rotacionadas', description: `Novas credenciais geradas para "${selected?.name}".` });
-  };
-
-  const handleHealthCheck = () => {
-    toast({ title: 'Health check placeholder', description: `"${selected?.name}" foi validado apenas na interface.` });
-  };
-
   const openEdit = (s: McpServer) => {
-    const sTools = mockMcpTools.filter(t => t.serverId === s.id);
-    const sBindings = mockMcpBindings.filter(b => b.serverId === s.id);
     setSelected(s);
     setFormData({
       name: s.name, description: s.description, url: s.url, authType: authTypeForForm(s.authType),
       riskLevel: s.riskLevel, version: s.version, owner: s.owner, status: statusForForm(s.status),
-      apiKey: '••••••••••••••••', rotateCredentials: false,
-      healthCheckEnabled: true, healthCheckInterval: '60',
-      toolApprovals: Object.fromEntries(sTools.map(t => [t.id, t.requiresApproval])),
-      selectedAssistants: sBindings.map(b => b.assistantId),
+      credentialRef: '',
     });
     setEditOpen(true);
   };
@@ -300,6 +271,11 @@ export default function McpHubPage() {
             </SelectContent>
           </Select>
         </div>
+      </div>
+      <div className="space-y-2">
+        <Label>Referência lógica de secret</Label>
+        <Input value={formData.credentialRef} onChange={e => setFormData(p => ({ ...p, credentialRef: e.target.value }))} placeholder="vault://orchestra/mcp/nome-do-secret" />
+        <p className="text-[11px] text-muted-foreground">Informe somente a referência do cofre. Tokens, API keys e senhas não são aceitos.</p>
       </div>
       <div className="grid grid-cols-2 gap-4">
         <div className="space-y-2"><Label>Versão</Label><Input value={formData.version} onChange={e => setFormData(p => ({ ...p, version: e.target.value }))} placeholder="1.0.0" /></div>
@@ -353,40 +329,15 @@ export default function McpHubPage() {
           </Select>
         </div>
         <div className="space-y-2">
-          <Label>Credencial</Label>
-          <div className="flex gap-2">
-            <Input value={formData.apiKey} onChange={e => setFormData(p => ({ ...p, apiKey: e.target.value }))} type="password" className="flex-1" />
-            <Button variant="outline" size="sm" onClick={handleRotateCredentials} className="shrink-0">
-              <RotateCcw className="h-3.5 w-3.5 mr-1" />Rotacionar
-            </Button>
-          </div>
-          <p className="text-[11px] text-muted-foreground">Rotacione as credenciais periodicamente para maior segurança.</p>
+          <Label>Referência lógica de secret</Label>
+          <Input value={formData.credentialRef} onChange={e => setFormData(p => ({ ...p, credentialRef: e.target.value }))} placeholder="vault://orchestra/mcp/nome-do-secret" />
+          <p className="text-[11px] text-muted-foreground">
+            O Orchestra recebe apenas a referência lógica e nunca exibe o valor. {selected?.credentialConfigured ? 'Já existe uma referência configurada; deixe em branco para preservá-la.' : 'Nenhuma referência está configurada.'}
+          </p>
         </div>
-        <div className="rounded-lg border bg-muted/30 p-4 space-y-3">
-          <div className="flex items-center justify-between">
-            <div>
-              <p className="text-sm font-medium">Health Check</p>
-              <p className="text-[11px] text-muted-foreground">Verificação periódica de conectividade</p>
-            </div>
-            <Switch checked={formData.healthCheckEnabled} onCheckedChange={v => setFormData(p => ({ ...p, healthCheckEnabled: v }))} />
-          </div>
-          {formData.healthCheckEnabled && (
-            <div className="space-y-2">
-              <Label className="text-xs">Intervalo (segundos)</Label>
-              <Select value={formData.healthCheckInterval} onValueChange={v => setFormData(p => ({ ...p, healthCheckInterval: v }))}>
-                <SelectTrigger className="h-8 text-xs"><SelectValue /></SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="30">30s</SelectItem>
-                  <SelectItem value="60">60s</SelectItem>
-                  <SelectItem value="300">5min</SelectItem>
-                  <SelectItem value="900">15min</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-          )}
-          <Button variant="outline" size="sm" onClick={handleHealthCheck}>
-            <Zap className="h-3.5 w-3.5 mr-1" />Testar Agora
-          </Button>
+        <div className="rounded-lg border border-warning/30 bg-warning/5 p-4">
+          <p className="text-sm font-medium">Conectividade governada</p>
+          <p className="mt-1 text-xs text-muted-foreground">Health check real não está disponível nesta tela. Chamadas só podem ocorrer no backend, com flags explícitas, allowlist de egress e política read-only.</p>
         </div>
       </TabsContent>
 
@@ -403,32 +354,19 @@ export default function McpHubPage() {
             </SelectContent>
           </Select>
         </div>
-        <div className="rounded-lg border p-4 space-y-3">
-          <h4 className="text-sm font-medium flex items-center gap-2"><Key className="h-3.5 w-3.5" />Políticas de Credenciais</h4>
-          <div className="flex items-center justify-between">
-            <div>
-              <p className="text-sm">Rotação automática</p>
-              <p className="text-[11px] text-muted-foreground">Rotacionar credenciais automaticamente a cada 90 dias</p>
-            </div>
-            <Switch checked={formData.rotateCredentials} onCheckedChange={v => setFormData(p => ({ ...p, rotateCredentials: v }))} />
-          </div>
-        </div>
         <div className="rounded-lg border border-warning/30 bg-warning/5 p-4">
           <div className="flex gap-2">
-            <AlertTriangle className="h-4 w-4 text-warning shrink-0 mt-0.5" />
+            <Key className="h-4 w-4 text-warning shrink-0 mt-0.5" />
             <div>
-              <p className="text-sm font-medium">Zona de Perigo</p>
-              <p className="text-xs text-muted-foreground mt-1">Revogar todas as credenciais ativas forçará a reconexão de todos os assistentes vinculados.</p>
-              <Button variant="destructive" size="sm" className="mt-2" onClick={() => toast({ title: 'Credenciais revogadas', description: 'Todas as sessões ativas foram encerradas.', variant: 'destructive' })}>
-                Revogar Todas as Credenciais
-              </Button>
+              <p className="text-sm font-medium">Credenciais fora da interface</p>
+              <p className="text-xs text-muted-foreground mt-1">Rotação e revogação devem ocorrer no cofre externo. A UI mantém apenas a referência lógica e não simula essas operações.</p>
             </div>
           </div>
         </div>
       </TabsContent>
 
       <TabsContent value="tools" className="space-y-4 mt-4">
-        <p className="text-xs text-muted-foreground">Gerencie as políticas de aprovação para cada ferramenta deste servidor.</p>
+        <p className="text-xs text-muted-foreground">Visão somente leitura. A execução remota exige tool explicitamente read-only, risco baixo e política aprovada no backend.</p>
         {serverToolsForEdit.length === 0 ? (
           <div className="text-center py-6 text-sm text-muted-foreground">Nenhuma tool registrada neste servidor.</div>
         ) : (
@@ -442,56 +380,29 @@ export default function McpHubPage() {
                   </div>
                   <p className="text-[11px] text-muted-foreground mt-0.5 truncate">{tool.description}</p>
                 </div>
-                <div className="flex items-center gap-2 ml-3">
-                  <span className="text-[10px] text-muted-foreground">{formData.toolApprovals[tool.id] ? 'Aprovação manual' : 'Auto'}</span>
-                  <Switch
-                    checked={formData.toolApprovals[tool.id] ?? false}
-                    onCheckedChange={v => setFormData(p => ({ ...p, toolApprovals: { ...p.toolApprovals, [tool.id]: v } }))}
-                  />
-                </div>
+                <Badge variant="outline" className="ml-3 text-[10px]">{tool.requiresApproval ? 'Aprovação obrigatória' : 'Sem aprovação'}</Badge>
               </div>
             ))}
           </div>
         )}
-        <div className="flex gap-2 pt-2 border-t">
-          <Button variant="outline" size="sm" onClick={() => {
-            const all = Object.fromEntries(serverToolsForEdit.map(t => [t.id, true]));
-            setFormData(p => ({ ...p, toolApprovals: all }));
-          }}>Habilitar Todas</Button>
-          <Button variant="outline" size="sm" onClick={() => {
-            const none = Object.fromEntries(serverToolsForEdit.map(t => [t.id, false]));
-            setFormData(p => ({ ...p, toolApprovals: none }));
-          }}>Desabilitar Todas</Button>
-        </div>
       </TabsContent>
 
       <TabsContent value="bindings" className="space-y-4 mt-4">
-        <p className="text-xs text-muted-foreground">Selecione os assistentes que podem utilizar este servidor MCP.</p>
+        <p className="text-xs text-muted-foreground">Bindings existentes em modo somente leitura. Alterações de vínculo não são simuladas nesta tela.</p>
         <div className="space-y-2 max-h-[280px] overflow-y-auto pr-1">
-          {mockAssistants.filter(a => a.status !== 'archived').map(assistant => (
-            <label key={assistant.id} className="flex items-center gap-3 rounded-lg border p-3 cursor-pointer hover:bg-muted/30 transition-colors">
-              <Checkbox
-                checked={formData.selectedAssistants.includes(assistant.id)}
-                onCheckedChange={checked => {
-                  setFormData(p => ({
-                    ...p,
-                    selectedAssistants: checked
-                      ? [...p.selectedAssistants, assistant.id]
-                      : p.selectedAssistants.filter(id => id !== assistant.id),
-                  }));
-                }}
-              />
-              <div className="flex-1 min-w-0">
-                <div className="flex items-center gap-2">
-                  <span className="text-sm font-medium">{assistant.name}</span>
-                  <StatusBadge status={assistant.status} />
+          {mockMcpBindings.filter(binding => binding.serverId === selected?.id).map(binding => {
+            const assistant = mockAssistants.find(item => item.id === binding.assistantId);
+            return (
+              <div key={binding.id} className="flex items-center gap-3 rounded-lg border p-3">
+                <Link2 className="h-4 w-4 text-muted-foreground" />
+                <div className="flex-1 min-w-0">
+                  <span className="text-sm font-medium">{assistant?.name ?? binding.assistantId}</span>
+                  <p className="text-[11px] text-muted-foreground">Modo: {binding.mode}</p>
                 </div>
-                <p className="text-[11px] text-muted-foreground truncate">{assistant.area} · {assistant.owner}</p>
               </div>
-            </label>
-          ))}
+            );
+          })}
         </div>
-        <p className="text-[11px] text-muted-foreground">{formData.selectedAssistants.length} assistente(s) vinculado(s)</p>
       </TabsContent>
     </Tabs>
   );
@@ -504,7 +415,6 @@ export default function McpHubPage() {
       <DropdownMenuContent align="end" onClick={e => e.stopPropagation()}>
         <DropdownMenuItem onClick={() => navigate(`/app/mcp/${server.id}`)}><Eye className="h-4 w-4 mr-2" />Detalhes</DropdownMenuItem>
         <DropdownMenuItem onClick={() => openEdit(server)}><Pencil className="h-4 w-4 mr-2" />Editar</DropdownMenuItem>
-        <DropdownMenuItem onClick={() => handleSync(server)}><RefreshCw className="h-4 w-4 mr-2" />Sincronizar</DropdownMenuItem>
         <DropdownMenuItem onClick={() => { void handleToggleStatus(server); }}>
           {server.status === 'active' ? <><PowerOff className="h-4 w-4 mr-2" />Desativar</> : <><Power className="h-4 w-4 mr-2" />Ativar</>}
         </DropdownMenuItem>
@@ -521,6 +431,14 @@ export default function McpHubPage() {
         <PageHeader title="MCP Hub" description="Gestão centralizada de servidores MCP, ferramentas e permissões">
           <Button onClick={() => { setFormData(defaultForm); setCreateOpen(true); }}><Plus className="h-4 w-4 mr-1" />Registrar Servidor</Button>
         </PageHeader>
+
+        <div className="flex gap-3 rounded-lg border border-warning/30 bg-warning/5 p-4">
+          <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-warning" />
+          <div>
+            <p className="text-sm font-medium">MCP externo em fundação read-only e opt-in</p>
+            <p className="mt-1 text-xs text-muted-foreground">Discovery, health e escrita remota não são simulados pela interface. O backend permanece fail-closed até que flags, allowlist, política e transporte controlado estejam configurados.</p>
+          </div>
+        </div>
 
         {/* KPIs */}
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
@@ -605,7 +523,7 @@ export default function McpHubPage() {
                   <TableHead className="text-center">Resources</TableHead>
                   <TableHead className="text-center">Bindings</TableHead>
                   <TableHead>Versão</TableHead>
-                  <TableHead>Último Sync</TableHead>
+                  <TableHead>Última descoberta</TableHead>
                   <TableHead className="w-10"></TableHead>
                 </TableRow>
               </TableHeader>

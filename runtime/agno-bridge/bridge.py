@@ -7,7 +7,7 @@ import re
 import threading
 import time
 import uuid
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from typing import Any, Mapping, Protocol
@@ -206,6 +206,8 @@ class ExecutorResult:
     total_tokens: int | None = None
     tool_calls_executed: int = 0
     gateway_simulated: bool = False
+    external_mcp_called: bool = False
+    gateway_metadata: dict[str, Any] = field(default_factory=dict)
 
 
 class RuntimeExecutor(Protocol):
@@ -231,6 +233,8 @@ class GatewaySession:
         self.sequence = 0
         self.executed = 0
         self.simulated = False
+        self.external_mcp_called = False
+        self.gateway_metadata: dict[str, Any] = {}
         self.failure: BridgePolicyBlocked | BridgeProviderError | None = None
         self._lock = threading.Lock()
 
@@ -280,8 +284,16 @@ class GatewaySession:
         if body.get("toolCallId") != payload["toolCallId"]:
             raise BridgeProviderError("Governed tool gateway returned an invalid response.")
         metadata = body.get("metadata")
-        if not isinstance(metadata, dict) or metadata.get("externalMcpCalled") is not False:
+        if not isinstance(metadata, dict) or not isinstance(metadata.get("externalMcpCalled"), bool):
             raise BridgeProviderError("Governed tool gateway returned unsafe metadata.")
+        external_mcp_called = metadata["externalMcpCalled"]
+        if external_mcp_called and (
+            metadata.get("mcpRemoteEvaluationApplied") is not True
+            or metadata.get("mcpRemoteAllowed") is not True
+            or metadata.get("mcpRemoteBlocked") is not False
+            or metadata.get("mcpRemoteReadOnly") is not True
+        ):
+            raise BridgeProviderError("Governed tool gateway returned unsafe MCP remote metadata.")
         executed = metadata.get("toolCallsExecuted")
         if isinstance(executed, bool) or not isinstance(executed, int) or not 0 <= executed <= 50:
             raise BridgeProviderError("Governed tool gateway returned invalid counters.")
@@ -299,6 +311,21 @@ class GatewaySession:
         with self._lock:
             self.executed = max(self.executed, executed)
             self.simulated = metadata.get("simulated") is True
+            self.external_mcp_called = self.external_mcp_called or external_mcp_called
+            for key in (
+                "mcpRemoteEvaluationApplied",
+                "mcpRemoteAllowed",
+                "mcpRemoteBlocked",
+                "mcpRemoteReadOnly",
+                "mcpRemoteBlockedReason",
+                "mcpRemoteHost",
+                "mcpRemoteToolId",
+                "mcpRemoteRiskLevel",
+                "responseBytes",
+            ):
+                value = metadata.get(key)
+                if isinstance(value, (bool, int, str)) and not contains_unsafe_payload(value):
+                    self.gateway_metadata[key] = value
         return content
 
 
@@ -349,6 +376,8 @@ class AgnoExecutor:
             total_tokens=_metric(metrics, "total_tokens"),
             tool_calls_executed=gateway.executed,
             gateway_simulated=gateway.simulated,
+            external_mcp_called=gateway.external_mcp_called,
+            gateway_metadata=gateway.gateway_metadata,
         )
 
     def _build_model(self, plan: ExecutionPlan) -> Any:
@@ -613,9 +642,10 @@ class BridgeService:
             "approvalRequiredCount": approval_count,
             "maxToolCalls": spec["policy"]["maxToolCalls"],
             "externalProviderCalled": external_provider_called,
-            "externalMcpCalled": False,
+            "externalMcpCalled": result.external_mcp_called,
             "toolCallsExecuted": result.tool_calls_executed,
             "simulated": simulated or result.gateway_simulated,
+            **result.gateway_metadata,
         }
         events = [
             _event(1, spec, "run.started", "running", {

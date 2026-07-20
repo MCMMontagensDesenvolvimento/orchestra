@@ -93,7 +93,7 @@ export class McpRemoteReadinessService {
 
     const server = input.server ?? null;
     const authType = server?.authType ?? 'none';
-    const credentialsConfigured = Boolean(input.credentialsConfigured);
+    const credentialsConfigured = Boolean(input.credentialsConfigured || server?.secretRef);
     const purpose = input.purpose ?? 'execution';
     const checks: McpRemoteReadinessCheck[] = [check('feature_flag', 'pass')];
 
@@ -158,7 +158,10 @@ export class McpRemoteReadinessService {
     }
     checks.push(check('transport', 'pass'));
 
-    if (requiresCredential(authType) && !credentialsConfigured) {
+    if (
+      requiresCredential(authType)
+      && (!credentialsConfigured || (config.requireSecretRef && !server.secretRef?.trim()))
+    ) {
       checks.push(
         check('auth', 'fail', `MCP auth type "${authType}" requires backend credentials.`),
         check('policy', 'skipped'),
@@ -242,6 +245,20 @@ export class McpRemoteReadinessService {
       });
     }
     checks.push(check('execution', 'pass'));
+
+    if (!config.readOnlyEnabled) {
+      checks.push(check('readonly', 'fail', 'MCP_REMOTE_READONLY_ENABLED=false.'));
+      return result({
+        status: 'readonly_disabled',
+        config,
+        server,
+        reason: 'MCP remote read-only execution is disabled by backend configuration.',
+        checks,
+        credentialsConfigured,
+        authType,
+      });
+    }
+    checks.push(check('readonly', 'pass'));
 
     if (!config.discoveryEnabled) {
       checks.push(

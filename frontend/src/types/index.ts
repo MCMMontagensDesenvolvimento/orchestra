@@ -803,7 +803,7 @@ export interface McpServer {
   updatedAt?: string;
   deletedAt?: string | null;
   version: string;
-  secretRef?: string | null;
+  credentialConfigured?: boolean;
   metadata?: unknown;
 }
 

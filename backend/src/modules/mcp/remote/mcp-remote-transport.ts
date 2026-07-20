@@ -1,4 +1,5 @@
 import { AppError } from '../../../shared/errors/app-error';
+import type { McpToolDiscoveryResult } from './mcp-remote.types';
 
 export interface McpRemoteDiscoveryTransportInput {
   serverId: string;
@@ -31,5 +32,50 @@ export class FailClosedMcpRemoteDiscoveryTransport implements McpRemoteDiscovery
   async discoverTools(input: McpRemoteDiscoveryTransportInput): Promise<McpRemoteDiscoveryTransportOutput> {
     void input;
     throw new AppError(409, 'MCP_REMOTE_NOT_IMPLEMENTED', 'MCP remote discovery transport is not configured.');
+  }
+}
+
+export interface McpRemoteClientTransportContext {
+  serverId: string;
+  baseUrl: string;
+  authType: string;
+  credentialRef?: string;
+  timeoutMs: number;
+  signal: AbortSignal;
+}
+
+export interface McpRemoteReadonlyTransportInput extends McpRemoteClientTransportContext {
+  executionId: string;
+  toolName: string;
+  input: unknown;
+}
+
+export interface McpRemoteReadonlyTransportOutput {
+  content: string;
+  responseBytes: number;
+  simulated: boolean;
+}
+
+export interface McpRemoteClientTransport {
+  checkHealth(input: McpRemoteClientTransportContext): Promise<{ status: 'healthy'; simulated: boolean }>;
+  discoverTools(input: McpRemoteClientTransportContext & { requestId: string }): Promise<McpToolDiscoveryResult>;
+  executeReadonlyTool(input: McpRemoteReadonlyTransportInput): Promise<McpRemoteReadonlyTransportOutput>;
+}
+
+export class FailClosedMcpRemoteClientTransport implements McpRemoteClientTransport {
+  private unavailable(): never {
+    throw new AppError(409, 'MCP_REMOTE_NOT_IMPLEMENTED', 'MCP remote transport is not configured.');
+  }
+
+  async checkHealth(): Promise<{ status: 'healthy'; simulated: boolean }> {
+    return this.unavailable();
+  }
+
+  async discoverTools(): Promise<McpToolDiscoveryResult> {
+    return this.unavailable();
+  }
+
+  async executeReadonlyTool(): Promise<McpRemoteReadonlyTransportOutput> {
+    return this.unavailable();
   }
 }

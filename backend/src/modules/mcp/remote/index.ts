@@ -12,4 +12,6 @@ export * from './mcp-remote-discovery-approval.service';
 export * from './mcp-remote-discovery.service';
 export * from './mcp-remote-readiness.service';
 export * from './mcp-remote-transport';
+export * from './mcp-remote-egress';
+export * from './mcp-remote-readonly-policy';
 export * from './mcp-remote.types';

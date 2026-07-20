@@ -6,6 +6,8 @@ A Fase 16O transforma o perfil produtivo versionado em uma base implantável e a
 
 Nenhum deploy, migration nova, acesso a ambiente externo, provider externo, MCP remoto ou tool execution real faz parte desta fase.
 
+> Compatibilidade com a Fase 16P: este runbook continua sendo a referência de hardening produtivo. A fundação MCP externa read-only posterior permanece opt-in e desligada pelos defaults produtivos descritos aqui; sua governança específica, validações de egress e rollback estão em `ORCHESTRA_MCP_EXTERNO_READONLY_16P.md`.
+
 ## Escopo
 
 - hardening direto de `docker-compose.prod.yml`;

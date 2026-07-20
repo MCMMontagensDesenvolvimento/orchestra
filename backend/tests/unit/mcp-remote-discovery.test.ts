@@ -9,11 +9,23 @@ import type { McpRemoteDiscoveryTransport } from '../../src/modules/mcp/remote/m
 
 const originalEnv = { ...process.env };
 
+const safetyConfig = {
+  readOnlyEnabled: false,
+  egressAllowlist: 'https://mcp.example.invalid',
+  maxTimeoutMs: 5000,
+  maxResponseBytes: 65_536,
+  requireSecretRef: true,
+  allowWriteTools: false,
+} as const;
+
+const resolvePublicHost = async () => ['93.184.216.34'];
+
 const failClosedConfig: McpRemoteFeatureConfig = {
   remoteEnabled: false,
   discoveryEnabled: false,
   executionEnabled: false,
   defaultTimeoutMs: 5000,
+  ...safetyConfig,
 };
 
 const discoveryEnabledExecutionBlockedConfig: McpRemoteFeatureConfig = {
@@ -21,6 +33,7 @@ const discoveryEnabledExecutionBlockedConfig: McpRemoteFeatureConfig = {
   discoveryEnabled: true,
   executionEnabled: false,
   defaultTimeoutMs: 1234,
+  ...safetyConfig,
 };
 
 const discoveryDisabledConfig: McpRemoteFeatureConfig = {
@@ -28,6 +41,7 @@ const discoveryDisabledConfig: McpRemoteFeatureConfig = {
   discoveryEnabled: false,
   executionEnabled: false,
   defaultTimeoutMs: 5000,
+  ...safetyConfig,
 };
 
 function server(overrides: Partial<GovernedMcpRemoteServer> = {}): GovernedMcpRemoteServer {
@@ -79,6 +93,12 @@ async function loadRemote() {
     MCP_REMOTE_ENABLED: undefined,
     MCP_REMOTE_EXECUTION_ENABLED: undefined,
     MCP_REMOTE_DISCOVERY_ENABLED: undefined,
+    MCP_REMOTE_READONLY_ENABLED: undefined,
+    MCP_REMOTE_EGRESS_ALLOWLIST: undefined,
+    MCP_REMOTE_MAX_TIMEOUT_MS: undefined,
+    MCP_REMOTE_MAX_RESPONSE_BYTES: undefined,
+    MCP_REMOTE_REQUIRE_SECRET_REF: undefined,
+    MCP_REMOTE_ALLOW_WRITE_TOOLS: undefined,
     MCP_REMOTE_DEFAULT_TIMEOUT_MS: undefined,
   };
   return import('../../src/modules/mcp/remote/mcp-remote-discovery.service');
@@ -96,7 +116,7 @@ describe('MCP remote governed discovery', () => {
     const transport: McpRemoteDiscoveryTransport = {
       discoverTools: vi.fn(),
     };
-    const service = new McpRemoteDiscoveryService({ transport, config: failClosedConfig });
+    const service = new McpRemoteDiscoveryService({ transport, config: failClosedConfig, resolveHost: resolvePublicHost });
 
     const result = await service.runGovernedDiscovery(discoveryInput());
 
@@ -111,7 +131,7 @@ describe('MCP remote governed discovery', () => {
     const transport: McpRemoteDiscoveryTransport = {
       discoverTools: vi.fn(),
     };
-    const service = new McpRemoteDiscoveryService({ transport, config: discoveryDisabledConfig });
+    const service = new McpRemoteDiscoveryService({ transport, config: discoveryDisabledConfig, resolveHost: resolvePublicHost });
 
     const result = await service.discoverRemoteTools(discoveryInput());
 
@@ -126,7 +146,7 @@ describe('MCP remote governed discovery', () => {
     const transport: McpRemoteDiscoveryTransport = {
       discoverTools: vi.fn(),
     };
-    const service = new McpRemoteDiscoveryService({ transport, config: discoveryEnabledExecutionBlockedConfig });
+    const service = new McpRemoteDiscoveryService({ transport, config: discoveryEnabledExecutionBlockedConfig, resolveHost: resolvePublicHost });
 
     const result = await service.runGovernedDiscovery(discoveryInput({
       server: server({ baseUrl: null }),
@@ -171,6 +191,7 @@ describe('MCP remote governed discovery', () => {
     const service = new McpRemoteDiscoveryService({
       transport,
       config: discoveryEnabledExecutionBlockedConfig,
+      resolveHost: resolvePublicHost,
     });
 
     const result = await service.runGovernedDiscovery(discoveryInput());
@@ -216,7 +237,7 @@ describe('MCP remote governed discovery', () => {
         ],
       })),
     };
-    const service = new McpRemoteDiscoveryService({ transport, config: discoveryEnabledExecutionBlockedConfig });
+    const service = new McpRemoteDiscoveryService({ transport, config: discoveryEnabledExecutionBlockedConfig, resolveHost: resolvePublicHost });
 
     const result = await service.runGovernedDiscovery(discoveryInput());
 
@@ -237,7 +258,7 @@ describe('MCP remote governed discovery', () => {
         ],
       })),
     };
-    const service = new McpRemoteDiscoveryService({ transport, config: discoveryEnabledExecutionBlockedConfig });
+    const service = new McpRemoteDiscoveryService({ transport, config: discoveryEnabledExecutionBlockedConfig, resolveHost: resolvePublicHost });
 
     const result = await service.runGovernedDiscovery(discoveryInput({
       existingTools: [
@@ -258,7 +279,7 @@ describe('MCP remote governed discovery', () => {
     const transport: McpRemoteDiscoveryTransport = {
       discoverTools: vi.fn(),
     };
-    const service = new McpRemoteDiscoveryService({ transport, config: discoveryEnabledExecutionBlockedConfig });
+    const service = new McpRemoteDiscoveryService({ transport, config: discoveryEnabledExecutionBlockedConfig, resolveHost: resolvePublicHost });
 
     const result = await service.runGovernedDiscovery(discoveryInput({
       policy: remotePolicy({ allowDiscovery: false }),

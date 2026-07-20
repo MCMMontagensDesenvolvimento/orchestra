@@ -73,7 +73,27 @@ export const runtimeToolGatewayReasonValues = [
   'sequence_out_of_order',
   'invalid_arguments',
   'idempotency_conflict',
+  'mcp_remote_policy_blocked',
+  'mcp_remote_egress_blocked',
+  'mcp_remote_client_failed',
   'governance_failure',
+] as const;
+
+export const runtimeMcpRemoteBlockedReasonValues = [
+  'remote_disabled',
+  'execution_disabled',
+  'readonly_disabled',
+  'write_tools_not_allowed',
+  'tool_not_readonly',
+  'dangerous_operation',
+  'risk_not_low',
+  'approval_required',
+  'runtime_execution_not_allowed',
+  'sandbox_only',
+  'blocked_by_default',
+  'secret_ref_required',
+  'egress_blocked',
+  'client_failed',
 ] as const;
 
 const unsafeContractKeyFragments = new Set([
@@ -321,10 +341,19 @@ export const runtimeToolGatewayResponseSchema = z.object({
   }).strict().optional(),
   metadata: z.object({
     toolCallsExecuted: z.number().int().min(0).max(50),
-    externalMcpCalled: z.literal(false),
-    simulated: z.literal(true),
+    externalMcpCalled: z.boolean(),
+    simulated: z.boolean(),
     failedClosed: z.boolean(),
     reason: z.enum(runtimeToolGatewayReasonValues).optional(),
+    mcpRemoteEvaluationApplied: z.boolean().optional(),
+    mcpRemoteAllowed: z.boolean().optional(),
+    mcpRemoteBlocked: z.boolean().optional(),
+    mcpRemoteReadOnly: z.boolean().optional(),
+    mcpRemoteBlockedReason: z.enum(runtimeMcpRemoteBlockedReasonValues).optional(),
+    mcpRemoteHost: z.string().trim().min(1).max(253).regex(/^[A-Za-z0-9.:[\]-]+$/).optional(),
+    mcpRemoteToolId: idSchema.optional(),
+    mcpRemoteRiskLevel: z.enum(runtimeContractToolRiskLevelValues).optional(),
+    responseBytes: z.number().int().nonnegative().max(1_048_576).optional(),
     latencyMs: z.number().int().nonnegative().max(300000),
   }).strict(),
 }).strict().superRefine((value, ctx) => {
@@ -333,6 +362,13 @@ export const runtimeToolGatewayResponseSchema = z.object({
   }
   if (value.status === 'blocked' && (!value.error || value.result)) {
     ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'tool response bloqueada exige somente error.' });
+  }
+  if (value.metadata.externalMcpCalled && (
+    value.metadata.mcpRemoteAllowed !== true
+    || value.metadata.mcpRemoteReadOnly !== true
+    || value.metadata.mcpRemoteBlocked === true
+  )) {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['metadata'], message: 'chamada MCP externa exige avaliacao read-only permitida.' });
   }
   if (containsUnsafeRuntimeContractPayload(value)) {
     ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'tool response contem payload inseguro.' });

@@ -26,7 +26,7 @@ import {
 } from '@/hooks/queries/useMcp';
 import {
   ArrowLeft, Server, Wrench, FileCode, MessageSquare, Link2, Shield, Clock, Globe,
-  RefreshCw, Power, PowerOff, Settings, AlertTriangle, CheckCircle2, XCircle, Loader2,
+  Settings, AlertTriangle, CheckCircle2, XCircle, Loader2,
   MoreHorizontal, Search, Zap, Users, Lock, ExternalLink, Copy, Plus
 } from 'lucide-react';
 import type { RiskLevel } from '@/types';
@@ -141,7 +141,7 @@ export default function McpDetailPage() {
         outputSchema: parseJsonObject(toolForm.outputSchema, 'Output schema'),
         requiresApproval: toolForm.requiresApproval || toolForm.riskLevel === 'high' || toolForm.riskLevel === 'critical',
         isEnabled: true,
-        metadata: { phase: 'catalog_placeholder' },
+        metadata: { phase: 'remote_readonly_foundation', readOnly: true },
       };
       await createMcpToolMutation.mutateAsync({ serverId: id, payload });
       setToolDialogOpen(false);
@@ -173,17 +173,13 @@ export default function McpDetailPage() {
                 <p className="text-sm text-muted-foreground mt-0.5">{server.description}</p>
               </div>
             </div>
-            <div className="flex gap-2">
-              <Button variant="outline" size="sm" onClick={() => {
-                toast({ title: 'Sincronização iniciada', description: `"${server.name}" está sendo sincronizado.` });
-              }}><RefreshCw className="h-4 w-4 mr-1" />Sincronizar</Button>
-              <Button variant="outline" size="sm" onClick={() => {
-                toast({ title: server.status === 'active' ? 'Servidor desativado' : 'Servidor ativado' });
-              }}>
-                {server.status === 'active' ? <><PowerOff className="h-4 w-4 mr-1" />Desativar</> : <><Power className="h-4 w-4 mr-1" />Ativar</>}
-              </Button>
-            </div>
+            <Badge variant="outline">Externo opt-in · somente leitura</Badge>
           </div>
+        </div>
+
+        <div className="flex gap-3 rounded-lg border border-warning/30 bg-warning/5 p-4">
+          <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-warning" />
+          <p className="text-xs text-muted-foreground">Discovery e readiness reais não são disparados por esta tela. Escrita remota permanece bloqueada; a execução exige flags, allowlist, risco baixo, policy explícita e transporte controlado no backend.</p>
         </div>
 
         {/* KPIs */}
@@ -194,7 +190,7 @@ export default function McpDetailPage() {
             { icon: MessageSquare, label: 'Prompts', value: prompts.length },
             { icon: Link2, label: 'Bindings', value: bindings.length },
             { icon: Zap, label: 'Execuções', value: logs.length },
-            { icon: Clock, label: 'Último Sync', value: server.lastSync ? new Date(server.lastSync).toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' }) : '—' },
+            { icon: Clock, label: 'Última descoberta', value: server.lastSync ? new Date(server.lastSync).toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' }) : '—' },
           ].map((kpi, i) => (
             <div key={i} className="rounded-lg border bg-card p-3">
               <div className="flex items-center gap-2 text-muted-foreground mb-1"><kpi.icon className="h-3.5 w-3.5" /><span className="text-[11px]">{kpi.label}</span></div>
@@ -390,7 +386,6 @@ export default function McpDetailPage() {
                       <TableHead>Status</TableHead>
                       <TableHead>Duração</TableHead>
                       <TableHead>Timestamp</TableHead>
-                      <TableHead>Input</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
@@ -407,7 +402,6 @@ export default function McpDetailPage() {
                         </TableCell>
                         <TableCell className="text-xs">{log.duration > 0 ? `${log.duration}s` : '—'}</TableCell>
                         <TableCell className="text-xs text-muted-foreground">{new Date(log.timestamp).toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })}</TableCell>
-                        <TableCell>{log.input ? <code className="text-[10px] bg-muted px-1.5 py-0.5 rounded truncate max-w-[150px] block">{log.input}</code> : <span className="text-xs text-muted-foreground">—</span>}</TableCell>
                       </TableRow>
                     ))}
                   </TableBody>
@@ -425,7 +419,7 @@ export default function McpDetailPage() {
                   <div className="flex justify-between text-sm"><span className="text-muted-foreground">URL</span><code className="text-xs bg-muted px-2 py-0.5 rounded">{server.url}</code></div>
                   <div className="flex justify-between text-sm"><span className="text-muted-foreground">Autenticação</span><span className="font-medium">{server.authType}</span></div>
                   <div className="flex justify-between text-sm"><span className="text-muted-foreground">Versão</span><span className="font-medium">v{server.version}</span></div>
-                  <div className="flex justify-between text-sm"><span className="text-muted-foreground">Último Sync</span><span className="font-medium">{server.lastSync ? new Date(server.lastSync).toLocaleString('pt-BR') : '—'}</span></div>
+                  <div className="flex justify-between text-sm"><span className="text-muted-foreground">Última descoberta</span><span className="font-medium">{server.lastSync ? new Date(server.lastSync).toLocaleString('pt-BR') : '—'}</span></div>
                 </div>
               </div>
               <div className="rounded-lg border bg-card p-5 space-y-4">
@@ -492,6 +486,10 @@ export default function McpDetailPage() {
                 onCheckedChange={checked => setToolForm(prev => ({ ...prev, requiresApproval: checked }))}
               />
             </label>
+            <div className="rounded-lg border border-success/30 bg-success/5 p-3">
+              <p className="text-sm font-medium">Classificação externa: somente leitura</p>
+              <p className="text-xs text-muted-foreground">A tool será catalogada com <code>metadata.readOnly=true</code>. O gateway ainda bloqueará risco diferente de baixo, approval pendente e verbos de escrita.</p>
+            </div>
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setToolDialogOpen(false)}>Cancelar</Button>

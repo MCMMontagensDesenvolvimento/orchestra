@@ -488,6 +488,16 @@ function RuntimeRunDetailContent({ run }: { run: RuntimeRunDetail }) {
       <Section title="Tools e uso" icon={<Gauge className="h-4 w-4 text-primary" />}>
         <dl className="grid gap-4 sm:grid-cols-3">
           <DataItem label="externalMcpCalled"><FlagBadge value={run.externalMcpCalled} /></DataItem>
+          <DataItem label="mcpRemoteEvaluationApplied"><FlagBadge value={run.mcpRemoteEvaluationApplied} /></DataItem>
+          <DataItem label="mcpRemoteAllowed"><FlagBadge value={run.mcpRemoteAllowed} /></DataItem>
+          <DataItem label="mcpRemoteBlocked"><FlagBadge value={run.mcpRemoteBlocked} /></DataItem>
+          <DataItem label="mcpRemoteReadOnly"><FlagBadge value={run.mcpRemoteReadOnly} /></DataItem>
+          <DataItem label="mcpRemoteBlockedReason">{run.mcpRemoteBlockedReason ?? 'Não informado'}</DataItem>
+          <DataItem label="mcpRemoteHost" mono>{run.mcpRemoteHost ?? 'Não informado'}</DataItem>
+          <DataItem label="mcpRemoteToolId" mono>{run.mcpRemoteToolId ?? 'Não informado'}</DataItem>
+          <DataItem label="mcpRemoteRiskLevel">{run.mcpRemoteRiskLevel ?? 'Não informado'}</DataItem>
+          <DataItem label="responseBytes">{run.responseBytes ?? 'Não informado'}</DataItem>
+          <DataItem label="simulated"><FlagBadge value={run.simulated} /></DataItem>
           <DataItem label="toolCallsExecuted">{run.toolCallsExecuted ?? 'Não informado'}</DataItem>
           <DataItem label="Tokens de entrada">{formatInteger(run.inputTokens)}</DataItem>
           <DataItem label="Tokens de saída">{formatInteger(run.outputTokens)}</DataItem>
