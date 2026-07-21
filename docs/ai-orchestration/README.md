@@ -137,6 +137,7 @@ Topicos esperados:
 - `ORCHESTRA_AGNO_DEMO_LOCAL_PONTA_A_PONTA_16G.md`: runbook oficial da demo local com Agno real, chave descartavel fora do Git, preflight seguro, health/capabilities autenticados, Chat/RAG/descriptors/gateway sandbox manuais, evidencias, roteiro de apresentacao, troubleshooting e rollback.
 - `ORCHESTRA_AGNO_BRIDGE_DOCKER_REAL_16H.md`: implementacao e runbook do `agno-bridge` Docker local com SDK Agno real por tras do contrato V1, provider keys isoladas, RAG/descriptors governados, callback sandbox 16F opcional, testes offline, evidencias, rollback e riscos.
 - `ORCHESTRA_KNOWLEDGE_RAG_OPERACIONAL_16I.md`: Knowledge/RAG operacional para upload TXT/MD/CSV, ingestao idempotente, embeddings opcionais, retrieval governado, readiness, UI, validacao e rollback.
+- `ORCHESTRA_E2E_CHAT_RAG_MCP_READONLY_16R.md`: homologacao local opt-in do mesmo AgentRun com RAG resolvido, Agno stub, gateway governado, MCP demo HTTP real/read-only, Analytics/audit sanitizados, fail-closed e cleanup marcado.
 - `ORCHESTRA_LLM_PROVIDER_INTEGRATION.md`: catalogo LLM, provider local deterministico, providers externos fail-closed e eventos LLM em AgentRun.
 - `ORCHESTRA_RAG_SEMANTICO_DISCOVERY.md`: discovery tecnico da Fase 10A para RAG semantico, embeddings e vector store.
 - `ORCHESTRA_VECTOR_STORE_EMBEDDING_CONTRACT.md`: decisao tecnica da Fase 10B para pgvector, tabela de embeddings, readiness semantico e fail-closed.

@@ -1177,6 +1177,108 @@ describe('agent run governance endpoints', () => {
     ]));
   });
 
+  it('16R combines governed RAG and safe real MCP metadata on one AgentRun', async () => {
+    configureRuntime({
+      RUNTIME_PROVIDER: 'agno_http',
+      AGNO_RUNTIME_HTTP_ENABLED: true,
+      AGNO_RUNTIME_HTTP_BASE_URL: 'http://127.0.0.1:8091',
+      AGNO_RUNTIME_HTTP_SECURITY_KEY: 'runtime-test-security-key',
+      AGNO_RUNTIME_HTTP_RAG_CONTEXT_ENABLED: true,
+      AGNO_RUNTIME_HTTP_MAX_RAG_SOURCES: 2,
+      AGNO_RUNTIME_HTTP_TOOLS_ENABLED: true,
+      AGNO_RUNTIME_HTTP_MAX_TOOL_DESCRIPTORS: 1,
+      AGNO_RUNTIME_HTTP_MAX_TOOL_CALLS: 1,
+    });
+    mocks.agentRunsRepository.findAssistantForRun.mockResolvedValueOnce(assistantFixture('published'));
+    mocks.agentRunsRepository.getExecutionPolicy.mockResolvedValueOnce(executionPolicyFixture({
+      executionMode: 'published',
+      allowPublishedExecution: true,
+      metadata: { responseScopeMode: 'general_allowed' },
+    }));
+    mocks.knowledgeService.queryRag.mockResolvedValueOnce({
+      queryId: '00000000-0000-0000-0000-00000000016f',
+      status: 'completed',
+      resultCount: 1,
+      retrievalMode: 'hybrid_stub_keyword_priority',
+      sources: [{
+        id: '00000000-0000-0000-0000-000000000170',
+        sourceReferenceId: '00000000-0000-0000-0000-000000000171',
+        documentId: '00000000-0000-0000-0000-000000000172',
+        chunkId: '00000000-0000-0000-0000-000000000173',
+        documentTitle: 'Catalogo ficticio 16R',
+        sourceUri: 'manual://phase16r',
+        sourceType: 'manual',
+        excerpt: 'O catalogo ficticio permite somente consultas read-only.',
+        citationLabel: 'Catalogo 16R',
+        score: 0.97,
+        rank: 1,
+        matchType: 'mixed',
+        metadata: { sourceName: 'Catalogo ficticio 16R' },
+      }],
+    });
+    const calls: Array<{ url: string; body?: unknown }> = [];
+    vi.stubGlobal('fetch', vi.fn(async (url: string, init?: RequestInit) => {
+      const body = typeof init?.body === 'string' ? JSON.parse(init.body) as unknown : undefined;
+      calls.push({ url, body });
+      if (url.endsWith('/health')) return new Response(JSON.stringify(runtimeHealthResponse()), { status: 200 });
+      return new Response(JSON.stringify(runtimeExecuteResponse(body, 'succeeded', {
+        externalProviderCalled: false,
+        externalMcpCalled: true,
+        simulated: false,
+        toolCallsExecuted: 1,
+        mcpRemoteEvaluationApplied: true,
+        mcpRemoteAllowed: true,
+        mcpRemoteBlocked: false,
+        mcpRemoteReadOnly: true,
+        mcpRemoteToolId: '00000000-0000-0000-0000-000000000934',
+        mcpRemoteRiskLevel: 'low',
+        responseBytes: 42,
+      })), { status: 200 });
+    }));
+
+    const response = await request(createApp())
+      .post(`/api/v1/assistants/${assistantId}/runs`)
+      .set('Cookie', [sessionCookie()])
+      .send({
+        mode: 'published',
+        input: 'Segundo o catalogo ficticio 16R, consulte o status do servico.',
+        source: 'phase16r-test',
+        metadata: { fixturePhase: '16R', rawContentLogged: false },
+      })
+      .expect(201);
+
+    const executeCall = calls.find((call) => call.url.endsWith('/execute'));
+    const parsedRequest = runtimeExecuteRequestV1Schema.parse(executeCall?.body);
+    expect(parsedRequest.assistantRuntimeSpec.rag).toEqual(expect.objectContaining({
+      enabled: true,
+      mode: 'resolved_context',
+      sources: [expect.objectContaining({ title: 'Catalogo ficticio 16R' })],
+    }));
+    expect(parsedRequest.assistantRuntimeSpec.tools).toEqual(expect.objectContaining({
+      enabled: true,
+      mode: 'gateway',
+      descriptors: [expect.objectContaining({ riskLevel: 'low', approvalRequired: false })],
+    }));
+    expect(response.body.data.status).toBe('completed');
+    expect(response.body.data.metadata.runtime).toEqual(expect.objectContaining({
+      ragMode: 'resolved_context',
+      ragSourceCount: 1,
+      responseScopeMode: 'general_allowed',
+      ragIntentDetected: true,
+      rawContentLogged: false,
+      externalProviderCalled: false,
+      externalMcpCalled: true,
+      simulated: false,
+      toolCallsExecuted: 1,
+      mcpRemoteAllowed: true,
+      mcpRemoteBlocked: false,
+      mcpRemoteReadOnly: true,
+    }));
+    expect(JSON.stringify(response.body)).not.toMatch(
+      /runtime-test-security-key|manual:\/\/phase16r|toolArgs|toolOutput|secretRef|Authorization|rawPrompt|rawContext/i,
+    );
+  });
+
   it('16K matrix: knowledge_first with an outside-base question skips RAG as response_scope_question', async () => {
     configureRuntime({
       RUNTIME_PROVIDER: 'agno_http',
