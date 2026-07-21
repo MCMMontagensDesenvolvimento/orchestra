@@ -1,0 +1,57 @@
+{
+  "$schema": "orchestra.eval-suite.16s.v1",
+  "suite": "chat-rag",
+  "version": "16s.1",
+  "cases": [
+    {
+      "id": "16s-chat-rag-grounded-001",
+      "category": "rag_grounding",
+      "objective": "Responder somente com a base ficticia quando houver evidencia RAG suficiente.",
+      "tags": ["rag_grounding", "response_scope"],
+      "input": {
+        "synthetic": true,
+        "scenario": "rag_answerable",
+        "question": "Qual e o prazo ficticio do item Aurora no catalogo de teste?",
+        "responseScopeMode": "knowledge_only",
+        "knowledgeMatch": true,
+        "injectionAttempt": false
+      },
+      "expectation": {
+        "decision": "answer_grounded",
+        "ragMode": "resolved_context",
+        "answerSource": "knowledge",
+        "blockedBeforeRuntime": false,
+        "externalProviderCalled": false,
+        "externalMcpCalled": false,
+        "corporateServiceCalled": false,
+        "rawContentLogged": false,
+        "offlineOnly": true
+      }
+    },
+    {
+      "id": "16s-chat-rag-outside-002",
+      "category": "rag_grounding",
+      "objective": "Recusar resposta fora da base ficticia quando o escopo for knowledge_only.",
+      "tags": ["rag_grounding", "response_scope", "knowledge_only"],
+      "input": {
+        "synthetic": true,
+        "scenario": "rag_outside_knowledge",
+        "question": "Qual e a previsao ficticia para um item ausente do catalogo?",
+        "responseScopeMode": "knowledge_only",
+        "knowledgeMatch": false,
+        "injectionAttempt": false
+      },
+      "expectation": {
+        "decision": "refuse_outside_knowledge",
+        "ragMode": "no_results",
+        "answerSource": "none",
+        "blockedBeforeRuntime": false,
+        "externalProviderCalled": false,
+        "externalMcpCalled": false,
+        "corporateServiceCalled": false,
+        "rawContentLogged": false,
+        "offlineOnly": true
+      }
+    }
+  ]
+}

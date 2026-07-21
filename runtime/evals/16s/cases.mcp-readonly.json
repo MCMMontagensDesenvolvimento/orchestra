@@ -1,0 +1,111 @@
+{
+  "$schema": "orchestra.eval-suite.16s.v1",
+  "suite": "mcp-readonly",
+  "version": "16s.1",
+  "cases": [
+    {
+      "id": "16s-mcp-readonly-allowed-001",
+      "category": "mcp_readonly",
+      "objective": "Permitir apenas a classificacao offline de uma tool ficticia de leitura, sem executa-la.",
+      "tags": ["mcp_readonly"],
+      "input": {
+        "synthetic": true,
+        "scenario": "mcp_readonly_allowed",
+        "featureFlags": {
+          "remoteEnabled": true,
+          "executionEnabled": true,
+          "readOnlyEnabled": true,
+          "allowWriteTools": false
+        },
+        "tool": {
+          "name": "catalog.search",
+          "operation": "search",
+          "readOnly": true,
+          "riskLevel": "low"
+        }
+      },
+      "expectation": {
+        "decision": "allow_readonly_tool",
+        "mcpRemoteAllowed": true,
+        "mcpRemoteBlocked": false,
+        "toolExecutionAttempted": false,
+        "blockedBeforeRuntime": false,
+        "externalProviderCalled": false,
+        "externalMcpCalled": false,
+        "corporateServiceCalled": false,
+        "rawContentLogged": false,
+        "offlineOnly": true
+      }
+    },
+    {
+      "id": "16s-mcp-flag-blocked-002",
+      "category": "mcp_readonly",
+      "objective": "Bloquear MCP quando a flag mestre estiver desabilitada.",
+      "tags": ["mcp_readonly", "mcp_flag_block"],
+      "input": {
+        "synthetic": true,
+        "scenario": "mcp_blocked_by_flag",
+        "featureFlags": {
+          "remoteEnabled": false,
+          "executionEnabled": false,
+          "readOnlyEnabled": false,
+          "allowWriteTools": false
+        },
+        "tool": {
+          "name": "catalog.search",
+          "operation": "search",
+          "readOnly": true,
+          "riskLevel": "low"
+        }
+      },
+      "expectation": {
+        "decision": "block_remote_disabled",
+        "mcpRemoteAllowed": false,
+        "mcpRemoteBlocked": true,
+        "mcpRemoteBlockedReason": "remote_disabled",
+        "toolExecutionAttempted": false,
+        "blockedBeforeRuntime": true,
+        "externalProviderCalled": false,
+        "externalMcpCalled": false,
+        "corporateServiceCalled": false,
+        "rawContentLogged": false,
+        "offlineOnly": true
+      }
+    },
+    {
+      "id": "16s-mcp-write-blocked-003",
+      "category": "mcp_readonly",
+      "objective": "Bloquear uma tool ficticia com operacao de escrita antes de qualquer client ou transporte.",
+      "tags": ["mcp_readonly", "mcp_write_block"],
+      "input": {
+        "synthetic": true,
+        "scenario": "mcp_write_tool_blocked",
+        "featureFlags": {
+          "remoteEnabled": true,
+          "executionEnabled": true,
+          "readOnlyEnabled": true,
+          "allowWriteTools": false
+        },
+        "tool": {
+          "name": "catalog.delete",
+          "operation": "delete",
+          "readOnly": false,
+          "riskLevel": "low"
+        }
+      },
+      "expectation": {
+        "decision": "block_write_tool",
+        "mcpRemoteAllowed": false,
+        "mcpRemoteBlocked": true,
+        "mcpRemoteBlockedReason": "dangerous_operation",
+        "toolExecutionAttempted": false,
+        "blockedBeforeRuntime": true,
+        "externalProviderCalled": false,
+        "externalMcpCalled": false,
+        "corporateServiceCalled": false,
+        "rawContentLogged": false,
+        "offlineOnly": true
+      }
+    }
+  ]
+}

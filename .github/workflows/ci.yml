@@ -54,6 +54,9 @@ jobs:
       - name: Build frontend
         run: npm --prefix frontend run build
 
+      - name: Run 16S quality and security eval gates
+        run: scripts/evals-runtime-qualidade-16s.sh --dry-run
+
       - name: Run static production preflight
         run: scripts/preflight-prod-runtime-16o.sh --dry-run
 
