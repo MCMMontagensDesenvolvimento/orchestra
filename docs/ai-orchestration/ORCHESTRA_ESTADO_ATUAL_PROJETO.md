@@ -2,7 +2,7 @@
 
 > Auditoria técnica baseada no repositório local em 17 de julho de 2026, branch `fase-16l-documentacao-estado-atual-projeto`, commit-base `bc69d06`. O documento diferencia implementação confirmada, comportamento parcial, simulação, ausência e recomendação. Nenhum ambiente externo, segredo ou banco foi inspecionado ou alterado.
 
-> Atualização de 20 de julho de 2026: as fases 16M–16Q superaram parte das lacunas registradas nesta fotografia. Em especial, a 16Q adiciona uma integração MCP/HTTP real somente contra o demo local fictício, mantendo conectores externos/corporativos e produção fail-closed. O runbook vigente é `ORCHESTRA_MCP_READONLY_INTEGRACAO_HOMOLOGADA_16Q.md`.
+> Atualização de 20 de julho de 2026: as fases 16M–16R superaram parte das lacunas registradas nesta fotografia. A 16Q adicionou uma integração MCP/HTTP real somente contra o demo local fictício; a 16R acrescenta uma homologação E2E opt-in e provider-free que combina AgentRun, RAG governado, Agno stub, gateway e MCP demo, mantendo conectores externos/corporativos e produção fail-closed. O runbook vigente é `ORCHESTRA_E2E_CHAT_RAG_MCP_READONLY_16R.md`.
 
 ## 0. Resumo Executivo
 
@@ -79,6 +79,8 @@ O status “documentado/homologado” abaixo significa que há runbook, smoke ou
 | 16J | Política governada de escopo de resposta | Implementado | `backend/src/shared/policies/response-scope.ts`, migration `20260716160000_phase_16j_answer_scope_policy`, seletor em `frontend/src/pages/Assistants/AssistantDetailPage.tsx` | Persistida em metadata da execution policy; default `knowledge_first` |
 | 16J.1 | Detector de consultas não gerais com base vinculada | Implementado com heurística | `backend/src/modules/agent-runs/agent-runs.service.ts`, `backend/tests/api/agent-runs.test.ts` | Razão `non_general_query_with_knowledge_bindings`; regras linguísticas codificadas exigem evals contínuas |
 | 16K | Homologação operacional Chat/RAG | Documentado e automatizado | `docs/ai-orchestration/ORCHESTRA_CHAT_RAG_HOMOLOGACAO_OPERACIONAL_16K.md`, `scripts/smoke-chat-rag-operacional-16k.sh`, `backend/tests/api/agent-runs.test.ts` | Dry-run desta auditoria: 34 verificações aprovadas; a matriz possui oito cenários automatizados |
+| 16M–16Q | Observabilidade, custos, hardening e MCP demo real read-only | Implementado/homologado | runbooks e smokes 16M–16Q, `runtime/mcp-readonly-demo`, `docker-compose.mcp-readonly-demo.yml` | Defaults produtivos continuam fechados; a chamada real existe somente para o demo local allowlisted |
+| 16R | Homologação E2E Chat/RAG/MCP read-only | Implementado como harness local opt-in | `docs/ai-orchestration/ORCHESTRA_E2E_CHAT_RAG_MCP_READONLY_16R.md`, `scripts/homologacao-e2e-chat-rag-mcp-16r.sh`, `scripts/smoke-e2e-chat-rag-mcp-16r.sh`, `runtime/e2e-fixtures/16r` | Mesmo AgentRun deve provar RAG resolvido e MCP HTTP real; Agno permanece stub, sem provider externo; policy MCP abre apenas por passo local explícito |
 
 ## 3. Estrutura do Repositório
 

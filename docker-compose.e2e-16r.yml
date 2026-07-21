@@ -1,0 +1,68 @@
+services:
+  backend:
+    environment:
+      RUNTIME_PROVIDER: agno_http
+      RUNTIME_ADAPTER_ENABLED: "true"
+      RUNTIME_REQUIRE_PRECHECK: "true"
+      RUNTIME_ALLOW_PROVIDER_FALLBACK: "false"
+      AGNO_RUNTIME_HTTP_ENABLED: "true"
+      AGNO_RUNTIME_HTTP_BASE_URL: http://e2e-runtime-16r:8093
+      AGNO_RUNTIME_HTTP_REQUIRE_SECURITY_KEY: "true"
+      AGNO_RUNTIME_HTTP_SECURITY_KEY: "${AGNO_RUNTIME_HTTP_SECURITY_KEY:?Define a disposable local runtime credential outside Git}"
+      AGNO_RUNTIME_HTTP_RAG_CONTEXT_ENABLED: "true"
+      AGNO_RUNTIME_HTTP_MAX_RAG_SOURCES: "3"
+      AGNO_RUNTIME_HTTP_TOOLS_ENABLED: "true"
+      AGNO_RUNTIME_HTTP_MAX_TOOL_DESCRIPTORS: "1"
+      AGNO_RUNTIME_HTTP_MAX_TOOL_CALLS: "1"
+      AGNO_RUNTIME_HTTP_TOOL_GATEWAY_ENABLED: "true"
+      MCP_REMOTE_ENABLED: "${MCP_REMOTE_ENABLED:-true}"
+      MCP_REMOTE_DISCOVERY_ENABLED: "${MCP_REMOTE_DISCOVERY_ENABLED:-true}"
+      MCP_REMOTE_EXECUTION_ENABLED: "${MCP_REMOTE_EXECUTION_ENABLED:-true}"
+      MCP_REMOTE_READONLY_ENABLED: "${MCP_REMOTE_READONLY_ENABLED:-true}"
+      MCP_REMOTE_EGRESS_ALLOWLIST: "${MCP_REMOTE_EGRESS_ALLOWLIST-http://mcp-readonly-demo:8092}"
+      MCP_REMOTE_ALLOW_INSECURE_LOCAL_DEMO: "${MCP_REMOTE_ALLOW_INSECURE_LOCAL_DEMO:-true}"
+      MCP_REMOTE_LOCAL_DEMO_ORIGIN: http://mcp-readonly-demo:8092
+      MCP_REMOTE_REQUIRE_SECRET_REF: "true"
+      MCP_REMOTE_ALLOW_WRITE_TOOLS: "false"
+    depends_on:
+      e2e-runtime-16r:
+        condition: service_healthy
+
+  agno-bridge:
+    environment:
+      AGNO_BRIDGE_EXECUTION_MODE: stub
+      AGNO_BRIDGE_PROVIDER: stub
+      AGNO_RUNTIME_HTTP_REQUIRE_SECURITY_KEY: "true"
+      AGNO_RUNTIME_HTTP_SECURITY_KEY: "${AGNO_RUNTIME_HTTP_SECURITY_KEY:?Define a disposable local runtime credential outside Git}"
+      AGNO_RUNTIME_HTTP_RAG_CONTEXT_ENABLED: "true"
+      AGNO_RUNTIME_HTTP_TOOLS_ENABLED: "true"
+      AGNO_RUNTIME_HTTP_MAX_TOOL_CALLS: "1"
+      AGNO_RUNTIME_HTTP_TOOL_GATEWAY_ENABLED: "true"
+      ORCHESTRA_TOOL_GATEWAY_URL: http://backend:3000/api/v1/runtime/agno/tool-calls
+
+  e2e-runtime-16r:
+    build:
+      context: ./runtime/e2e-fixtures/16r
+      dockerfile: Dockerfile
+    environment:
+      ORCHESTRA_16R_RUNTIME_HOST: 0.0.0.0
+      ORCHESTRA_16R_RUNTIME_PORT: "8093"
+      ORCHESTRA_16R_UPSTREAM_AGNO_BASE_URL: http://agno-bridge:8091
+      ORCHESTRA_TOOL_GATEWAY_URL: http://backend:3000/api/v1/runtime/agno/tool-calls
+      AGNO_RUNTIME_HTTP_SECURITY_KEY: "${AGNO_RUNTIME_HTTP_SECURITY_KEY:?Define a disposable local runtime credential outside Git}"
+    expose:
+      - "8093"
+    networks:
+      - default
+      - mcp_demo_internal
+    depends_on:
+      agno-bridge:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:8093/health',{headers:{Authorization:'Bearer '+process.env.AGNO_RUNTIME_HTTP_SECURITY_KEY}}).then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+      start_period: 5s
+    init: true
+    restart: "no"

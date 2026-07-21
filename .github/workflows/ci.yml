@@ -59,6 +59,7 @@ jobs:
 
       - name: Run runtime smoke suite
         run: |
+          scripts/smoke-e2e-chat-rag-mcp-16r.sh --dry-run
           scripts/smoke-hardening-producao-runtime-16o.sh --dry-run
           scripts/smoke-custos-quotas-runtime-16n.sh --dry-run
           scripts/smoke-observabilidade-runtime-16m.sh --dry-run

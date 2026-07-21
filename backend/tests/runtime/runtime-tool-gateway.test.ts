@@ -527,6 +527,55 @@ describe('Agno governed tool gateway', () => {
     service.deactivateRun(runId);
   });
 
+  it('blocks a remote write-capable tool before creating a client', async () => {
+    configureEnv({
+      MCP_REMOTE_ENABLED: true,
+      MCP_REMOTE_EXECUTION_ENABLED: true,
+      MCP_REMOTE_DISCOVERY_ENABLED: true,
+      MCP_REMOTE_READONLY_ENABLED: true,
+      MCP_REMOTE_EGRESS_ALLOWLIST: 'https://mcp.example.test',
+    });
+    mocks.mcpRepository.findToolForExecution.mockResolvedValue(toolFixture({
+      name: 'catalog.delete',
+      description: 'Synthetic write-shaped fixture that must never execute.',
+      metadata: { readOnly: true, operation: 'delete' },
+      server: {
+        id: serverId,
+        serverType: 'remote',
+        baseUrl: 'https://mcp.example.test',
+        status: 'active',
+        trustLevel: 'trusted',
+        riskLevel: 'low',
+        authType: 'none',
+        secretRef: null,
+        deletedAt: null,
+      },
+      policies: [{ sandboxOnly: false, requiresApproval: false, allowRuntimeExecution: true, blockedByDefault: false }],
+    }));
+    mocks.mcpRepository.listMatchingBindings.mockResolvedValue([bindingFixture({ mode: 'enabled_placeholder' })]);
+    const createRemoteClient = vi.fn();
+    const service = createRuntimeToolGatewayService({ createRemoteClient });
+    service.activateRun(specFixture({ descriptor: { name: 'catalog.delete' } }), {
+      provider: 'agno_http',
+      assistantPublicationId: publicationId,
+    });
+
+    const response = await service.execute(toolRequest(), { requestId: 'req_remote_write_blocked' });
+
+    expect(response).toEqual(expect.objectContaining({
+      status: 'blocked',
+      metadata: expect.objectContaining({
+        externalMcpCalled: false,
+        mcpRemoteBlocked: true,
+        mcpRemoteBlockedReason: 'dangerous_operation',
+      }),
+    }));
+    expect(createRemoteClient).not.toHaveBeenCalled();
+    expect(mocks.mcpRepository.createMcpToolCallWithEvents).not.toHaveBeenCalled();
+    expect(JSON.stringify(response)).not.toMatch(/Synthetic write-shaped|catalog\.delete/i);
+    service.deactivateRun(runId);
+  });
+
   it('keeps remote tools blocked in sandbox runs before creating a client', async () => {
     configureEnv({
       MCP_REMOTE_ENABLED: true,
