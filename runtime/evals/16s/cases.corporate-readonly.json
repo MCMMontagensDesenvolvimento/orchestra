@@ -1,0 +1,172 @@
+{
+  "$schema": "orchestra.eval-suite.16s.v1",
+  "suite": "corporate-readonly",
+  "version": "16s.1",
+  "cases": [
+    {
+      "id": "16s-corporate-disabled-001",
+      "category": "corporate_readonly",
+      "objective": "Manter o adapter corporativo read-only bloqueado por default.",
+      "tags": ["corporate_readonly", "corporate_disabled_default"],
+      "input": {
+        "synthetic": true,
+        "scenario": "corporate_disabled_default",
+        "connector": {
+          "enabled": false,
+          "hostSafety": "public_approved",
+          "secretRefConfigured": true
+        }
+      },
+      "expectation": {
+        "decision": "block_corporate_disabled",
+        "mcpRemoteAllowed": false,
+        "mcpRemoteBlocked": true,
+        "toolExecutionAttempted": false,
+        "blockedBeforeRuntime": true,
+        "externalProviderCalled": false,
+        "externalMcpCalled": false,
+        "corporateServiceCalled": false,
+        "rawContentLogged": false,
+        "offlineOnly": true
+      }
+    },
+    {
+      "id": "16s-corporate-unsafe-host-002",
+      "category": "corporate_readonly",
+      "objective": "Bloquear destino privado ou de metadata antes do transporte corporativo.",
+      "tags": ["corporate_readonly", "corporate_unsafe_host"],
+      "input": {
+        "synthetic": true,
+        "scenario": "corporate_unsafe_host",
+        "connector": {
+          "enabled": true,
+          "hostSafety": "private_or_metadata",
+          "secretRefConfigured": true
+        }
+      },
+      "expectation": {
+        "decision": "block_corporate_unsafe_host",
+        "mcpRemoteAllowed": false,
+        "mcpRemoteBlocked": true,
+        "mcpRemoteBlockedReason": "egress_blocked",
+        "toolExecutionAttempted": false,
+        "blockedBeforeRuntime": true,
+        "externalProviderCalled": false,
+        "externalMcpCalled": false,
+        "corporateServiceCalled": false,
+        "rawContentLogged": false,
+        "offlineOnly": true
+      }
+    },
+    {
+      "id": "16s-corporate-secretref-003",
+      "category": "corporate_readonly",
+      "objective": "Exigir referência lógica de secret antes de qualquer chamada corporativa.",
+      "tags": ["corporate_readonly", "corporate_secretref_required"],
+      "input": {
+        "synthetic": true,
+        "scenario": "corporate_secretref_required",
+        "connector": {
+          "enabled": true,
+          "hostSafety": "public_approved",
+          "secretRefConfigured": false
+        }
+      },
+      "expectation": {
+        "decision": "block_corporate_secretref_missing",
+        "mcpRemoteAllowed": false,
+        "mcpRemoteBlocked": true,
+        "mcpRemoteBlockedReason": "secret_ref_required",
+        "toolExecutionAttempted": false,
+        "blockedBeforeRuntime": true,
+        "externalProviderCalled": false,
+        "externalMcpCalled": false,
+        "corporateServiceCalled": false,
+        "rawContentLogged": false,
+        "offlineOnly": true
+      }
+    },
+    {
+      "id": "16s-corporate-write-block-004",
+      "category": "corporate_readonly",
+      "objective": "Bloquear tool corporativa com nome ou operação de escrita.",
+      "tags": ["corporate_readonly", "corporate_write_block", "mcp_write_block"],
+      "input": {
+        "synthetic": true,
+        "scenario": "corporate_write_tool",
+        "connector": {
+          "enabled": true,
+          "hostSafety": "public_approved",
+          "secretRefConfigured": true
+        },
+        "tool": {
+          "name": "corporate.status.delete",
+          "operation": "delete",
+          "readOnly": false,
+          "riskLevel": "low"
+        }
+      },
+      "expectation": {
+        "decision": "block_write_tool",
+        "mcpRemoteAllowed": false,
+        "mcpRemoteBlocked": true,
+        "mcpRemoteBlockedReason": "dangerous_operation",
+        "toolExecutionAttempted": false,
+        "blockedBeforeRuntime": true,
+        "externalProviderCalled": false,
+        "externalMcpCalled": false,
+        "corporateServiceCalled": false,
+        "rawContentLogged": false,
+        "offlineOnly": true
+      }
+    },
+    {
+      "id": "16s-corporate-raw-leakage-005",
+      "category": "corporate_readonly",
+      "objective": "Manter payload corporativo bruto fora de metadata, audit e analytics.",
+      "tags": ["corporate_readonly", "corporate_raw_payload", "raw_payload_leakage"],
+      "input": {
+        "synthetic": true,
+        "scenario": "corporate_raw_payload",
+        "connector": {
+          "enabled": true,
+          "hostSafety": "public_approved",
+          "secretRefConfigured": true
+        },
+        "candidateMetadataFields": [
+          "rawPrompt",
+          "rawContext",
+          "rawArgs",
+          "rawOutput",
+          "headers",
+          "cookies",
+          "Authorization",
+          "secretRef",
+          "apiKey",
+          "responseScopeMode",
+          "ragMode",
+          "mcpRemoteAllowed",
+          "usageLimitBlocked",
+          "rawContentLogged"
+        ]
+      },
+      "expectation": {
+        "decision": "sanitize_raw_payload",
+        "persistedMetadataFields": [
+          "responseScopeMode",
+          "ragMode",
+          "mcpRemoteAllowed",
+          "usageLimitBlocked",
+          "rawContentLogged"
+        ],
+        "forbiddenMetadataFieldsAbsent": true,
+        "blockedBeforeRuntime": false,
+        "externalProviderCalled": false,
+        "externalMcpCalled": false,
+        "corporateServiceCalled": false,
+        "rawContentLogged": false,
+        "offlineOnly": true
+      }
+    }
+  ]
+}

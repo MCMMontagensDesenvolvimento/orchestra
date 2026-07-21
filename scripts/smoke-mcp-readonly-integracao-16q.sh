@@ -198,7 +198,7 @@ reject_pattern "$MCP_UI" 'type="password"' 'frontend password input'
 reject_pattern "$MCP_UI" 'apiKey:' 'frontend direct API key property'
 require_pattern "$MCP_DETAIL_UI" 'Testar readiness seguro' 'frontend safe readiness action'
 require_pattern "$MCP_DETAIL_UI" 'Consultar catálogo read-only' 'frontend safe discovery action'
-require_pattern "$MCP_DETAIL_UI" 'Nenhuma ação de escrita ou conector corporativo' 'frontend honest scope message'
+require_pattern "$MCP_DETAIL_UI" 'O demo local continua homologado' 'frontend demo remains explicitly homologated'
 require_pattern "$ANALYTICS_UI" 'MCP demo real' 'analytics real demo marker'
 require_pattern "$ANALYTICS_UI" 'MCP fail-closed' 'analytics blocked marker'
 for field in mcpRemoteEvaluationApplied mcpRemoteAllowed mcpRemoteBlocked mcpRemoteBlockedReason mcpRemoteReadOnly mcpRemoteHost mcpRemoteToolId mcpRemoteRiskLevel externalMcpCalled simulated responseBytes; do

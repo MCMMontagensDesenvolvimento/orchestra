@@ -2,8 +2,8 @@ import { createHash } from 'crypto';
 import { AppError } from '../../../shared/errors/app-error';
 import { validateMcpRemoteEgress, type McpRemoteHostResolver } from './mcp-remote-egress';
 import { getMcpRemoteConfig } from './mcp-remote.config';
-import { createMcpReadonlyDemoHttpTransport } from './mcp-readonly-demo-http.transport';
-import { FailClosedMcpRemoteDiscoveryTransport, type McpRemoteDiscoveryTransport, type McpRemoteDiscoveryTransportTool } from './mcp-remote-transport';
+import { type McpRemoteDiscoveryTransport, type McpRemoteDiscoveryTransportTool } from './mcp-remote-transport';
+import { GovernedMcpRemoteDiscoveryTransport } from './mcp-remote-transport.factory';
 import { McpRemoteReadinessService, mcpRemoteReadinessService } from './mcp-remote-readiness.service';
 import type {
   McpRemoteDiscoveredTool,
@@ -279,11 +279,7 @@ export class McpRemoteDiscoveryService {
   } = {}) {
     this.readinessService = options.readinessService ?? mcpRemoteReadinessService;
     this.config = options.config ?? getMcpRemoteConfig();
-    this.transport = options.transport ?? (
-      this.config.localDemoOrigin
-        ? createMcpReadonlyDemoHttpTransport(this.config)
-        : new FailClosedMcpRemoteDiscoveryTransport()
-    );
+    this.transport = options.transport ?? new GovernedMcpRemoteDiscoveryTransport(this.config);
     this.resolveHost = options.resolveHost;
   }
 
@@ -325,6 +321,7 @@ export class McpRemoteDiscoveryService {
         baseUrl: input.server.baseUrl,
         authType: input.server.authType ?? 'none',
         credentialsConfigured: input.credentialsConfigured,
+        ...(input.server.secretRef ? { credentialRef: input.server.secretRef } : {}),
         timeoutMs: this.config.defaultTimeoutMs,
         requestId: input.requestId,
       });

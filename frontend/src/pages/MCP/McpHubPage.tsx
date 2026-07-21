@@ -337,7 +337,7 @@ export default function McpHubPage() {
         </div>
         <div className="rounded-lg border border-warning/30 bg-warning/5 p-4">
           <p className="text-sm font-medium">Conectividade governada</p>
-          <p className="mt-1 text-xs text-muted-foreground">Readiness e discovery seguros estão disponíveis no detalhe somente para o demo local homologado. Toda chamada exige flags explícitas, allowlist de egress e política read-only.</p>
+          <p className="mt-1 text-xs text-muted-foreground">Readiness e discovery passam pelo boundary governado. O adapter corporativo read-only permanece aguardando configuração aprovada; toda chamada exige flags explícitas, origem HTTPS allowlistada, referência lógica de secret e política read-only.</p>
         </div>
       </TabsContent>
 
@@ -435,8 +435,8 @@ export default function McpHubPage() {
         <div className="flex gap-3 rounded-lg border border-warning/30 bg-warning/5 p-4">
           <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-warning" />
           <div>
-            <p className="text-sm font-medium">MCP demo homologado, read-only e opt-in</p>
-            <p className="mt-1 text-xs text-muted-foreground">O servidor fictício local permite readiness/discovery reais quando configurado. Escrita e conectores corporativos não estão disponíveis; o backend permanece fail-closed sem flags, allowlist e política explícitas.</p>
+            <p className="text-sm font-medium">MCP read-only opt-in · adapter corporativo aguardando configuração</p>
+            <p className="mt-1 text-xs text-muted-foreground">O demo local continua homologado. O adapter corporativo aceita somente status não sensível e permanece fail-closed sem flags, origem HTTPS exata, secretRef, readiness, binding e policy explícitos. Escrita não está disponível.</p>
           </div>
         </div>
 

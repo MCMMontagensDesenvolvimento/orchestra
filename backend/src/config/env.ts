@@ -136,6 +136,10 @@ const envSchema = z.object({
   MCP_REMOTE_ALLOW_WRITE_TOOLS: booleanString('false'),
   MCP_REMOTE_ALLOW_INSECURE_LOCAL_DEMO: booleanString('false'),
   MCP_REMOTE_LOCAL_DEMO_ORIGIN: z.preprocess(blankToUndefined, z.string().url().optional()),
+  MCP_CORPORATE_READONLY_ENABLED: booleanString('false'),
+  MCP_CORPORATE_READONLY_ALLOWED_ORIGIN: z.string().default(''),
+  MCP_CORPORATE_READONLY_TIMEOUT_MS: z.coerce.number().int().min(100).max(5000).default(3000),
+  MCP_CORPORATE_READONLY_MAX_RESPONSE_BYTES: z.coerce.number().int().min(1024).max(65_536).default(16_384),
   LLM_PROVIDERS_ENABLED: booleanString('false'),
   LLM_DEFAULT_PROVIDER: z.enum(['local_deterministic', 'agno_local', 'openai', 'azure_openai', 'anthropic']).default('local_deterministic'),
   LLM_EXECUTION_ENABLED: booleanString('false'),
@@ -224,6 +228,34 @@ const envSchema = z.object({
       path: ['MCP_REMOTE_ALLOW_INSECURE_LOCAL_DEMO'],
       message: 'MCP insecure local demo transport is forbidden in production.',
     });
+  }
+  if (value.MCP_CORPORATE_READONLY_ENABLED && !value.MCP_CORPORATE_READONLY_ALLOWED_ORIGIN.trim()) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ['MCP_CORPORATE_READONLY_ALLOWED_ORIGIN'],
+      message: 'Corporate read-only transport requires one explicit HTTPS origin.',
+    });
+  }
+  if (value.MCP_CORPORATE_READONLY_ALLOWED_ORIGIN.trim()) {
+    try {
+      const parsed = new URL(value.MCP_CORPORATE_READONLY_ALLOWED_ORIGIN);
+      if (
+        parsed.protocol !== 'https:'
+        || parsed.username
+        || parsed.password
+        || parsed.pathname !== '/'
+        || parsed.search
+        || parsed.hash
+      ) {
+        throw new Error('invalid corporate origin');
+      }
+    } catch {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['MCP_CORPORATE_READONLY_ALLOWED_ORIGIN'],
+        message: 'Corporate read-only allowlist must be one exact credential-free HTTPS origin.',
+      });
+    }
   }
 });
 

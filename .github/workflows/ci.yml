@@ -43,6 +43,7 @@ jobs:
           tests/unit/ai-observability.test.ts
           tests/unit/runtime-assistant-spec-builder.test.ts
           tests/unit/production-secrets.test.ts
+          tests/unit/corporate-readonly-transport.test.ts
           --run
 
       - name: Install frontend dependencies
