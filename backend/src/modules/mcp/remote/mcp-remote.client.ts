@@ -188,9 +188,9 @@ export class McpRemoteClient {
       ...baseReadiness,
       status: 'ready',
       failClosed: false,
-      reason: 'MCP read-only demo health check completed through the governed transport.',
+      reason: 'MCP read-only health check completed through the governed transport.',
       checks: baseReadiness.checks.map((item) => item.name === 'transport'
-        ? { ...item, status: 'pass' as const, message: 'Controlled demo transport is healthy.' }
+        ? { ...item, status: 'pass' as const, message: 'Controlled read-only transport is healthy.' }
         : item),
       transportChecked: true,
       transportHealthy: true,

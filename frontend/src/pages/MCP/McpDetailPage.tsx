@@ -225,7 +225,7 @@ export default function McpDetailPage() {
         <div className="flex gap-3 rounded-lg border border-warning/30 bg-warning/5 p-4">
           <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-warning" />
           <div className="space-y-2">
-            <p className="text-xs text-muted-foreground">MCP remoto segue desligado por padrão. Somente o demo local de homologação, read-only e sem segredo, pode ser consultado quando flags e allowlist explícitas estiverem configuradas. Nenhuma ação de escrita ou conector corporativo é oferecido.</p>
+            <p className="text-xs text-muted-foreground">MCP remoto segue desligado por padrão. O demo local continua homologado. Ele e o adapter corporativo de status read-only passam pelo mesmo gateway; o corporativo permanece aguardando configuração e só alcança readiness com origem HTTPS exata, secretRef, flags, binding e policy aprovados. Nenhuma ação de escrita é oferecida.</p>
             {isRemoteServer && (
               <div className="flex flex-wrap gap-2">
                 <Button variant="outline" size="sm" disabled={remoteCheckPending !== null} onClick={() => { void checkRemoteReadiness(); }}>

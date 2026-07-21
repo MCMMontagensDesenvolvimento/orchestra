@@ -19,6 +19,7 @@ const caseFiles = [
   'cases.chat-rag.json',
   'cases.response-scope.json',
   'cases.mcp-readonly.json',
+  'cases.corporate-readonly.json',
   'cases.security.json',
 ];
 const requiredCategories = new Set([
@@ -28,6 +29,7 @@ const requiredCategories = new Set([
   'prompt_injection',
   'quota_enforcement',
   'raw_payload_leakage',
+  'corporate_readonly',
 ]);
 const requiredTags = new Set([
   'rag_grounding',
@@ -38,6 +40,12 @@ const requiredTags = new Set([
   'prompt_injection',
   'quota_enforcement',
   'raw_payload_leakage',
+  'corporate_readonly',
+  'corporate_disabled_default',
+  'corporate_unsafe_host',
+  'corporate_secretref_required',
+  'corporate_write_block',
+  'corporate_raw_payload',
 ]);
 const forbiddenMetadataFields = [
   'rawPrompt',
@@ -153,6 +161,17 @@ function deterministicDecision(testCase) {
   const input = testCase.input;
   if (input.quota?.mode === 'enforce' && input.quota?.exceeded === true) {
     return 'block_quota_before_runtime';
+  }
+  if (input.connector) {
+    if (input.connector.enabled !== true) return 'block_corporate_disabled';
+    if (input.connector.hostSafety !== 'public_approved') return 'block_corporate_unsafe_host';
+    if (input.connector.secretRefConfigured !== true) return 'block_corporate_secretref_missing';
+    if (input.tool) {
+      const operationText = `${input.tool.name ?? ''} ${input.tool.operation ?? ''}`.replace(/[_./:-]+/g, ' ');
+      if (input.tool.readOnly !== true || dangerousToolOperation.test(operationText)) return 'block_write_tool';
+    }
+    if (input.scenario === 'corporate_raw_payload') return 'sanitize_raw_payload';
+    return 'allow_corporate_readonly';
   }
   if (input.scenario === 'raw_payload_leakage') return 'sanitize_raw_payload';
   if (input.injectionAttempt === true) {
@@ -428,6 +447,34 @@ function validateOfflineSourceContracts() {
     "MCP_REMOTE_ALLOW_WRITE_TOOLS: booleanString('false')",
   ], 'mcp-fail-closed-defaults');
 
+  requirePatterns('backend/src/modules/mcp/remote/corporate-readonly/corporate-readonly.transport.ts', [
+    "corporateReadonlyToolName = 'corporate.status.read'",
+    "if (!this.config.enabled)",
+    "input.authType !== 'bearer' || !input.credentialRef",
+    "method: 'GET'",
+    "redirect: 'manual'",
+    "additionalProperties: false",
+    'readBoundedJson',
+    'sanitizedStatus',
+  ], 'corporate-readonly-source-contract');
+  requirePatterns('backend/src/modules/mcp/remote/mcp-remote-transport.factory.ts', [
+    'createGovernedMcpRemoteTransport',
+    'matchesCorporateReadonlyOrigin',
+    'new FailClosedMcpRemoteClientTransport()',
+  ], 'corporate-readonly-source-contract');
+  requirePatterns('backend/src/modules/mcp/remote/mcp-remote-egress.ts', [
+    'metadataHosts',
+    'isBlockedMcpRemoteAddress',
+    "parsed.protocol !== 'https:'",
+    'parsed.username || parsed.password',
+    'parsed.search',
+    'parsed.hash',
+  ], 'corporate-readonly-source-contract');
+  requirePatterns('backend/src/config/env.ts', [
+    "MCP_CORPORATE_READONLY_ENABLED: booleanString('false')",
+    "MCP_CORPORATE_READONLY_ALLOWED_ORIGIN: z.string().default('')",
+  ], 'corporate-readonly-source-contract');
+
   const offlineGatePrefixes = [
     'quota-source-contract',
     'mcp-readonly-source-contract',
@@ -437,6 +484,7 @@ function validateOfflineSourceContracts() {
     'analytics-allowlisted-fields',
     'gateway-no-raw-payload',
     'mcp-fail-closed-defaults',
+    'corporate-readonly-source-contract',
     'offline-source-contracts',
   ];
   if (!errors.some((error) => offlineGatePrefixes.some((prefix) => error.startsWith(prefix)))) {

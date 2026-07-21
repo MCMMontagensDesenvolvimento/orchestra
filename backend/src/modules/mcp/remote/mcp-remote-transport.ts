@@ -6,6 +6,7 @@ export interface McpRemoteDiscoveryTransportInput {
   baseUrl: string;
   authType: string;
   credentialsConfigured: boolean;
+  credentialRef?: string;
   timeoutMs: number;
   requestId: string;
 }

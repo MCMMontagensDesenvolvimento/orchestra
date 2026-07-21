@@ -71,7 +71,7 @@ require_file "$RUNBOOK"
 pass 'runtime/evals/16s exists'
 require_file "$EVAL_DIR/README.md"
 require_file "$VALIDATOR"
-for file in cases.chat-rag.json cases.response-scope.json cases.mcp-readonly.json cases.security.json; do
+for file in cases.chat-rag.json cases.response-scope.json cases.mcp-readonly.json cases.corporate-readonly.json cases.security.json; do
   require_file "$EVAL_DIR/$file"
 done
 require_executable "$RUNNER"
@@ -94,6 +94,11 @@ require_pattern "$EVAL_DIR/cases.response-scope.json" '"responseScopeMode": "gen
 require_pattern "$EVAL_DIR/cases.mcp-readonly.json" '"category": "mcp_readonly"' 'MCP read-only cases'
 require_pattern "$EVAL_DIR/cases.mcp-readonly.json" '"mcp_flag_block"' 'MCP flag block case'
 require_pattern "$EVAL_DIR/cases.mcp-readonly.json" '"mcp_write_block"' 'MCP write tool block case'
+require_pattern "$EVAL_DIR/cases.corporate-readonly.json" '"category": "corporate_readonly"' 'corporate read-only cases'
+require_pattern "$EVAL_DIR/cases.corporate-readonly.json" '"corporate_disabled_default"' 'corporate disabled-by-default case'
+require_pattern "$EVAL_DIR/cases.corporate-readonly.json" '"corporate_unsafe_host"' 'corporate unsafe-host case'
+require_pattern "$EVAL_DIR/cases.corporate-readonly.json" '"corporate_secretref_required"' 'corporate secretRef case'
+require_pattern "$EVAL_DIR/cases.corporate-readonly.json" '"corporate_raw_payload"' 'corporate raw-payload case'
 require_pattern "$EVAL_DIR/cases.security.json" '"category": "prompt_injection"' 'prompt injection cases'
 require_pattern "$EVAL_DIR/cases.security.json" '"category": "quota_enforcement"' 'quota enforcement case'
 require_pattern "$EVAL_DIR/cases.security.json" '"category": "raw_payload_leakage"' 'raw payload leakage case'

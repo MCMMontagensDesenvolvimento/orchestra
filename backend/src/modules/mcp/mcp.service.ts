@@ -18,7 +18,7 @@ import { McpRemoteClient } from './remote/mcp-remote.client';
 import { getMcpRemoteConfig } from './remote/mcp-remote.config';
 import { mcpRemoteDiscoveryService } from './remote/mcp-remote-discovery.service';
 import { mcpRemoteReadinessService } from './remote/mcp-remote-readiness.service';
-import { createMcpReadonlyDemoHttpTransport } from './remote/mcp-readonly-demo-http.transport';
+import { createGovernedMcpRemoteTransport } from './remote/mcp-remote-transport.factory';
 import type {
   AssistantMcpBindingCreateInput,
   AssistantMcpBindingUpdateInput,
@@ -414,7 +414,7 @@ export const mcpService = {
       secretRef: server.secretRef,
       credentialsConfigured: Boolean(server.secretRef),
       timeoutMs: config.defaultTimeoutMs,
-    }, config, { transport: createMcpReadonlyDemoHttpTransport(config) });
+    }, config, { transport: createGovernedMcpRemoteTransport({ baseUrl: server.baseUrl }, config) });
     return client.checkHealth(readiness);
   },
 
