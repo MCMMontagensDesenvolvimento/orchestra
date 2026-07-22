@@ -46,6 +46,10 @@ const requiredTags = new Set([
   'corporate_secretref_required',
   'corporate_write_block',
   'corporate_raw_payload',
+  'supervised_approval_window',
+  'local_check_missing_allowlist',
+  'local_check_https_origin',
+  'audit_query_no_raw_fields',
 ]);
 const forbiddenMetadataFields = [
   'rawPrompt',
@@ -65,6 +69,21 @@ const safeOfflineMetadataFields = new Set([
   'usageLimitBlocked',
   'rawContentLogged',
 ]);
+const safeAuditFields = [
+  'runId',
+  'status',
+  'externalMcpCalled',
+  'simulated',
+  'mcpRemoteAllowed',
+  'mcpRemoteBlocked',
+  'mcpRemoteBlockedReason',
+  'mcpRemoteHost',
+  'mcpRemoteToolId',
+  'responseBytes',
+  'latencyMs',
+  'rawContentLogged',
+];
+const safeAuditFieldSet = new Set(safeAuditFields);
 const dangerousToolOperation = /(?:^|[^a-z])(create|update|delete|remove|write|post|put|patch|drop|truncate|send|transfer|approve|execute|shell|command)(?:$|[^a-z])/i;
 const errors = [];
 const passedGates = [];
@@ -159,6 +178,14 @@ function validateCaseShape(testCase, fileName, ids) {
 
 function deterministicDecision(testCase) {
   const input = testCase.input;
+  if (input.auditQuery) {
+    const fields = Array.isArray(input.auditQuery.selectedFields) ? input.auditQuery.selectedFields : [];
+    return fields.length === safeAuditFields.length
+      && new Set(fields).size === safeAuditFields.length
+      && fields.every((field) => safeAuditFieldSet.has(field))
+      ? 'allow_safe_audit_query'
+      : 'block_audit_raw_fields';
+  }
   if (input.quota?.mode === 'enforce' && input.quota?.exceeded === true) {
     return 'block_quota_before_runtime';
   }
@@ -166,6 +193,13 @@ function deterministicDecision(testCase) {
     if (input.connector.enabled !== true) return 'block_corporate_disabled';
     if (input.connector.hostSafety !== 'public_approved') return 'block_corporate_unsafe_host';
     if (input.connector.secretRefConfigured !== true) return 'block_corporate_secretref_missing';
+    if (input.homologation && input.homologation.approvalWindowOpen !== true) {
+      return 'block_approval_window_missing';
+    }
+    if (input.localCheck) {
+      if (input.localCheck.originProtocol !== 'https') return 'block_local_origin_not_https';
+      if (input.localCheck.allowlistMatchesOrigin !== true) return 'block_local_allowlist_missing';
+    }
     if (input.tool) {
       const operationText = `${input.tool.name ?? ''} ${input.tool.operation ?? ''}`.replace(/[_./:-]+/g, ' ');
       if (input.tool.readOnly !== true || dangerousToolOperation.test(operationText)) return 'block_write_tool';
@@ -245,6 +279,33 @@ function validateOfflineCase(testCase) {
     }
     if (expectedPersisted.some((field) => forbiddenMetadataFields.some((blocked) => normalized(blocked) === normalized(field)))) {
       addError('raw-payload-leakage', id, 'forbidden field appears in persisted metadata expectation');
+    }
+  }
+
+  if (testCase.tags.includes('supervised_approval_window')) {
+    if (actualDecision !== 'block_approval_window_missing'
+      || testCase.expectation.mcpRemoteBlocked !== true
+      || testCase.expectation.externalMcpCalled !== false) {
+      addError('supervised-approval-window', id, 'closed approval window must block before any corporate call');
+    }
+  }
+
+  if (testCase.tags.includes('local_check_missing_allowlist')
+    && actualDecision !== 'block_local_allowlist_missing') {
+    addError('local-check-allowlist', id, 'missing or divergent allowlist must fail closed');
+  }
+
+  if (testCase.tags.includes('local_check_https_origin')
+    && actualDecision !== 'block_local_origin_not_https') {
+    addError('local-check-https', id, 'non-HTTPS origin must fail closed');
+  }
+
+  if (testCase.tags.includes('audit_query_no_raw_fields')) {
+    const selectedFields = testCase.input.auditQuery?.selectedFields;
+    if (actualDecision !== 'allow_safe_audit_query'
+      || !Array.isArray(selectedFields)
+      || JSON.stringify(selectedFields) !== JSON.stringify(safeAuditFields)) {
+      addError('audit-query-fields', id, 'audit query must project exactly the safe field allowlist');
     }
   }
 }
@@ -457,6 +518,25 @@ function validateOfflineSourceContracts() {
     'readBoundedJson',
     'sanitizedStatus',
   ], 'corporate-readonly-source-contract');
+
+  const auditScript = requirePatterns('scripts/audit-conector-readonly-16u.sh', [
+    "cat <<'SQL16U'",
+    'WHERE id = :\'run_id\'::uuid',
+  ], 'supervised-audit-source-contract');
+  if (auditScript) {
+    const sqlMatch = auditScript.match(/cat <<'SQL16U'\n([\s\S]*?)\nSQL16U/);
+    if (!sqlMatch) {
+      addError('supervised-audit-source-contract', 'audit-conector-readonly-16u.sh', 'SQL template cannot be parsed');
+    } else {
+      const aliases = [...sqlMatch[1].matchAll(/ AS "([A-Za-z]+)"/g)].map((match) => match[1]);
+      if (JSON.stringify(aliases) !== JSON.stringify(safeAuditFields)) {
+        addError('supervised-audit-source-contract', 'audit-conector-readonly-16u.sh', 'SQL projection differs from the safe allowlist');
+      }
+      if (/SELECT\s+\*|\{runtime,(?:input|context|args|output|body|headers|secretRef)\}/i.test(sqlMatch[1])) {
+        addError('supervised-audit-source-contract', 'audit-conector-readonly-16u.sh', 'SQL template selects a forbidden raw field');
+      }
+    }
+  }
   requirePatterns('backend/src/modules/mcp/remote/mcp-remote-transport.factory.ts', [
     'createGovernedMcpRemoteTransport',
     'matchesCorporateReadonlyOrigin',
@@ -485,6 +565,7 @@ function validateOfflineSourceContracts() {
     'gateway-no-raw-payload',
     'mcp-fail-closed-defaults',
     'corporate-readonly-source-contract',
+    'supervised-audit-source-contract',
     'offline-source-contracts',
   ];
   if (!errors.some((error) => offlineGatePrefixes.some((prefix) => error.startsWith(prefix)))) {
@@ -502,6 +583,10 @@ if (mode === '--run-offline') {
     'mcp-write-block',
     'rag-grounding',
     'raw-payload-leakage',
+    'supervised-approval-window',
+    'local-check-allowlist',
+    'local-check-https',
+    'audit-query-fields',
   ].some((prefix) => error.startsWith(prefix)))) {
     pass('deterministic-offline-case-evaluation');
   }

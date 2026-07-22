@@ -99,11 +99,16 @@ require_pattern "$EVAL_DIR/cases.corporate-readonly.json" '"corporate_disabled_d
 require_pattern "$EVAL_DIR/cases.corporate-readonly.json" '"corporate_unsafe_host"' 'corporate unsafe-host case'
 require_pattern "$EVAL_DIR/cases.corporate-readonly.json" '"corporate_secretref_required"' 'corporate secretRef case'
 require_pattern "$EVAL_DIR/cases.corporate-readonly.json" '"corporate_raw_payload"' 'corporate raw-payload case'
+require_pattern "$EVAL_DIR/cases.corporate-readonly.json" '"supervised_approval_window"' 'supervised approval-window case'
+require_pattern "$EVAL_DIR/cases.corporate-readonly.json" '"local_check_missing_allowlist"' 'local-check missing-allowlist case'
+require_pattern "$EVAL_DIR/cases.corporate-readonly.json" '"local_check_https_origin"' 'local-check HTTPS-origin case'
+require_pattern "$EVAL_DIR/cases.corporate-readonly.json" '"audit_query_no_raw_fields"' 'safe audit-query case'
 require_pattern "$EVAL_DIR/cases.security.json" '"category": "prompt_injection"' 'prompt injection cases'
 require_pattern "$EVAL_DIR/cases.security.json" '"category": "quota_enforcement"' 'quota enforcement case'
 require_pattern "$EVAL_DIR/cases.security.json" '"category": "raw_payload_leakage"' 'raw payload leakage case'
 require_pattern "$VALIDATOR" 'forbiddenMetadataFields' 'raw payload forbidden-field gate'
 require_pattern "$VALIDATOR" 'governed-runtime-source-contracts' 'runtime source contract gate'
+require_pattern "$VALIDATOR" 'supervised-audit-source-contract' 'supervised audit source-contract gate'
 
 for section in \
   '## Objetivo' '## Escopo' '## Fora de escopo' '## Matriz de evals' \

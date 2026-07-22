@@ -38,6 +38,12 @@ A Fase 16P adiciona a fundação opt-in de MCP externo read-only: allowlist/SSRF
 
 A Fase 16Q homologa a primeira integração MCP/HTTP real somente contra o servidor local fictício `runtime/mcp-readonly-demo`, com health/readiness/discovery, `catalog.search`, `catalog.get_status`, exceção HTTP exata proibida em produção, gateway governado e distinção `simulated=false` para o demo. Produção e conectores corporativos continuam fail-closed. Consulte `ORCHESTRA_MCP_READONLY_INTEGRACAO_HOMOLOGADA_16Q.md`.
 
+A Fase 16S adiciona evals contínuas, determinísticas, offline e provider-free para qualidade e segurança, incluindo gates do conector corporativo, defaults fechados, bloqueio de escrita e ausência de payload bruto. Consulte `ORCHESTRA_EVALS_QUALIDADE_SEGURANCA_16S.md`.
+
+A Fase 16T prepara o boundary governado do conector corporativo read-only com a única tool `corporate.status.read`, origem HTTPS exata, egress/SSRF, `secretRef` lógico, resposta limitada e observabilidade sanitizada. Ela não configura nem chama endpoint corporativo real e mantém o adapter desabilitado por default. Consulte `ORCHESTRA_CONECTOR_CORPORATIVO_READONLY_16T.md`.
+
+A Fase 16U prepara a homologação supervisionada desse boundary: checklist de aprovação, preflight sem rede, readiness acompanhada, uma única execução manual autorizada, SQL allowlistado, evidências, rollback e encerramento. Endpoint e segredo reais permanecem fora do Git; nenhuma chamada real ocorre em CI, smoke ou preflight e a abertura só pode acontecer manualmente durante uma janela aprovada. Consulte `ORCHESTRA_HOMOLOGACAO_SUPERVISIONADA_CONECTOR_READONLY_16U.md`.
+
 A Fase 14H consolida o MVP tecnico da integracao com Agno Runtime, adicionando handoff operacional, checklist de homologacao/rollback e smoke seguro de MVP para runtime HTTP minimo e fronteira de frontend, sem feature nova, migration, frontend ou mudanca de defaults.
 
 A Fase 15C adiciona conversas persistentes privadas por usuario no Chat, mensagens persistidas, arquivamento logico, envio de mensagem pelo backend de conversa e resposta do assistente vinculada ao `AgentRun`.
@@ -138,6 +144,9 @@ Topicos esperados:
 - `ORCHESTRA_AGNO_BRIDGE_DOCKER_REAL_16H.md`: implementacao e runbook do `agno-bridge` Docker local com SDK Agno real por tras do contrato V1, provider keys isoladas, RAG/descriptors governados, callback sandbox 16F opcional, testes offline, evidencias, rollback e riscos.
 - `ORCHESTRA_KNOWLEDGE_RAG_OPERACIONAL_16I.md`: Knowledge/RAG operacional para upload TXT/MD/CSV, ingestao idempotente, embeddings opcionais, retrieval governado, readiness, UI, validacao e rollback.
 - `ORCHESTRA_E2E_CHAT_RAG_MCP_READONLY_16R.md`: homologacao local opt-in do mesmo AgentRun com RAG resolvido, Agno stub, gateway governado, MCP demo HTTP real/read-only, Analytics/audit sanitizados, fail-closed e cleanup marcado.
+- `ORCHESTRA_EVALS_QUALIDADE_SEGURANCA_16S.md`: evals contínuas offline/provider-free de qualidade, escopo, RAG, MCP read-only, segurança e ausência de payload bruto.
+- `ORCHESTRA_CONECTOR_CORPORATIVO_READONLY_16T.md`: boundary governado para `corporate.status.read`, implementado sem endpoint real configurado e desabilitado por default.
+- `ORCHESTRA_HOMOLOGACAO_SUPERVISIONADA_CONECTOR_READONLY_16U.md`: procedimento de janela aprovada, preflight local sem rede, execução única manual, auditoria allowlistada, rollback e evidências sem conteúdo bruto.
 - `ORCHESTRA_LLM_PROVIDER_INTEGRATION.md`: catalogo LLM, provider local deterministico, providers externos fail-closed e eventos LLM em AgentRun.
 - `ORCHESTRA_RAG_SEMANTICO_DISCOVERY.md`: discovery tecnico da Fase 10A para RAG semantico, embeddings e vector store.
 - `ORCHESTRA_VECTOR_STORE_EMBEDDING_CONTRACT.md`: decisao tecnica da Fase 10B para pgvector, tabela de embeddings, readiness semantico e fail-closed.

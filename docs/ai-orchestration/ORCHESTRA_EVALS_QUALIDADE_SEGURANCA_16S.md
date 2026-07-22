@@ -13,6 +13,7 @@ Todo o fluxo é offline e dry-run por padrão. Os casos são sintéticos, as dec
 - prompt injection contra escopo e contra a política MCP read-only;
 - MCP read-only permitido apenas como decisão modelada, além de bloqueio por flag e operação de escrita;
 - boundary corporativo read-only 16T coberto por defaults fechados, egress, secretRef, write-block e leakage;
+- homologação supervisionada 16U coberta por janela aprovada, allowlist local, origem HTTPS e SQL sem campos brutos;
 - quota `enforce` bloqueada antes de RAG, runtime, provider e tools;
 - gate de ausência de campos brutos em metadata, audit, observabilidade e Analytics;
 - parser/validador Node sem dependências e runner Bash com modos seguros;
@@ -48,6 +49,10 @@ Todo o fluxo é offline e dry-run por padrão. Os casos são sintéticos, as dec
 | `16s-corporate-secretref-003` | Corporate read-only | referência lógica ausente | `block_corporate_secretref_missing` |
 | `16s-corporate-write-block-004` | Corporate read-only | tool com operação de escrita | `block_write_tool` |
 | `16s-corporate-raw-leakage-005` | Corporate read-only | resposta com probes proibidos | `sanitize_raw_payload` |
+| `16s-supervised-window-006` | Homologação 16U | janela de aprovação fechada | `block_approval_window_missing` |
+| `16s-local-allowlist-007` | Preflight 16U | allowlist ausente ou divergente | `block_local_allowlist_missing` |
+| `16s-local-origin-https-008` | Preflight 16U | origem diferente de HTTPS | `block_local_origin_not_https` |
+| `16s-audit-safe-fields-009` | Auditoria 16U | projeção técnica exata, sem campo bruto | `allow_safe_audit_query` |
 
 Cada caso contém `id`, `category`, `objective`, `tags`, `input.synthetic=true` e `expectation`. As expectativas comuns mantêm `offlineOnly=true`, `externalProviderCalled=false`, `externalMcpCalled=false`, `corporateServiceCalled=false` e `rawContentLogged=false`.
 
@@ -65,7 +70,9 @@ O runner falha com exit code diferente de zero quando qualquer gate abaixo não 
 8. MCP remoto mantém defaults fail-closed e operações de escrita não chegam ao client;
 9. adapter, contrato, observabilidade e Analytics continuam expondo somente campos governados;
 10. prompt bruto, contexto bruto, raw args, raw output, headers, cookies, `Authorization`, `secretRef` e API key não entram nas allowlists de metadata;
-11. o gateway persiste hash de argumentos e não preview bruto de input/output.
+11. o gateway persiste hash de argumentos e não preview bruto de input/output;
+12. a 16U exige janela aprovada, origem HTTPS e allowlist exata antes de qualquer chamada;
+13. o template SQL 16U projeta exatamente os doze campos técnicos allowlistados, sem campo bruto.
 
 Os probes proibidos aparecem na matriz somente como nomes de campo, sem valores. O runner nunca imprime os inputs dos casos nem o conteúdo que causou uma falha; sua saída contém apenas gate, referência segura, contagens e decisão agregada.
 

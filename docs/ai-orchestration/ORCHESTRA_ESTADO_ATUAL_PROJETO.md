@@ -4,6 +4,8 @@
 
 > Atualização de 20 de julho de 2026: as fases 16M–16R superaram parte das lacunas registradas nesta fotografia. A 16Q adicionou uma integração MCP/HTTP real somente contra o demo local fictício; a 16R acrescenta uma homologação E2E opt-in e provider-free que combina AgentRun, RAG governado, Agno stub, gateway e MCP demo, mantendo conectores externos/corporativos e produção fail-closed. O runbook vigente é `ORCHESTRA_E2E_CHAT_RAG_MCP_READONLY_16R.md`.
 
+> Atualização de 21 de julho de 2026: a 16S consolidou evals contínuas offline de qualidade/segurança; a 16T implementou o boundary governado para a única tool corporativa read-only `corporate.status.read`, sem configurar ou chamar endpoint real; e a 16U prepara a janela de homologação supervisionada com preflight sem rede, readiness acompanhada, uma única execução manual, auditoria allowlistada e rollback. Endpoint e segredo reais não ficam no Git, nenhuma chamada real é automática e todos os defaults permanecem fail-closed. O runbook vigente é `ORCHESTRA_HOMOLOGACAO_SUPERVISIONADA_CONECTOR_READONLY_16U.md`.
+
 ## 0. Resumo Executivo
 
 O Orchestra é hoje um **control plane corporativo de IA em estágio de MVP técnico avançado / homologação local**, com frontend React, API Express, persistência PostgreSQL/Prisma, governança de assistentes, conversas persistentes, `AgentRun`, Knowledge/RAG, catálogo MCP, auditoria, observabilidade técnica, avaliações determinísticas e um bridge Python/Agno executável por HTTP. O projeto já ultrapassou a condição de protótipo puramente visual: os principais domínios têm rotas, serviços, repositórios, modelos Prisma e testes reais. Evidências centrais: `frontend/src/App.tsx`, `backend/src/app/routes.ts`, `backend/prisma/schema.prisma`, `backend/src/modules/agent-runs`, `backend/src/modules/knowledge`, `backend/src/modules/runtime` e `runtime/agno-bridge`.
@@ -154,7 +156,7 @@ Fluxo Chat atual:
 6. O bridge valida contrato/policy/modelo, chama o provider quando em modo real e retorna resposta, uso e eventos.
 7. O backend persiste o resultado no `AgentRun`, eventos, uso e mensagem do assistente; o frontend mostra a resposta e detalhes allowlistados.
 
-A fronteira MCP agora alcança o servidor local fictício da 16Q por um transporte HTTP restrito, somente em homologação opt-in. O sandbox 16F continua simulado e conectores externos/corporativos permanecem bloqueados. Evidências: `mcp-readonly-demo`, `mcp-readonly-demo-http.transport.ts` e `runtime.tool-gateway.service.ts`.
+A fronteira MCP alcança o servidor local fictício da 16Q por um transporte HTTP restrito, somente em homologação opt-in. A 16T também prepara um adapter corporativo real, mas sem origem configurada e desabilitado por default; a 16U prepara apenas sua homologação supervisionada. O sandbox 16F continua simulado, e nenhum endpoint corporativo foi chamado automaticamente. Evidências: `mcp-readonly-demo`, `corporate-readonly`, `runtime.tool-gateway.service.ts` e os runbooks 16T/16U.
 
 ## 6. Frontend — Estado Atual
 
@@ -308,9 +310,18 @@ Evidências: `backend/src/modules/mcp`, `backend/src/modules/runtime/runtime.too
 - o transporte MCP remoto default lança `MCP_REMOTE_NOT_IMPLEMENTED`; somente transportes injetados e aprovados atravessam o boundary.
 - sincronização, health, rotação e revogação fictícios foram removidos da UI MCP; readiness real continua fora da tela.
 
+### Boundary corporativo 16T e homologação 16U
+
+- a 16T implementa o adapter governado e estritamente read-only para `corporate.status.read`, com origem HTTPS exata, egress/SSRF, `secretRef`, GET-only, limites e sanitização;
+- a 16T não configurou endpoint real nem realizou chamada corporativa;
+- a 16U acrescenta checklist, preflight local sem rede, readiness supervisionada, autorização de uma execução manual, auditoria SQL allowlistada, evidências e rollback;
+- origem e segredo reais existem somente na sessão segura/secret manager do operador, fora do Git;
+- CI, smoke e preflight executam apenas validações estáticas/offline; qualquer chamada real exige janela e aprovação explícitas;
+- flags, allowlists e adapter continuam fechados por default após a janela.
+
 ### Pendente antes de ampliar uso real
 
-1. Homologar um transporte MCP produtivo e integrar o secret manager sem expor referências/valores.
+1. Executar a janela 16U em ambiente aprovado e integrar o secret manager sem expor referências/valores.
 2. Homologar discovery e execução externas reais mantendo allowlist, diff, approval e import ledger.
 3. Substituir estado em memória do gateway por coordenação persistente/distribuída.
 4. Definir idempotência, timeout, retry, circuit breaker, concorrência e compensação por tool.
