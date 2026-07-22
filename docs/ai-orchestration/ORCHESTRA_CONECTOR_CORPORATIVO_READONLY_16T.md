@@ -6,6 +6,8 @@ A Fase 16T prepara o primeiro boundary corporativo real do Orchestra com postura
 
 Esta branch não configura nem chama endpoint corporativo real. O adapter está implementado, mas permanece desabilitado e sem origem. A ativação depende de um endpoint de homologação aprovado, origem HTTPS exata, resolução server-side de `secretRef`, flags explícitas, readiness verde e objetos de policy/binding revisados.
 
+A Fase 16U não altera esse boundary: ela adiciona o procedimento de homologação supervisionada, com preflight local sem rede, janela aprovada, no máximo uma execução manual, auditoria segura e rollback. Endpoint e segredo reais continuam fora do Git, e nenhuma chamada é feita automaticamente por CI, smoke ou preflight. Consulte `ORCHESTRA_HOMOLOGACAO_SUPERVISIONADA_CONECTOR_READONLY_16U.md`.
+
 ## Escopo
 
 - adapter `corporate-readonly` dentro de `backend/src/modules/mcp/remote`;

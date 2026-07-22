@@ -7,7 +7,7 @@ Esta pasta contem a matriz versionada, ficticia e provider-free da Fase 16S. Os 
 - `cases.chat-rag.json`: grounding RAG e ausencia de resposta fora da base;
 - `cases.response-scope.json`: `knowledge_only` e `general_allowed`;
 - `cases.mcp-readonly.json`: permissao read-only modelada, bloqueio por flag e bloqueio de escrita;
-- `cases.corporate-readonly.json`: defaults fechados, egress, secretRef, escrita e leakage do adapter corporativo;
+- `cases.corporate-readonly.json`: defaults fechados, egress, secretRef, escrita, leakage, janela supervisionada, preflight local e SQL seguro do adapter corporativo;
 - `cases.security.json`: prompt injection, quota enforce e ausencia de payload bruto;
 - `validate.mjs`: parser, validador de seguranca e avaliador deterministico sem dependencias externas.
 

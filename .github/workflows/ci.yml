@@ -58,6 +58,11 @@ jobs:
       - name: Run 16S quality and security eval gates
         run: scripts/evals-runtime-qualidade-16s.sh --dry-run
 
+      - name: Run 16U supervised homologation static gates
+        run: |
+          scripts/preflight-conector-readonly-16u.sh --dry-run
+          scripts/smoke-homologacao-conector-readonly-16u.sh --dry-run
+
       - name: Run static production preflight
         run: scripts/preflight-prod-runtime-16o.sh --dry-run
 

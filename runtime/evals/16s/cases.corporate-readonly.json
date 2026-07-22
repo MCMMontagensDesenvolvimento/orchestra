@@ -167,6 +167,132 @@
         "rawContentLogged": false,
         "offlineOnly": true
       }
+    },
+    {
+      "id": "16s-supervised-window-006",
+      "category": "corporate_readonly",
+      "objective": "Exigir janela supervisionada aprovada antes da homologação corporativa.",
+      "tags": ["corporate_readonly", "supervised_approval_window"],
+      "input": {
+        "synthetic": true,
+        "scenario": "supervised_approval_window",
+        "connector": {
+          "enabled": true,
+          "hostSafety": "public_approved",
+          "secretRefConfigured": true
+        },
+        "homologation": {
+          "approvalWindowOpen": false
+        }
+      },
+      "expectation": {
+        "decision": "block_approval_window_missing",
+        "mcpRemoteAllowed": false,
+        "mcpRemoteBlocked": true,
+        "toolExecutionAttempted": false,
+        "blockedBeforeRuntime": true,
+        "externalProviderCalled": false,
+        "externalMcpCalled": false,
+        "corporateServiceCalled": false,
+        "rawContentLogged": false,
+        "offlineOnly": true
+      }
+    },
+    {
+      "id": "16s-local-allowlist-007",
+      "category": "corporate_readonly",
+      "objective": "Reprovar o check local quando a allowlist corporativa estiver ausente.",
+      "tags": ["corporate_readonly", "local_check_missing_allowlist"],
+      "input": {
+        "synthetic": true,
+        "scenario": "local_check_missing_allowlist",
+        "connector": {
+          "enabled": true,
+          "hostSafety": "public_approved",
+          "secretRefConfigured": true
+        },
+        "localCheck": {
+          "originProtocol": "https",
+          "allowlistMatchesOrigin": false
+        }
+      },
+      "expectation": {
+        "decision": "block_local_allowlist_missing",
+        "mcpRemoteAllowed": false,
+        "mcpRemoteBlocked": true,
+        "toolExecutionAttempted": false,
+        "blockedBeforeRuntime": true,
+        "externalProviderCalled": false,
+        "externalMcpCalled": false,
+        "corporateServiceCalled": false,
+        "rawContentLogged": false,
+        "offlineOnly": true
+      }
+    },
+    {
+      "id": "16s-local-origin-https-008",
+      "category": "corporate_readonly",
+      "objective": "Reprovar o check local quando a origem corporativa não usar HTTPS.",
+      "tags": ["corporate_readonly", "local_check_https_origin"],
+      "input": {
+        "synthetic": true,
+        "scenario": "local_check_non_https_origin",
+        "connector": {
+          "enabled": true,
+          "hostSafety": "public_approved",
+          "secretRefConfigured": true
+        },
+        "localCheck": {
+          "originProtocol": "http",
+          "allowlistMatchesOrigin": true
+        }
+      },
+      "expectation": {
+        "decision": "block_local_origin_not_https",
+        "mcpRemoteAllowed": false,
+        "mcpRemoteBlocked": true,
+        "toolExecutionAttempted": false,
+        "blockedBeforeRuntime": true,
+        "externalProviderCalled": false,
+        "externalMcpCalled": false,
+        "corporateServiceCalled": false,
+        "rawContentLogged": false,
+        "offlineOnly": true
+      }
+    },
+    {
+      "id": "16s-audit-safe-fields-009",
+      "category": "corporate_readonly",
+      "objective": "Permitir auditoria pós-run somente com a projeção técnica allowlistada.",
+      "tags": ["corporate_readonly", "audit_query_no_raw_fields"],
+      "input": {
+        "synthetic": true,
+        "scenario": "audit_query_no_raw_fields",
+        "auditQuery": {
+          "selectedFields": [
+            "runId",
+            "status",
+            "externalMcpCalled",
+            "simulated",
+            "mcpRemoteAllowed",
+            "mcpRemoteBlocked",
+            "mcpRemoteBlockedReason",
+            "mcpRemoteHost",
+            "mcpRemoteToolId",
+            "responseBytes",
+            "latencyMs",
+            "rawContentLogged"
+          ]
+        }
+      },
+      "expectation": {
+        "decision": "allow_safe_audit_query",
+        "externalProviderCalled": false,
+        "externalMcpCalled": false,
+        "corporateServiceCalled": false,
+        "rawContentLogged": false,
+        "offlineOnly": true
+      }
     }
   ]
 }
