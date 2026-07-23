@@ -4,7 +4,7 @@
 
 A Fase 16V cria no próprio backend do Orchestra o primeiro alvo HTTP real, seguro e não sensível para a futura execução de `corporate.status.read`. Ela disponibiliza `GET /v1/status` e `GET /v1/status/availability`, preserva o `GET /health` existente e limita as respostas a um contrato operacional sanitizado.
 
-Esta fase cria o alvo seguro. A Fase 16W será responsável pela primeira chamada real supervisionada da tool.
+Esta fase cria o alvo seguro. A Fase 16W avalia a primeira chamada supervisionada, mas adota a Opção C: prepara o harness e mantém a execução real bloqueada até existir ambiente HTTPS homologado e contrato compatível.
 
 ## Escopo
 
@@ -111,7 +111,7 @@ scripts/smoke-endpoint-status-readonly-16v.sh --dry-run
 
 A 16T definiu o boundary governado do adapter corporativo, incluindo a única tool `corporate.status.read` e os paths fixos `/health`, `/v1/status` e `/v1/status/availability`. A 16U definiu o processo de homologação supervisionada, aprovação, execução única, evidências seguras e rollback.
 
-A 16V não abre esse boundary: ela implementa localmente os dois paths de status que antes retornavam 404. Os gates de MCP remoto, execução read-only e adapter corporativo continuam fechados. A 16W poderá usar esse alvo na primeira execução real supervisionada, seguindo a governança da 16U.
+A 16V não abre esse boundary: ela implementa localmente os dois paths de status que antes retornavam 404. Os gates de MCP remoto, execução read-only e adapter corporativo continuam fechados. A 16W preserva esse estado e documenta que o HTTP local e o contrato público estrito não podem ser forçados pelo adapter corporativo; a chamada real exige origem HTTPS homologada e contrato reconciliado sob a governança da 16U.
 
 ## Por que isso ainda não executa MCP real
 
@@ -148,9 +148,10 @@ O rollback não requer migration, seed, limpeza de banco, revogação de segredo
 - `updatedAt` representa o instante da resposta, não o horário de uma checagem persistida;
 - disponibilidade, TLS, DNS, ingress e roteamento dos domínios previstos de produção ainda exigem validação no ambiente;
 - rate limiting, SLO, monitoração e proteção de borda continuam responsabilidades operacionais;
-- um consumidor futuro ainda precisa manter sanitização, limite de resposta, egress e auditoria da 16T;
+- um consumidor futuro ainda precisa reconciliar o contrato público `ok|degraded` da 16V com o contrato esperado pelo adapter 16T sem ampliar o payload exposto;
+- esse consumidor deve manter sanitização, limite de resposta, egress e auditoria da 16T;
 - a existência do alvo não autoriza ativar MCP remoto nem realizar a chamada fora de uma janela aprovada.
 
 ## Próximo passo sugerido
 
-Fase 16W: primeira execução real supervisionada de `corporate.status.read` contra este alvo, com uma janela aprovada, gates mínimos abertos temporariamente, evidências allowlistadas e rollback imediato conforme a 16U. Essa execução não pertence à 16V.
+Fase 16W: preparação fail-closed da primeira execução supervisionada. Como o local é HTTP e o adapter exige HTTPS, `--run-once-local` não foi implementado e nenhuma chamada real ocorreu. O próximo ambiente elegível deve ser HTTPS homologado, com contrato compatível, gates mínimos temporários, evidências allowlistadas e rollback imediato conforme a 16U.

@@ -8,6 +8,8 @@
 
 > Atualização de 22 de julho de 2026: a 16V cria no backend do Orchestra os alvos seguros `GET /v1/status` e `GET /v1/status/availability`, com payload estrito `status`, `summary` e `updatedAt`. `/health` é preservado, Prisma não muda e nenhum MCP real é executado. A primeira chamada real supervisionada fica para a 16W. O runbook vigente é `ORCHESTRA_ENDPOINT_STATUS_READONLY_16V.md`.
 
+> Atualização de 23 de julho de 2026: a 16W prepara a primeira execução supervisionada de `corporate.status.read`, com harness offline, local-check e SQL allowlistado. Foi adotada a Opção C: não há exceção HTTP corporativa nem `--run-once-local`, pois o transporte exige HTTPS/egress público e o contrato da 16V ainda difere do esperado pelo adapter 16T. Nenhuma chamada real ocorreu; a execução única exige ambiente HTTPS homologado. O runbook vigente é `ORCHESTRA_PRIMEIRA_EXECUCAO_REAL_TOOL_STATUS_16W.md`.
+
 ## 0. Resumo Executivo
 
 O Orchestra é hoje um **control plane corporativo de IA em estágio de MVP técnico avançado / homologação local**, com frontend React, API Express, persistência PostgreSQL/Prisma, governança de assistentes, conversas persistentes, `AgentRun`, Knowledge/RAG, catálogo MCP, auditoria, observabilidade técnica, avaliações determinísticas e um bridge Python/Agno executável por HTTP. O projeto já ultrapassou a condição de protótipo puramente visual: os principais domínios têm rotas, serviços, repositórios, modelos Prisma e testes reais. Evidências centrais: `frontend/src/App.tsx`, `backend/src/app/routes.ts`, `backend/prisma/schema.prisma`, `backend/src/modules/agent-runs`, `backend/src/modules/knowledge`, `backend/src/modules/runtime` e `runtime/agno-bridge`.
@@ -87,6 +89,7 @@ O status “documentado/homologado” abaixo significa que há runbook, smoke ou
 | 16R | Homologação E2E Chat/RAG/MCP read-only | Implementado como harness local opt-in | `docs/ai-orchestration/ORCHESTRA_E2E_CHAT_RAG_MCP_READONLY_16R.md`, `scripts/homologacao-e2e-chat-rag-mcp-16r.sh`, `scripts/smoke-e2e-chat-rag-mcp-16r.sh`, `runtime/e2e-fixtures/16r` | Mesmo AgentRun deve provar RAG resolvido e MCP HTTP real; Agno permanece stub, sem provider externo; policy MCP abre apenas por passo local explícito |
 | 16S–16U | Evals, boundary corporativo e homologação supervisionada | Implementado/documentado, fail-closed | runbooks e smokes 16S–16U, `backend/src/modules/mcp/remote/corporate-readonly` | Nenhuma chamada corporativa real foi executada; endpoint e segredo reais permanecem fora do Git |
 | 16V | Endpoints operacionais read-only | Implementado localmente | `backend/src/modules/status`, `backend/tests/api/status.test.ts`, `scripts/smoke-endpoint-status-readonly-16v.sh` | Cria o alvo seguro; payload sanitizado, sem banco/provider/MCP; chamada real fica para 16W |
+| 16W | Preparação da primeira execução da tool de status | Harness offline, Opção C | `ORCHESTRA_PRIMEIRA_EXECUCAO_REAL_TOOL_STATUS_16W.md`, scripts 16W | Sem execução real; HTTP local inelegível, contrato a reconciliar e HTTPS homologado pendente |
 
 ## 3. Estrutura do Repositório
 
@@ -160,7 +163,7 @@ Fluxo Chat atual:
 6. O bridge valida contrato/policy/modelo, chama o provider quando em modo real e retorna resposta, uso e eventos.
 7. O backend persiste o resultado no `AgentRun`, eventos, uso e mensagem do assistente; o frontend mostra a resposta e detalhes allowlistados.
 
-A fronteira MCP alcança o servidor local fictício da 16Q por um transporte HTTP restrito, somente em homologação opt-in. A 16T também prepara um adapter corporativo real, mas sem origem configurada e desabilitado por default; a 16U prepara apenas sua homologação supervisionada. O sandbox 16F continua simulado, e nenhum endpoint corporativo foi chamado automaticamente. Evidências: `mcp-readonly-demo`, `corporate-readonly`, `runtime.tool-gateway.service.ts` e os runbooks 16T/16U.
+A fronteira MCP alcança o servidor local fictício da 16Q por um transporte HTTP restrito, somente em homologação opt-in. A 16T também prepara um adapter corporativo real, mas sem origem configurada e desabilitado por default; a 16U define sua homologação supervisionada; e a 16W mantém a execução real bloqueada até existir HTTPS e contrato compatível. O sandbox 16F continua simulado, e nenhum endpoint corporativo foi chamado. Evidências: `mcp-readonly-demo`, `corporate-readonly`, `runtime.tool-gateway.service.ts` e os runbooks 16T–16W.
 
 ## 6. Frontend — Estado Atual
 
@@ -190,7 +193,7 @@ As rotas de domínio são registradas sob `/api/v1`; as exceções públicas sã
 | Módulo | Status | Rotas/serviços | Persistência | Pendências | Evidência |
 |---|---|---|---|---|---|
 | Health | Implementado | `/health`, `/health/db` | consulta Prisma no health DB | health profundo de dependências externas no deploy | `modules/health` |
-| Status operacional 16V | Implementado, read-only | `/v1/status`, `/v1/status/availability` | nenhuma | validar ingress/SLO no ambiente; primeira chamada real somente na 16W | `modules/status`, `tests/api/status.test.ts` |
+| Status operacional 16V | Implementado, read-only | `/v1/status`, `/v1/status/availability` | nenhuma | validar ingress/SLO e reconciliar contrato 16T/16V; primeira chamada real em HTTPS homologado | `modules/status`, `tests/api/status.test.ts`, runbook 16W |
 | Auth | Implementado condicional | `/auth/sso/*`, `/auth/microsoft/*`, `/auth/dev-login`, `/auth/me`, logout | User, ExternalIdentity; JWT no cliente | Session server-side/revogação; configuração produtiva | `modules/auth`, `shared/security/session.ts` |
 | Tenants/workspaces/users/roles/permissions | Implementado | CRUD parcial e RBAC | Prisma | UI de administração e testes E2E completos | módulos correspondentes e routes |
 | Assistants/governança | Implementado | CRUD, versions, publication, rollback, approval, policy, feedback, test results, shares | modelos `Assistant*` | alinhar UI local e qualidade automatizada | `modules/assistants`, `assistants.routes.ts` |
@@ -315,20 +318,22 @@ Evidências: `backend/src/modules/mcp`, `backend/src/modules/runtime/runtime.too
 - o transporte MCP remoto default lança `MCP_REMOTE_NOT_IMPLEMENTED`; somente transportes injetados e aprovados atravessam o boundary.
 - sincronização, health, rotação e revogação fictícios foram removidos da UI MCP; readiness real continua fora da tela.
 
-### Boundary corporativo 16T, homologação 16U e alvo seguro 16V
+### Boundary corporativo 16T, homologação 16U, alvo seguro 16V e preparação 16W
 
 - a 16T implementa o adapter governado e estritamente read-only para `corporate.status.read`, com origem HTTPS exata, egress/SSRF, `secretRef`, GET-only, limites e sanitização;
 - a 16T não configurou endpoint real nem realizou chamada corporativa;
 - a 16U acrescenta checklist, preflight local sem rede, readiness supervisionada, autorização de uma execução manual, auditoria SQL allowlistada, evidências e rollback;
 - a 16V cria `GET /v1/status` e `GET /v1/status/availability` no próprio backend, retornando somente `status`, `summary` e `updatedAt`;
-- a 16V não executa `corporate.status.read`; a primeira chamada real supervisionada pertence à 16W;
+- a 16W adota a Opção C, cria preparação/auditoria offline e não implementa `--run-once-local`;
+- nenhuma chamada real foi executada: HTTP local continua bloqueado e o contrato 16T/16V precisa ser reconciliado antes do HTTPS homologado;
 - origem e segredo reais existem somente na sessão segura/secret manager do operador, fora do Git;
 - CI, smoke e preflight executam apenas validações estáticas/offline; qualquer chamada real exige janela e aprovação explícitas;
 - flags, allowlists e adapter continuam fechados por default após a janela.
+- MCP/Tool real para sistemas sensíveis, teste visual MCP/Assistant e CRUD MCP ponta a ponta permanecem para fases posteriores.
 
 ### Pendente antes de ampliar uso real
 
-1. Executar a primeira chamada real somente na 16W, sob a janela e os controles aprovados da 16U, sem expor referências/valores.
+1. Reconciliar o contrato 16T/16V e disponibilizar origem HTTPS homologada antes da primeira chamada real, sob a janela 16U e sem expor referências/valores.
 2. Homologar discovery e execução externas reais mantendo allowlist, diff, approval e import ledger.
 3. Substituir estado em memória do gateway por coordenação persistente/distribuída.
 4. Definir idempotência, timeout, retry, circuit breaker, concorrência e compensação por tool.
@@ -466,7 +471,7 @@ Lacunas:
 - não há teste de carga, soak, concorrência, chaos, failover ou recuperação;
 - não há cobertura automatizada com provider real, por decisão de segurança;
 - a matriz 16K cobre exemplos específicos; precisa virar corpus versionado maior;
-- os gates estáticos 16S–16V estão no CI, mas ainda não há cobertura E2E de navegador nem gate por percentual de cobertura;
+- os gates estáticos 16S–16W estão no CI, mas ainda não há cobertura E2E de navegador nem gate por percentual de cobertura;
 - cobertura percentual não foi executada nesta auditoria, portanto é **pendente de confirmação**.
 
 ## 16. CI/CD, Docker e Ambientes

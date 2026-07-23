@@ -8,6 +8,8 @@ Esta branch não configura nem chama endpoint corporativo real. O adapter está 
 
 A Fase 16U não altera esse boundary: ela adiciona o procedimento de homologação supervisionada, com preflight local sem rede, janela aprovada, no máximo uma execução manual, auditoria segura e rollback. Endpoint e segredo reais continuam fora do Git, e nenhuma chamada é feita automaticamente por CI, smoke ou preflight. Consulte `ORCHESTRA_HOMOLOGACAO_SUPERVISIONADA_CONECTOR_READONLY_16U.md`.
 
+A Fase 16V cria o alvo read-only do próprio Orchestra. A Fase 16W prepara a primeira execução, mas não relaxa este boundary: o HTTP local continua inelegível, `--run-once-local` não existe e nenhuma chamada real foi executada. A execução futura exige origem HTTPS homologada e contrato compatível. Consulte `ORCHESTRA_PRIMEIRA_EXECUCAO_REAL_TOOL_STATUS_16W.md`.
+
 ## Escopo
 
 - adapter `corporate-readonly` dentro de `backend/src/modules/mcp/remote`;
@@ -282,6 +284,8 @@ Gmail, Drive, Slack, ERP e banco transacional não são uma extensão automátic
 - o resumo remoto pode conter dado indevido apesar do contrato, causando bloqueio e incidente;
 - allowlists e policy podem sofrer erro operacional fora do código;
 - o resolver `env://` depende da higiene do ambiente e do secret manager;
-- não houve chamada real nesta fase, portanto disponibilidade e compatibilidade do endpoint continuam não comprovadas.
+- a 16W confirmou que o payload público estrito da 16V ainda não coincide com os marcadores/estados esperados por este adapter;
+- não houve chamada real até a 16W, portanto disponibilidade e compatibilidade do endpoint via pipeline completo continuam não comprovadas;
+- MCP/Tool real para sistemas sensíveis, teste visual completo MCP/Assistant e CRUD MCP ponta a ponta permanecem fora do escopo.
 
 Esses riscos justificam manter o adapter desabilitado até existir endpoint de homologação não sensível e aprovação explícita.
