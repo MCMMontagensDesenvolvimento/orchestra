@@ -323,8 +323,14 @@ Para a publicação manual futura:
 
 A 16Z não substitui a autorização 16U e não promove os templates 16Y a checks live. Ela adiciona os pré-requisitos operacionais que precisam existir antes de qualquer teste real.
 
+## Atualização 17A — plano operacional homologado
+
+A 17A transforma esta preparação em um plano operacional Local → HTTPS com papéis, matriz de pré-requisitos, go/no-go, janela, checklists antes/durante/depois, evidências e rollback. Ela continua sendo somente planejamento: o deploy real ainda não ocorreu, o ambiente permanece local e as URLs planejadas continuam inativas.
+
+O preflight e o smoke 17A são offline/somente-leitura, e o CI executa apenas o smoke em `--dry-run`. A 17A não chama DNS, TLS, endpoint, container, migration, MCP ou provider; UI/CRUD MCP permanece fora de escopo. A primeira execução da tool continua bloqueada até uma fase posterior à publicação e validação da API HTTPS, com aviso ao usuário.
+
 ## Próximo passo sugerido
 
-Realizar uma fase específica de publicação manual e homologação HTTPS, com autorização, infraestrutura, secrets e rollback aprovados. Primeiro devem ser validados frontend, API, DNS, TLS, proxy, CORS/cookies e os endpoints passivos. Somente depois dessa API publicada e validada poderá ser planejada outra fase para a primeira execução real e supervisionada de `corporate.status.read`.
+Usar o plano homologado 17A para preparar responsáveis, autorização, infraestrutura, secrets, backup/restore, observabilidade e rollback de uma fase específica de publicação manual. Primeiro devem ser validados frontend, API, DNS, TLS, proxy, CORS/cookies e os endpoints passivos. Somente depois dessa API publicada e validada poderá ser planejada outra fase para a primeira execução real e supervisionada de `corporate.status.read`.
 
 Antes de qualquer teste direto no sistema, o usuário será avisado e deverá autorizar a janela. Até lá, MCP remoto/corporate permanece fail-closed, `realExecution=false` e UI/CRUD MCP continua fora de escopo.

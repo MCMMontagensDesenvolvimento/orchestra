@@ -229,6 +229,12 @@ Não há migration, dado, server MCP, binding, Assistant, credencial ou recurso 
 
 A 16Z prepara a publicação HTTPS, mas não publica e não executa chamada real. O ambiente ainda é local; as URLs planejadas do frontend e da API não estão ativas. MCP real, UI/CRUD MCP, associação a Assistant e teste visual permanecem fora de escopo. A primeira execução real da tool só poderá ser planejada depois que a API HTTPS estiver publicada e validada.
 
+## Atualização 17A — plano operacional homologado
+
+A 17A converte a preparação 16Z em plano operacional Local → HTTPS, com responsáveis, pré-requisitos, go/no-go, janela, evidências e rollback. O deploy real ainda não ocorreu, o ambiente continua local e as URLs permanecem planejadas/inativas. Os gates 17A são offline/dry-run; não executam DNS, request, container, migration, provider ou MCP.
+
+UI/CRUD MCP e associação a Assistant continuam fora de escopo. A primeira execução real da tool permanece condicionada à publicação e validação da API HTTPS em fase posterior, com aviso explícito ao usuário antes do teste direto.
+
 ## Próximo passo sugerido
 
-Executar uma fase posterior de publicação manual e homologação HTTPS para validar DNS, TLS, proxy, CORS/cookies e os endpoints passivos. Somente depois, com o usuário avisado e uma janela autorizada, considerar outra fase para a primeira execução supervisionada de `corporate.status.read`.
+Preencher e aprovar o plano 17A antes de abrir uma fase posterior de publicação manual e homologação HTTPS para validar DNS, TLS, proxy, CORS/cookies e os endpoints passivos. Somente depois, com o usuário avisado e uma janela autorizada, considerar outra fase para a primeira execução supervisionada de `corporate.status.read`.
