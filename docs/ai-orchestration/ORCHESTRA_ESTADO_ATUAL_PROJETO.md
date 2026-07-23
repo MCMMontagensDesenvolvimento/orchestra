@@ -6,6 +6,8 @@
 
 > Atualização de 21 de julho de 2026: a 16S consolidou evals contínuas offline de qualidade/segurança; a 16T implementou o boundary governado para a única tool corporativa read-only `corporate.status.read`, sem configurar ou chamar endpoint real; e a 16U prepara a janela de homologação supervisionada com preflight sem rede, readiness acompanhada, uma única execução manual, auditoria allowlistada e rollback. Endpoint e segredo reais não ficam no Git, nenhuma chamada real é automática e todos os defaults permanecem fail-closed. O runbook vigente é `ORCHESTRA_HOMOLOGACAO_SUPERVISIONADA_CONECTOR_READONLY_16U.md`.
 
+> Atualização de 22 de julho de 2026: a 16V cria no backend do Orchestra os alvos seguros `GET /v1/status` e `GET /v1/status/availability`, com payload estrito `status`, `summary` e `updatedAt`. `/health` é preservado, Prisma não muda e nenhum MCP real é executado. A primeira chamada real supervisionada fica para a 16W. O runbook vigente é `ORCHESTRA_ENDPOINT_STATUS_READONLY_16V.md`.
+
 ## 0. Resumo Executivo
 
 O Orchestra é hoje um **control plane corporativo de IA em estágio de MVP técnico avançado / homologação local**, com frontend React, API Express, persistência PostgreSQL/Prisma, governança de assistentes, conversas persistentes, `AgentRun`, Knowledge/RAG, catálogo MCP, auditoria, observabilidade técnica, avaliações determinísticas e um bridge Python/Agno executável por HTTP. O projeto já ultrapassou a condição de protótipo puramente visual: os principais domínios têm rotas, serviços, repositórios, modelos Prisma e testes reais. Evidências centrais: `frontend/src/App.tsx`, `backend/src/app/routes.ts`, `backend/prisma/schema.prisma`, `backend/src/modules/agent-runs`, `backend/src/modules/knowledge`, `backend/src/modules/runtime` e `runtime/agno-bridge`.
@@ -17,7 +19,7 @@ A maturidade não é ainda de produto operacional pleno. Os maiores limitadores 
 - execução MCP externa ainda não implementada; o sandbox e o gateway retornam resultado simulado e registram `externalMcpCalled=false` (`backend/src/modules/mcp/mcp.service.ts`, `backend/src/modules/runtime/runtime.tool-gateway.service.ts`, `backend/src/modules/mcp/remote/mcp-remote.client.ts`);
 - observabilidade existente principalmente em tabelas, APIs, metadata, testes, SQL e runbooks, sem console operacional dedicado no frontend (`backend/src/modules/ai-observability`, `frontend/src/services/analytics.service.ts`, `frontend/src/pages/Analytics/AnalyticsPage.tsx`);
 - ações visuais ainda locais ou placeholder, especialmente sincronização/credenciais/health MCP, reindexação global de Knowledge, duplicação de Assistant, edição/diff de prompt compilado e feedback de mensagem (`frontend/src/pages/MCP`, `frontend/src/pages/Knowledge`, `frontend/src/pages/Assistants`, `frontend/src/components/chat/FeedbackBar.tsx`);
-- perfil de produção incompleto: ausência de CI/CD versionado, bridge Agno fora do compose de produção, ausência de etapa versionada de `prisma migrate deploy`, frontend Nginx sem proxy explícito para a API e imagem PostgreSQL de produção diferente da imagem com pgvector usada em desenvolvimento (`docker-compose.prod.yml`, `frontend/nginx.conf`, `backend/Dockerfile.prod`, `backend/prisma/migrations/20260625114000_phase10c_pgvector_chunk_embeddings/migration.sql`);
+- perfil de produção incompleto: CI de validação existe, mas não há CD versionado; bridge Agno está fora do compose de produção, não há etapa versionada de `prisma migrate deploy`, o frontend Nginx não tem proxy explícito para a API e a imagem PostgreSQL de produção difere da imagem com pgvector usada em desenvolvimento (`.github/workflows/ci.yml`, `docker-compose.prod.yml`, `frontend/nginx.conf`, `backend/Dockerfile.prod`, `backend/prisma/migrations/20260625114000_phase10c_pgvector_chunk_embeddings/migration.sql`);
 - segurança de produção pendente de hardening: segredo JWT possui fallback de desenvolvimento no código, o modelo `Session` não é usado pelo fluxo JWT atual, não há evidência versionada de secrets manager, rotação central, TLS/ingress ou revogação de sessão server-side (`backend/src/config/env.ts`, `backend/src/shared/security/session.ts`, `backend/prisma/schema.prisma`);
 - limites/custos e alertas existem como domínio e endpoints de avaliação, mas não foram encontrados no precheck do `AgentRun`; o registro de uso não encaminha custo normalizado para `AiRunUsageEvent` (`backend/src/modules/ai-observability`, `backend/src/modules/agent-runs/agent-runs.service.ts`).
 
@@ -39,7 +41,7 @@ state_audit_blueprint:
   auth_status: "JWT em cookie, RBAC e Microsoft SSO condicional implementados; revogação server-side e hardening produtivo pendentes"
   mock_level: "Médio; opt-in no frontend e presente em runtime, embeddings, tools e dados de demonstração"
   hardcoded_level: "Médio; heurísticas de intenção, métricas de protótipo e algumas ações de UI permanecem codificadas"
-  repository_standard_status: "Parcial; organização forte e lockfiles presentes, mas README raiz desatualizado e CI/CD ausente"
+  repository_standard_status: "Parcial; organização forte, lockfiles e CI de validação presentes, mas README raiz e CD ainda pendentes"
   ai_detected: "Sim"
   ai_orchestration_detected: "Sim; control plane, AgentRun, Agno HTTP, RAG e descriptors de tools"
   package_manager_detected: "npm com package-lock.json separado em frontend e backend"
@@ -51,7 +53,7 @@ state_audit_blueprint:
     - "MCP externo não executa; gateways atuais são sandbox/simulação"
     - "JWT pode assumir fallback inseguro se o ambiente produtivo for iniciado sem configuração deliberada"
     - "Limites de uso, custos e alertas não estão comprovadamente no caminho de enforcement do AgentRun"
-    - "Não há suíte E2E de navegador nem pipeline CI/CD versionado"
+    - "Não há suíte E2E de navegador nem pipeline de entrega/deploy versionado"
   main_recommendation: "Priorizar observabilidade operacional e hardening produtivo antes de liberar MCP/tools externos"
 ```
 
@@ -83,6 +85,8 @@ O status “documentado/homologado” abaixo significa que há runbook, smoke ou
 | 16K | Homologação operacional Chat/RAG | Documentado e automatizado | `docs/ai-orchestration/ORCHESTRA_CHAT_RAG_HOMOLOGACAO_OPERACIONAL_16K.md`, `scripts/smoke-chat-rag-operacional-16k.sh`, `backend/tests/api/agent-runs.test.ts` | Dry-run desta auditoria: 34 verificações aprovadas; a matriz possui oito cenários automatizados |
 | 16M–16Q | Observabilidade, custos, hardening e MCP demo real read-only | Implementado/homologado | runbooks e smokes 16M–16Q, `runtime/mcp-readonly-demo`, `docker-compose.mcp-readonly-demo.yml` | Defaults produtivos continuam fechados; a chamada real existe somente para o demo local allowlisted |
 | 16R | Homologação E2E Chat/RAG/MCP read-only | Implementado como harness local opt-in | `docs/ai-orchestration/ORCHESTRA_E2E_CHAT_RAG_MCP_READONLY_16R.md`, `scripts/homologacao-e2e-chat-rag-mcp-16r.sh`, `scripts/smoke-e2e-chat-rag-mcp-16r.sh`, `runtime/e2e-fixtures/16r` | Mesmo AgentRun deve provar RAG resolvido e MCP HTTP real; Agno permanece stub, sem provider externo; policy MCP abre apenas por passo local explícito |
+| 16S–16U | Evals, boundary corporativo e homologação supervisionada | Implementado/documentado, fail-closed | runbooks e smokes 16S–16U, `backend/src/modules/mcp/remote/corporate-readonly` | Nenhuma chamada corporativa real foi executada; endpoint e segredo reais permanecem fora do Git |
+| 16V | Endpoints operacionais read-only | Implementado localmente | `backend/src/modules/status`, `backend/tests/api/status.test.ts`, `scripts/smoke-endpoint-status-readonly-16v.sh` | Cria o alvo seguro; payload sanitizado, sem banco/provider/MCP; chamada real fica para 16W |
 
 ## 3. Estrutura do Repositório
 
@@ -181,11 +185,12 @@ Há responsividade por classes e variantes mobile em várias telas, mas **penden
 
 ## 7. Backend/API — Estado Atual
 
-Todas as rotas de domínio são registradas sob `/api/v1`, exceto health. Evidência: `backend/src/app/routes.ts`.
+As rotas de domínio são registradas sob `/api/v1`; as exceções públicas são health e os endpoints operacionais 16V sob `/v1/status`. Evidência: `backend/src/app/routes.ts`.
 
 | Módulo | Status | Rotas/serviços | Persistência | Pendências | Evidência |
 |---|---|---|---|---|---|
 | Health | Implementado | `/health`, `/health/db` | consulta Prisma no health DB | health profundo de dependências externas no deploy | `modules/health` |
+| Status operacional 16V | Implementado, read-only | `/v1/status`, `/v1/status/availability` | nenhuma | validar ingress/SLO no ambiente; primeira chamada real somente na 16W | `modules/status`, `tests/api/status.test.ts` |
 | Auth | Implementado condicional | `/auth/sso/*`, `/auth/microsoft/*`, `/auth/dev-login`, `/auth/me`, logout | User, ExternalIdentity; JWT no cliente | Session server-side/revogação; configuração produtiva | `modules/auth`, `shared/security/session.ts` |
 | Tenants/workspaces/users/roles/permissions | Implementado | CRUD parcial e RBAC | Prisma | UI de administração e testes E2E completos | módulos correspondentes e routes |
 | Assistants/governança | Implementado | CRUD, versions, publication, rollback, approval, policy, feedback, test results, shares | modelos `Assistant*` | alinhar UI local e qualidade automatizada | `modules/assistants`, `assistants.routes.ts` |
@@ -310,18 +315,20 @@ Evidências: `backend/src/modules/mcp`, `backend/src/modules/runtime/runtime.too
 - o transporte MCP remoto default lança `MCP_REMOTE_NOT_IMPLEMENTED`; somente transportes injetados e aprovados atravessam o boundary.
 - sincronização, health, rotação e revogação fictícios foram removidos da UI MCP; readiness real continua fora da tela.
 
-### Boundary corporativo 16T e homologação 16U
+### Boundary corporativo 16T, homologação 16U e alvo seguro 16V
 
 - a 16T implementa o adapter governado e estritamente read-only para `corporate.status.read`, com origem HTTPS exata, egress/SSRF, `secretRef`, GET-only, limites e sanitização;
 - a 16T não configurou endpoint real nem realizou chamada corporativa;
 - a 16U acrescenta checklist, preflight local sem rede, readiness supervisionada, autorização de uma execução manual, auditoria SQL allowlistada, evidências e rollback;
+- a 16V cria `GET /v1/status` e `GET /v1/status/availability` no próprio backend, retornando somente `status`, `summary` e `updatedAt`;
+- a 16V não executa `corporate.status.read`; a primeira chamada real supervisionada pertence à 16W;
 - origem e segredo reais existem somente na sessão segura/secret manager do operador, fora do Git;
 - CI, smoke e preflight executam apenas validações estáticas/offline; qualquer chamada real exige janela e aprovação explícitas;
 - flags, allowlists e adapter continuam fechados por default após a janela.
 
 ### Pendente antes de ampliar uso real
 
-1. Executar a janela 16U em ambiente aprovado e integrar o secret manager sem expor referências/valores.
+1. Executar a primeira chamada real somente na 16W, sob a janela e os controles aprovados da 16U, sem expor referências/valores.
 2. Homologar discovery e execução externas reais mantendo allowlist, diff, approval e import ledger.
 3. Substituir estado em memória do gateway por coordenação persistente/distribuída.
 4. Definir idempotência, timeout, retry, circuit breaker, concorrência e compensação por tool.
@@ -459,13 +466,14 @@ Lacunas:
 - não há teste de carga, soak, concorrência, chaos, failover ou recuperação;
 - não há cobertura automatizada com provider real, por decisão de segurança;
 - a matriz 16K cobre exemplos específicos; precisa virar corpus versionado maior;
-- não há quality gate CI versionado;
+- os gates estáticos 16S–16V estão no CI, mas ainda não há cobertura E2E de navegador nem gate por percentual de cobertura;
 - cobertura percentual não foi executada nesta auditoria, portanto é **pendente de confirmação**.
 
 ## 16. CI/CD, Docker e Ambientes
 
 ### Desenvolvimento e homologação local
 
+- frontend: `http://localhost:5173`; backend/API: `http://localhost:3000`;
 - `docker-compose.dev.yml` sobe frontend, backend e banco pgvector com healthchecks e volumes.
 - `docker-compose.agno-bridge.yml` adiciona bridge e aponta o backend para ele.
 - Dockerfiles dev usam hot reload; Dockerfiles prod fazem builds multi-stage.
@@ -473,7 +481,9 @@ Lacunas:
 
 ### Produção: gaps confirmados
 
-1. Não há `.github/workflows`, GitLab CI, Azure Pipelines ou Jenkinsfile versionado.
+Topologia prevista: frontend `https://orchestra.mcm.eng.br`; backend/API `https://api.orchestra.mcm.eng.br`. Esses endereços documentam a intenção de roteamento e não comprovam deploy, DNS, TLS ou disponibilidade.
+
+1. `.github/workflows/ci.yml` executa typechecks, testes focados, build e gates estáticos; não há workflow versionado de entrega/deploy, promoção ou rollback.
 2. `docker-compose.prod.yml` não inclui o bridge Agno.
 3. O banco produtivo usa `postgres:16-alpine`, mas a migration vetorial exige pgvector.
 4. O backend não executa `prisma migrate deploy` na inicialização e não existe job de migration no compose.
