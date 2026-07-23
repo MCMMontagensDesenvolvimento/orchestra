@@ -16,6 +16,8 @@
 
 > Atualização de 23 de julho de 2026 — 16Z: o projeto continua totalmente local. A fase documenta a futura topologia HTTPS de frontend e backend/API, DNS, TLS, proxy, Compose, environment, secrets, CORS/cookies, health/readiness e rollback, com preflight e smoke offline. As URLs planejadas `https://orchestra.mcm.eng.br` e `https://api.orchestra.mcm.eng.br` não estão ativas. A 16Z não publica, não executa chamada real, não executa MCP real, mantém UI/CRUD MCP fora de escopo e deixa a primeira execução da tool para depois da publicação e validação da API. O runbook vigente é `ORCHESTRA_PREPARACAO_PUBLICACAO_HTTPS_16Z.md`.
 
+> Atualização de 23 de julho de 2026 — 17A: o projeto permanece totalmente local e o deploy real ainda não ocorreu. A fase transforma a preparação 16Z em um plano operacional homologado Local → HTTPS, com responsáveis, pré-requisitos, decisão go/no-go, janela, checklists de infraestrutura/aplicação/dados/segurança, evidências e rollback. As URLs continuam planejadas e inativas; CI, preflight e smoke permanecem offline/dry-run, e MCP/corporate continua fail-closed. O runbook vigente é `ORCHESTRA_PLANO_DEPLOY_HOMOLOGADO_17A.md`.
+
 ## 0. Resumo Executivo
 
 O Orchestra é hoje um **control plane corporativo de IA em estágio de MVP técnico avançado / homologação local**, com frontend React, API Express, persistência PostgreSQL/Prisma, governança de assistentes, conversas persistentes, `AgentRun`, Knowledge/RAG, catálogo MCP, auditoria, observabilidade técnica, avaliações determinísticas e um bridge Python/Agno executável por HTTP. O projeto já ultrapassou a condição de protótipo puramente visual: os principais domínios têm rotas, serviços, repositórios, modelos Prisma e testes reais. Evidências centrais: `frontend/src/App.tsx`, `backend/src/app/routes.ts`, `backend/prisma/schema.prisma`, `backend/src/modules/agent-runs`, `backend/src/modules/knowledge`, `backend/src/modules/runtime` e `runtime/agno-bridge`.
@@ -99,6 +101,7 @@ O status “documentado/homologado” abaixo significa que há runbook, smoke ou
 | 16X | Alinhamento tool/status 16V | Implementado e testado offline | `corporate-readonly.transport.ts`, teste unitário, runbook e smoke 16X | Contrato reconciliado; nenhuma chamada real, origem HTTPS e validação visual ainda pendentes |
 | 16Y | Readiness HTTPS da tool de status | Implementado como preflight offline | `ORCHESTRA_READINESS_HTTPS_TOOL_STATUS_16Y.md`, scripts 16Y e CI dry-run | Origem API e templates fixos; sem rede/MCP real; handoff para preparação 16Z |
 | 16Z | Preparação da publicação HTTPS | Documentado e validado offline | `ORCHESTRA_PREPARACAO_PUBLICACAO_HTTPS_16Z.md`, preflight/smoke 16Z e CI dry-run | Ambiente local; DNS/TLS/deploy não executados; MCP/corporate fail-closed |
+| 17A | Plano de deploy homologado Local → HTTPS | Documentado e validado offline | `ORCHESTRA_PLANO_DEPLOY_HOMOLOGADO_17A.md`, preflight/smoke 17A e CI dry-run | Plano operacional; deploy real não ocorreu, URLs inativas e MCP/corporate fail-closed |
 
 ## 3. Estrutura do Repositório
 
@@ -327,7 +330,7 @@ Evidências: `backend/src/modules/mcp`, `backend/src/modules/runtime/runtime.too
 - o transporte MCP remoto default lança `MCP_REMOTE_NOT_IMPLEMENTED`; somente transportes injetados e aprovados atravessam o boundary.
 - sincronização, health, rotação e revogação fictícios foram removidos da UI MCP; readiness real continua fora da tela.
 
-### Boundary 16T–16X e readiness HTTPS 16Y
+### Boundary 16T–16Z e plano operacional 17A
 
 - a 16T implementa o adapter governado e estritamente read-only para `corporate.status.read`, com origem HTTPS exata, egress/SSRF, `secretRef`, GET-only, limites e sanitização;
 - a 16T não configurou endpoint real nem realizou chamada corporativa;
@@ -337,11 +340,13 @@ Evidências: `backend/src/modules/mcp`, `backend/src/modules/runtime/runtime.too
 - a 16X reconcilia o contrato 16T/16V, aceita somente `ok|degraded`, exige os três campos estritos e normaliza `/health` sem propagar `service` ou `requestId`;
 - a 16Y valida estruturalmente a origem backend/API prevista, a igualdade textual das allowlists, os paths fixos, o contrato e o audit template sem rede;
 - a 16Z documenta a publicação futura, cria preflight/smoke offline e não materializa endpoint ou secret em env/Compose;
+- a 17A organiza responsáveis, pré-requisitos, go/no-go, janela, evidências e rollback sem executar deploy, DNS, TLS, containers, migration ou request;
 - nenhuma chamada real foi executada: HTTP local, loopback, private e metadata continuam bloqueados, e a execução ainda depende de HTTPS homologado;
 - origem e segredo reais existem somente na sessão segura/secret manager do operador, fora do Git;
 - CI, smoke e preflight executam apenas validações estáticas/offline; qualquer chamada real exige janela e aprovação explícitas;
 - flags, allowlists e adapter continuam fechados por default após a janela.
 - a 16Z não executa chamada real nem testa UI/CRUD MCP; as URLs planejadas continuam inativas e a primeira execução fica para depois da publicação/validação, após aviso ao usuário.
+- a 17A também não executa chamada real nem deploy; o ambiente permanece local e a publicação fica para fase posterior autorizada.
 - MCP/Tool real para sistemas sensíveis, teste visual MCP/Assistant e CRUD MCP ponta a ponta permanecem para fases posteriores.
 
 ### Pendente antes de ampliar uso real
@@ -484,7 +489,7 @@ Lacunas:
 - não há teste de carga, soak, concorrência, chaos, failover ou recuperação;
 - não há cobertura automatizada com provider real, por decisão de segurança;
 - a matriz 16K cobre exemplos específicos; precisa virar corpus versionado maior;
-- os gates estáticos 16S–16W estão no CI, mas ainda não há cobertura E2E de navegador nem gate por percentual de cobertura;
+- os gates estáticos 16S–17A estão no CI, mas ainda não há cobertura E2E de navegador nem gate por percentual de cobertura;
 - cobertura percentual não foi executada nesta auditoria, portanto é **pendente de confirmação**.
 
 ## 16. CI/CD, Docker e Ambientes

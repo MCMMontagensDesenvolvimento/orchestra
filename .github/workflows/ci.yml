@@ -79,6 +79,9 @@ jobs:
       - name: Run 16Z HTTPS publication preparation static gate
         run: scripts/smoke-publicacao-https-16z.sh --dry-run
 
+      - name: Run 17A homologated HTTPS plan static gate
+        run: scripts/smoke-plano-deploy-17a.sh --dry-run
+
       - name: Run static production preflight
         run: scripts/preflight-prod-runtime-16o.sh --dry-run
 
