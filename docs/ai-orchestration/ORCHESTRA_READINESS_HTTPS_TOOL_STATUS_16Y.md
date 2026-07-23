@@ -4,7 +4,7 @@
 
 A Fase 16Y prepara a camada de readiness HTTPS para a futura primeira execução real de `corporate.status.read`. Ela responde, de forma estrutural e offline, se a topologia, a origem aprovada, os paths fixos, o contrato 16V/16X, as variáveis da janela e o template de auditoria estão coerentes.
 
-A 16Y não executa chamada real, não executa MCP e não comprova DNS, TLS, ingress ou disponibilidade. A primeira execução real supervisionada fica exclusivamente para a Fase 16Z.
+A 16Y não executa chamada real, não executa MCP e não comprova DNS, TLS, ingress ou disponibilidade. A Fase 16Z usa esse baseline para preparar a publicação HTTPS, ainda sem deploy ou execução real.
 
 ## Escopo
 
@@ -14,7 +14,7 @@ A 16Y não executa chamada real, não executa MCP e não comprova DNS, TLS, ingr
 - templates manuais de HTTPS e auditoria, sem execução;
 - smoke estático no CI em `--dry-run`;
 - regressões das fases 16S, 16T, 16U, 16V, 16W e 16X;
-- documentação do handoff para a 16Z.
+- documentação do handoff para a preparação de publicação 16Z.
 
 ## Fora de escopo
 
@@ -28,7 +28,7 @@ A 16Y não executa chamada real, não executa MCP e não comprova DNS, TLS, ingr
 - versionar ou imprimir segredo, credencial, bearer, token ou API key;
 - alterar backend, frontend, Prisma schema ou migrations.
 
-O usuário será avisado antes de qualquer teste direto no sistema. Esse aviso e a autorização pertencem à 16Z, não à 16Y.
+O usuário será avisado antes de qualquer teste direto no sistema. Esse aviso e a autorização pertencem a uma fase posterior à publicação e validação da API, não à 16Y nem à 16Z.
 
 ## Relação com 16T, 16U, 16V, 16W e 16X
 
@@ -38,7 +38,7 @@ O usuário será avisado antes de qualquer teste direto no sistema. Esse aviso e
 - a 16W preparou a primeira execução, mas manteve `realExecution=false` porque o ambiente local é HTTP;
 - a 16X alinhou o mapper ao contrato `status`, `summary`, `updatedAt` e reservou `/health` para readiness;
 - a 16Y fixa a topologia HTTPS prevista e valida a preparação sem chamar a rede;
-- a 16Z deverá executar, no máximo uma vez e com supervisão, a primeira chamada real.
+- a 16Z deverá preparar a futura publicação HTTPS, sem deploy, rede ou chamada real.
 
 A 16Y não substitui nenhum controle anterior e não transforma readiness em autorização.
 
@@ -122,7 +122,7 @@ Deve conter uma única entrada, textualmente igual a `MCP_CORPORATE_READONLY_ORI
 
 Deve ser a referência lógica `env://ORCHESTRA_STATUS_READONLY_TOKEN`. O preflight valida somente o formato e a igualdade com essa referência aprovada. Ele não procura a variável referenciada, não resolve o valor e não imprime a referência completa como evidência.
 
-O valor real permanece no secret manager/processo seguro. Não usar valor bruto, prefixo de autenticação, header, dump de environment ou argumento de linha de comando. Na 16Z, antes de abrir o gate, o operador deve confirmar que a referência cadastrada no server e o resolver server-side usam o mesmo namespace lógico aprovado.
+O valor real permanece no secret manager/processo seguro. Não usar valor bruto, prefixo de autenticação, header, dump de environment ou argumento de linha de comando. Em fase posterior à publicação, antes de abrir qualquer gate, o operador deverá confirmar que a referência cadastrada no server e o resolver server-side usam o mesmo namespace lógico aprovado.
 
 ## Readiness estrutural sem chamada real
 
@@ -158,7 +158,7 @@ curl -i https://api.orchestra.mcm.eng.br/v1/status
 curl -i https://api.orchestra.mcm.eng.br/v1/status/availability
 ```
 
-Esses comandos são orientativos. Só podem ser copiados e executados manualmente fora do CI, após autorização da janela e com o usuário avisado. Não usar `curl -v`, header de autenticação, dump de resposta em arquivo ou retry. Esses GETs testam os endpoints passivos; não executam a tool e não contam como a chamada MCP real da 16Z.
+Esses comandos são orientativos. Só podem ser copiados e executados manualmente fora do CI, após a publicação autorizada e com o usuário avisado. Não usar `curl -v`, header de autenticação, dump de resposta em arquivo ou retry. Esses GETs testam os endpoints passivos; não executam a tool e não contam como chamada MCP real. A 16Z apenas os mantém como template.
 
 ## Evidências esperadas
 
@@ -173,7 +173,7 @@ Na 16Y:
 - Prisma schema/migrations inalterados;
 - templates HTTPS e SQL revisados, mas não executados.
 
-Na futura 16Z, além das aprovações 16U, serão necessárias evidências reais de DNS/TLS, readiness, exatamente um `runId`, `externalMcpCalled=true`, `simulated=false`, resultado sanitizado e rollback fechado.
+Na 16Z, as evidências permanecem estáticas: documentação, artefatos produtivos presentes, defaults fail-closed e regressões offline. Evidências reais de DNS/TLS e readiness pertencem à publicação manual posterior; `runId`, `externalMcpCalled=true` e `simulated=false` pertencem somente a outra fase, depois que a API estiver publicada e validada.
 
 ## SQL/audit template seguro
 
@@ -212,19 +212,23 @@ Não há migration, dado, server MCP, binding, Assistant, credencial ou recurso 
 - regressões 16S–16X permanecem verdes;
 - Prisma schema/migrations permanecem inalterados;
 - a 16Y não executa chamada real, não testa UI/CRUD MCP e não associa MCP a Assistant;
-- o usuário será avisado antes do teste direto, exclusivamente na 16Z.
+- o usuário será avisado antes do teste direto, em fase posterior à publicação; a 16Z não realiza esse teste.
 
 ## Riscos remanescentes
 
 - DNS, certificado, cadeia TLS, ingress, WAF e disponibilidade não foram testados;
 - a origem prevista pode ainda não estar publicada ou pode resolver para IP bloqueado;
 - o template HTTPS não prova execução via gateway, catálogo, policy, binding ou AgentRun;
-- a referência lógica não foi resolvida e sua compatibilidade com o server/resolver deve ser confirmada na 16Z;
+- a referência lógica não foi resolvida e sua compatibilidade com o server/resolver deve ser confirmada somente em fase posterior autorizada;
 - identidade read-only, rotação e revogação dependem do ambiente;
 - audit/Analytics ponta a ponta ainda não foram comprovados;
 - UI/CRUD MCP, server MCP e associação com Assistant continuam sem teste;
 - erro operacional ainda pode materializar flags ou valores fora da sessão segura.
 
+## Atualização 16Z — preparação da publicação HTTPS
+
+A 16Z prepara a publicação HTTPS, mas não publica e não executa chamada real. O ambiente ainda é local; as URLs planejadas do frontend e da API não estão ativas. MCP real, UI/CRUD MCP, associação a Assistant e teste visual permanecem fora de escopo. A primeira execução real da tool só poderá ser planejada depois que a API HTTPS estiver publicada e validada.
+
 ## Próximo passo sugerido
 
-Fase 16Z — primeira execução real supervisionada da tool de status. A etapa deverá avisar o usuário antes do teste direto, confirmar DNS/TLS e readiness sob autorização, executar no máximo uma chamada de `corporate.status.read`, coletar somente evidências allowlistadas e fechar imediatamente todos os gates.
+Executar uma fase posterior de publicação manual e homologação HTTPS para validar DNS, TLS, proxy, CORS/cookies e os endpoints passivos. Somente depois, com o usuário avisado e uma janela autorizada, considerar outra fase para a primeira execução supervisionada de `corporate.status.read`.

@@ -154,4 +154,8 @@ O rollback não requer migration, seed, limpeza de banco, revogação de segredo
 
 ## Próximo passo sugerido
 
-As fases 16W e 16X prepararam a execução e reconciliaram o contrato; `--run-once-local` não foi implementado. A 16Y prepara a readiness HTTPS da API e não executa chamada real nem testa UI/CRUD MCP. O próximo ambiente elegível continua HTTPS homologado; a primeira execução real supervisionada fica para a 16Z, com gates temporários, evidências allowlistadas, rollback e aviso prévio ao usuário.
+As fases 16W e 16X prepararam a execução e reconciliaram o contrato; `--run-once-local` não foi implementado. A 16Y prepara a readiness HTTPS da API e não executa chamada real nem testa UI/CRUD MCP. A 16Z prepara a publicação sem deploy ou execução; o próximo ambiente elegível continua sendo uma API HTTPS publicada e homologada.
+
+## Atualização 16Z — preparação da publicação HTTPS
+
+A 16Z prepara a publicação HTTPS, mas não publica e não executa chamada real. O ambiente ainda é local; as URLs planejadas do frontend e da API não estão ativas. MCP real, UI/CRUD MCP, associação a Assistant e teste visual permanecem fora de escopo. A primeira execução de `corporate.status.read` só poderá ocorrer em fase posterior, depois que a API HTTPS estiver publicada e validada e o usuário for avisado antes do teste direto.

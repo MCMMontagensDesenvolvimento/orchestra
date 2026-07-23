@@ -12,7 +12,9 @@
 
 > Atualização de 23 de julho de 2026 — 16X: o adapter de `corporate.status.read` agora aceita estritamente o contrato 16V (`ok|degraded`, `summary`, `updatedAt`) e normaliza o `/health` legado sem propagar `service` ou `requestId`. O alinhamento funcional não libera HTTP/loopback, não configura origem ou secret, não altera Prisma e não associa MCP a Assistant. Não houve nenhuma chamada real; UI/CRUD MCP e teste visual permanecem para fase posterior. O runbook vigente é `ORCHESTRA_ALINHAMENTO_TOOL_STATUS_ENDPOINT_16X.md`.
 
-> Atualização de 23 de julho de 2026 — 16Y: a readiness HTTPS fixa o backend/API `https://api.orchestra.mcm.eng.br` como origem futura, valida offline origem/allowlists, paths, contrato e referência lógica, e fornece templates HTTPS/audit sem executá-los. A 16Y não executa chamada real, não testa UI/CRUD MCP e não altera Prisma. A primeira execução real supervisionada, após aviso ao usuário, fica para a 16Z. O runbook vigente é `ORCHESTRA_READINESS_HTTPS_TOOL_STATUS_16Y.md`.
+> Atualização de 23 de julho de 2026 — 16Y: a readiness HTTPS fixa o backend/API `https://api.orchestra.mcm.eng.br` como origem futura, valida offline origem/allowlists, paths, contrato e referência lógica, e fornece templates HTTPS/audit sem executá-los. A 16Y não executa chamada real, não testa UI/CRUD MCP e não altera Prisma. A 16Z recebe o handoff como preparação de publicação, não como autorização de execução. O runbook vigente é `ORCHESTRA_READINESS_HTTPS_TOOL_STATUS_16Y.md`.
+
+> Atualização de 23 de julho de 2026 — 16Z: o projeto continua totalmente local. A fase documenta a futura topologia HTTPS de frontend e backend/API, DNS, TLS, proxy, Compose, environment, secrets, CORS/cookies, health/readiness e rollback, com preflight e smoke offline. As URLs planejadas `https://orchestra.mcm.eng.br` e `https://api.orchestra.mcm.eng.br` não estão ativas. A 16Z não publica, não executa chamada real, não executa MCP real, mantém UI/CRUD MCP fora de escopo e deixa a primeira execução da tool para depois da publicação e validação da API. O runbook vigente é `ORCHESTRA_PREPARACAO_PUBLICACAO_HTTPS_16Z.md`.
 
 ## 0. Resumo Executivo
 
@@ -95,7 +97,8 @@ O status “documentado/homologado” abaixo significa que há runbook, smoke ou
 | 16V | Endpoints operacionais read-only | Implementado localmente | `backend/src/modules/status`, `backend/tests/api/status.test.ts`, `scripts/smoke-endpoint-status-readonly-16v.sh` | Cria o alvo seguro; payload sanitizado, sem banco/provider/MCP; chamada real fica para 16W |
 | 16W | Preparação da primeira execução da tool de status | Harness offline, Opção C | `ORCHESTRA_PRIMEIRA_EXECUCAO_REAL_TOOL_STATUS_16W.md`, scripts 16W | Sem execução real; HTTP local inelegível, contrato a reconciliar e HTTPS homologado pendente |
 | 16X | Alinhamento tool/status 16V | Implementado e testado offline | `corporate-readonly.transport.ts`, teste unitário, runbook e smoke 16X | Contrato reconciliado; nenhuma chamada real, origem HTTPS e validação visual ainda pendentes |
-| 16Y | Readiness HTTPS da tool de status | Implementado como preflight offline | `ORCHESTRA_READINESS_HTTPS_TOOL_STATUS_16Y.md`, scripts 16Y e CI dry-run | Origem API e templates fixos; sem rede/MCP real; primeira execução fica para 16Z |
+| 16Y | Readiness HTTPS da tool de status | Implementado como preflight offline | `ORCHESTRA_READINESS_HTTPS_TOOL_STATUS_16Y.md`, scripts 16Y e CI dry-run | Origem API e templates fixos; sem rede/MCP real; handoff para preparação 16Z |
+| 16Z | Preparação da publicação HTTPS | Documentado e validado offline | `ORCHESTRA_PREPARACAO_PUBLICACAO_HTTPS_16Z.md`, preflight/smoke 16Z e CI dry-run | Ambiente local; DNS/TLS/deploy não executados; MCP/corporate fail-closed |
 
 ## 3. Estrutura do Repositório
 
@@ -333,16 +336,17 @@ Evidências: `backend/src/modules/mcp`, `backend/src/modules/runtime/runtime.too
 - a 16W adota a Opção C, cria preparação/auditoria offline e não implementa `--run-once-local`;
 - a 16X reconcilia o contrato 16T/16V, aceita somente `ok|degraded`, exige os três campos estritos e normaliza `/health` sem propagar `service` ou `requestId`;
 - a 16Y valida estruturalmente a origem backend/API prevista, a igualdade textual das allowlists, os paths fixos, o contrato e o audit template sem rede;
+- a 16Z documenta a publicação futura, cria preflight/smoke offline e não materializa endpoint ou secret em env/Compose;
 - nenhuma chamada real foi executada: HTTP local, loopback, private e metadata continuam bloqueados, e a execução ainda depende de HTTPS homologado;
 - origem e segredo reais existem somente na sessão segura/secret manager do operador, fora do Git;
 - CI, smoke e preflight executam apenas validações estáticas/offline; qualquer chamada real exige janela e aprovação explícitas;
 - flags, allowlists e adapter continuam fechados por default após a janela.
-- a 16Y não executa chamada real nem testa UI/CRUD MCP; a 16Z fica reservada à primeira execução real supervisionada, após aviso ao usuário.
+- a 16Z não executa chamada real nem testa UI/CRUD MCP; as URLs planejadas continuam inativas e a primeira execução fica para depois da publicação/validação, após aviso ao usuário.
 - MCP/Tool real para sistemas sensíveis, teste visual MCP/Assistant e CRUD MCP ponta a ponta permanecem para fases posteriores.
 
 ### Pendente antes de ampliar uso real
 
-1. Conduzir a 16Z para comprovar DNS/TLS e a primeira chamada real supervisionada, sob a janela 16U, usando a readiness 16Y e sem expor referências/valores.
+1. Publicar e homologar manualmente frontend/API em fase posterior, comprovando DNS/TLS, proxy, CORS/cookies e endpoints passivos sem abrir MCP.
 2. Homologar discovery e execução externas reais mantendo allowlist, diff, approval e import ledger.
 3. Substituir estado em memória do gateway por coordenação persistente/distribuída.
 4. Definir idempotência, timeout, retry, circuit breaker, concorrência e compensação por tool.

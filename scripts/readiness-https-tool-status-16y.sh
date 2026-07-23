@@ -27,7 +27,7 @@ Modes:
 
 Every mode is offline. This script accepts no URL or path argument, writes no versioned file,
 does not execute MCP, does not contact a provider and never reads or prints a credential value.
-Real execution remains reserved for Phase 16Z.
+Phase 16Z prepares publication only; real execution remains reserved for a later authorized phase.
 EOF
 }
 
@@ -103,7 +103,7 @@ run_dry_run() {
   require_pattern "$RUNBOOK" '## Readiness estrutural sem chamada real' \
     'runbook offline readiness boundary'
   require_pattern "$RUNBOOK" '## SQL/audit template seguro' 'runbook safe audit template'
-  require_pattern "$RUNBOOK" '16Z' 'runbook reserves real execution for 16Z'
+  require_pattern "$RUNBOOK" '16Z' 'runbook hands off publication preparation to 16Z'
 
   require_pattern "$TRANSPORT" "corporateReadonlyToolName = 'corporate.status.read'" \
     'the corporate status tool remains fixed'

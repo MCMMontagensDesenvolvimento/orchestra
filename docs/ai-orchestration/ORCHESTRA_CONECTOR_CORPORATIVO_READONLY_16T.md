@@ -296,4 +296,8 @@ Esses riscos justificam manter o adapter desabilitado até existir endpoint de h
 
 ## Atualização 16Y e handoff para 16Z
 
-A 16Y adiciona somente readiness estrutural e offline para a origem HTTPS prevista da API, sem relaxar o boundary desta 16T. A 16Y não executa chamada real, não testa UI/CRUD MCP e não associa MCP a Assistant. A 16Z será a primeira execução real supervisionada da tool de status e exigirá autorização, aviso prévio ao usuário, evidências allowlistadas e rollback imediato.
+A 16Y adiciona somente readiness estrutural e offline para a origem HTTPS prevista da API, sem relaxar o boundary desta 16T. A 16Y não executa chamada real, não testa UI/CRUD MCP e não associa MCP a Assistant. A 16Z recebe o handoff como preparação de publicação, sem autorizar ou executar a tool.
+
+## Atualização 16Z — preparação da publicação HTTPS
+
+A 16Z prepara a publicação HTTPS, mas não publica e não executa chamada real. O ambiente ainda é local; as URLs planejadas do frontend e da API não estão ativas. MCP real, UI/CRUD MCP, associação a Assistant e teste visual permanecem fora de escopo. A primeira execução de `corporate.status.read` só poderá ocorrer em fase posterior, depois que a API HTTPS estiver publicada e validada e o usuário for avisado antes do teste direto.

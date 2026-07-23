@@ -182,6 +182,10 @@ Reverter o mapper/schema e os testes/documentos 16X ao estado da 16W. Não é ne
 
 ## Próximo passo sugerido
 
-A 16Y implementa o passo seguinte: fixa a topologia HTTPS prevista, valida origem/allowlists e fornece templates offline. A 16Y não executa chamada real e não testa UI/CRUD MCP. A primeira execução real supervisionada fica para a 16Z, com autorização e aviso explícito ao usuário; associação MCP–Assistant e teste visual continuam bloqueados.
+A 16Y implementa o passo seguinte: fixa a topologia HTTPS prevista, valida origem/allowlists e fornece templates offline. A 16Y não executa chamada real e não testa UI/CRUD MCP. A 16Z prepara a publicação HTTPS, também sem chamada real; associação MCP–Assistant e teste visual continuam bloqueados.
 
 Consulte `ORCHESTRA_READINESS_HTTPS_TOOL_STATUS_16Y.md`.
+
+## Atualização 16Z — preparação da publicação HTTPS
+
+A 16Z prepara a publicação HTTPS, mas não publica e não executa chamada real. O ambiente ainda é local; as URLs planejadas do frontend e da API não estão ativas. MCP real, UI/CRUD MCP, associação a Assistant e teste visual permanecem fora de escopo. A primeira execução de `corporate.status.read` só poderá ocorrer em fase posterior, depois que a API HTTPS estiver publicada e validada e o usuário for avisado antes do teste direto.
