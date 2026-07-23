@@ -73,6 +73,9 @@ jobs:
       - name: Run 16X status-contract alignment static gate
         run: scripts/smoke-alinhamento-tool-status-16x.sh --dry-run
 
+      - name: Run 16Y HTTPS readiness static gate
+        run: scripts/smoke-readiness-https-tool-status-16y.sh --dry-run
+
       - name: Run static production preflight
         run: scripts/preflight-prod-runtime-16o.sh --dry-run
 
