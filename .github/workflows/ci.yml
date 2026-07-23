@@ -76,6 +76,9 @@ jobs:
       - name: Run 16Y HTTPS readiness static gate
         run: scripts/smoke-readiness-https-tool-status-16y.sh --dry-run
 
+      - name: Run 16Z HTTPS publication preparation static gate
+        run: scripts/smoke-publicacao-https-16z.sh --dry-run
+
       - name: Run static production preflight
         run: scripts/preflight-prod-runtime-16o.sh --dry-run
 

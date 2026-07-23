@@ -300,4 +300,4 @@ Por esses riscos, o estado permanente continua desabilitado e cada nova execuç�
 
 ## Atualização 16Y e handoff para 16Z
 
-A 16Y materializa apenas a camada offline de readiness para a origem HTTPS prevista da API, preservando todos os controles desta 16U. A 16Y não executa chamada real, não cria server pela tela, não associa MCP a Assistant e não testa UI/CRUD MCP. A 16Z fica reservada à primeira execução real supervisionada e deverá avisar o usuário antes de qualquer teste direto no sistema.
+A 16Y materializa apenas a camada offline de readiness para a origem HTTPS prevista da API, preservando todos os controles desta 16U. A 16Y não executa chamada real, não cria server pela tela, não associa MCP a Assistant e não testa UI/CRUD MCP. A 16Z prepara a publicação HTTPS sem deploy ou execução real; a primeira execução supervisionada fica para depois da publicação e validação da API, com aviso prévio ao usuário.

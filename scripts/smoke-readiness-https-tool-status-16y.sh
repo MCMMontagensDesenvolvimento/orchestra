@@ -270,7 +270,7 @@ done
 
 for file in "$RUNBOOK" "$DOC_INDEX" "$STATE_DOC" "$DOC_16X" "$DOC_16W" "$DOC_16V" "$DOC_16U" "$DOC_16T"; do
   require_pattern "$file" '16Y' "${file#"$ROOT_DIR/"} references phase 16Y"
-  require_pattern "$file" '16Z' "${file#"$ROOT_DIR/"} reserves real execution for phase 16Z"
+  require_pattern "$file" '16Z' "${file#"$ROOT_DIR/"} references publication-preparation phase 16Z"
   require_pattern "$file" 'não executa chamada real' \
     "${file#"$ROOT_DIR/"} records that 16Y performs no real call"
   require_pattern "$file" 'UI/CRUD MCP' \
