@@ -6,7 +6,7 @@ A Fase 16U define a janela controlada para homologar o boundary corporativo read
 
 Este procedimento não configura endpoint ou segredo no Git, não faz chamada real automaticamente e não habilita MCP remoto por default. A única tool permitida é `corporate.status.read`. Sem aprovação completa e janela aberta, o resultado esperado é fail-closed.
 
-A Fase 16V implementa no backend do Orchestra o alvo seguro `GET /v1/status` e `GET /v1/status/availability`, sem executar a tool. A primeira chamada real supervisionada contra esse alvo pertence à Fase 16W e deve reutilizar os controles deste runbook.
+A Fase 16V implementa no backend do Orchestra o alvo seguro `GET /v1/status` e `GET /v1/status/availability`, sem executar a tool. A Fase 16W reutiliza estes controles, mas adota a Opção C: não abre exceção para o HTTP local nem implementa execução live local. A chamada real continua condicionada a uma origem HTTPS homologada e contrato compatível.
 
 ## Escopo
 
@@ -291,6 +291,9 @@ Por esses riscos, o estado permanente continua desabilitado e cada nova execuç�
 ## Handoff para 16V e 16W
 
 - 16V cria e testa o alvo HTTP read-only, sem abrir flags, configurar segredo ou executar MCP;
-- 16W realiza, se formalmente aprovada, a primeira execução real supervisionada de `corporate.status.read`;
+- 16W prepara a execução, registra a decisão entre HTTP local e HTTPS e mantém `realExecution=false`;
+- o modo live local foi recusado porque o boundary corporativo exige HTTPS/egress público e o contrato estrito da 16V ainda precisa ser reconciliado com o adapter;
+- a primeira execução real de `corporate.status.read` permanece futura e exige ambiente HTTPS formalmente aprovado;
 - a topologia prevista é frontend `https://orchestra.mcm.eng.br` e backend/API `https://api.orchestra.mcm.eng.br` em produção, e frontend `http://localhost:5173` e backend/API `http://localhost:3000` localmente;
 - a existência dos endpoints 16V não substitui aprovação, readiness, execução única, auditoria allowlistada ou rollback definidos nesta 16U.
+- MCP/Tool real continua proibido para sistemas sensíveis; teste visual MCP/Assistant e CRUD MCP ponta a ponta permanecem para fases posteriores.

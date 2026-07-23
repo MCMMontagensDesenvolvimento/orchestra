@@ -44,7 +44,9 @@ A Fase 16T prepara o boundary governado do conector corporativo read-only com a 
 
 A Fase 16U prepara a homologação supervisionada desse boundary: checklist de aprovação, preflight sem rede, readiness acompanhada, uma única execução manual autorizada, SQL allowlistado, evidências, rollback e encerramento. Endpoint e segredo reais permanecem fora do Git; nenhuma chamada real ocorre em CI, smoke ou preflight e a abertura só pode acontecer manualmente durante uma janela aprovada. Consulte `ORCHESTRA_HOMOLOGACAO_SUPERVISIONADA_CONECTOR_READONLY_16U.md`.
 
-A Fase 16V cria o alvo seguro no próprio backend do Orchestra para a futura tool `corporate.status.read`: `GET /v1/status` e `GET /v1/status/availability`, com payload estrito e não sensível. Ela preserva `/health`, não executa MCP real e mantém os defaults remotos fail-closed. A primeira chamada real supervisionada fica para a 16W. Consulte `ORCHESTRA_ENDPOINT_STATUS_READONLY_16V.md`.
+A Fase 16V cria o alvo seguro no próprio backend do Orchestra para a futura tool `corporate.status.read`: `GET /v1/status` e `GET /v1/status/availability`, com payload estrito e não sensível. Ela preserva `/health`, não executa MCP real e mantém os defaults remotos fail-closed. Consulte `ORCHESTRA_ENDPOINT_STATUS_READONLY_16V.md`.
+
+A Fase 16W prepara a primeira execução supervisionada com harness offline, check local, SQL allowlistado e smoke estático. A análise adota a Opção C: não cria exceção HTTP corporativa nem `--run-once-local`, porque o transporte exige HTTPS/egress público e o contrato estrito da 16V ainda não coincide com o contrato esperado pelo adapter 16T. Nenhuma chamada real ocorreu; a execução única fica condicionada a ambiente HTTPS homologado. Consulte `ORCHESTRA_PRIMEIRA_EXECUCAO_REAL_TOOL_STATUS_16W.md`.
 
 A Fase 14H consolida o MVP tecnico da integracao com Agno Runtime, adicionando handoff operacional, checklist de homologacao/rollback e smoke seguro de MVP para runtime HTTP minimo e fronteira de frontend, sem feature nova, migration, frontend ou mudanca de defaults.
 
@@ -150,6 +152,7 @@ Topicos esperados:
 - `ORCHESTRA_CONECTOR_CORPORATIVO_READONLY_16T.md`: boundary governado para `corporate.status.read`, implementado sem endpoint real configurado e desabilitado por default.
 - `ORCHESTRA_HOMOLOGACAO_SUPERVISIONADA_CONECTOR_READONLY_16U.md`: procedimento de janela aprovada, preflight local sem rede, execução única manual, auditoria allowlistada, rollback e evidências sem conteúdo bruto.
 - `ORCHESTRA_ENDPOINT_STATUS_READONLY_16V.md`: endpoints locais seguros `GET /v1/status` e `GET /v1/status/availability`, contrato sanitizado, testes, smoke offline e handoff da primeira chamada real para a 16W.
+- `ORCHESTRA_PRIMEIRA_EXECUCAO_REAL_TOOL_STATUS_16W.md`: decisão HTTP local versus HTTPS homologado, preparação offline da execução única, evidências, SQL seguro e rollback; nenhuma chamada real foi executada.
 - `ORCHESTRA_LLM_PROVIDER_INTEGRATION.md`: catalogo LLM, provider local deterministico, providers externos fail-closed e eventos LLM em AgentRun.
 - `ORCHESTRA_RAG_SEMANTICO_DISCOVERY.md`: discovery tecnico da Fase 10A para RAG semantico, embeddings e vector store.
 - `ORCHESTRA_VECTOR_STORE_EMBEDDING_CONTRACT.md`: decisao tecnica da Fase 10B para pgvector, tabela de embeddings, readiness semantico e fail-closed.
