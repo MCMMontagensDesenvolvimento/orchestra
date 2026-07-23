@@ -182,4 +182,6 @@ Reverter o mapper/schema e os testes/documentos 16X ao estado da 16W. Não é ne
 
 ## Próximo passo sugerido
 
-Provisionar uma origem HTTPS de homologação que exponha os contratos já alinhados e executar primeiro apenas o readiness supervisionado da 16U. A chamada única e a associação MCP–Assistant devem continuar bloqueadas até autorização explícita. Depois da evidência técnica real, conduzir uma fase separada de CRUD e teste visual com o usuário avisado previamente.
+A 16Y implementa o passo seguinte: fixa a topologia HTTPS prevista, valida origem/allowlists e fornece templates offline. A 16Y não executa chamada real e não testa UI/CRUD MCP. A primeira execução real supervisionada fica para a 16Z, com autorização e aviso explícito ao usuário; associação MCP–Assistant e teste visual continuam bloqueados.
+
+Consulte `ORCHESTRA_READINESS_HTTPS_TOOL_STATUS_16Y.md`.

@@ -297,3 +297,7 @@ Por esses riscos, o estado permanente continua desabilitado e cada nova execuç�
 - a topologia prevista é frontend `https://orchestra.mcm.eng.br` e backend/API `https://api.orchestra.mcm.eng.br` em produção, e frontend `http://localhost:5173` e backend/API `http://localhost:3000` localmente;
 - a existência dos endpoints 16V não substitui aprovação, readiness, execução única, auditoria allowlistada ou rollback definidos nesta 16U.
 - MCP/Tool real continua proibido para sistemas sensíveis; teste visual MCP/Assistant e CRUD MCP ponta a ponta permanecem para fases posteriores.
+
+## Atualização 16Y e handoff para 16Z
+
+A 16Y materializa apenas a camada offline de readiness para a origem HTTPS prevista da API, preservando todos os controles desta 16U. A 16Y não executa chamada real, não cria server pela tela, não associa MCP a Assistant e não testa UI/CRUD MCP. A 16Z fica reservada à primeira execução real supervisionada e deverá avisar o usuário antes de qualquer teste direto no sistema.

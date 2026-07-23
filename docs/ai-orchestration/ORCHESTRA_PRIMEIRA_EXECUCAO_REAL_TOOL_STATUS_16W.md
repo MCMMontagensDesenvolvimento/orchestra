@@ -261,6 +261,6 @@ Uma execução futura só será aceita como evidência após cumprir a seção H
 
 ## Próximo passo sugerido
 
-A 16X concluiu a reconciliação formal do contrato 16T/16V. O próximo passo técnico é disponibilizar uma origem HTTPS de homologação e validar readiness sob a janela 16U, ainda sem associar MCP a Assistant. A execução única e o fluxo visual MCP/Assistant devem ocorrer apenas em fases posteriores, com autorização e aviso explícitos ao usuário.
+A 16X concluiu a reconciliação formal do contrato 16T/16V, e a 16Y prepara a readiness da origem HTTPS da API sem rede automática. A 16Y não executa chamada real e não testa UI/CRUD MCP. A execução única fica para a 16Z, com autorização e aviso explícito ao usuário; o fluxo visual MCP/Assistant continua fora desse passo.
 
 Mesmo após a primeira execução de status, MCP/Tool real não deve ser usado para sistemas sensíveis sem threat model, identidade, DLP, approval e rollback próprios.

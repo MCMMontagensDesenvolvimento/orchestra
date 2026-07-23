@@ -154,4 +154,4 @@ O rollback não requer migration, seed, limpeza de banco, revogação de segredo
 
 ## Próximo passo sugerido
 
-Fase 16W: preparação fail-closed da primeira execução supervisionada. Como o local é HTTP e o adapter exige HTTPS, `--run-once-local` não foi implementado e nenhuma chamada real ocorreu. O próximo ambiente elegível deve ser HTTPS homologado, com contrato compatível, gates mínimos temporários, evidências allowlistadas e rollback imediato conforme a 16U.
+As fases 16W e 16X prepararam a execução e reconciliaram o contrato; `--run-once-local` não foi implementado. A 16Y prepara a readiness HTTPS da API e não executa chamada real nem testa UI/CRUD MCP. O próximo ambiente elegível continua HTTPS homologado; a primeira execução real supervisionada fica para a 16Z, com gates temporários, evidências allowlistadas, rollback e aviso prévio ao usuário.

@@ -293,3 +293,7 @@ Gmail, Drive, Slack, ERP e banco transacional não são uma extensão automátic
 - MCP/Tool real para sistemas sensíveis, teste visual completo MCP/Assistant e CRUD MCP ponta a ponta permanecem fora do escopo.
 
 Esses riscos justificam manter o adapter desabilitado até existir endpoint de homologação não sensível e aprovação explícita.
+
+## Atualização 16Y e handoff para 16Z
+
+A 16Y adiciona somente readiness estrutural e offline para a origem HTTPS prevista da API, sem relaxar o boundary desta 16T. A 16Y não executa chamada real, não testa UI/CRUD MCP e não associa MCP a Assistant. A 16Z será a primeira execução real supervisionada da tool de status e exigirá autorização, aviso prévio ao usuário, evidências allowlistadas e rollback imediato.
