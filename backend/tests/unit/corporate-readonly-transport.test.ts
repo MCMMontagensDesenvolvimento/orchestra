@@ -125,6 +125,7 @@ describe('corporate read-only governed transport', () => {
     expect(matchesCorporateReadonlyOrigin(`${corporateOrigin}/v1`, corporateConfig)).toBe(false);
     expect(matchesCorporateReadonlyOrigin(`${corporateOrigin}?mode=test`, corporateConfig)).toBe(false);
     expect(matchesCorporateReadonlyOrigin('http://status.example.test', corporateConfig)).toBe(false);
+    expect(matchesCorporateReadonlyOrigin('https://status.example.test.evil.invalid', corporateConfig)).toBe(false);
     expect(createGovernedMcpRemoteTransport(
       { baseUrl: corporateOrigin },
       remoteConfig,
@@ -132,22 +133,26 @@ describe('corporate read-only governed transport', () => {
     )).toBeInstanceOf(CorporateReadonlyHttpTransport);
   });
 
-  it('blocks private and metadata-style destinations before the corporate transport', async () => {
-    const privateOrigin = 'https://169.254.169.254';
+  it.each([
+    'https://127.0.0.1',
+    'https://10.0.0.1',
+    'https://169.254.169.254',
+    'https://metadata.google.internal',
+  ])('blocks private and metadata-style destinations before the corporate transport: %s', async (blockedOrigin) => {
     const fetchImplementation = vi.fn();
     const transport = new CorporateReadonlyHttpTransport({
-      config: { ...corporateConfig, allowedOrigin: privateOrigin },
+      config: { ...corporateConfig, allowedOrigin: blockedOrigin },
       fetchImplementation,
       resolveCredential: async () => 'opaque-test-value',
     });
     const privateClient = new McpRemoteClient({
       serverId: 'corporate-private-server',
-      baseUrl: privateOrigin,
+      baseUrl: blockedOrigin,
       authType: 'bearer',
       secretRef: 'env://ORCHESTRA_CORPORATE_READONLY_STATUS',
       credentialsConfigured: true,
       timeoutMs: 1000,
-    }, { ...remoteConfig, egressAllowlist: privateOrigin }, { transport });
+    }, { ...remoteConfig, egressAllowlist: blockedOrigin }, { transport });
 
     await expect(privateClient.executeTool(executionSpec())).rejects.toMatchObject({
       code: 'MCP_REMOTE_EGRESS_BLOCKED',
@@ -165,14 +170,11 @@ describe('corporate read-only governed transport', () => {
     expect(fetchImplementation).not.toHaveBeenCalled();
   });
 
-  it('uses one fixed GET endpoint and returns only a sanitized summary', async () => {
+  it('uses one fixed GET endpoint and accepts the strict 16V status payload', async () => {
     const { transport, fetchImplementation } = transportWithResponse({
-      status: 'operational',
-      summary: 'Homologation status is available.',
+      status: 'ok',
+      summary: 'Orchestra operational',
       updatedAt: '2026-07-21T12:00:00.000Z',
-      dataClassification: 'non_sensitive',
-      readOnly: true,
-      internalNote: 'not returned',
     });
     const result = await client(transport).executeTool(executionSpec());
 
@@ -183,15 +185,122 @@ describe('corporate read-only governed transport', () => {
       remoteHost: 'status.example.test',
     });
     expect(JSON.parse(result.content ?? '{}')).toEqual({
-      status: 'operational',
-      summary: 'Homologation status is available.',
+      status: 'ok',
+      summary: 'Orchestra operational',
       updatedAt: '2026-07-21T12:00:00.000Z',
     });
-    expect(result.content).not.toContain('internalNote');
     expect(fetchImplementation).toHaveBeenCalledOnce();
     const [url, init] = fetchImplementation.mock.calls[0];
     expect(url).toBe(`${corporateOrigin}/v1/status`);
     expect(init).toEqual(expect.objectContaining({ method: 'GET', redirect: 'manual' }));
+  });
+
+  it('accepts the strict 16V availability payload through its fixed GET endpoint', async () => {
+    const { transport, fetchImplementation } = transportWithResponse({
+      status: 'degraded',
+      summary: 'Orchestra availability endpoint operational',
+      updatedAt: '2026-07-21T12:00:00.000Z',
+    });
+    const result = await client(transport).executeTool(executionSpec({}, {
+      scope: 'availability',
+    }));
+
+    expect(JSON.parse(result.content ?? '{}')).toEqual({
+      status: 'degraded',
+      summary: 'Orchestra availability endpoint operational',
+      updatedAt: '2026-07-21T12:00:00.000Z',
+    });
+    const [url, init] = fetchImplementation.mock.calls[0];
+    expect(url).toBe(`${corporateOrigin}/v1/status/availability`);
+    expect(init).toEqual(expect.objectContaining({ method: 'GET', redirect: 'manual' }));
+  });
+
+  it('normalizes the legacy health payload without propagating requestId or service', async () => {
+    const requestIdMarker = 'req_SYNTHETIC_HEALTH_MARKER';
+    const { transport, fetchImplementation } = transportWithResponse({
+      status: 'ok',
+      service: 'orchestra-backend',
+      timestamp: '2026-07-21T12:00:00.000Z',
+      requestId: requestIdMarker,
+    });
+    const readiness = await client(transport).checkHealth();
+
+    expect(readiness).toMatchObject({
+      status: 'ready',
+      transportChecked: true,
+      transportHealthy: true,
+      simulated: false,
+    });
+    expect(JSON.stringify(readiness)).not.toContain(requestIdMarker);
+    expect(JSON.stringify(readiness)).not.toContain('orchestra-backend');
+    const [url, init] = fetchImplementation.mock.calls[0];
+    expect(url).toBe(`${corporateOrigin}/health`);
+    expect(init).toEqual(expect.objectContaining({ method: 'GET', redirect: 'manual' }));
+  });
+
+  it.each([
+    {
+      label: 'an unexpected status',
+      payload: {
+        status: 'maintenance',
+        summary: 'Orchestra operational',
+        updatedAt: '2026-07-21T12:00:00.000Z',
+      },
+    },
+    {
+      label: 'a missing summary',
+      payload: {
+        status: 'ok',
+        updatedAt: '2026-07-21T12:00:00.000Z',
+      },
+    },
+    {
+      label: 'a missing updatedAt',
+      payload: {
+        status: 'ok',
+        summary: 'Orchestra operational',
+      },
+    },
+    {
+      label: 'an invalid updatedAt',
+      payload: {
+        status: 'ok',
+        summary: 'Orchestra operational',
+        updatedAt: '2026-07-21',
+      },
+    },
+    {
+      label: 'an extra non-contract field',
+      payload: {
+        status: 'ok',
+        summary: 'Orchestra operational',
+        updatedAt: '2026-07-21T12:00:00.000Z',
+        internalNote: 'not accepted',
+      },
+    },
+    {
+      label: 'HTML in summary',
+      payload: {
+        status: 'ok',
+        summary: '<strong>Orchestra operational</strong>',
+        updatedAt: '2026-07-21T12:00:00.000Z',
+      },
+    },
+    {
+      label: 'an oversized summary',
+      payload: {
+        status: 'ok',
+        summary: 'x'.repeat(241),
+        updatedAt: '2026-07-21T12:00:00.000Z',
+      },
+    },
+  ])('fails closed on $label in a 16V payload', async ({ payload }) => {
+    const { transport } = transportWithResponse(payload);
+
+    await expect(client(transport).executeTool(executionSpec())).rejects.toMatchObject({
+      code: 'MCP_REMOTE_TRANSPORT_FAILED',
+      message: 'MCP remote transport failed.',
+    });
   });
 
   it('blocks write-like tools and unsupported input before invoking the transport', async () => {
@@ -210,23 +319,30 @@ describe('corporate read-only governed transport', () => {
   });
 
   it('fails safely on redirects and response fields shaped like raw payload', async () => {
+    const secretMarker = 'SYNTHETIC_CREDENTIAL_VALUE';
     const redirectFetch = vi.fn(async () => response({}, 302, { location: 'https://other.example.test' }));
     const redirectTransport = new CorporateReadonlyHttpTransport({
       config: corporateConfig,
       fetchImplementation: redirectFetch,
-      resolveCredential: async () => 'opaque-test-value',
+      resolveCredential: async () => secretMarker,
     });
-    await expect(client(redirectTransport).executeTool(executionSpec())).rejects.toMatchObject({
+    let redirectFailure: unknown;
+    try {
+      await client(redirectTransport).executeTool(executionSpec());
+    } catch (error) {
+      redirectFailure = error;
+    }
+    expect(redirectFailure).toMatchObject({
       code: 'MCP_REMOTE_EGRESS_BLOCKED',
       message: 'MCP remote destination was blocked.',
     });
+    expect(JSON.stringify(redirectFailure)).not.toContain(secretMarker);
 
     const rawMarker = 'SYNTHETIC_RAW_VALUE_MUST_NOT_LEAK';
     const { transport } = transportWithResponse({
-      status: 'operational',
+      status: 'ok',
       summary: 'Safe summary.',
-      dataClassification: 'non_sensitive',
-      readOnly: true,
+      updatedAt: '2026-07-21T12:00:00.000Z',
       rawOutput: rawMarker,
     });
     let failure: unknown;
@@ -240,5 +356,41 @@ describe('corporate read-only governed transport', () => {
       message: 'MCP remote transport failed.',
     });
     expect(JSON.stringify(failure)).not.toContain(rawMarker);
+  });
+
+  it('enforces the governed response byte limit before mapping content', async () => {
+    const payload = {
+      status: 'ok',
+      summary: 'Orchestra operational',
+      updatedAt: '2026-07-21T12:00:00.000Z',
+    };
+    const fetchImplementation = vi.fn<typeof fetch>(async () => response(payload));
+    const transport = new CorporateReadonlyHttpTransport({
+      config: { ...corporateConfig, maxResponseBytes: 32 },
+      fetchImplementation,
+      resolveCredential: async () => 'opaque-test-value',
+    });
+
+    await expect(client(transport).executeTool(executionSpec())).rejects.toMatchObject({
+      code: 'MCP_REMOTE_RESPONSE_TOO_LARGE',
+      message: 'MCP remote response exceeded the governed limit.',
+    });
+  });
+
+  it('aborts a corporate request at the dedicated transport timeout', async () => {
+    const fetchImplementation = vi.fn<typeof fetch>(async (_url, init) => new Promise<Response>((_resolve, reject) => {
+      init?.signal?.addEventListener('abort', () => reject(new Error('synthetic abort')), { once: true });
+    }));
+    const transport = new CorporateReadonlyHttpTransport({
+      config: { ...corporateConfig, timeoutMs: 5 },
+      fetchImplementation,
+      resolveCredential: async () => 'opaque-test-value',
+    });
+
+    await expect(client(transport).executeTool(executionSpec())).rejects.toMatchObject({
+      code: 'MCP_REMOTE_TRANSPORT_FAILED',
+      message: 'MCP remote transport failed.',
+    });
+    expect(fetchImplementation).toHaveBeenCalledOnce();
   });
 });

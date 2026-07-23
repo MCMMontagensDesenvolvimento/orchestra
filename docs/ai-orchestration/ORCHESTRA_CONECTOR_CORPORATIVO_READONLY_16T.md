@@ -10,6 +10,8 @@ A Fase 16U não altera esse boundary: ela adiciona o procedimento de homologaç�
 
 A Fase 16V cria o alvo read-only do próprio Orchestra. A Fase 16W prepara a primeira execução, mas não relaxa este boundary: o HTTP local continua inelegível, `--run-once-local` não existe e nenhuma chamada real foi executada. A execução futura exige origem HTTPS homologada e contrato compatível. Consulte `ORCHESTRA_PRIMEIRA_EXECUCAO_REAL_TOOL_STATUS_16W.md`.
 
+A Fase 16X conclui o alinhamento de contrato: a tool aceita somente `ok|degraded`, `summary` e `updatedAt`; o `/health` legado é usado apenas para readiness e normalizado sem expor `service` ou `requestId`. Os controles originais da 16T permanecem intactos e nenhuma chamada real foi executada. Consulte `ORCHESTRA_ALINHAMENTO_TOOL_STATUS_ENDPOINT_16X.md`.
+
 ## Escopo
 
 - adapter `corporate-readonly` dentro de `backend/src/modules/mcp/remote`;
@@ -43,11 +45,13 @@ O contrato remoto é deliberadamente pequeno:
 
 | Método/path | Finalidade | Resposta mínima |
 |---|---|---|
-| `GET /health` | readiness técnica | serviço identificado, `readOnly=true`, classificação `non_sensitive` |
-| `GET /v1/status` | resumo geral | `status`, `summary`, classificação e marcador read-only |
-| `GET /v1/status/availability` | resumo de disponibilidade | o mesmo schema sanitizável |
+| `GET /health` | readiness técnica | legado estrito: `status`, `service`, `timestamp`, `requestId`; normalizado internamente |
+| `GET /v1/status` | resumo geral | exatamente `status`, `summary`, `updatedAt` |
+| `GET /v1/status/availability` | resumo de disponibilidade | exatamente `status`, `summary`, `updatedAt` |
 
 Não há URL arbitrária, header arbitrário nem payload de request. O parâmetro `scope` apenas escolhe um dos dois paths compilados no adapter.
+
+Após a 16X, o contrato comum de saída é exatamente `status=ok|degraded`, `summary` sanitizado de até 240 caracteres e `updatedAt` ISO. Os endpoints 16V falham fechado em campo ausente ou adicional. No health, `timestamp` vira `updatedAt`, o summary é fixo e `service`/`requestId` não são propagados.
 
 ## Requisitos de aprovação
 
@@ -127,7 +131,7 @@ Readiness é condição necessária, nunca autorização suficiente. A sequênci
 5. allowlists global e corporativa exatas;
 6. egress/DNS aprovados;
 7. adapter corporativo habilitado;
-8. `GET /health` retorna contrato read-only/non-sensitive válido.
+8. `GET /health` retorna o contrato legado estrito do Orchestra e pode ser normalizado para o contrato comum 16X.
 
 Qualquer falha retorna readiness bloqueada/misconfigured ou erro sanitizado. A UI mostra somente status, `failClosed`, `simulated` e host sanitizado. Ela não recebe o `secretRef` nem o valor resolvido.
 
@@ -284,8 +288,8 @@ Gmail, Drive, Slack, ERP e banco transacional não são uma extensão automátic
 - o resumo remoto pode conter dado indevido apesar do contrato, causando bloqueio e incidente;
 - allowlists e policy podem sofrer erro operacional fora do código;
 - o resolver `env://` depende da higiene do ambiente e do secret manager;
-- a 16W confirmou que o payload público estrito da 16V ainda não coincide com os marcadores/estados esperados por este adapter;
-- não houve chamada real até a 16W, portanto disponibilidade e compatibilidade do endpoint via pipeline completo continuam não comprovadas;
+- a 16X resolveu a divergência entre o payload público estrito da 16V e o mapper do adapter sem ampliar o payload;
+- não houve chamada real até a 16X, portanto disponibilidade e compatibilidade via pipeline completo continuam não comprovadas;
 - MCP/Tool real para sistemas sensíveis, teste visual completo MCP/Assistant e CRUD MCP ponta a ponta permanecem fora do escopo.
 
 Esses riscos justificam manter o adapter desabilitado até existir endpoint de homologação não sensível e aprovação explícita.

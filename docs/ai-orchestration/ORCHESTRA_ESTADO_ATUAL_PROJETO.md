@@ -10,6 +10,8 @@
 
 > Atualização de 23 de julho de 2026: a 16W prepara a primeira execução supervisionada de `corporate.status.read`, com harness offline, local-check e SQL allowlistado. Foi adotada a Opção C: não há exceção HTTP corporativa nem `--run-once-local`, pois o transporte exige HTTPS/egress público e o contrato da 16V ainda difere do esperado pelo adapter 16T. Nenhuma chamada real ocorreu; a execução única exige ambiente HTTPS homologado. O runbook vigente é `ORCHESTRA_PRIMEIRA_EXECUCAO_REAL_TOOL_STATUS_16W.md`.
 
+> Atualização de 23 de julho de 2026 — 16X: o adapter de `corporate.status.read` agora aceita estritamente o contrato 16V (`ok|degraded`, `summary`, `updatedAt`) e normaliza o `/health` legado sem propagar `service` ou `requestId`. O alinhamento funcional não libera HTTP/loopback, não configura origem ou secret, não altera Prisma e não associa MCP a Assistant. Não houve nenhuma chamada real; UI/CRUD MCP e teste visual permanecem para fase posterior. O runbook vigente é `ORCHESTRA_ALINHAMENTO_TOOL_STATUS_ENDPOINT_16X.md`.
+
 ## 0. Resumo Executivo
 
 O Orchestra é hoje um **control plane corporativo de IA em estágio de MVP técnico avançado / homologação local**, com frontend React, API Express, persistência PostgreSQL/Prisma, governança de assistentes, conversas persistentes, `AgentRun`, Knowledge/RAG, catálogo MCP, auditoria, observabilidade técnica, avaliações determinísticas e um bridge Python/Agno executável por HTTP. O projeto já ultrapassou a condição de protótipo puramente visual: os principais domínios têm rotas, serviços, repositórios, modelos Prisma e testes reais. Evidências centrais: `frontend/src/App.tsx`, `backend/src/app/routes.ts`, `backend/prisma/schema.prisma`, `backend/src/modules/agent-runs`, `backend/src/modules/knowledge`, `backend/src/modules/runtime` e `runtime/agno-bridge`.
@@ -90,6 +92,7 @@ O status “documentado/homologado” abaixo significa que há runbook, smoke ou
 | 16S–16U | Evals, boundary corporativo e homologação supervisionada | Implementado/documentado, fail-closed | runbooks e smokes 16S–16U, `backend/src/modules/mcp/remote/corporate-readonly` | Nenhuma chamada corporativa real foi executada; endpoint e segredo reais permanecem fora do Git |
 | 16V | Endpoints operacionais read-only | Implementado localmente | `backend/src/modules/status`, `backend/tests/api/status.test.ts`, `scripts/smoke-endpoint-status-readonly-16v.sh` | Cria o alvo seguro; payload sanitizado, sem banco/provider/MCP; chamada real fica para 16W |
 | 16W | Preparação da primeira execução da tool de status | Harness offline, Opção C | `ORCHESTRA_PRIMEIRA_EXECUCAO_REAL_TOOL_STATUS_16W.md`, scripts 16W | Sem execução real; HTTP local inelegível, contrato a reconciliar e HTTPS homologado pendente |
+| 16X | Alinhamento tool/status 16V | Implementado e testado offline | `corporate-readonly.transport.ts`, teste unitário, runbook e smoke 16X | Contrato reconciliado; nenhuma chamada real, origem HTTPS e validação visual ainda pendentes |
 
 ## 3. Estrutura do Repositório
 
@@ -163,7 +166,7 @@ Fluxo Chat atual:
 6. O bridge valida contrato/policy/modelo, chama o provider quando em modo real e retorna resposta, uso e eventos.
 7. O backend persiste o resultado no `AgentRun`, eventos, uso e mensagem do assistente; o frontend mostra a resposta e detalhes allowlistados.
 
-A fronteira MCP alcança o servidor local fictício da 16Q por um transporte HTTP restrito, somente em homologação opt-in. A 16T também prepara um adapter corporativo real, mas sem origem configurada e desabilitado por default; a 16U define sua homologação supervisionada; e a 16W mantém a execução real bloqueada até existir HTTPS e contrato compatível. O sandbox 16F continua simulado, e nenhum endpoint corporativo foi chamado. Evidências: `mcp-readonly-demo`, `corporate-readonly`, `runtime.tool-gateway.service.ts` e os runbooks 16T–16W.
+A fronteira MCP alcança o servidor local fictício da 16Q por um transporte HTTP restrito, somente em homologação opt-in. A 16T também prepara um adapter corporativo real, mas sem origem configurada e desabilitado por default; a 16U define sua homologação supervisionada; a 16W mantém a execução real bloqueada; e a 16X reconcilia o contrato do adapter com a 16V sem abrir o transporte. O sandbox 16F continua simulado, e nenhum endpoint corporativo foi chamado. Evidências: `mcp-readonly-demo`, `corporate-readonly`, `runtime.tool-gateway.service.ts` e os runbooks 16T–16X.
 
 ## 6. Frontend — Estado Atual
 
@@ -193,7 +196,7 @@ As rotas de domínio são registradas sob `/api/v1`; as exceções públicas sã
 | Módulo | Status | Rotas/serviços | Persistência | Pendências | Evidência |
 |---|---|---|---|---|---|
 | Health | Implementado | `/health`, `/health/db` | consulta Prisma no health DB | health profundo de dependências externas no deploy | `modules/health` |
-| Status operacional 16V | Implementado, read-only | `/v1/status`, `/v1/status/availability` | nenhuma | validar ingress/SLO e reconciliar contrato 16T/16V; primeira chamada real em HTTPS homologado | `modules/status`, `tests/api/status.test.ts`, runbook 16W |
+| Status operacional 16V/16X | Implementado, read-only e alinhado à tool | `/v1/status`, `/v1/status/availability` | nenhuma | validar ingress/SLO e primeira chamada real em HTTPS homologado | `modules/status`, `corporate-readonly.transport.ts`, testes e runbook 16X |
 | Auth | Implementado condicional | `/auth/sso/*`, `/auth/microsoft/*`, `/auth/dev-login`, `/auth/me`, logout | User, ExternalIdentity; JWT no cliente | Session server-side/revogação; configuração produtiva | `modules/auth`, `shared/security/session.ts` |
 | Tenants/workspaces/users/roles/permissions | Implementado | CRUD parcial e RBAC | Prisma | UI de administração e testes E2E completos | módulos correspondentes e routes |
 | Assistants/governança | Implementado | CRUD, versions, publication, rollback, approval, policy, feedback, test results, shares | modelos `Assistant*` | alinhar UI local e qualidade automatizada | `modules/assistants`, `assistants.routes.ts` |
@@ -318,14 +321,15 @@ Evidências: `backend/src/modules/mcp`, `backend/src/modules/runtime/runtime.too
 - o transporte MCP remoto default lança `MCP_REMOTE_NOT_IMPLEMENTED`; somente transportes injetados e aprovados atravessam o boundary.
 - sincronização, health, rotação e revogação fictícios foram removidos da UI MCP; readiness real continua fora da tela.
 
-### Boundary corporativo 16T, homologação 16U, alvo seguro 16V e preparação 16W
+### Boundary corporativo 16T, homologação 16U, alvo seguro 16V, preparação 16W e alinhamento 16X
 
 - a 16T implementa o adapter governado e estritamente read-only para `corporate.status.read`, com origem HTTPS exata, egress/SSRF, `secretRef`, GET-only, limites e sanitização;
 - a 16T não configurou endpoint real nem realizou chamada corporativa;
 - a 16U acrescenta checklist, preflight local sem rede, readiness supervisionada, autorização de uma execução manual, auditoria SQL allowlistada, evidências e rollback;
 - a 16V cria `GET /v1/status` e `GET /v1/status/availability` no próprio backend, retornando somente `status`, `summary` e `updatedAt`;
 - a 16W adota a Opção C, cria preparação/auditoria offline e não implementa `--run-once-local`;
-- nenhuma chamada real foi executada: HTTP local continua bloqueado e o contrato 16T/16V precisa ser reconciliado antes do HTTPS homologado;
+- a 16X reconcilia o contrato 16T/16V, aceita somente `ok|degraded`, exige os três campos estritos e normaliza `/health` sem propagar `service` ou `requestId`;
+- nenhuma chamada real foi executada: HTTP local, loopback, private e metadata continuam bloqueados, e a execução ainda depende de HTTPS homologado;
 - origem e segredo reais existem somente na sessão segura/secret manager do operador, fora do Git;
 - CI, smoke e preflight executam apenas validações estáticas/offline; qualquer chamada real exige janela e aprovação explícitas;
 - flags, allowlists e adapter continuam fechados por default após a janela.
@@ -333,7 +337,7 @@ Evidências: `backend/src/modules/mcp`, `backend/src/modules/runtime/runtime.too
 
 ### Pendente antes de ampliar uso real
 
-1. Reconciliar o contrato 16T/16V e disponibilizar origem HTTPS homologada antes da primeira chamada real, sob a janela 16U e sem expor referências/valores.
+1. Disponibilizar origem HTTPS homologada antes da primeira chamada real, sob a janela 16U e sem expor referências/valores; a reconciliação de contrato foi concluída na 16X.
 2. Homologar discovery e execução externas reais mantendo allowlist, diff, approval e import ledger.
 3. Substituir estado em memória do gateway por coordenação persistente/distribuída.
 4. Definir idempotência, timeout, retry, circuit breaker, concorrência e compensação por tool.

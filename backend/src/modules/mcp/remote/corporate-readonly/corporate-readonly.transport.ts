@@ -19,21 +19,25 @@ export const corporateReadonlyInputSchema = {
 export const corporateReadonlyOutputSchema = {
   type: 'object',
   additionalProperties: false,
-  required: ['status', 'summary'],
+  required: ['status', 'summary', 'updatedAt'],
   properties: {
-    status: { type: 'string', enum: ['operational', 'degraded', 'maintenance', 'unknown'] },
+    status: { type: 'string', enum: ['ok', 'degraded'] },
     summary: { type: 'string', maxLength: 240 },
     updatedAt: { type: 'string', format: 'date-time' },
   },
 } as const;
 
 const allowedScopes = new Set(['summary', 'availability']);
-const allowedStatuses = new Set(['operational', 'degraded', 'maintenance', 'unknown']);
+const allowedStatuses = new Set(['ok', 'degraded']);
+const legacyHealthKeys = new Set(['status', 'service', 'timestamp', 'requestId']);
+const statusEndpointKeys = new Set(['status', 'summary', 'updatedAt']);
 const unsafeResponseKey = /authorization|cookie|credential|password|private.?key|secret|token|api.?key|connection|string|prompt|context|argument|args|output|header|raw|body/i;
 const sensitiveText = /(?:\bBearer\s+\S+|sk-[A-Za-z0-9_-]+|(?:password|token|api[_-]?key|secret|credential)\s*[:=]\s*\S+)/i;
+const unsafeMarkup = /[<>]/;
 const defaultMaxRequestBytes = 512;
 
 type FetchImplementation = typeof fetch;
+type CorporateReadonlyPath = '/health' | '/v1/status' | '/v1/status/availability';
 export type CorporateReadonlyCredentialResolver = (secretRef: string) => Promise<string>;
 
 export interface CorporateReadonlyTransportOptions {
@@ -71,8 +75,29 @@ function hasUnsafeResponse(value: unknown, depth = 0): boolean {
 function safeText(value: unknown, maxLength: number) {
   if (typeof value !== 'string') return undefined;
   const normalized = value.replace(/\s+/g, ' ').trim();
-  if (!normalized || normalized.length > maxLength || sensitiveText.test(normalized)) return undefined;
+  if (
+    !normalized
+    || normalized.length > maxLength
+    || sensitiveText.test(normalized)
+    || unsafeMarkup.test(normalized)
+  ) return undefined;
   return normalized;
+}
+
+function hasExactKeys(value: Record<string, unknown>, expected: Set<string>) {
+  const keys = Object.keys(value);
+  return keys.length === expected.size && keys.every((key) => expected.has(key));
+}
+
+function safeIsoTimestamp(value: unknown) {
+  const timestamp = safeText(value, 40);
+  if (
+    !timestamp
+    || !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,9})?(?:Z|[+-]\d{2}:\d{2})$/.test(timestamp)
+  ) return undefined;
+  const parsed = new Date(timestamp);
+  if (!Number.isFinite(parsed.getTime())) return undefined;
+  return parsed.toISOString();
 }
 
 function exactHttpsOrigin(value: string) {
@@ -170,23 +195,34 @@ function normalizedScope(value: unknown, maxRequestBytes: number) {
   return scope;
 }
 
-function sanitizedStatus(value: unknown) {
-  if (
-    !isRecord(value)
-    || value.dataClassification !== 'non_sensitive'
-    || value.readOnly !== true
-    || typeof value.status !== 'string'
-    || !allowedStatuses.has(value.status)
-  ) throw transportError();
+function sanitizedStatus(value: unknown, pathname: CorporateReadonlyPath) {
+  if (!isRecord(value) || typeof value.status !== 'string' || !allowedStatuses.has(value.status)) {
+    throw transportError();
+  }
+
+  if (pathname === '/health') {
+    if (
+      !hasExactKeys(value, legacyHealthKeys)
+      || value.service !== 'orchestra-backend'
+      || !safeText(value.requestId, 120)
+    ) throw transportError();
+    const updatedAt = safeIsoTimestamp(value.timestamp);
+    if (!updatedAt) throw transportError();
+    return {
+      status: value.status,
+      summary: 'Orchestra health endpoint operational',
+      updatedAt,
+    };
+  }
+
+  if (!hasExactKeys(value, statusEndpointKeys)) throw transportError();
   const summary = safeText(value.summary, 240);
-  if (!summary) throw transportError();
-  const updatedAt = safeText(value.updatedAt, 40);
-  const parsedUpdatedAt = updatedAt ? new Date(updatedAt) : undefined;
-  if (parsedUpdatedAt && !Number.isFinite(parsedUpdatedAt.getTime())) throw transportError();
+  const updatedAt = safeIsoTimestamp(value.updatedAt);
+  if (!summary || !updatedAt) throw transportError();
   return {
     status: value.status,
     summary,
-    ...(parsedUpdatedAt ? { updatedAt: parsedUpdatedAt.toISOString() } : {}),
+    updatedAt,
   };
 }
 
@@ -244,13 +280,7 @@ export class CorporateReadonlyHttpTransport implements McpRemoteClientTransport 
 
   async checkHealth(input: McpRemoteClientTransportContext): Promise<{ status: 'healthy'; simulated: boolean }> {
     const { value } = await this.getJson(input, '/health');
-    if (
-      !isRecord(value)
-      || value.status !== 'healthy'
-      || value.service !== 'corporate-readonly-status'
-      || value.readOnly !== true
-      || value.dataClassification !== 'non_sensitive'
-    ) throw transportError();
+    sanitizedStatus(value, '/health');
     return { status: 'healthy', simulated: false };
   }
 
@@ -287,7 +317,7 @@ export class CorporateReadonlyHttpTransport implements McpRemoteClientTransport 
     const scope = normalizedScope(input.input, this.maxRequestBytes);
     const pathname = scope === 'availability' ? '/v1/status/availability' : '/v1/status';
     const { value, bytes } = await this.getJson(input, pathname);
-    const content = JSON.stringify(sanitizedStatus(value));
+    const content = JSON.stringify(sanitizedStatus(value, pathname));
     return { content, responseBytes: bytes, simulated: false };
   }
 }

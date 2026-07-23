@@ -4,7 +4,7 @@
 
 A Fase 16W prepara a primeira execução supervisionada de `corporate.status.read` contra os endpoints read-only criados na 16V e verifica se o pipeline `AgentRun → runtime governado → gateway → tool → status do Orchestra → resposta sanitizada → metadata/audit/Analytics` pode ser aberto sem reduzir as garantias da 16T e da 16U.
 
-A decisão desta branch é a **Opção C**: a chamada real não foi executada e `--run-once-local` não foi implementado. O backend local usa HTTP, enquanto o transporte corporativo exige HTTPS e o egress corporativo bloqueia loopback. Além disso, o adapter 16T espera marcadores remotos de classificação/read-only e estados `operational|degraded|maintenance|unknown`, enquanto a resposta pública estrita da 16V contém somente `status`, `summary`, `updatedAt` e usa `ok|degraded`. Alterar qualquer um desses contratos apenas para forçar uma chamada local seria um bypass, não uma homologação do pipeline.
+A decisão desta branch é a **Opção C**: a chamada real não foi executada e `--run-once-local` não foi implementado. O backend local usa HTTP, enquanto o transporte corporativo exige HTTPS e o egress corporativo bloqueia loopback. Naquele momento, o adapter 16T também esperava marcadores remotos e estados diferentes da resposta pública estrita da 16V; a 16X resolveu essa divergência no mapper sem criar exceção de transporte. A Opção C permanece válida porque alinhamento de payload não autoriza HTTP local nem loopback.
 
 O resultado da fase é um harness fail-closed para preparação, check local e auditoria, mais o roteiro exato para a execução única futura em ambiente HTTPS homologado. Nenhum modo do script 16W faz rede.
 
@@ -62,6 +62,7 @@ Para uma chamada real futura:
 - a 16U definiu aprovação, readiness, execução única, evidências allowlistadas e rollback;
 - a 16V criou o alvo passivo seguro no Orchestra com exatamente `status`, `summary`, `updatedAt`;
 - a 16W preserva esses três boundaries, registra a incompatibilidade local e fornece preparação/auditoria sem alegar uma execução que não ocorreu.
+- a 16X posteriormente alinha o adapter ao contrato 16V, preserva a Opção C e registra que nenhuma chamada real ocorreu.
 
 A 16W não transforma o Orchestra em sistema corporativo sensível e não autoriza a reutilização desta tool contra outras origens.
 
@@ -249,7 +250,7 @@ Uma execução futura só será aceita como evidência após cumprir a seção H
 
 ## Riscos remanescentes
 
-- o contrato público 16V e o contrato esperado pelo adapter 16T ainda precisam ser reconciliados sem ampliar exposição;
+- o contrato público 16V e o mapper do adapter foram reconciliados pela 16X sem ampliar exposição;
 - ingress/TLS/DNS do backend previsto ainda não foram comprovados;
 - catálogo, policy, binding, assistant e runtime de homologação dependem de estado persistido e revisão operacional;
 - `activeRuns` do gateway é local ao processo e exige afinidade/disponibilidade durante a chamada;
@@ -260,9 +261,6 @@ Uma execução futura só será aceita como evidência após cumprir a seção H
 
 ## Próximo passo sugerido
 
-A 16X deve escolher uma destas sequências, sem misturá-las:
-
-1. reconciliar formalmente o contrato 16T/16V, disponibilizar uma origem HTTPS de homologação e executar a janela única; depois validar o fluxo visual MCP/Assistant;
-2. manter MCP real fechado e avançar primeiro no CRUD MCP ponta a ponta, incluindo lifecycle, policy/binding e E2E de navegador.
+A 16X concluiu a reconciliação formal do contrato 16T/16V. O próximo passo técnico é disponibilizar uma origem HTTPS de homologação e validar readiness sob a janela 16U, ainda sem associar MCP a Assistant. A execução única e o fluxo visual MCP/Assistant devem ocorrer apenas em fases posteriores, com autorização e aviso explícitos ao usuário.
 
 Mesmo após a primeira execução de status, MCP/Tool real não deve ser usado para sistemas sensíveis sem threat model, identidade, DLP, approval e rollback próprios.
