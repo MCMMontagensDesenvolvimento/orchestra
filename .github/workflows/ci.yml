@@ -70,6 +70,9 @@ jobs:
       - name: Run 16W first-tool static gate
         run: scripts/smoke-primeira-tool-status-16w.sh --dry-run
 
+      - name: Run 16X status-contract alignment static gate
+        run: scripts/smoke-alinhamento-tool-status-16x.sh --dry-run
+
       - name: Run static production preflight
         run: scripts/preflight-prod-runtime-16o.sh --dry-run
 

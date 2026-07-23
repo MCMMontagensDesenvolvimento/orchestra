@@ -48,6 +48,8 @@ A Fase 16V cria o alvo seguro no próprio backend do Orchestra para a futura too
 
 A Fase 16W prepara a primeira execução supervisionada com harness offline, check local, SQL allowlistado e smoke estático. A análise adota a Opção C: não cria exceção HTTP corporativa nem `--run-once-local`, porque o transporte exige HTTPS/egress público e o contrato estrito da 16V ainda não coincide com o contrato esperado pelo adapter 16T. Nenhuma chamada real ocorreu; a execução única fica condicionada a ambiente HTTPS homologado. Consulte `ORCHESTRA_PRIMEIRA_EXECUCAO_REAL_TOOL_STATUS_16W.md`.
 
+A Fase 16X alinha `corporate.status.read` ao contrato estrito da 16V: `ok|degraded`, `summary` limitado e `updatedAt` ISO. A execução da tool usa `/v1/status` ou `/v1/status/availability`; `/health` permanece readiness e é normalizado sem propagar `service` ou `requestId`. HTTPS exato, egress/SSRF, GET-only, `secretRef`, limites e defaults fail-closed permanecem intactos. Houve alinhamento funcional do mapper, mas nenhuma chamada real, UI/CRUD MCP ou associação a Assistant. Consulte `ORCHESTRA_ALINHAMENTO_TOOL_STATUS_ENDPOINT_16X.md`.
+
 A Fase 14H consolida o MVP tecnico da integracao com Agno Runtime, adicionando handoff operacional, checklist de homologacao/rollback e smoke seguro de MVP para runtime HTTP minimo e fronteira de frontend, sem feature nova, migration, frontend ou mudanca de defaults.
 
 A Fase 15C adiciona conversas persistentes privadas por usuario no Chat, mensagens persistidas, arquivamento logico, envio de mensagem pelo backend de conversa e resposta do assistente vinculada ao `AgentRun`.
@@ -153,6 +155,7 @@ Topicos esperados:
 - `ORCHESTRA_HOMOLOGACAO_SUPERVISIONADA_CONECTOR_READONLY_16U.md`: procedimento de janela aprovada, preflight local sem rede, execução única manual, auditoria allowlistada, rollback e evidências sem conteúdo bruto.
 - `ORCHESTRA_ENDPOINT_STATUS_READONLY_16V.md`: endpoints locais seguros `GET /v1/status` e `GET /v1/status/availability`, contrato sanitizado, testes, smoke offline e handoff da primeira chamada real para a 16W.
 - `ORCHESTRA_PRIMEIRA_EXECUCAO_REAL_TOOL_STATUS_16W.md`: decisão HTTP local versus HTTPS homologado, preparação offline da execução única, evidências, SQL seguro e rollback; nenhuma chamada real foi executada.
+- `ORCHESTRA_ALINHAMENTO_TOOL_STATUS_ENDPOINT_16X.md`: contrato comum da tool, normalização do health legado, validação estrita dos endpoints 16V, segurança, readiness futura e validação offline; nenhuma chamada real foi executada.
 - `ORCHESTRA_LLM_PROVIDER_INTEGRATION.md`: catalogo LLM, provider local deterministico, providers externos fail-closed e eventos LLM em AgentRun.
 - `ORCHESTRA_RAG_SEMANTICO_DISCOVERY.md`: discovery tecnico da Fase 10A para RAG semantico, embeddings e vector store.
 - `ORCHESTRA_VECTOR_STORE_EMBEDDING_CONTRACT.md`: decisao tecnica da Fase 10B para pgvector, tabela de embeddings, readiness semantico e fail-closed.
