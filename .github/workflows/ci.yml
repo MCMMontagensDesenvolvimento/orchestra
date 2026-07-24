@@ -85,6 +85,9 @@ jobs:
       - name: Run 17B production artifact hardening static gate
         run: scripts/smoke-hardening-compose-nginx-17b.sh --dry-run
 
+      - name: Run 17C secrets and production variables inventory static gate
+        run: scripts/smoke-secrets-variaveis-17c.sh --dry-run
+
       - name: Run static production preflight
         run: scripts/preflight-prod-runtime-16o.sh --dry-run
 

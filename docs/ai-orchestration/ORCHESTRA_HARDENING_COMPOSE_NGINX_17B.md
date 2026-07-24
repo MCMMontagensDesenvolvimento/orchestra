@@ -325,6 +325,18 @@ Os gates da 17B validam:
 Comandos de validação desta fase são locais e somente leitura. O modo `--template`
 apenas imprime exemplos para uma janela futura; ele não executa os exemplos exibidos.
 
+## Atualização 17C — inventário offline de secrets e variáveis
+
+A 17C complementa este hardening com um inventário governado e machine-readable das
+configurações futuras. Nenhum valor real foi coletado e nenhum `.env` real foi criado.
+Não houve deploy, chamada externa, MCP real ou teste UI/CRUD MCP.
+
+Os env examples e o Compose continuam locais/fail-closed. As URLs permanecem
+planejadas/inativas e nenhum endpoint ou secret foi materializado em env examples,
+Compose ou CI. A primeira execução real da tool continua dependente de publicação
+HTTPS futura; o usuário será avisado antes do teste direto. Consulte
+`ORCHESTRA_INVENTARIO_SECRETS_VARIAVEIS_17C.md`.
+
 ## Próximo passo sugerido
 
 Após revisão e integração da 17B, manter o sistema local e fail-closed. O próximo passo

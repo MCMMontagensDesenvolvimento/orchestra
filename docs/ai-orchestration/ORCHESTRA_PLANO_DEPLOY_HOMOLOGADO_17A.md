@@ -584,9 +584,22 @@ foi materializado em env examples, Compose ou CI. A primeira execução real da 
 continua condicionada à publicação HTTPS futura e UI/CRUD MCP continua fora de escopo.
 Consulte `ORCHESTRA_HARDENING_COMPOSE_NGINX_17B.md`.
 
+## Atualização 17C — inventário offline de secrets e variáveis
+
+A 17C governa os nomes, classificação, owners, origem esperada, rotação, validação
+offline e evidência sanitizada das configurações necessárias a este plano. Nenhum
+valor real foi coletado e nenhum `.env` real foi criado.
+
+O deploy real ainda não ocorreu. As URLs continuam planejadas/inativas e nenhum
+endpoint ou secret foi versionado em env examples, Compose ou CI. Não houve chamada
+externa, MCP real ou teste UI/CRUD MCP. A primeira execução real da tool depende da
+publicação HTTPS futura prevista neste plano, seguida de autorização específica; o
+usuário será avisado antes do teste direto. Consulte
+`ORCHESTRA_INVENTARIO_SECRETS_VARIAVEIS_17C.md`.
+
 ## Próximos passos sugeridos
 
-1. revisar e integrar o hardening offline 17B;
+1. revisar e integrar o hardening offline 17B e o inventário offline 17C;
 2. escolher a plataforma/host de destino e nomear os responsáveis;
 3. preencher a matriz de pré-requisitos com evidências reais fora do Git;
 4. homologar backup/restore, secret manager, observabilidade e rollback;
