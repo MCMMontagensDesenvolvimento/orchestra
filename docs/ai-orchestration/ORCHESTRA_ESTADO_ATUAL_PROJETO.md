@@ -20,6 +20,14 @@
 
 > Atualização de 23 de julho de 2026 — 17B: os artefatos de produção receberam hardening offline em Compose, Dockerfiles e Nginx, com redes explícitas, exposição mínima, imagem operacional separada, processos não-root, runtime read-only, headers/cache e gates fail-closed. Não houve build/container, deploy, rede, migration, MCP real ou teste UI/CRUD MCP. O ambiente permanece local, as URLs planejadas continuam inativas e a primeira execução real da tool depende de publicação HTTPS futura. O runbook vigente é `ORCHESTRA_HARDENING_COMPOSE_NGINX_17B.md`.
 
+> Atualização de 24 de julho de 2026 — 17C: foi criado um inventário offline governado
+> e machine-readable de secrets/variáveis de homologação e produção, sem coletar valor
+> real e sem criar `.env` real. Nenhum deploy, chamada externa, MCP real ou teste
+> UI/CRUD MCP ocorreu. As URLs permanecem planejadas/inativas e não foram
+> materializadas em env examples, Compose ou CI. A primeira execução real da tool
+> continua dependente de publicação HTTPS futura e de aviso ao usuário. O runbook
+> vigente é `ORCHESTRA_INVENTARIO_SECRETS_VARIAVEIS_17C.md`.
+
 ## 0. Resumo Executivo
 
 O Orchestra é hoje um **control plane corporativo de IA em estágio de MVP técnico avançado / homologação local**, com frontend React, API Express, persistência PostgreSQL/Prisma, governança de assistentes, conversas persistentes, `AgentRun`, Knowledge/RAG, catálogo MCP, auditoria, observabilidade técnica, avaliações determinísticas e um bridge Python/Agno executável por HTTP. O projeto já ultrapassou a condição de protótipo puramente visual: os principais domínios têm rotas, serviços, repositórios, modelos Prisma e testes reais. Evidências centrais: `frontend/src/App.tsx`, `backend/src/app/routes.ts`, `backend/prisma/schema.prisma`, `backend/src/modules/agent-runs`, `backend/src/modules/knowledge`, `backend/src/modules/runtime` e `runtime/agno-bridge`.
@@ -105,6 +113,7 @@ O status “documentado/homologado” abaixo significa que há runbook, smoke ou
 | 16Z | Preparação da publicação HTTPS | Documentado e validado offline | `ORCHESTRA_PREPARACAO_PUBLICACAO_HTTPS_16Z.md`, preflight/smoke 16Z e CI dry-run | Ambiente local; DNS/TLS/deploy não executados; MCP/corporate fail-closed |
 | 17A | Plano de deploy homologado Local → HTTPS | Documentado e validado offline | `ORCHESTRA_PLANO_DEPLOY_HOMOLOGADO_17A.md`, preflight/smoke 17A e CI dry-run | Plano operacional; deploy real não ocorreu, URLs inativas e MCP/corporate fail-closed |
 | 17B | Hardening de Compose, imagens e Nginx | Implementado e validado estaticamente | `ORCHESTRA_HARDENING_COMPOSE_NGINX_17B.md`, preflight/smoke 17B e CI dry-run | Sem build/deploy/rede; URLs inativas, providers fechados e UI/CRUD MCP fora de escopo |
+| 17C | Inventário de secrets e variáveis | Documentado e validado offline | `ORCHESTRA_INVENTARIO_SECRETS_VARIAVEIS_17C.md`, inventário JSON, preflight/smoke 17C e CI dry-run | Sem valores reais ou `.env`; sem deploy/chamada/MCP/UI; URLs apenas planejadas |
 
 ## 3. Estrutura do Repositório
 
@@ -333,7 +342,7 @@ Evidências: `backend/src/modules/mcp`, `backend/src/modules/runtime/runtime.too
 - o transporte MCP remoto default lança `MCP_REMOTE_NOT_IMPLEMENTED`; somente transportes injetados e aprovados atravessam o boundary.
 - sincronização, health, rotação e revogação fictícios foram removidos da UI MCP; readiness real continua fora da tela.
 
-### Boundary 16T–17B e plano operacional 17A
+### Boundary 16T–17C e plano operacional 17A
 
 - a 16T implementa o adapter governado e estritamente read-only para `corporate.status.read`, com origem HTTPS exata, egress/SSRF, `secretRef`, GET-only, limites e sanitização;
 - a 16T não configurou endpoint real nem realizou chamada corporativa;
@@ -345,6 +354,7 @@ Evidências: `backend/src/modules/mcp`, `backend/src/modules/runtime/runtime.too
 - a 16Z documenta a publicação futura, cria preflight/smoke offline e não materializa endpoint ou secret em env/Compose;
 - a 17A organiza responsáveis, pré-requisitos, go/no-go, janela, evidências e rollback sem executar deploy, DNS, TLS, containers, migration ou request;
 - a 17B endurece Compose, imagens e Nginx de forma offline, sem publicar os domínios planejados nem abrir MCP/corporate/providers;
+- a 17C inventaria configuração, secrets, owners, rotação e evidência de forma offline, sem coletar valor real ou criar `.env`;
 - nenhuma chamada real foi executada: HTTP local, loopback, private e metadata continuam bloqueados, e a execução ainda depende de HTTPS homologado;
 - origem e segredo reais existem somente na sessão segura/secret manager do operador, fora do Git;
 - CI, smoke e preflight executam apenas validações estáticas/offline; qualquer chamada real exige janela e aprovação explícitas;
@@ -352,6 +362,7 @@ Evidências: `backend/src/modules/mcp`, `backend/src/modules/runtime/runtime.too
 - a 16Z não executa chamada real nem testa UI/CRUD MCP; as URLs planejadas continuam inativas e a primeira execução fica para depois da publicação/validação, após aviso ao usuário.
 - a 17A também não executa chamada real nem deploy; o ambiente permanece local e a publicação fica para fase posterior autorizada.
 - a 17B também não executa build, container, migration ou chamada; a primeira execução real da tool continua dependente de publicação HTTPS futura.
+- a 17C também não materializa endpoint/secret em env/Compose/CI, não executa MCP real e não testa UI/CRUD MCP; o usuário será avisado antes do futuro teste direto.
 - MCP/Tool real para sistemas sensíveis, teste visual MCP/Assistant e CRUD MCP ponta a ponta permanecem para fases posteriores.
 
 ### Pendente antes de ampliar uso real
