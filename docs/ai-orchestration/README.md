@@ -56,6 +56,8 @@ A Fase 16Z documenta e valida offline a futura publicação HTTPS, separando fro
 
 A Fase 17A consolida o plano operacional homologado Local → HTTPS, com papéis, pré-requisitos, matriz go/no-go, janela, checklists antes/durante/depois, banco/backup/restore, SSO, observabilidade, segurança, evidências e rollback. A 17A é plano, não execução: o deploy real ainda não ocorreu, o ambiente continua local e as URLs continuam planejadas/inativas. O preflight e o smoke são offline e o CI executa somente o smoke em `--dry-run`; MCP/corporate permanece fail-closed e UI/CRUD MCP continua fora de escopo. Consulte `ORCHESTRA_PLANO_DEPLOY_HOMOLOGADO_17A.md`.
 
+A Fase 17B aplica hardening offline aos artefatos de produção: Compose com redes/porta mínima/profile operacional, imagens multi-stage não-root, runtime backend sem dev dependencies, Nginx não privilegiado com SPA fallback/headers/cache e defaults MCP/corporate/providers fail-closed. O deploy real ainda não ocorreu, as URLs permanecem planejadas/inativas e não foram materializadas em env/Compose/CI/código funcional. A fase não chama rede, não sobe containers, não executa migration ou MCP real e não testa UI/CRUD MCP. Consulte `ORCHESTRA_HARDENING_COMPOSE_NGINX_17B.md`.
+
 A Fase 14H consolida o MVP tecnico da integracao com Agno Runtime, adicionando handoff operacional, checklist de homologacao/rollback e smoke seguro de MVP para runtime HTTP minimo e fronteira de frontend, sem feature nova, migration, frontend ou mudanca de defaults.
 
 A Fase 15C adiciona conversas persistentes privadas por usuario no Chat, mensagens persistidas, arquivamento logico, envio de mensagem pelo backend de conversa e resposta do assistente vinculada ao `AgentRun`.
@@ -165,6 +167,7 @@ Topicos esperados:
 - `ORCHESTRA_READINESS_HTTPS_TOOL_STATUS_16Y.md`: readiness estrutural para a origem HTTPS da API, preflight sem rede, templates HTTPS/audit e handoff para a preparação de publicação 16Z, sem execução real.
 - `ORCHESTRA_PREPARACAO_PUBLICACAO_HTTPS_16Z.md`: arquitetura, checklists, preflight e smoke offline da futura publicação HTTPS; as URLs são planejadas, não ativas, e MCP permanece fail-closed.
 - `ORCHESTRA_PLANO_DEPLOY_HOMOLOGADO_17A.md`: plano operacional Local → HTTPS com matriz de pré-requisitos/go-no-go, janela, responsáveis, evidências e rollback; o deploy real não ocorreu.
+- `ORCHESTRA_HARDENING_COMPOSE_NGINX_17B.md`: hardening offline de Compose, Dockerfiles, Nginx, env examples e gates estáticos; sem deploy, chamada real, MCP real ou UI/CRUD MCP.
 - `ORCHESTRA_LLM_PROVIDER_INTEGRATION.md`: catalogo LLM, provider local deterministico, providers externos fail-closed e eventos LLM em AgentRun.
 - `ORCHESTRA_RAG_SEMANTICO_DISCOVERY.md`: discovery tecnico da Fase 10A para RAG semantico, embeddings e vector store.
 - `ORCHESTRA_VECTOR_STORE_EMBEDDING_CONTRACT.md`: decisao tecnica da Fase 10B para pgvector, tabela de embeddings, readiness semantico e fail-closed.

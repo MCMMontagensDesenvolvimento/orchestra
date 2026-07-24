@@ -571,14 +571,28 @@ Rollback bem-sucedido recupera o serviço anterior; ele não converte a mudança
 
 A 17A não substitui a autorização 16U, não ativa os templates 16Y/16Z e não transforma readiness em execução. Ela cria o gate documental para uma fase futura de implantação manual.
 
+## Atualização 17B — hardening offline dos artefatos
+
+A 17B endurece os artefatos que este plano poderá usar: Compose com redes/exposição
+mínima/profile operacional, imagens multi-stage não-root e Nginx com porta não
+privilegiada, SPA fallback, headers, compressão e cache. MCP, corporate, tools e
+providers externos permanecem fail-closed.
+
+O hardening é somente estático: nenhum build ou container foi executado, o deploy real
+ainda não ocorreu e as URLs permanecem planejadas/inativas. Nenhum endpoint ou secret
+foi materializado em env examples, Compose ou CI. A primeira execução real da tool
+continua condicionada à publicação HTTPS futura e UI/CRUD MCP continua fora de escopo.
+Consulte `ORCHESTRA_HARDENING_COMPOSE_NGINX_17B.md`.
+
 ## Próximos passos sugeridos
 
-1. escolher a plataforma/host de destino e nomear os responsáveis;
-2. preencher a matriz de pré-requisitos com evidências reais fora do Git;
-3. homologar backup/restore, secret manager, observabilidade e rollback;
-4. aprovar a topologia de proxy, DNS/TLS, SSO e CORS/cookies;
-5. abrir uma fase específica para executar a implantação HTTPS manual;
-6. validar frontend, API e endpoints passivos na janela autorizada;
-7. somente depois da API HTTPS publicada e validada, planejar outra fase para a primeira execução supervisionada de `corporate.status.read`.
+1. revisar e integrar o hardening offline 17B;
+2. escolher a plataforma/host de destino e nomear os responsáveis;
+3. preencher a matriz de pré-requisitos com evidências reais fora do Git;
+4. homologar backup/restore, secret manager, observabilidade e rollback;
+5. aprovar a topologia de proxy, DNS/TLS, SSO e CORS/cookies;
+6. abrir uma fase específica para executar a implantação HTTPS manual;
+7. validar frontend, API e endpoints passivos na janela autorizada;
+8. somente depois da API HTTPS publicada e validada, planejar outra fase para a primeira execução supervisionada de `corporate.status.read`.
 
 O usuário será avisado antes do teste direto no sistema. Até esse aviso e a nova autorização, o ambiente permanece local, as URLs permanecem planejadas, `deployment=false`, `realExecution=false` e MCP/corporate continua fail-closed.
