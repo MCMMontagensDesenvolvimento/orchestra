@@ -46,7 +46,7 @@ export function AppSidebar({ collapsed, onToggle, forceExpanded = false, hideTog
         </div>
         {!isCollapsed && (
           <span className="text-base font-bold tracking-wide text-sidebar-accent-foreground">
-            ORQUESTRA
+            ORCHESTRA
           </span>
         )}
       </div>

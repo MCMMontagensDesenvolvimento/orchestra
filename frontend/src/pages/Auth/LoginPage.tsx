@@ -104,7 +104,7 @@ export default function LoginPage() {
           <div className="mx-auto mb-6 flex h-16 w-16 items-center justify-center rounded-2xl bg-primary-foreground/20 backdrop-blur">
             <Zap className="h-8 w-8 text-primary-foreground" />
           </div>
-          <h1 className="text-4xl font-bold text-primary-foreground mb-4">ORQUESTRA</h1>
+          <h1 className="text-4xl font-bold text-primary-foreground mb-4">ORCHESTRA</h1>
           <p className="text-lg text-primary-foreground/80">
             Plataforma enterprise para criação e gestão de assistentes inteligentes corporativos.
           </p>
@@ -132,7 +132,7 @@ export default function LoginPage() {
             <div className="flex h-10 w-10 items-center justify-center rounded-xl gradient-primary">
               <Zap className="h-5 w-5 text-primary-foreground" />
             </div>
-            <span className="text-xl font-bold">ORQUESTRA</span>
+            <span className="text-xl font-bold">ORCHESTRA</span>
           </div>
           <h2 className="text-2xl font-bold">Bem-vindo de volta</h2>
           <p className="mt-1 text-sm text-muted-foreground">Entre com suas credenciais ou acesso corporativo para usar a plataforma.</p>
