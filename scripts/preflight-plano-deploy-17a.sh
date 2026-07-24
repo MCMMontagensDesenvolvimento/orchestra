@@ -268,8 +268,9 @@ check_existing_nginx() {
     require_pattern "$NGINX_CONFIG" \
       'proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;' \
       'Nginx preserves forwarded client chain'
-    require_pattern "$NGINX_CONFIG" 'proxy_set_header X-Forwarded-Proto $scheme;' \
-      'Nginx preserves forwarded protocol'
+    require_pattern "$NGINX_CONFIG" \
+      'proxy_set_header X-Forwarded-Proto $orchestra_forwarded_proto;' \
+      'Nginx preserves the approved forwarded protocol mapping'
     require_pattern "$NGINX_CONFIG" 'proxy_hide_header X-Powered-By;' \
       'Nginx hides upstream technology header'
   else

@@ -18,6 +18,8 @@
 
 > Atualização de 23 de julho de 2026 — 17A: o projeto permanece totalmente local e o deploy real ainda não ocorreu. A fase transforma a preparação 16Z em um plano operacional homologado Local → HTTPS, com responsáveis, pré-requisitos, decisão go/no-go, janela, checklists de infraestrutura/aplicação/dados/segurança, evidências e rollback. As URLs continuam planejadas e inativas; CI, preflight e smoke permanecem offline/dry-run, e MCP/corporate continua fail-closed. O runbook vigente é `ORCHESTRA_PLANO_DEPLOY_HOMOLOGADO_17A.md`.
 
+> Atualização de 23 de julho de 2026 — 17B: os artefatos de produção receberam hardening offline em Compose, Dockerfiles e Nginx, com redes explícitas, exposição mínima, imagem operacional separada, processos não-root, runtime read-only, headers/cache e gates fail-closed. Não houve build/container, deploy, rede, migration, MCP real ou teste UI/CRUD MCP. O ambiente permanece local, as URLs planejadas continuam inativas e a primeira execução real da tool depende de publicação HTTPS futura. O runbook vigente é `ORCHESTRA_HARDENING_COMPOSE_NGINX_17B.md`.
+
 ## 0. Resumo Executivo
 
 O Orchestra é hoje um **control plane corporativo de IA em estágio de MVP técnico avançado / homologação local**, com frontend React, API Express, persistência PostgreSQL/Prisma, governança de assistentes, conversas persistentes, `AgentRun`, Knowledge/RAG, catálogo MCP, auditoria, observabilidade técnica, avaliações determinísticas e um bridge Python/Agno executável por HTTP. O projeto já ultrapassou a condição de protótipo puramente visual: os principais domínios têm rotas, serviços, repositórios, modelos Prisma e testes reais. Evidências centrais: `frontend/src/App.tsx`, `backend/src/app/routes.ts`, `backend/prisma/schema.prisma`, `backend/src/modules/agent-runs`, `backend/src/modules/knowledge`, `backend/src/modules/runtime` e `runtime/agno-bridge`.
@@ -29,7 +31,7 @@ A maturidade não é ainda de produto operacional pleno. Os maiores limitadores 
 - execução MCP externa ainda não implementada; o sandbox e o gateway retornam resultado simulado e registram `externalMcpCalled=false` (`backend/src/modules/mcp/mcp.service.ts`, `backend/src/modules/runtime/runtime.tool-gateway.service.ts`, `backend/src/modules/mcp/remote/mcp-remote.client.ts`);
 - observabilidade existente principalmente em tabelas, APIs, metadata, testes, SQL e runbooks, sem console operacional dedicado no frontend (`backend/src/modules/ai-observability`, `frontend/src/services/analytics.service.ts`, `frontend/src/pages/Analytics/AnalyticsPage.tsx`);
 - ações visuais ainda locais ou placeholder, especialmente sincronização/credenciais/health MCP, reindexação global de Knowledge, duplicação de Assistant, edição/diff de prompt compilado e feedback de mensagem (`frontend/src/pages/MCP`, `frontend/src/pages/Knowledge`, `frontend/src/pages/Assistants`, `frontend/src/components/chat/FeedbackBar.tsx`);
-- perfil de produção incompleto: CI de validação existe, mas não há CD versionado; bridge Agno está fora do compose de produção, não há etapa versionada de `prisma migrate deploy`, o frontend Nginx não tem proxy explícito para a API e a imagem PostgreSQL de produção difere da imagem com pgvector usada em desenvolvimento (`.github/workflows/ci.yml`, `docker-compose.prod.yml`, `frontend/nginx.conf`, `backend/Dockerfile.prod`, `backend/prisma/migrations/20260625114000_phase10c_pgvector_chunk_embeddings/migration.sql`);
+- perfil de produção endurecido estaticamente, mas ainda não homologado live: CI de validação existe e a 17B adiciona bridge/profile operacional, pgvector, proxy relativo, imagens não-root e migration one-shot, porém não há CD, secret manager, TLS/ingress, backup/restore ou build/deploy comprovado (`.github/workflows/ci.yml`, `docker-compose.prod.yml`, `frontend/nginx.conf`, `backend/Dockerfile.prod`);
 - segurança de produção pendente de hardening: segredo JWT possui fallback de desenvolvimento no código, o modelo `Session` não é usado pelo fluxo JWT atual, não há evidência versionada de secrets manager, rotação central, TLS/ingress ou revogação de sessão server-side (`backend/src/config/env.ts`, `backend/src/shared/security/session.ts`, `backend/prisma/schema.prisma`);
 - limites/custos e alertas existem como domínio e endpoints de avaliação, mas não foram encontrados no precheck do `AgentRun`; o registro de uso não encaminha custo normalizado para `AiRunUsageEvent` (`backend/src/modules/ai-observability`, `backend/src/modules/agent-runs/agent-runs.service.ts`).
 
@@ -102,6 +104,7 @@ O status “documentado/homologado” abaixo significa que há runbook, smoke ou
 | 16Y | Readiness HTTPS da tool de status | Implementado como preflight offline | `ORCHESTRA_READINESS_HTTPS_TOOL_STATUS_16Y.md`, scripts 16Y e CI dry-run | Origem API e templates fixos; sem rede/MCP real; handoff para preparação 16Z |
 | 16Z | Preparação da publicação HTTPS | Documentado e validado offline | `ORCHESTRA_PREPARACAO_PUBLICACAO_HTTPS_16Z.md`, preflight/smoke 16Z e CI dry-run | Ambiente local; DNS/TLS/deploy não executados; MCP/corporate fail-closed |
 | 17A | Plano de deploy homologado Local → HTTPS | Documentado e validado offline | `ORCHESTRA_PLANO_DEPLOY_HOMOLOGADO_17A.md`, preflight/smoke 17A e CI dry-run | Plano operacional; deploy real não ocorreu, URLs inativas e MCP/corporate fail-closed |
+| 17B | Hardening de Compose, imagens e Nginx | Implementado e validado estaticamente | `ORCHESTRA_HARDENING_COMPOSE_NGINX_17B.md`, preflight/smoke 17B e CI dry-run | Sem build/deploy/rede; URLs inativas, providers fechados e UI/CRUD MCP fora de escopo |
 
 ## 3. Estrutura do Repositório
 
@@ -116,7 +119,7 @@ O status “documentado/homologado” abaixo significa que há runbook, smoke ou
 | `/scripts` | Smokes locais, preflights e validações estáticas | Real | `scripts/smoke-*.sh`, `scripts/agno-mock-runtime.mjs` | Parte dos scripts exige ambiente; os dry-runs não usam provider ou banco |
 | `/docker-compose.dev.yml` | Frontend, backend e PostgreSQL/pgvector local | Implementado | serviços `frontend`, `backend`, `db` | Agno não sobe no compose-base; exige override específico |
 | `/docker-compose.agno-bridge.yml` | Override com backend apontando para bridge | Implementado para local/homologação | serviço `agno-bridge` | Usa configuração local deliberada; não integra o compose de produção |
-| `/docker-compose.prod.yml` | Imagens de frontend/backend/db para perfil produtivo | Parcial | `docker-compose.prod.yml`, Dockerfiles `.prod` | Gaps de proxy, pgvector, migrations, Agno e gestão de secrets |
+| `/docker-compose.prod.yml` | Topologia declarativa de produção e operações | Endurecido offline, não homologado live | `docker-compose.prod.yml`, Dockerfiles `.prod`, `frontend/nginx.conf` | Frontend/backend/db, bridge opt-in e migration opt-in; TLS, secret manager, backup/restore e deploy continuam externos |
 | `/.env.example`, `/backend/.env.example`, `/frontend/.env.example`, `/runtime/agno-bridge/.env.example` | Contrato de configuração sem credenciais operacionais | Presente | arquivos versionados | Nomes de variáveis foram auditados; valores reais e arquivos `.env` não foram lidos |
 | `/README.md` | Entrada principal do repositório | Desatualizado | `README.md` | Ainda afirma que backend, banco, autenticação, RAG, MCP e runtime não existem |
 
@@ -240,8 +243,8 @@ Existem 21 migrations versionadas entre foundation e a policy de escopo 16J. As 
 
 Riscos e regras operacionais:
 
-1. A migration de embeddings verifica a disponibilidade da extensão `vector` e falha deliberadamente quando ausente. O compose dev usa `pgvector/pgvector:0.8.3-pg16`, enquanto o compose prod usa `postgres:16-alpine`. Logo, **inferido a partir da implementação atual**, o perfil produtivo não aplica essa migration sem uma imagem/serviço PostgreSQL com pgvector.
-2. `backend/Dockerfile.prod` inicia diretamente o servidor e `docker-compose.prod.yml` não executa migrations. A aplicação de migrations existentes precisa ser etapa separada e auditável.
+1. A migration de embeddings verifica a disponibilidade da extensão `vector` e falha deliberadamente quando ausente. Desde a 17B, compose dev e prod usam `pgvector/pgvector:0.8.3-pg16`; a compatibilidade real ainda depende de build, backup/restore e migration em ambiente de homologação.
+2. A 17B adiciona target/imagem `operations` e serviço `migrate` no profile opt-in homônimo. O backend não executa migration no startup; a aplicação continua separada, one-shot e auditável.
 3. O modelo `Session` existe, mas o fluxo atual assina/verifica JWT sem consultar a tabela; revogação, inventário e expiração server-side estão parcialmente modelados e não operacionais.
 4. Conteúdo funcional é persistido em texto: mensagens, `KnowledgeDocument.contentText`, chunks, query RAG e excerpts. `rawContentLogged=false` refere-se à metadata operacional e não deve ser interpretado como ausência de conteúdo no banco.
 5. Não foi executado `prisma migrate dev`, `db push`, seed ou acesso ao banco nesta auditoria.
@@ -330,7 +333,7 @@ Evidências: `backend/src/modules/mcp`, `backend/src/modules/runtime/runtime.too
 - o transporte MCP remoto default lança `MCP_REMOTE_NOT_IMPLEMENTED`; somente transportes injetados e aprovados atravessam o boundary.
 - sincronização, health, rotação e revogação fictícios foram removidos da UI MCP; readiness real continua fora da tela.
 
-### Boundary 16T–16Z e plano operacional 17A
+### Boundary 16T–17B e plano operacional 17A
 
 - a 16T implementa o adapter governado e estritamente read-only para `corporate.status.read`, com origem HTTPS exata, egress/SSRF, `secretRef`, GET-only, limites e sanitização;
 - a 16T não configurou endpoint real nem realizou chamada corporativa;
@@ -341,12 +344,14 @@ Evidências: `backend/src/modules/mcp`, `backend/src/modules/runtime/runtime.too
 - a 16Y valida estruturalmente a origem backend/API prevista, a igualdade textual das allowlists, os paths fixos, o contrato e o audit template sem rede;
 - a 16Z documenta a publicação futura, cria preflight/smoke offline e não materializa endpoint ou secret em env/Compose;
 - a 17A organiza responsáveis, pré-requisitos, go/no-go, janela, evidências e rollback sem executar deploy, DNS, TLS, containers, migration ou request;
+- a 17B endurece Compose, imagens e Nginx de forma offline, sem publicar os domínios planejados nem abrir MCP/corporate/providers;
 - nenhuma chamada real foi executada: HTTP local, loopback, private e metadata continuam bloqueados, e a execução ainda depende de HTTPS homologado;
 - origem e segredo reais existem somente na sessão segura/secret manager do operador, fora do Git;
 - CI, smoke e preflight executam apenas validações estáticas/offline; qualquer chamada real exige janela e aprovação explícitas;
 - flags, allowlists e adapter continuam fechados por default após a janela.
 - a 16Z não executa chamada real nem testa UI/CRUD MCP; as URLs planejadas continuam inativas e a primeira execução fica para depois da publicação/validação, após aviso ao usuário.
 - a 17A também não executa chamada real nem deploy; o ambiente permanece local e a publicação fica para fase posterior autorizada.
+- a 17B também não executa build, container, migration ou chamada; a primeira execução real da tool continua dependente de publicação HTTPS futura.
 - MCP/Tool real para sistemas sensíveis, teste visual MCP/Assistant e CRUD MCP ponta a ponta permanecem para fases posteriores.
 
 ### Pendente antes de ampliar uso real
@@ -386,7 +391,7 @@ Riscos:
 
 - servidor baseado em `ThreadingHTTPServer`, sem configuração produtiva de workers, graceful draining, métricas ou autoscaling;
 - dependências Python com ranges para clients de provider e pin exato apenas do Agno; builds futuros podem variar dentro dos ranges;
-- bridge ausente no `docker-compose.prod.yml`;
+- bridge presente apenas no profile opt-in `agno` do `docker-compose.prod.yml`, sem build ou homologação produtiva live;
 - callback de tool depende de estado em memória no backend;
 - sem streaming, anexos e cancelamento cooperativo do provider.
 
@@ -489,7 +494,7 @@ Lacunas:
 - não há teste de carga, soak, concorrência, chaos, failover ou recuperação;
 - não há cobertura automatizada com provider real, por decisão de segurança;
 - a matriz 16K cobre exemplos específicos; precisa virar corpus versionado maior;
-- os gates estáticos 16S–17A estão no CI, mas ainda não há cobertura E2E de navegador nem gate por percentual de cobertura;
+- os gates estáticos 16S–17B estão no CI, mas ainda não há cobertura E2E de navegador nem gate por percentual de cobertura;
 - cobertura percentual não foi executada nesta auditoria, portanto é **pendente de confirmação**.
 
 ## 16. CI/CD, Docker e Ambientes
@@ -502,19 +507,20 @@ Lacunas:
 - Dockerfiles dev usam hot reload; Dockerfiles prod fazem builds multi-stage.
 - há smokes de fullstack e de bridge/Agno.
 
-### Produção: gaps confirmados
+### Produção: hardening 17B e gaps remanescentes
 
 Topologia prevista: frontend `https://orchestra.mcm.eng.br`; backend/API `https://api.orchestra.mcm.eng.br`. Esses endereços documentam a intenção de roteamento e não comprovam deploy, DNS, TLS ou disponibilidade.
 
 1. `.github/workflows/ci.yml` executa typechecks, testes focados, build e gates estáticos; não há workflow versionado de entrega/deploy, promoção ou rollback.
-2. `docker-compose.prod.yml` não inclui o bridge Agno.
-3. O banco produtivo usa `postgres:16-alpine`, mas a migration vetorial exige pgvector.
-4. O backend não executa `prisma migrate deploy` na inicialização e não existe job de migration no compose.
-5. O Nginx do frontend serve apenas SPA/health; não há `proxy_pass` para `/api/v1`. Como o build usa base relativa `/api/v1`, é necessário ingress/reverse proxy externo — **pendente de confirmação** — ou ajuste versionado.
-6. O backend fica apenas em `expose`, sem publicação direta; isso reforça a dependência de proxy não presente no repositório.
-7. Secrets são fornecidos por env files; não há secret store/rotation versionado.
+2. A 17B inclui bridge Agno apenas no profile opt-in `agno`; HA, workers, egress e operação produtiva não foram homologados.
+3. O banco produtivo usa pgvector e volume nomeado, mas backup/restore, capacidade e migration real não foram testados.
+4. O profile `operations` oferece job one-shot de `prisma migrate deploy`; ele não é automático e não foi executado.
+5. O Nginx faz proxy relativo de `/api/` para o backend e roda não-root em `8080`; o terminador TLS/ingress externo continua pendente.
+6. O backend e o banco não publicam portas; somente o frontend faz bind loopback por default, exigindo terminador no host ou override deliberado.
+7. O Compose não importa env files de subprojetos e exige secrets críticos em runtime, mas não existe secret store/rotation versionado.
 8. Não há manifestos de Kubernetes, Terraform/Bicep, registry, promoção, canary/blue-green, backup, restore ou rollback automatizado.
 9. Não há observabilidade de containers/infra nem SLO/alerta de disponibilidade versionados.
+10. Dockerfiles, Nginx e Compose foram validados estaticamente; build, ownership, packages nativos e readiness em containers permanecem pendentes.
 
 Saúde atual de containers é **pendente de confirmação**, pois Docker não foi iniciado nesta auditoria. A existência de healthchecks não comprova saúde do ambiente corrente.
 
@@ -557,10 +563,10 @@ Recomendação de pipeline mínimo:
 |---|---|---|---|---|---|---|
 | MCP externo não executa | `mcp-remote.client.ts`, `mcp.service.ts`, gateway | Confirmado | Impede automação externa real | Alta | Implementar transporte após threat model e observabilidade | MCP/Tools |
 | Gateway mantém runs em memória | `activeRuns` em `runtime.tool-gateway.service.ts` | Confirmado | Callback perde estado em restart/escala horizontal | Alta | Persistência/coordenação distribuída | MCP/Runtime |
-| Produção sem pgvector | compose prod vs migration 10C | Confirmado | Migration/deploy pode falhar | Crítica | Usar imagem/serviço PostgreSQL com pgvector e testar restore | Produção |
-| Sem migration job | Dockerfile/compose prod | Confirmado | Drift ou schema incompatível | Alta | Pipeline com `migrate deploy` único e auditado | Produção |
-| API relativa sem proxy Nginx | `frontend/nginx.conf`, compose prod | Confirmado; ingress externo pendente | Frontend pode não alcançar backend | Alta | Versionar proxy/ingress e smoke | Produção |
-| Bridge ausente em produção | `docker-compose.prod.yml` | Confirmado | `agno_http` não fecha topologia | Alta | Topologia produtiva/HA do bridge | Runtime |
+| Artefatos produtivos sem validação live | Compose/Dockerfiles/Nginx 17B | Confirmado | Incompatibilidade pode aparecer no primeiro build/deploy | Alta | Build em ambiente isolado, SBOM/scan, Compose config e smoke HTTPS aprovados | Produção |
+| Migration operacional não homologada | profile `operations` 17B | Confirmado | Drift ou schema incompatível ainda pode ocorrer | Alta | Executar `migrate deploy` único após backup/restore e revisão | Produção |
+| Terminador TLS/ingress ausente | Nginx interno e plano 17A | Confirmado | URLs planejadas continuam indisponíveis | Crítica | Provisionar DNS/TLS/proxy em fase autorizada | Produção |
+| Bridge sem HA produtiva | profile `agno` do Compose | Confirmado | `agno_http` não tem garantias operacionais | Alta | Homologar workers, HA, egress, métricas e rollback | Runtime |
 | README raiz incorreto | `README.md` | Confirmado | Onboarding e decisões erradas | Média | Atualizar baseline e links | Documentação |
 | Analytics real vazio | `analytics.service.ts` | Confirmado | Operação sem visibilidade | Alta | Conectar usage-summary/runs/RAG | Observabilidade |
 | Limites/alertas fora do AgentRun | busca de chamadas e services | Confirmado | Custo/quota podem não bloquear execução | Alta | Inserir avaliação no precheck transacional | Custos/Runtime |
@@ -637,8 +643,9 @@ Como a 16L atual é a documentação de estado, a numeração abaixo começa na 
 ### Sprint 16O — Pipeline e Ambiente de Homologação Produtivo
 
 - **Descrição:** tornar build, migration, deploy e rollback repetíveis.
-- **Subtarefas:** CI; SBOM/scans; imagem pgvector; job `migrate deploy`; Nginx/ingress; bridge; secrets; backup/restore; smoke; rollback.
-- **Status sugerido:** Backlog priorizado.
+- **Subtarefas parcialmente concluídas na 17B:** imagem pgvector; job opt-in `migrate deploy`; Nginx interno; bridge opt-in; hardening de imagens/Compose; smoke estático.
+- **Subtarefas pendentes:** CD; SBOM/scans; TLS/ingress; secret manager; backup/restore; build e smoke live; rollback comprovado.
+- **Status sugerido:** Em andamento, com hardening offline concluído e operação real pendente.
 - **Prioridade:** Urgente.
 - **Evidências:** `docker-compose.prod.yml`, Dockerfiles, `frontend/nginx.conf`, migration 10C.
 - **Dependências:** decisão de plataforma/ambiente.

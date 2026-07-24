@@ -329,8 +329,22 @@ A 17A transforma esta preparação em um plano operacional Local → HTTPS com p
 
 O preflight e o smoke 17A são offline/somente-leitura, e o CI executa apenas o smoke em `--dry-run`. A 17A não chama DNS, TLS, endpoint, container, migration, MCP ou provider; UI/CRUD MCP permanece fora de escopo. A primeira execução da tool continua bloqueada até uma fase posterior à publicação e validação da API HTTPS, com aviso ao usuário.
 
+## Atualização 17B — hardening offline
+
+A 17B aplica hardening estático ao Compose, aos Dockerfiles e ao Nginx previstos nesta
+preparação. Foram reforçados isolamento de rede, exposição mínima, profiles de
+operations/Agno, imagens não-root, dependências mínimas de runtime, health/readiness,
+SPA fallback, headers, compressão, cache e defaults MCP/corporate/providers
+fail-closed.
+
+Isso não altera a fronteira da 16Z: o deploy real ainda não ocorreu, as URLs permanecem
+planejadas/inativas e nenhum endpoint/secret foi versionado em env examples, Compose
+ou CI. Não houve rede, container, migration, MCP real ou UI/CRUD MCP. A primeira
+execução real da tool continua dependente da publicação e validação HTTPS futura.
+Consulte `ORCHESTRA_HARDENING_COMPOSE_NGINX_17B.md`.
+
 ## Próximo passo sugerido
 
-Usar o plano homologado 17A para preparar responsáveis, autorização, infraestrutura, secrets, backup/restore, observabilidade e rollback de uma fase específica de publicação manual. Primeiro devem ser validados frontend, API, DNS, TLS, proxy, CORS/cookies e os endpoints passivos. Somente depois dessa API publicada e validada poderá ser planejada outra fase para a primeira execução real e supervisionada de `corporate.status.read`.
+Revisar o hardening 17B e usar o plano homologado 17A para preparar responsáveis, autorização, infraestrutura, secrets, backup/restore, observabilidade e rollback de uma fase específica de publicação manual. Primeiro devem ser validados frontend, API, DNS, TLS, proxy, CORS/cookies e os endpoints passivos. Somente depois dessa API publicada e validada poderá ser planejada outra fase para a primeira execução real e supervisionada de `corporate.status.read`.
 
 Antes de qualquer teste direto no sistema, o usuário será avisado e deverá autorizar a janela. Até lá, MCP remoto/corporate permanece fail-closed, `realExecution=false` e UI/CRUD MCP continua fora de escopo.

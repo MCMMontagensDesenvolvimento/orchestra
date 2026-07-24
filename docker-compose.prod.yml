@@ -11,41 +11,52 @@ services:
         VITE_USE_MOCKS: "false"
         VITE_MOCK_DELAY_MS: "0"
         VITE_MOCK_SCENARIO: success
-    env_file:
-      - path: ./frontend/.env
-        required: false
     ports:
-      - "5173:80"
+      - "${ORCHESTRA_FRONTEND_BIND_ADDRESS:-127.0.0.1}:${ORCHESTRA_FRONTEND_PORT:-5173}:8080"
     depends_on:
       backend:
         condition: service_healthy
     healthcheck:
-      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1/health >/dev/null || exit 1"]
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:8080/health >/dev/null || exit 1"]
       interval: 30s
       timeout: 5s
       retries: 3
       start_period: 10s
+    networks:
+      - app_net
+    read_only: true
+    tmpfs:
+      - /tmp:size=16m,mode=1777
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
     restart: unless-stopped
+    stop_grace_period: 10s
 
   backend:
     image: "${ORCHESTRA_BACKEND_IMAGE:-orchestra-backend:local}"
     build:
       context: ./backend
       dockerfile: Dockerfile.prod
-    env_file:
-      - path: ./backend/.env
-        required: false
+      target: runner
     environment:
       NODE_ENV: production
       DATABASE_URL: "${DATABASE_URL:?DATABASE_URL must be supplied by the deployment environment}"
       JWT_SECRET: "${JWT_SECRET:?JWT_SECRET must be supplied by the deployment environment}"
-      FRONTEND_ORIGIN: "${FRONTEND_ORIGIN:-http://localhost:5173}"
+      FRONTEND_ORIGIN: "${FRONTEND_ORIGIN:?FRONTEND_ORIGIN must be supplied by the deployment environment}"
       COOKIE_SECURE: "true"
+      COOKIE_SAME_SITE: "${COOKIE_SAME_SITE:-lax}"
       DEV_LOGIN_ENABLED: "false"
       LOG_LEVEL: "${LOG_LEVEL:-info}"
       RUNTIME_PROVIDER: "${RUNTIME_PROVIDER:-local}"
       RUNTIME_ALLOW_PROVIDER_FALLBACK: "false"
       RUNTIME_ALLOW_EXTERNAL_TOOLS: "false"
+      AGNO_ENABLED: "false"
+      AGNO_EXECUTION_ENABLED: "false"
+      AGNO_HEALTHCHECK_ENABLED: "false"
+      AGNO_ALLOW_EXTERNAL_TOOLS: "false"
+      AGNO_ALLOW_REMOTE_MCP: "false"
       AGNO_RUNTIME_HTTP_ENABLED: "${AGNO_RUNTIME_HTTP_ENABLED:-false}"
       AGNO_RUNTIME_HTTP_BASE_URL: "http://agno-bridge:8091"
       AGNO_RUNTIME_HTTP_REQUIRE_SECURITY_KEY: "true"
@@ -68,6 +79,7 @@ services:
       MCP_CORPORATE_READONLY_ALLOWED_ORIGIN: ""
       MCP_CORPORATE_READONLY_TIMEOUT_MS: "3000"
       MCP_CORPORATE_READONLY_MAX_RESPONSE_BYTES: "16384"
+      LLM_PROVIDERS_ENABLED: "false"
       LLM_DEFAULT_PROVIDER: local_deterministic
       LLM_EXECUTION_ENABLED: "false"
       OPENAI_ENABLED: "false"
@@ -89,8 +101,19 @@ services:
       timeout: 5s
       retries: 5
       start_period: 30s
+    networks:
+      - app_net
+      - data_net
+    read_only: true
+    tmpfs:
+      - /tmp:size=64m,mode=1777
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
     init: true
     restart: unless-stopped
+    stop_grace_period: 30s
 
   db:
     image: pgvector/pgvector:0.8.3-pg16
@@ -106,7 +129,12 @@ services:
       timeout: 5s
       retries: 5
       start_period: 10s
+    networks:
+      - data_net
+    security_opt:
+      - no-new-privileges:true
     restart: unless-stopped
+    stop_grace_period: 60s
 
   agno-bridge:
     profiles: ["agno"]
@@ -114,9 +142,6 @@ services:
     build:
       context: ./runtime/agno-bridge
       dockerfile: Dockerfile
-    env_file:
-      - path: ./runtime/agno-bridge/.env
-        required: false
     environment:
       AGNO_BRIDGE_EXECUTION_MODE: "${AGNO_BRIDGE_EXECUTION_MODE:-stub}"
       AGNO_BRIDGE_PROVIDER: "${AGNO_BRIDGE_PROVIDER:-stub}"
@@ -139,12 +164,23 @@ services:
       timeout: 5s
       retries: 5
       start_period: 20s
+    networks:
+      - app_net
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
     init: true
     restart: unless-stopped
+    stop_grace_period: 30s
 
   migrate:
     profiles: ["operations"]
-    image: "${ORCHESTRA_BACKEND_IMAGE:-orchestra-backend:local}"
+    image: "${ORCHESTRA_MIGRATE_IMAGE:-orchestra-backend-migrate:local}"
+    build:
+      context: ./backend
+      dockerfile: Dockerfile.prod
+      target: operations
     environment:
       NODE_ENV: production
       DATABASE_URL: "${DATABASE_URL:?DATABASE_URL must be supplied by the deployment environment}"
@@ -152,7 +188,25 @@ services:
       db:
         condition: service_healthy
     command: ["npm", "run", "prisma:migrate:deploy"]
+    networks:
+      - data_net
+    read_only: true
+    tmpfs:
+      - /tmp:size=64m,mode=1777
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    init: true
     restart: "no"
 
 volumes:
   db_data:
+    driver: local
+
+networks:
+  app_net:
+    driver: bridge
+  data_net:
+    driver: bridge
+    internal: true
