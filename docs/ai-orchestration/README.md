@@ -77,6 +77,17 @@ de publicação HTTPS futura, e o usuário será avisado antes de qualquer teste
 tela. O resultado da fase é `releasePreflightReady=true` e `deployGo=false`. Consulte
 `ORCHESTRA_PREFLIGHT_RELEASE_HOMOLOGAVEL_17D.md`.
 
+A Fase 18A abre a frente de homologação funcional local pela UI e prepara o teste
+direto em tela pelo usuário. A entrega inventaria rotas, páginas, menus, botões,
+formulários, CRUDs, APIs e permissões; fornece matriz JSON, checklist manual, templates
+de evidência/achados e gates offline. Todos os itens começam em `not-tested`: a 18A
+organiza a execução manual, mas ainda não corrige bugs, não altera frontend/backend
+funcionais, não executa deploy/produção, não chama MCP real nem provider externo. Na
+UI, cadastro/binding/readiness/discovery MCP, embeddings reais e envio de
+Chat/AgentRun permanecem explicitamente bloqueados. A próxima fase sugerida é 18B para
+execução manual guiada ou correções funcionais aceitas, conforme as evidências.
+Consulte `ORCHESTRA_HOMOLOGACAO_FUNCIONAL_UI_18A.md` e os artefatos em `ui/`.
+
 A Fase 14H consolida o MVP tecnico da integracao com Agno Runtime, adicionando handoff operacional, checklist de homologacao/rollback e smoke seguro de MVP para runtime HTTP minimo e fronteira de frontend, sem feature nova, migration, frontend ou mudanca de defaults.
 
 A Fase 15C adiciona conversas persistentes privadas por usuario no Chat, mensagens persistidas, arquivamento logico, envio de mensagem pelo backend de conversa e resposta do assistente vinculada ao `AgentRun`.
@@ -188,6 +199,12 @@ Topicos esperados:
 - `ORCHESTRA_PLANO_DEPLOY_HOMOLOGADO_17A.md`: plano operacional Local → HTTPS com matriz de pré-requisitos/go-no-go, janela, responsáveis, evidências e rollback; o deploy real não ocorreu.
 - `ORCHESTRA_HARDENING_COMPOSE_NGINX_17B.md`: hardening offline de Compose, Dockerfiles, Nginx, env examples e gates estáticos; sem deploy, chamada real, MCP real ou UI/CRUD MCP.
 - `ORCHESTRA_INVENTARIO_SECRETS_VARIAVEIS_17C.md`: inventário offline governado de configuração e secrets, sem valores reais ou `.env` operacional; inclui owners, rotação, evidência sanitizada e gates de publicação/provider/MCP.
+- `ORCHESTRA_PREFLIGHT_RELEASE_HOMOLOGAVEL_17D.md`: preflight e manifesto do candidato de release homologável, com `deployGo=false` e nenhuma execução real.
+- `ORCHESTRA_HOMOLOGACAO_FUNCIONAL_UI_18A.md`: runbook que abre e governa a preparação da homologação funcional local pela interface, sem correções ou execução externa.
+- `ui/ORCHESTRA_UI_INVENTARIO_18A.md`: inventário estático de rotas, telas, menus, ações, formulários, CRUDs, APIs, guardas e estados.
+- `ui/ORCHESTRA_UI_HOMOLOGATION_MATRIX_18A.json`: matriz machine-readable com todos os itens inicialmente `not-tested`.
+- `ui/ORCHESTRA_UI_CHECKLIST_MANUAL_18A.md`: sequência prática para teste manual pelo usuário no navegador local.
+- `ui/ORCHESTRA_UI_BUG_TEMPLATE_18A.md`: templates separados de bugs, melhorias, ajustes, dúvidas e evidências aprovadas.
 - `ORCHESTRA_LLM_PROVIDER_INTEGRATION.md`: catalogo LLM, provider local deterministico, providers externos fail-closed e eventos LLM em AgentRun.
 - `ORCHESTRA_RAG_SEMANTICO_DISCOVERY.md`: discovery tecnico da Fase 10A para RAG semantico, embeddings e vector store.
 - `ORCHESTRA_VECTOR_STORE_EMBEDDING_CONTRACT.md`: decisao tecnica da Fase 10B para pgvector, tabela de embeddings, readiness semantico e fail-closed.

@@ -235,6 +235,30 @@ Nenhum modo chama rede ou DNS, executa `curl`/`wget`, Docker Compose, deploy, mi
 rollback, MCP/tool, provider externo, browser, UI/CRUD, leitura de secret ou alteração
 de arquivo.
 
+## Handoff para a Fase 18A
+
+A Fase 18A recebe o gap `uiCrudTested=false` da 17D e abre uma frente separada de
+homologação funcional **local** pela interface. Ela inventaria rotas, telas, menus,
+botões, formulários, CRUDs, chamadas de API e permissões e prepara o usuário para o
+primeiro teste direto em tela por checklist manual.
+
+Esse handoff não altera o resultado da 17D:
+
+- `releasePreflightReady=true` continua sendo prontidão documental;
+- `deployGo=false` permanece inalterado;
+- a 18A não executa produção/deploy;
+- a 18A não corrige bugs ou altera frontend/backend funcionais;
+- a 18A não cria servidor MCP, não associa MCP a Assistant e não executa MCP real;
+- a 18A não executa provider externo, embeddings reais ou Chat/AgentRun
+  externo-capable;
+- todos os itens da nova matriz começam em `not-tested`;
+- qualquer teste prático será executado manualmente pelo usuário no ambiente local.
+
+O checklist anterior “antes de teste direto na tela” continua válido para o cenário
+futuro de MCP/produção. Para a homologação estritamente local e fail-closed da 18A, a
+fonte canônica passa a ser
+`ui/ORCHESTRA_UI_CHECKLIST_MANUAL_18A.md`.
+
 ## Próximos passos sugeridos
 
 1. revisar e aceitar o candidato com Release Manager, Platform, Security, DBA e IAM;
@@ -243,7 +267,8 @@ de arquivo.
 4. completar backup/restore, configuração e evidências fora do Git;
 5. executar a janela futura seguindo 17A, inicialmente com integrações fechadas;
 6. validar publicação HTTPS antes de abrir qualquer provider, MCP ou tool;
-7. abrir fase separada e avisar o usuário antes de teste direto na tela.
+7. usar a 18A para organizar o teste direto local, mantendo qualquer execução externa
+   dependente de publicação e autorização futuras.
 
 Resultado esperado da fase:
 `RELEASE_PREFLIGHT_READY=true`, `DEPLOY_GO=false`, ambiente local e nenhuma execução real.
