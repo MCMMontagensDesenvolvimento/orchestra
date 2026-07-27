@@ -88,6 +88,9 @@ jobs:
       - name: Run 17C secrets and production variables inventory static gate
         run: scripts/smoke-secrets-variaveis-17c.sh --dry-run
 
+      - name: Run 17D homologable release preflight static gate
+        run: scripts/smoke-release-homologavel-17d.sh --dry-run
+
       - name: Run static production preflight
         run: scripts/preflight-prod-runtime-16o.sh --dry-run
 

@@ -28,6 +28,17 @@
 > continua dependente de publicação HTTPS futura e de aviso ao usuário. O runbook
 > vigente é `ORCHESTRA_INVENTARIO_SECRETS_VARIAVEIS_17C.md`.
 
+> Atualização de 27 de julho de 2026 — 17D: o estado versionado foi consolidado como
+> candidato de release homologável por runbook, manifesto JSON e gates offline. A 17D é
+> preflight, não deploy: o ambiente segue local, nenhum valor real foi coletado, nenhum
+> `.env` real foi criado e as URLs continuam planejadas/inativas, somente documentais.
+> Não houve chamada real, provider externo, MCP/tool real ou teste UI/CRUD MCP; nenhum
+> endpoint/secret foi materializado em env examples, Compose, CI ou código funcional.
+> A primeira execução real da tool depende de publicação HTTPS futura, e o usuário será
+> avisado antes do teste direto na tela. Estado: `releasePreflightReady=true`,
+> `deployGo=false`. O runbook vigente é
+> `ORCHESTRA_PREFLIGHT_RELEASE_HOMOLOGAVEL_17D.md`.
+
 ## 0. Resumo Executivo
 
 O Orchestra é hoje um **control plane corporativo de IA em estágio de MVP técnico avançado / homologação local**, com frontend React, API Express, persistência PostgreSQL/Prisma, governança de assistentes, conversas persistentes, `AgentRun`, Knowledge/RAG, catálogo MCP, auditoria, observabilidade técnica, avaliações determinísticas e um bridge Python/Agno executável por HTTP. O projeto já ultrapassou a condição de protótipo puramente visual: os principais domínios têm rotas, serviços, repositórios, modelos Prisma e testes reais. Evidências centrais: `frontend/src/App.tsx`, `backend/src/app/routes.ts`, `backend/prisma/schema.prisma`, `backend/src/modules/agent-runs`, `backend/src/modules/knowledge`, `backend/src/modules/runtime` e `runtime/agno-bridge`.

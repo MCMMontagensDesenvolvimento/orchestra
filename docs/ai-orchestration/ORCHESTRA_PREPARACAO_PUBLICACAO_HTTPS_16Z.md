@@ -1,5 +1,14 @@
 # Orchestra — Preparação da publicação HTTPS 16Z
 
+> Handoff 17D: esta preparação permanece exclusivamente offline e integra um candidato
+> de release homologável, não um deploy. O ambiente segue local, nenhum valor real foi
+> coletado, nenhum `.env` real foi criado e as URLs continuam planejadas/inativas,
+> somente documentais. A 17D não executou chamada, provider, MCP/tool real ou UI/CRUD
+> MCP e não materializou endpoint/secret em env examples, Compose, CI ou código
+> funcional. A primeira execução real da tool depende de publicação HTTPS futura, e o
+> usuário será avisado antes do teste direto na tela. Decisão 17D:
+> `releasePreflightReady=true`, `deployGo=false`.
+
 ## Objetivo
 
 A Fase 16Z prepara o Orchestra para uma futura publicação HTTPS homologável. A entrega organiza a topologia alvo, os requisitos operacionais, os checklists de segurança, o preflight offline e o smoke de regressão necessários para que uma publicação manual posterior seja verificável e reversível.
