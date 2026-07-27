@@ -1,5 +1,13 @@
 # Orchestra — Inventário governado de secrets e variáveis (Fase 17C)
 
+> Handoff 17D: o inventário permanece sem valores reais e integra o preflight de release
+> homologável, não uma implantação. Nenhum `.env` real foi criado; o ambiente segue
+> local e as URLs continuam planejadas/inativas. A 17D não executou deploy, chamada
+> externa, provider, MCP/tool real ou UI/CRUD MCP e não materializou endpoint/secret em
+> env examples, Compose, CI ou código funcional. A primeira execução real da tool
+> continua dependente de publicação HTTPS futura, e o usuário será avisado antes do
+> teste direto na tela. Decisão 17D: `releasePreflightReady=true`, `deployGo=false`.
+
 ## Objetivo
 
 A Fase 17C cria o inventário governado, offline e sem valores reais das configurações

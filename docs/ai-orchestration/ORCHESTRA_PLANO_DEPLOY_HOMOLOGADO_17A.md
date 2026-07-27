@@ -1,5 +1,13 @@
 # Orchestra — Plano de deploy homologado Local → HTTPS 17A
 
+> Handoff 17D: o plano permanece não executado e agora é entrada do preflight de release
+> homologável. O ambiente segue local, nenhum valor real foi coletado, nenhum `.env`
+> real foi criado e as URLs continuam planejadas/inativas, somente documentais. A 17D
+> não executou deploy, chamada, provider, MCP/tool real ou UI/CRUD MCP e não materializou
+> endpoint/secret em env examples, Compose, CI ou código funcional. A primeira execução
+> real da tool depende de publicação HTTPS futura, e o usuário será avisado antes do
+> teste direto na tela. Decisão 17D: `releasePreflightReady=true`, `deployGo=false`.
+
 ## Objetivo
 
 A Fase 17A transforma a preparação offline da 16Z em um plano operacional homologável para uma futura implantação controlada do Orchestra, do ambiente local para HTTPS. O plano organiza pré-requisitos, decisões, responsáveis, janela, execução manual proposta, evidências, critérios de interrupção e rollback.

@@ -67,6 +67,16 @@ permanecem fail-closed e UI/CRUD MCP continua fora de escopo. A primeira execuç
 da tool depende de publicação HTTPS futura e o usuário será avisado antes do teste
 direto. Consulte `ORCHESTRA_INVENTARIO_SECRETS_VARIAVEIS_17C.md`.
 
+A Fase 17D consolida um preflight de release homologável sem deploy, com runbook,
+manifesto JSON, matriz GO/NO-GO e gates estritamente offline. O estado permanece local,
+nenhum valor real foi coletado, nenhum `.env` real foi criado e as URLs seguem
+planejadas/inativas, somente documentais. Não houve deploy, chamada real, provider
+externo, MCP/tool real ou teste UI/CRUD MCP; nenhum endpoint/secret foi materializado em
+env examples, Compose, CI ou código funcional. A primeira execução real da tool depende
+de publicação HTTPS futura, e o usuário será avisado antes de qualquer teste direto na
+tela. O resultado da fase é `releasePreflightReady=true` e `deployGo=false`. Consulte
+`ORCHESTRA_PREFLIGHT_RELEASE_HOMOLOGAVEL_17D.md`.
+
 A Fase 14H consolida o MVP tecnico da integracao com Agno Runtime, adicionando handoff operacional, checklist de homologacao/rollback e smoke seguro de MVP para runtime HTTP minimo e fronteira de frontend, sem feature nova, migration, frontend ou mudanca de defaults.
 
 A Fase 15C adiciona conversas persistentes privadas por usuario no Chat, mensagens persistidas, arquivamento logico, envio de mensagem pelo backend de conversa e resposta do assistente vinculada ao `AgentRun`.

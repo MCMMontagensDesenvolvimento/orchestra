@@ -1,0 +1,187 @@
+{
+  "phase": "17D",
+  "name": "Preflight de Release Homologável sem Deploy",
+  "baseBranch": "main",
+  "deployment": false,
+  "realExecution": false,
+  "secretValuesRead": false,
+  "uiCrudTested": false,
+  "mcpRealExecuted": false,
+  "providerRealExecuted": false,
+  "containsRealValues": false,
+  "releasePreflightReady": true,
+  "deployGo": false,
+  "requiresManualDeployWindow": true,
+  "plannedUrls": {
+    "documentationOnly": true,
+    "plannedInactive": true,
+    "frontend": "https://orchestra.mcm.eng.br",
+    "api": "https://api.orchestra.mcm.eng.br"
+  },
+  "includedPhases": [
+    "16Z",
+    "17A",
+    "17B",
+    "17C",
+    "17D"
+  ],
+  "requiredArtifacts": [
+    "docs/ai-orchestration/README.md",
+    "docs/ai-orchestration/ORCHESTRA_ESTADO_ATUAL_PROJETO.md",
+    "docs/ai-orchestration/ORCHESTRA_PREPARACAO_PUBLICACAO_HTTPS_16Z.md",
+    "docs/ai-orchestration/ORCHESTRA_PLANO_DEPLOY_HOMOLOGADO_17A.md",
+    "docs/ai-orchestration/ORCHESTRA_HARDENING_COMPOSE_NGINX_17B.md",
+    "docs/ai-orchestration/ORCHESTRA_INVENTARIO_SECRETS_VARIAVEIS_17C.md",
+    "docs/ai-orchestration/ORCHESTRA_PREFLIGHT_RELEASE_HOMOLOGAVEL_17D.md",
+    "docs/ai-orchestration/release/ORCHESTRA_RELEASE_MANIFEST_17D.json",
+    "docs/ai-orchestration/secrets/ORCHESTRA_SECRETS_INVENTORY_17C.json",
+    "docker-compose.prod.yml",
+    "backend/Dockerfile.prod",
+    "frontend/Dockerfile.prod",
+    "frontend/nginx.conf",
+    ".env.example",
+    "backend/.env.example",
+    "frontend/.env.example",
+    "runtime/agno-bridge/.env.example",
+    ".github/workflows/ci.yml"
+  ],
+  "requiredScripts": [
+    "scripts/preflight-publicacao-https-16z.sh",
+    "scripts/smoke-publicacao-https-16z.sh",
+    "scripts/preflight-plano-deploy-17a.sh",
+    "scripts/smoke-plano-deploy-17a.sh",
+    "scripts/preflight-hardening-compose-nginx-17b.sh",
+    "scripts/smoke-hardening-compose-nginx-17b.sh",
+    "scripts/preflight-secrets-variaveis-17c.sh",
+    "scripts/smoke-secrets-variaveis-17c.sh",
+    "scripts/preflight-release-homologavel-17d.sh",
+    "scripts/smoke-release-homologavel-17d.sh"
+  ],
+  "requiredDocs": [
+    "docs/ai-orchestration/README.md",
+    "docs/ai-orchestration/ORCHESTRA_ESTADO_ATUAL_PROJETO.md",
+    "docs/ai-orchestration/ORCHESTRA_PREPARACAO_PUBLICACAO_HTTPS_16Z.md",
+    "docs/ai-orchestration/ORCHESTRA_PLANO_DEPLOY_HOMOLOGADO_17A.md",
+    "docs/ai-orchestration/ORCHESTRA_HARDENING_COMPOSE_NGINX_17B.md",
+    "docs/ai-orchestration/ORCHESTRA_INVENTARIO_SECRETS_VARIAVEIS_17C.md",
+    "docs/ai-orchestration/ORCHESTRA_PREFLIGHT_RELEASE_HOMOLOGAVEL_17D.md"
+  ],
+  "requiredPolicies": [
+    {
+      "id": "mcp-remote-fail-closed",
+      "scope": "MCP remote discovery and execution",
+      "failClosed": true
+    },
+    {
+      "id": "mcp-corporate-fail-closed",
+      "scope": "Corporate read-only adapter and operational origin",
+      "failClosed": true
+    },
+    {
+      "id": "llm-providers-fail-closed",
+      "scope": "OpenAI, Azure OpenAI, Anthropic and provider execution",
+      "failClosed": true
+    },
+    {
+      "id": "agno-fail-closed",
+      "scope": "Agno execution and bridge provider",
+      "failClosed": true
+    },
+    {
+      "id": "embeddings-fail-closed",
+      "scope": "Embedding provider and execution",
+      "failClosed": true
+    },
+    {
+      "id": "external-tools-fail-closed",
+      "scope": "External tools, HTTP tool calls and gateway",
+      "failClosed": true
+    }
+  ],
+  "deploymentBlockingGates": [
+    {
+      "id": "manual-window-not-approved",
+      "blocksDeploy": true,
+      "reason": "A future change window and named GO/NO-GO authority are required."
+    },
+    {
+      "id": "infrastructure-not-validated",
+      "blocksDeploy": true,
+      "reason": "Registry, DNS, TLS, ingress, host and image digests have no live evidence."
+    },
+    {
+      "id": "runtime-secrets-not-provisioned",
+      "blocksDeploy": true,
+      "reason": "Real values must be provisioned outside Git and were not read in 17D."
+    },
+    {
+      "id": "backup-restore-migration-not-validated",
+      "blocksDeploy": true,
+      "reason": "Backup, restore and migration require a future controlled validation."
+    },
+    {
+      "id": "https-application-checks-not-executed",
+      "blocksDeploy": true,
+      "reason": "CORS, cookies, SSO, health and readiness were not tested over live HTTPS."
+    }
+  ],
+  "offlineValidations": [
+    "runbook-and-artifact-presence",
+    "manifest-json-contract",
+    "inventory-17c-json-contract",
+    "ci-17d-smoke-dry-run-only",
+    "env-examples-local-and-fail-closed",
+    "production-compose-fail-closed",
+    "planned-urls-documentation-only",
+    "apparent-secret-absence",
+    "prisma-and-migrations-unchanged",
+    "backend-and-frontend-functional-source-unchanged",
+    "regressions-16s-through-17c"
+  ],
+  "manualNextSteps": [
+    "Approve a named change window and GO/NO-GO authority.",
+    "Provision and validate infrastructure, registry, DNS, TLS and ingress.",
+    "Provision real values in an approved secret manager without committing them.",
+    "Validate backup, restore, migration, CORS, cookies, SSO and observability.",
+    "Deploy first with providers, embeddings, Agno, tools and MCP fail-closed.",
+    "Validate live HTTPS before authorizing any real tool or provider execution.",
+    "Notify the user before opening a separate direct UI/CRUD test phase."
+  ],
+  "goNoGo": [
+    {
+      "id": "release-preflight-candidate",
+      "status": "GO",
+      "evidence": "All static 17D and regression gates pass.",
+      "responsible": "Release Manager",
+      "decision": "Candidate may be homologated; this does not authorize deployment."
+    },
+    {
+      "id": "real-deployment",
+      "status": "NO_GO",
+      "evidence": "Manual window, infrastructure, secrets, backup/restore and live checks remain pending.",
+      "responsible": "Change Manager and Platform",
+      "decision": "Do not deploy until a future approved window."
+    },
+    {
+      "id": "mcp-real-execution",
+      "status": "NO_GO",
+      "evidence": "HTTPS publication, origin, secretRef, egress, audit and supervision remain pending.",
+      "responsible": "Security and MCP Owner",
+      "decision": "Keep MCP and tools fail-closed."
+    },
+    {
+      "id": "ui-crud-mcp-test",
+      "status": "NO_GO",
+      "evidence": "No direct-screen test phase has been approved and the user has not been notified.",
+      "responsible": "Product and QA",
+      "decision": "Do not test UI/CRUD MCP in 17D."
+    },
+    {
+      "id": "external-provider-execution",
+      "status": "NO_GO",
+      "evidence": "Provider secrets, quota, egress and production observability remain pending.",
+      "responsible": "AI Platform and Security",
+      "decision": "Keep providers and embeddings fail-closed."
+    }
+  ]
+}

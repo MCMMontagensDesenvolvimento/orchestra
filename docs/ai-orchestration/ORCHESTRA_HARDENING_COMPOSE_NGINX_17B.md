@@ -1,5 +1,14 @@
 # Orchestra — Hardening offline de Compose, imagens e Nginx (Fase 17B)
 
+> Handoff 17D: estes artefatos endurecidos integram um candidato de release
+> homologável, não um deploy. O ambiente segue local, nenhum valor real foi coletado,
+> nenhum `.env` real foi criado e as URLs permanecem planejadas/inativas, somente
+> documentais. A 17D não executou chamada, provider, MCP/tool real ou UI/CRUD MCP e não
+> materializou endpoint/secret em env examples, Compose, CI ou código funcional. A
+> primeira execução real da tool depende de publicação HTTPS futura, e o usuário será
+> avisado antes do teste direto na tela. Decisão 17D:
+> `releasePreflightReady=true`, `deployGo=false`.
+
 ## Objetivo
 
 A Fase 17B endurece, de forma exclusivamente estática e offline, os artefatos que poderão
