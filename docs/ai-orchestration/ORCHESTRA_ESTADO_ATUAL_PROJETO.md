@@ -39,9 +39,29 @@
 > `deployGo=false`. O runbook vigente é
 > `ORCHESTRA_PREFLIGHT_RELEASE_HOMOLOGAVEL_17D.md`.
 
+> Atualização de 27 de julho de 2026 — 18A: foi aberta a frente de homologação
+> funcional local pela UI. A fase inventaria estaticamente rotas, telas, menus,
+> botões, formulários, CRUDs, APIs e permissões e prepara matriz JSON, checklist
+> manual e templates para o usuário testar diretamente no navegador local. Todos os
+> itens permanecem `not-tested` até a execução manual: a 18A não corrige bugs, não
+> altera Prisma/migrations ou fontes funcionais, não faz deploy/produção, não executa
+> MCP real, provider externo, embeddings reais ou Chat/AgentRun externo-capable.
+> Cadastro/binding/readiness/discovery MCP pela UI também permanecem bloqueados. A
+> próxima fase será 18B para execução manual guiada ou correções funcionais aceitas,
+> conforme as evidências. O runbook vigente é
+> `ORCHESTRA_HOMOLOGACAO_FUNCIONAL_UI_18A.md`.
+
 ## 0. Resumo Executivo
 
 O Orchestra é hoje um **control plane corporativo de IA em estágio de MVP técnico avançado / homologação local**, com frontend React, API Express, persistência PostgreSQL/Prisma, governança de assistentes, conversas persistentes, `AgentRun`, Knowledge/RAG, catálogo MCP, auditoria, observabilidade técnica, avaliações determinísticas e um bridge Python/Agno executável por HTTP. O projeto já ultrapassou a condição de protótipo puramente visual: os principais domínios têm rotas, serviços, repositórios, modelos Prisma e testes reais. Evidências centrais: `frontend/src/App.tsx`, `backend/src/app/routes.ts`, `backend/prisma/schema.prisma`, `backend/src/modules/agent-runs`, `backend/src/modules/knowledge`, `backend/src/modules/runtime` e `runtime/agno-bridge`.
+
+A frente corrente 18A não muda essa implementação: ela estabelece a governança para
+homologá-la manualmente pela interface local. A matriz cobre as rotas canônicas e
+legadas, superfícies de Auth, Dashboard, Assistants, Knowledge, MCP, Chat, Analytics,
+Audit e Admin, seus estados e permissões inferíveis. O resultado desta fase é material
+de teste preparado, não UI aprovada: `manualBrowserTestingPrepared=true`,
+`bugFixing=false`, `deployment=false`, `realMcpExecution=false` e
+`realProviderExecution=false`.
 
 A trilha recente consolidou contexto conversacional, provider externo governado, observabilidade de Chat, execução por `agno_http`, RAG resolvido pelo control plane, descriptors de tools, autenticação do canal de runtime, gateway sandbox, bridge Agno em Docker, Knowledge/RAG operacional e política de escopo de resposta. A matriz Chat/RAG está codificada em testes e smokes estáticos. Evidências: documentos 15D–16K em `docs/ai-orchestration`, `backend/tests/api/agent-runs.test.ts`, `scripts/smoke-chat-rag-operacional-16k.sh` e `scripts/smoke-knowledge-rag-16i.sh`.
 

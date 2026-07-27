@@ -91,6 +91,9 @@ jobs:
       - name: Run 17D homologable release preflight static gate
         run: scripts/smoke-release-homologavel-17d.sh --dry-run
 
+      - name: Run 18A local UI homologation preparation static gate
+        run: scripts/smoke-homologacao-ui-18a.sh --dry-run
+
       - name: Run static production preflight
         run: scripts/preflight-prod-runtime-16o.sh --dry-run
 
