@@ -2,6 +2,7 @@
 set -euo pipefail
 
 MODE="${1:---dry-run}"
+STRICT_BASELINE=false
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 RUNBOOK="$ROOT_DIR/docs/ai-orchestration/ORCHESTRA_HOMOLOGACAO_FUNCIONAL_UI_18A.md"
 INVENTORY="$ROOT_DIR/docs/ai-orchestration/ui/ORCHESTRA_UI_INVENTARIO_18A.md"
@@ -20,12 +21,15 @@ pass_count=0
 
 usage() {
   cat <<'EOF'
-Usage: scripts/smoke-homologacao-ui-18a.sh [--dry-run|--help]
+Usage: scripts/smoke-homologacao-ui-18a.sh [--dry-run|--strict-baseline|--help]
 
 The dry-run validates only local/versioned 18A preparation and offline regressions.
 It does not call network or planned production URLs, deploy, start Docker Compose,
 migrate, execute MCP/provider/embeddings, open a browser, test UI, collect secrets,
 or change files.
+
+The default dry-run accepts governed functional changes made after 18A.
+Use --strict-baseline to enforce the historical 18A source fingerprints.
 EOF
 }
 
@@ -116,6 +120,9 @@ reject_executable_operations() {
 case "$MODE" in
   --dry-run)
     ;;
+  --strict-baseline)
+    STRICT_BASELINE=true
+    ;;
   --help|-h)
     usage
     exit 0
@@ -134,7 +141,7 @@ for script in "$PREFLIGHT" "$SMOKE" "$SMOKE_17D" "$SMOKE_17C" "$SMOKE_17B" "$SMO
 done
 
 HELP_OUTPUT="$("$PREFLIGHT" --help)"
-for required_mode in --dry-run --check-matrix --template --help; do
+for required_mode in --dry-run --strict-baseline --check-matrix --template --help; do
   grep -Fq -- "$required_mode" <<<"$HELP_OUTPUT" || fail "preflight mode $required_mode"
   pass "preflight mode $required_mode"
 done
@@ -191,7 +198,7 @@ do
   pass "template line $line"
 done
 
-PREFLIGHT_OUTPUT="$("$PREFLIGHT" --dry-run)" \
+PREFLIGHT_OUTPUT="$("$PREFLIGHT" "$MODE")" \
   || fail '18A preflight dry-run execution'
 for marker in \
   'uiHomologation=true' \
@@ -231,10 +238,14 @@ reject_pattern "$CI" \
   'migration in CI'
 
 for regression in "$SMOKE_17D" "$SMOKE_17C" "$SMOKE_17B" "$SMOKE_17A" "$SMOKE_16Z"; do
-  "$regression" --dry-run >/dev/null \
+  regression_mode=--dry-run
+  if [ "$regression" = "$SMOKE_17D" ] && [ "$STRICT_BASELINE" = true ]; then
+    regression_mode=--strict-baseline
+  fi
+  "$regression" "$regression_mode" >/dev/null \
     || fail "offline regression ${regression#"$ROOT_DIR/"}"
   pass "offline regression ${regression#"$ROOT_DIR/"}"
 done
 
-printf '\n18A UI smoke summary: PASS=%d FAIL=0 uiHomologation=true deployment=false productionTest=false realMcpExecution=false realProviderExecution=false bugFixing=false manualBrowserTestingPrepared=true regressions=17D,17C,17B,17A,16Z\n' \
-  "$pass_count"
+printf '\n18A UI smoke summary: PASS=%d FAIL=0 strictBaseline=%s uiHomologation=true deployment=false productionTest=false realMcpExecution=false realProviderExecution=false bugFixing=false manualBrowserTestingPrepared=true regressions=17D,17C,17B,17A,16Z\n' \
+  "$pass_count" "$STRICT_BASELINE"

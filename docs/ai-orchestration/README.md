@@ -88,6 +88,32 @@ Chat/AgentRun permanecem explicitamente bloqueados. A próxima fase sugerida é 
 execução manual guiada ou correções funcionais aceitas, conforme as evidências.
 Consulte `ORCHESTRA_HOMOLOGACAO_FUNCIONAL_UI_18A.md` e os artefatos em `ui/`.
 
+A Fase 18C corrige o Wizard de Assistants após a triagem 18B: adota
+`version.configuration` com schema versionado como fonte canônica das 12 etapas,
+compila `instructions` com seções determinísticas, reidrata edição pelo detalhe real,
+preserva versões legadas sem split heurístico, separa área de `workspaceId` e sincroniza
+Knowledge Bindings antes de publicar. MCP permanece somente informativo no Wizard.
+Também foram corrigidos os layouts mobile do catálogo, stepper, scores, revisão e ações.
+Não houve migration, alteração Prisma, deploy, provider externo, MCP real, embeddings ou
+Chat/AgentRun. Consulte
+`ui/ORCHESTRA_UI_CORRECAO_WIZARD_ASSISTANTS_18C.md`.
+
+A etapa 18C.1 adiciona smoke/preflight próprios para essa correção funcional e
+torna os gates históricos 17D/18A phase-aware. O modo padrão `--dry-run`
+continua bloqueando secrets, URLs de produção, deploy, Compose live, migration,
+MCP/provider real, embeddings, Chat/AgentRun externo e browser live, mas não
+falha apenas porque uma fase posterior alterou fonte funcional de forma
+governada. A identidade histórica permanece verificável com
+`--strict-baseline`, sem regravar hashes. A CI executa
+`scripts/smoke-correcao-wizard-assistants-18c.sh --dry-run`; typecheck, build e
+testes direcionados permanecem validações explícitas. A regressão transitiva
+17D → 17C → 17B permanece ativa; os dois gates transitivos também aceitam
+mudança funcional posterior no dry-run e preservam a auditoria histórica no
+modo estrito. A suíte frontend completa permanece 95/96: a única falha é o
+baseline preexistente de Analytics que espera nenhuma chamada, enquanto a
+implementação existente consulta `/ai-observability/runtime-runs`; esse
+desalinhamento não possui diff na 18C e continua fora do escopo.
+
 A Fase 14H consolida o MVP tecnico da integracao com Agno Runtime, adicionando handoff operacional, checklist de homologacao/rollback e smoke seguro de MVP para runtime HTTP minimo e fronteira de frontend, sem feature nova, migration, frontend ou mudanca de defaults.
 
 A Fase 15C adiciona conversas persistentes privadas por usuario no Chat, mensagens persistidas, arquivamento logico, envio de mensagem pelo backend de conversa e resposta do assistente vinculada ao `AgentRun`.
@@ -205,6 +231,9 @@ Topicos esperados:
 - `ui/ORCHESTRA_UI_HOMOLOGATION_MATRIX_18A.json`: matriz machine-readable com todos os itens inicialmente `not-tested`.
 - `ui/ORCHESTRA_UI_CHECKLIST_MANUAL_18A.md`: sequência prática para teste manual pelo usuário no navegador local.
 - `ui/ORCHESTRA_UI_BUG_TEMPLATE_18A.md`: templates separados de bugs, melhorias, ajustes, dúvidas e evidências aprovadas.
+- `ui/ORCHESTRA_UI_TRIAGEM_ASSISTANTS_WIZARD_18B.md`: triagem read-only e causa raiz dos bugs de persistência, reidratação, bindings e responsividade do Wizard.
+- `ui/ORCHESTRA_UI_CORRECAO_WIZARD_ASSISTANTS_18C.md`: correção funcional do contrato estruturado, fallback legado, Knowledge Bindings e responsividade, sem execução externa.
+- `scripts/preflight-correcao-wizard-assistants-18c.sh` e `scripts/smoke-correcao-wizard-assistants-18c.sh`: gate phase-aware, offline e read-only da correção 18C, com allowlist funcional e guardrails obrigatórios.
 - `ORCHESTRA_LLM_PROVIDER_INTEGRATION.md`: catalogo LLM, provider local deterministico, providers externos fail-closed e eventos LLM em AgentRun.
 - `ORCHESTRA_RAG_SEMANTICO_DISCOVERY.md`: discovery tecnico da Fase 10A para RAG semantico, embeddings e vector store.
 - `ORCHESTRA_VECTOR_STORE_EMBEDDING_CONTRACT.md`: decisao tecnica da Fase 10B para pgvector, tabela de embeddings, readiness semantico e fail-closed.

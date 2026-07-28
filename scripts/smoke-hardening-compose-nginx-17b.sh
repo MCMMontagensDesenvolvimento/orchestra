@@ -2,6 +2,7 @@
 set -euo pipefail
 
 MODE="${1:---dry-run}"
+STRICT_BASELINE=false
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 RUNBOOK_17B="$ROOT_DIR/docs/ai-orchestration/ORCHESTRA_HARDENING_COMPOSE_NGINX_17B.md"
 PREFLIGHT="$ROOT_DIR/scripts/preflight-hardening-compose-nginx-17b.sh"
@@ -20,17 +21,24 @@ pass_count=0
 
 usage() {
   cat <<'EOF'
-Usage: scripts/smoke-hardening-compose-nginx-17b.sh [--dry-run|--help]
+Usage: scripts/smoke-hardening-compose-nginx-17b.sh [--dry-run|--strict-baseline|--help]
 
 The dry-run validates only local/versioned state and invokes offline regression gates.
 It does not call DNS/network or curl, start or run Docker Compose, deploy, migrate,
 execute MCP/provider code, resolve a secret, test UI/CRUD, or change a file.
+
+The default dry-run accepts governed functional changes made after 17B.
+Use --strict-baseline to enforce the historical 17B source snapshot.
 EOF
 }
 
 pass() {
   pass_count=$((pass_count + 1))
   printf 'PASS %s\n' "$1"
+}
+
+warn() {
+  printf 'WARN %s\n' "$1" >&2
 }
 
 fail() {
@@ -98,6 +106,7 @@ reject_executable_network_or_mutation() {
 
 case "$MODE" in
   --dry-run) ;;
+  --strict-baseline) STRICT_BASELINE=true ;;
   --help|-h) usage; exit 0 ;;
   *) usage >&2; exit 2 ;;
 esac
@@ -115,7 +124,7 @@ require_executable "$SMOKE"
 require_executable "$SMOKE_17A"
 
 HELP_OUTPUT="$("$PREFLIGHT" --help)"
-for mode in --dry-run --check-prod-artifacts --template --help; do
+for mode in --dry-run --strict-baseline --check-prod-artifacts --template --help; do
   grep -Fq -- "$mode" <<<"$HELP_OUTPUT" || fail "preflight mode $mode"
   pass "preflight mode $mode"
 done
@@ -125,7 +134,7 @@ reject_executable_network_or_mutation "$SMOKE" '17B smoke'
 
 STATUS_BEFORE="$(git -C "$ROOT_DIR" status --short)"
 
-PREFLIGHT_DRY_OUTPUT="$("$PREFLIGHT" --dry-run)" \
+PREFLIGHT_DRY_OUTPUT="$("$PREFLIGHT" "$MODE")" \
   || fail '17B preflight dry-run execution'
 grep -Fq -- 'deployment=false realExecution=false' <<<"$PREFLIGHT_DRY_OUTPUT" \
   || fail 'preflight dry-run does not record the offline boundary'
@@ -279,9 +288,13 @@ then
 fi
 pass 'Prisma schema and migrations are unchanged'
 if git -C "$ROOT_DIR" status --short -- backend/src frontend/src | grep -q .; then
-  fail 'backend or frontend functional source changed'
+  if [ "$STRICT_BASELINE" = true ]; then
+    fail 'backend or frontend functional source differs from the historical 17B baseline'
+  fi
+  warn 'backend or frontend functional source differs from the historical 17B baseline; accepted in forward-compatible dry-run (use --strict-baseline to enforce)'
+else
+  pass 'backend and frontend functional source are unchanged from the historical 17B baseline'
 fi
-pass 'backend and frontend functional source are unchanged'
 
 bash -n "$PREFLIGHT"
 bash -n "$SMOKE"
@@ -293,5 +306,5 @@ grep -Fq -- 'deployment=false realExecution=false' <<<"$REGRESSION_17A_OUTPUT" \
   || fail '17A regression does not preserve the offline boundary'
 pass '17A regression passed and transitively preserves 16Z, 16Y, 16X, 16W, 16V, 16U, 16T and 16S'
 
-printf '\n17B hardening smoke summary: PASS=%d FAIL=0 deployment=false realExecution=false\n' \
-  "$pass_count"
+printf '\n17B hardening smoke summary: PASS=%d FAIL=0 strictBaseline=%s deployment=false realExecution=false\n' \
+  "$pass_count" "$STRICT_BASELINE"

@@ -17,6 +17,14 @@ import {
 } from '@/services/mocks';
 import { mockResponse, mockFind } from '@/services/mocks/mock-utils';
 import { env } from '@/lib/env';
+import {
+  compileAssistantInstructions,
+  inferModelProvider,
+  parseWizardConfiguration,
+  serializeWizardForm,
+} from '@/pages/Assistants/assistantWizard.serialization';
+import { synchronizeKnowledgeBindings } from '@/pages/Assistants/assistantWizard.knowledge';
+import { knowledgeService } from './knowledge.service';
 import { apiClient, type ApiEnvelope, type PaginatedApiEnvelope } from './api/api-client';
 import { endpoints } from './api/endpoints';
 
@@ -195,16 +203,19 @@ const mapAssistant = (assistant: ApiAssistant): Assistant => {
   const latestVersion = assistant.versions?.[0];
   const modelName = latestVersion?.modelName ?? 'not-configured';
   const instructions = latestVersion?.instructions ?? '';
+  const configuration = parseWizardConfiguration(latestVersion?.configuration);
 
   return {
     id: assistant.id,
+    workspaceId: assistant.workspaceId,
     name: assistant.name,
     description: assistant.description ?? '',
-    area: assistant.workspaceId,
+    area: configuration?.identity.area ?? '',
     owner: assistant.createdBy?.name ?? assistant.createdById,
     status: assistant.status,
     model: modelName,
-    fallbackModel: modelName,
+    fallbackModel: configuration?.model.fallbackModel || modelName,
+    modelProvider: latestVersion?.modelProvider ?? undefined,
     temperature: latestVersion?.temperature ?? 0.2,
     version: latestVersion?.version ?? '0.1.0',
     conversations: 0,
@@ -214,11 +225,25 @@ const mapAssistant = (assistant: ApiAssistant): Assistant => {
     updatedAt: assistant.updatedAt,
     knowledgeBases: [],
     mcpTools: [],
-    objective: assistant.description ?? '',
-    persona: latestVersion?.displayName,
+    objective: configuration?.objective.main ?? '',
+    tasks: configuration?.objective.tasks ?? '',
+    prohibitedTasks: configuration?.objective.prohibitedTasks ?? '',
+    persona: configuration?.persona.description ?? '',
+    tone: configuration?.voice.tone ?? '',
+    humor: configuration?.voice.humor ?? '',
+    formality: configuration?.voice.formality ?? '',
+    rules: configuration?.rules.behavior ?? '',
+    restrictions: configuration?.rules.restrictions ?? '',
+    criticalInstructions: configuration?.rules.criticalInstructions ?? '',
+    responseFormat: configuration?.format.responseFormat ?? '',
+    positiveExamples: configuration?.examples.positive ?? '',
+    negativeExamples: configuration?.examples.negative ?? '',
+    limits: configuration?.limits.limits ?? '',
+    escalationPolicy: configuration?.limits.escalationPolicy ?? '',
     instructions,
-    tasks: instructions,
-    environment: assistant.status === 'published' ? 'production' : 'staging',
+    configuration: latestVersion?.configuration ?? null,
+    environment: configuration?.identity.environment
+      || (assistant.status === 'published' ? 'production' : 'staging'),
     activePublication: assistant.activePublication ?? null,
     executionPolicy: assistant.executionPolicy ? mapExecutionPolicy(assistant.executionPolicy) : undefined,
   } as Assistant;
@@ -234,6 +259,10 @@ const mapVersion = (version: ApiAssistantVersion): AssistantVersion => ({
   status: version.status,
   description: version.description,
   instructions: version.instructions,
+  modelProvider: version.modelProvider,
+  modelName: version.modelName,
+  temperature: version.temperature,
+  configuration: version.configuration ?? null,
   publishedAt: version.publishedAt,
   archivedAt: version.archivedAt,
 });
@@ -285,27 +314,63 @@ const mapTestResult = (test: ApiAssistantTestResult): AssistantTestResult => ({
   notes: test.notes,
 });
 
-const buildAssistantPayload = (formData: AssistantWizardFormData) => ({
-  name: formData.name,
-  description: formData.description || formData.objective,
-  status: 'draft',
-  version: {
-    displayName: formData.persona || 'Initial draft',
-    instructions: [
-      formData.objective,
-      formData.tasks,
-      formData.rules,
-      formData.restrictions,
-      formData.criticalInstructions,
-      formData.responseFormat,
-      formData.limits,
-      formData.escalationPolicy,
-    ].filter(Boolean).join('\n\n'),
-    modelProvider: formData.model.includes('claude') ? 'anthropic' : 'openai',
-    modelName: formData.model,
-    temperature: Number(formData.temperature || 0.2),
-  },
-});
+export const buildAssistantPayload = (formData: AssistantWizardFormData) => {
+  const configuration = serializeWizardForm(formData);
+  return {
+    name: formData.name,
+    description: formData.description,
+    status: 'draft',
+    version: {
+      displayName: formData.name.trim().slice(0, 120) || 'Initial draft',
+      instructions: compileAssistantInstructions(configuration),
+      modelProvider: formData.modelProvider || inferModelProvider(formData.model),
+      modelName: formData.model,
+      temperature: Number(formData.temperature || 0.2),
+      configuration,
+    },
+  };
+};
+
+export type AssistantWizardSavePhase = 'knowledge-bindings' | 'publish';
+
+export class AssistantWizardSaveError extends Error {
+  constructor(
+    readonly phase: AssistantWizardSavePhase,
+    readonly assistantId: string,
+  ) {
+    super(
+      phase === 'knowledge-bindings'
+        ? 'O assistente foi mantido como rascunho, mas os vínculos de conhecimento não foram sincronizados.'
+        : 'O assistente foi salvo como rascunho, mas a publicação não foi concluída.',
+    );
+    this.name = 'AssistantWizardSaveError';
+  }
+}
+
+async function synchronizeAssistantKnowledge(
+  assistantId: string,
+  selectedKnowledgeBaseIds: string[],
+  currentBindings?: Promise<Awaited<ReturnType<typeof knowledgeService.assistantBindings>>>,
+) {
+  try {
+    await synchronizeKnowledgeBindings({
+      assistantId,
+      selectedKnowledgeBaseIds,
+      currentBindings: await (currentBindings ?? knowledgeService.assistantBindings(assistantId)),
+      knowledgeService,
+    });
+  } catch {
+    throw new AssistantWizardSaveError('knowledge-bindings', assistantId);
+  }
+}
+
+async function publishSavedAssistant(assistantId: string) {
+  try {
+    return await assistantsService.publish(assistantId);
+  } catch {
+    throw new AssistantWizardSaveError('publish', assistantId);
+  }
+}
 
 export const assistantsService = {
   async list(): Promise<Assistant[]> {
@@ -320,7 +385,11 @@ export const assistantsService = {
     return mapAssistant(response.data.data);
   },
 
-  async create(formData: AssistantWizardFormData, publish = false): Promise<Assistant> {
+  async create(
+    formData: AssistantWizardFormData,
+    publish = false,
+    syncKnowledgeBindings = true,
+  ): Promise<Assistant> {
     if (env.useMocks) {
       return mockResponse({
         ...mockAssistants[0],
@@ -328,14 +397,29 @@ export const assistantsService = {
         name: formData.name,
         description: formData.description,
         status: publish ? 'published' : 'draft',
+        area: formData.area,
+        model: formData.model,
+        fallbackModel: formData.fallbackModel,
+        temperature: Number(formData.temperature),
+        knowledgeBases: formData.knowledgeBases,
+        configuration: serializeWizardForm(formData),
       });
     }
     const response = await apiClient.post<ApiEnvelope<ApiAssistant>>(endpoints.assistants.list, buildAssistantPayload(formData));
+    const assistantId = response.data.data.id;
+    if (syncKnowledgeBindings) {
+      await synchronizeAssistantKnowledge(assistantId, formData.knowledgeBases, Promise.resolve([]));
+    }
     if (!publish) return mapAssistant(response.data.data);
-    return assistantsService.publish(response.data.data.id);
+    return publishSavedAssistant(assistantId);
   },
 
-  async update(id: string, formData: AssistantWizardFormData, publish = false): Promise<Assistant> {
+  async update(
+    id: string,
+    formData: AssistantWizardFormData,
+    publish = false,
+    syncKnowledgeBindings = true,
+  ): Promise<Assistant> {
     if (env.useMocks) {
       const assistant = mockAssistants.find((item) => item.id === id) ?? mockAssistants[0];
       return mockResponse({
@@ -343,19 +427,27 @@ export const assistantsService = {
         name: formData.name,
         description: formData.description,
         status: publish ? 'published' : assistant.status,
+        area: formData.area,
+        model: formData.model,
+        fallbackModel: formData.fallbackModel,
+        temperature: Number(formData.temperature),
+        knowledgeBases: formData.knowledgeBases,
+        configuration: serializeWizardForm(formData),
       });
     }
     const response = await apiClient.patch<ApiEnvelope<ApiAssistant>>(endpoints.assistants.detail(id), {
       name: formData.name,
-      description: formData.description || formData.objective,
+      description: formData.description,
       status: 'draft',
     });
     await apiClient.post<ApiEnvelope<ApiAssistantVersion>>(endpoints.assistants.versions(id), {
       ...buildAssistantPayload(formData).version,
-      displayName: formData.persona || `Draft ${new Date().toISOString()}`,
     });
+    if (syncKnowledgeBindings) {
+      await synchronizeAssistantKnowledge(id, formData.knowledgeBases);
+    }
     if (!publish) return mapAssistant(response.data.data);
-    return assistantsService.publish(id);
+    return publishSavedAssistant(id);
   },
 
   async archive(id: string): Promise<Assistant> {

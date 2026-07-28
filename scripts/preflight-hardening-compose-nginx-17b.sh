@@ -2,6 +2,7 @@
 set -euo pipefail
 
 MODE="${1:---dry-run}"
+STRICT_BASELINE=false
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 RUNBOOK_17B="$ROOT_DIR/docs/ai-orchestration/ORCHESTRA_HARDENING_COMPOSE_NGINX_17B.md"
 RUNBOOK_17A="$ROOT_DIR/docs/ai-orchestration/ORCHESTRA_PLANO_DEPLOY_HOMOLOGADO_17A.md"
@@ -24,7 +25,8 @@ usage() {
 Usage: scripts/preflight-hardening-compose-nginx-17b.sh [MODE]
 
 Modes:
-  --dry-run                Validate the complete static/offline 17B contract.
+  --dry-run                Validate the static/offline 17B safety contract.
+  --strict-baseline        Also require functional source to match the 17B snapshot.
   --check-prod-artifacts   Validate production Compose, Dockerfiles and Nginx statically.
   --template               Print review, future manual check, evidence and rollback examples.
   --help                   Print this help.
@@ -32,12 +34,19 @@ Modes:
 Every mode is offline, read-only and non-operational. This script never calls network
 or DNS services, executes curl, starts or runs a container, deploys, migrates a database,
 executes MCP/provider code, resolves or prints a secret, or changes a file.
+
+The default dry-run is forward-compatible with governed functional phases after 17B.
+Use --strict-baseline only to audit the original 17B functional-source snapshot.
 EOF
 }
 
 pass() {
   pass_count=$((pass_count + 1))
   printf 'PASS %s\n' "$1"
+}
+
+warn() {
+  printf 'WARN %s\n' "$1" >&2
 }
 
 fail() {
@@ -215,9 +224,13 @@ check_untouched_functional_scope() {
 
   if git -C "$ROOT_DIR" status --short -- backend/src frontend/src | grep -q .
   then
-    fail 'backend or frontend functional source changed'
+    if [ "$STRICT_BASELINE" = true ]; then
+      fail 'backend or frontend functional source differs from the historical 17B baseline'
+    fi
+    warn 'backend or frontend functional source differs from the historical 17B baseline; accepted in forward-compatible dry-run (use --strict-baseline to enforce)'
+  else
+    pass 'backend and frontend functional source are unchanged from the historical 17B baseline'
   fi
-  pass 'backend and frontend functional source are unchanged'
 }
 
 check_ci() {
@@ -432,6 +445,10 @@ case "$MODE" in
   --dry-run)
     run_dry_run
     ;;
+  --strict-baseline)
+    STRICT_BASELINE=true
+    run_dry_run
+    ;;
   --check-prod-artifacts)
     check_prod_artifacts
     ;;
@@ -449,5 +466,5 @@ case "$MODE" in
     ;;
 esac
 
-printf '\n17B hardening preflight summary: mode=%s PASS=%d FAIL=0 deployment=false realExecution=false\n' \
-  "${MODE#--}" "$pass_count"
+printf '\n17B hardening preflight summary: mode=%s PASS=%d FAIL=0 strictBaseline=%s deployment=false realExecution=false\n' \
+  "${MODE#--}" "$pass_count" "$STRICT_BASELINE"

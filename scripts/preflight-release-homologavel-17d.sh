@@ -2,6 +2,7 @@
 set -euo pipefail
 
 MODE="${1:---dry-run}"
+STRICT_BASELINE=false
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 RUNBOOK="$ROOT_DIR/docs/ai-orchestration/ORCHESTRA_PREFLIGHT_RELEASE_HOMOLOGAVEL_17D.md"
 MANIFEST="$ROOT_DIR/docs/ai-orchestration/release/ORCHESTRA_RELEASE_MANIFEST_17D.json"
@@ -21,7 +22,8 @@ usage() {
 Usage: scripts/preflight-release-homologavel-17d.sh [MODE]
 
 Modes:
-  --dry-run            Validate the complete static/offline 17D release contract.
+  --dry-run            Validate the static/offline 17D release and safety contract.
+  --strict-baseline    Also require functional source to match the 17D snapshot.
   --check-manifest     Validate the machine-readable 17D manifest.
   --go-no-go-template  Print the textual GO/NO-GO table; execute nothing.
   --help               Print this help.
@@ -30,12 +32,19 @@ Every mode is offline, read-only and non-operational. This script never calls ne
 or DNS services, executes curl/wget, starts Docker Compose, deploys, migrates or rolls
 back a database, executes MCP/tool/provider code, tests UI/CRUD, resolves or prints a
 secret, or changes a file.
+
+The default dry-run is forward-compatible with governed functional phases after 17D.
+Use --strict-baseline only to audit the original 17D functional-source snapshot.
 EOF
 }
 
 pass() {
   pass_count=$((pass_count + 1))
   printf 'PASS %s\n' "$1"
+}
+
+warn() {
+  printf 'WARN %s\n' "$1" >&2
 }
 
 fail() {
@@ -482,9 +491,13 @@ check_sources_unchanged() {
   pass 'Prisma schema and migrations are unchanged'
 
   if git -C "$ROOT_DIR" status --short -- backend/src frontend/src | grep -q .; then
-    fail 'backend or frontend functional source changed'
+    if [ "$STRICT_BASELINE" = true ]; then
+      fail 'backend or frontend functional source differs from the historical 17D baseline'
+    fi
+    warn 'backend or frontend functional source differs from the historical 17D baseline; accepted in forward-compatible dry-run (use --strict-baseline to enforce)'
+  else
+    pass 'backend and frontend functional source are unchanged from the historical 17D baseline'
   fi
-  pass 'backend and frontend functional source are unchanged'
 }
 
 run_dry_run() {
@@ -589,6 +602,10 @@ case "$MODE" in
   --dry-run)
     run_dry_run
     ;;
+  --strict-baseline)
+    STRICT_BASELINE=true
+    run_dry_run
+    ;;
   --check-manifest)
     check_manifest
     ;;
@@ -606,5 +623,5 @@ case "$MODE" in
     ;;
 esac
 
-printf '\n17D release preflight summary: mode=%s PASS=%d FAIL=0 deployment=false realExecution=false secretValuesRead=false uiCrudTested=false mcpRealExecuted=false providerRealExecuted=false releasePreflightReady=true deployGo=false\n' \
-  "${MODE#--}" "$pass_count"
+printf '\n17D release preflight summary: mode=%s PASS=%d FAIL=0 strictBaseline=%s deployment=false realExecution=false secretValuesRead=false uiCrudTested=false mcpRealExecuted=false providerRealExecuted=false releasePreflightReady=true deployGo=false\n' \
+  "${MODE#--}" "$pass_count" "$STRICT_BASELINE"

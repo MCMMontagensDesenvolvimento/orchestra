@@ -6,18 +6,23 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { Slider } from '@/components/ui/slider';
-import { Switch } from '@/components/ui/switch';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import type { Assistant } from '@/types';
-import { useAssistants, useCreateAssistantMutation, useUpdateAssistantMutation } from '@/hooks/queries/useAssistants';
-import { useKnowledgeBases } from '@/hooks/queries/useKnowledge';
+import { useAssistant, useCreateAssistantMutation, useUpdateAssistantMutation } from '@/hooks/queries/useAssistants';
+import { useAssistantKnowledgeBindings, useKnowledgeBases } from '@/hooks/queries/useKnowledge';
 import { useMcpTools } from '@/hooks/queries/useMcp';
+import { useCurrentSession } from '@/hooks/queries/useAuth';
+import {
+  createDefaultWizardForm,
+  hydrateWizardForm,
+  inferModelProvider,
+} from './assistantWizard.serialization';
+import { AssistantWizardSaveError } from '@/services/assistants.service';
 import { toast } from 'sonner';
 import type { AssistantWizardFormData } from '@/types';
 import {
   ArrowLeft, ArrowRight, Check, Bot, Target, User, MessageCircle,
   ShieldCheck, Cpu, BookOpen, Server, FileText, Lightbulb, AlertTriangle,
-  Eye, CheckCircle, XCircle, Sparkles, Copy, Info, Send
+  Eye, CheckCircle, XCircle, Sparkles, Info, Send
 } from 'lucide-react';
 
 const steps = [
@@ -35,54 +40,41 @@ const steps = [
   { label: 'Revisão', icon: Eye, description: 'Revise todas as configurações antes de salvar' },
 ];
 
-const defaultFormData: AssistantWizardFormData = {
-  name: '', area: '', description: '', objective: '', tasks: '', prohibitedTasks: '',
-  persona: '', tone: '', humor: '', formality: 'formal',
-  rules: '', restrictions: '', criticalInstructions: '',
-  model: 'gpt-4o', fallbackModel: 'gpt-4o-mini', temperature: '0.3',
-  responseFormat: '', positiveExamples: '', negativeExamples: '',
-  limits: '', escalationPolicy: '', knowledgeBases: [], mcpTools: [],
-  approvalActions: '', environment: 'staging',
-};
-
-function getFormFromAssistant(a: Assistant): AssistantWizardFormData {
-  return {
-    name: a.name, area: a.area, description: a.description,
-    objective: a.objective || '', tasks: a.tasks || '', prohibitedTasks: a.prohibitedTasks || '',
-    persona: a.persona || '', tone: a.tone || '', humor: a.humor || '',
-    formality: a.formality || 'formal',
-    rules: a.rules || '', restrictions: a.restrictions || '', criticalInstructions: a.criticalInstructions || '',
-    model: a.model.toLowerCase().replace(/ /g, '-'), fallbackModel: a.fallbackModel.toLowerCase().replace(/ /g, '-'),
-    temperature: String(a.temperature), responseFormat: a.responseFormat || '',
-    positiveExamples: a.positiveExamples || '', negativeExamples: a.negativeExamples || '',
-    limits: a.limits || '', escalationPolicy: a.escalationPolicy || '',
-    knowledgeBases: a.knowledgeBases, mcpTools: a.mcpTools,
-    approvalActions: '', environment: a.environment || 'staging',
-  };
-}
-
 export default function AssistantWizardPage() {
-  const { data: mockAssistants = [] } = useAssistants();
   const createAssistantMutation = useCreateAssistantMutation();
   const updateAssistantMutation = useUpdateAssistantMutation();
   const { data: mockKnowledgeBases = [] } = useKnowledgeBases();
   const { data: mockMcpTools = [] } = useMcpTools();
+  const sessionQuery = useCurrentSession();
   const navigate = useNavigate();
   const { id } = useParams();
   const isEditing = !!id;
-  const existingAssistant = isEditing ? mockAssistants.find(a => a.id === id) : undefined;
+  const assistantQuery = useAssistant(isEditing ? id : undefined);
+  const bindingsQuery = useAssistantKnowledgeBindings(isEditing ? id : undefined);
+  const canBindKnowledge = sessionQuery.data?.permissions.includes('knowledge.bind') ?? false;
 
   const [currentStep, setCurrentStep] = useState(0);
-  const [formData, setFormData] = useState<AssistantWizardFormData>(
-    existingAssistant ? getFormFromAssistant(existingAssistant) : defaultFormData
-  );
+  const [formData, setFormData] = useState<AssistantWizardFormData>(() => createDefaultWizardForm());
+  const [hydratedAssistantId, setHydratedAssistantId] = useState<string | null>(null);
+  const isHydrated = !isEditing || hydratedAssistantId === assistantQuery.data?.id;
 
-  // Em edição, o mock pode chegar após o primeiro render (delay de mockResponse);
-  // sincroniza o formulário quando o assistente for resolvido.
   useEffect(() => {
-    if (existingAssistant) setFormData(getFormFromAssistant(existingAssistant));
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [existingAssistant?.id]);
+    if (
+      assistantQuery.data
+      && !bindingsQuery.isLoading
+      && !bindingsQuery.isError
+      && hydratedAssistantId !== assistantQuery.data.id
+    ) {
+      setFormData(hydrateWizardForm(assistantQuery.data, bindingsQuery.data ?? []));
+      setHydratedAssistantId(assistantQuery.data.id);
+    }
+  }, [
+    assistantQuery.data,
+    bindingsQuery.data,
+    bindingsQuery.isError,
+    bindingsQuery.isLoading,
+    hydratedAssistantId,
+  ]);
 
   const update = (field: keyof AssistantWizardFormData, value: string) =>
     setFormData(prev => ({ ...prev, [field]: value }));
@@ -113,10 +105,9 @@ export default function AssistantWizardPage() {
     const riskScore = hasRestrictions && hasRules && hasCritical ? 'Baixo' : hasRules || hasRestrictions ? 'Médio' : 'Alto';
     const riskColor = riskScore === 'Baixo' ? 'text-success' : riskScore === 'Médio' ? 'text-warning' : 'text-destructive';
     const coverage = Math.min(100, Math.round(
-      ((formData.knowledgeBases.length > 0 ? 25 : 0) +
-      (formData.mcpTools.length > 0 ? 25 : 0) +
-      (formData.positiveExamples.length > 0 ? 25 : 0) +
-      (formData.responseFormat.length > 0 ? 25 : 0))
+      (formData.knowledgeBases.length > 0 ? 34 : 0)
+      + (formData.positiveExamples.length > 0 ? 33 : 0)
+      + (formData.responseFormat.length > 0 ? 33 : 0),
     ));
     return { robustness, riskScore, riskColor, coverage };
   }, [formData]);
@@ -142,22 +133,41 @@ export default function AssistantWizardPage() {
     });
   }, [formData]);
 
-  const canProceed = stepValidation[currentStep];
-
   const handleSave = async (publish: boolean) => {
     try {
       if (isEditing && id) {
-        await updateAssistantMutation.mutateAsync({ id, formData, publish });
+        await updateAssistantMutation.mutateAsync({
+          id,
+          formData,
+          publish,
+          syncKnowledgeBindings: canBindKnowledge,
+        });
       } else {
-        await createAssistantMutation.mutateAsync({ formData, publish });
+        await createAssistantMutation.mutateAsync({
+          formData,
+          publish,
+          syncKnowledgeBindings: canBindKnowledge,
+        });
       }
       toast.success(
         publish ? `Assistente "${formData.name}" publicado com sucesso!` : `Assistente "${formData.name}" salvo como rascunho!`,
         { description: isEditing ? 'Alteracoes salvas' : 'Assistente criado' }
       );
       navigate('/app/assistants');
-    } catch {
-      toast.error('Nao foi possivel salvar o assistente', { description: 'Tente novamente em instantes.' });
+    } catch (error) {
+      if (error instanceof AssistantWizardSaveError) {
+        toast.error('Salvamento parcial', {
+          description: error.message,
+          duration: 8000,
+        });
+        if (!isEditing) {
+          navigate(`/app/assistants/${error.assistantId}/edit`);
+        }
+        return;
+      }
+      toast.error('Não foi possível salvar o assistente', {
+        description: 'O assistente não foi publicado. Revise os dados e tente novamente.',
+      });
     }
   };
 
@@ -317,7 +327,17 @@ export default function AssistantWizardPage() {
               <div className="grid gap-2 sm:grid-cols-2">
                 {modelOptions.map(m => (
                   <label key={m.value} className={`flex items-center gap-3 rounded-lg border p-3 cursor-pointer transition-colors ${formData.model === m.value ? 'border-primary bg-primary/5' : 'hover:bg-muted/50'}`}>
-                    <input type="radio" name="model" checked={formData.model === m.value} onChange={() => update('model', m.value)} className="accent-primary" />
+                    <input
+                      type="radio"
+                      name="model"
+                      checked={formData.model === m.value}
+                      onChange={() => setFormData(previous => ({
+                        ...previous,
+                        model: m.value,
+                        modelProvider: inferModelProvider(m.value),
+                      }))}
+                      className="accent-primary"
+                    />
                     <div>
                       <p className="text-sm font-medium">{m.label}</p>
                       <p className="text-xs text-muted-foreground">{m.desc}</p>
@@ -359,10 +379,15 @@ export default function AssistantWizardPage() {
           <div className="space-y-5">
             <div>
               <p className="text-sm text-muted-foreground mb-3">Selecione as bases de conhecimento que este assistente poderá consultar via RAG.</p>
+              {!canBindKnowledge && (
+                <div className="mb-3 rounded-lg border border-warning/30 bg-warning/10 p-3 text-xs text-warning">
+                  Você não possui a permissão <code>knowledge.bind</code>. Os vínculos atuais serão preservados e esta etapa ficará somente para consulta.
+                </div>
+              )}
               <div className="space-y-2">
                 {mockKnowledgeBases.map(kb => (
-                  <label key={kb.id} className={`flex items-center gap-3 rounded-lg border p-3 cursor-pointer transition-colors ${formData.knowledgeBases.includes(kb.id) ? 'border-primary bg-primary/5' : 'hover:bg-muted/50'}`}>
-                    <input type="checkbox" checked={formData.knowledgeBases.includes(kb.id)} onChange={() => toggleArrayItem('knowledgeBases', kb.id)} className="rounded accent-primary" />
+                  <label key={kb.id} className={`flex items-center gap-3 rounded-lg border p-3 transition-colors ${canBindKnowledge ? 'cursor-pointer' : 'cursor-not-allowed opacity-70'} ${formData.knowledgeBases.includes(kb.id) ? 'border-primary bg-primary/5' : canBindKnowledge ? 'hover:bg-muted/50' : ''}`}>
+                    <input type="checkbox" checked={formData.knowledgeBases.includes(kb.id)} disabled={!canBindKnowledge} onChange={() => toggleArrayItem('knowledgeBases', kb.id)} className="rounded accent-primary" />
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center justify-between">
                         <p className="text-sm font-medium">{kb.name}</p>
@@ -377,19 +402,24 @@ export default function AssistantWizardPage() {
             </div>
             <div className="rounded-lg bg-info/10 p-3 flex items-start gap-2">
               <BookOpen className="h-4 w-4 text-info shrink-0 mt-0.5" />
-              <p className="text-xs text-info">{formData.knowledgeBases.length} base(s) selecionada(s). O assistente usará RAG para consultar documentos dessas bases.</p>
+              <p className="text-xs text-info">
+                {formData.knowledgeBases.length} base(s) vinculada(s).
+                {canBindKnowledge ? ' As alterações serão sincronizadas antes de uma eventual publicação.' : ' Nenhuma alteração de vínculo será enviada.'}
+              </p>
             </div>
           </div>
         );
       case 7:
         return (
           <div className="space-y-5">
-            <p className="text-sm text-muted-foreground">Habilite ferramentas MCP e defina quais exigem aprovação.</p>
+            <div className="rounded-lg border border-warning/30 bg-warning/10 p-3 text-sm text-warning">
+              Bindings MCP não são alterados pelo Wizard nesta fase. A lista abaixo é somente informativa e nenhuma ferramenta, discovery, readiness ou execução MCP será chamada.
+            </div>
             <div className="space-y-2">
               {mockMcpTools.map(tool => (
-                <label key={tool.id} className={`flex items-center justify-between rounded-lg border p-3 cursor-pointer transition-colors ${formData.mcpTools.includes(tool.id) ? 'border-primary bg-primary/5' : 'hover:bg-muted/50'}`}>
+                <label key={tool.id} className="flex cursor-not-allowed items-center justify-between rounded-lg border p-3 opacity-70">
                   <div className="flex items-center gap-3">
-                    <input type="checkbox" checked={formData.mcpTools.includes(tool.id)} onChange={() => toggleArrayItem('mcpTools', tool.id)} className="rounded accent-primary" />
+                    <input type="checkbox" checked={false} disabled className="rounded accent-primary" />
                     <div>
                       <div className="flex items-center gap-2">
                         <span className="font-mono text-xs font-medium">{tool.name}</span>
@@ -467,6 +497,39 @@ export default function AssistantWizardPage() {
     }
   };
 
+  if (
+    isEditing
+    && (
+      assistantQuery.isError
+      || bindingsQuery.isError
+      || (!assistantQuery.isLoading && !assistantQuery.data)
+    )
+  ) {
+    return (
+      <AppShell>
+        <div className="mx-auto max-w-2xl rounded-lg border bg-card p-6">
+          <h1 className="text-lg font-semibold">Não foi possível abrir o Wizard com segurança</h1>
+          <p className="mt-2 text-sm text-muted-foreground">
+            O detalhe do assistente ou seus vínculos reais de conhecimento não puderam ser carregados. Nenhuma alteração foi enviada.
+          </p>
+          <Button className="mt-4" variant="outline" onClick={() => navigate('/app/assistants')}>
+            <ArrowLeft className="mr-1 h-4 w-4" /> Voltar
+          </Button>
+        </div>
+      </AppShell>
+    );
+  }
+
+  if (isEditing && (assistantQuery.isLoading || bindingsQuery.isLoading || !isHydrated)) {
+    return (
+      <AppShell>
+        <div className="mx-auto max-w-5xl py-16 text-center text-sm text-muted-foreground">
+          Carregando configuração e vínculos do assistente...
+        </div>
+      </AppShell>
+    );
+  }
+
   return (
     <AppShell>
       <div className="mx-auto max-w-5xl animate-fade-in">
@@ -481,49 +544,50 @@ export default function AssistantWizardPage() {
         <div className="flex gap-8">
           {/* Stepper sidebar */}
           <div className="hidden lg:block w-56 shrink-0">
-            <nav className="space-y-0.5 sticky top-6">
-              {steps.map((step, i) => {
-                const Icon = step.icon;
-                const isActive = i === currentStep;
-                const isDone = i < currentStep;
-                const isValid = stepValidation[i];
-                return (
-                  <button
-                    key={i}
-                    onClick={() => setCurrentStep(i)}
-                    className={`flex w-full items-center gap-2.5 rounded-md px-3 py-2 text-sm transition-colors ${
-                      isActive ? 'bg-primary/10 text-primary font-medium' :
-                      isDone ? 'text-foreground' : 'text-muted-foreground hover:bg-muted/50'
-                    }`}
-                  >
-                    <div className={`flex h-6 w-6 items-center justify-center rounded-full text-xs shrink-0 ${
-                      isActive ? 'gradient-primary text-primary-foreground' :
-                      isDone && isValid ? 'bg-success text-success-foreground' :
-                      isDone && !isValid ? 'bg-warning text-warning-foreground' :
-                      'bg-muted text-muted-foreground'
-                    }`}>
-                      {isDone && isValid ? <Check className="h-3 w-3" /> : isDone && !isValid ? <AlertTriangle className="h-3 w-3" /> : i + 1}
-                    </div>
-                    <span className="truncate">{step.label}</span>
-                  </button>
-                );
-              })}
-            </nav>
+            <div className="sticky top-6 max-h-[calc(100vh-3rem)] overflow-y-auto pr-1">
+              <nav className="space-y-0.5">
+                {steps.map((step, i) => {
+                  const Icon = step.icon;
+                  const isActive = i === currentStep;
+                  const isDone = i < currentStep;
+                  const isValid = stepValidation[i];
+                  return (
+                    <button
+                      key={i}
+                      onClick={() => setCurrentStep(i)}
+                      className={`flex w-full items-center gap-2.5 rounded-md px-3 py-2 text-sm transition-colors ${
+                        isActive ? 'bg-primary/10 text-primary font-medium' :
+                        isDone ? 'text-foreground' : 'text-muted-foreground hover:bg-muted/50'
+                      }`}
+                    >
+                      <div className={`flex h-6 w-6 items-center justify-center rounded-full text-xs shrink-0 ${
+                        isActive ? 'gradient-primary text-primary-foreground' :
+                        isDone && isValid ? 'bg-success text-success-foreground' :
+                        isDone && !isValid ? 'bg-warning text-warning-foreground' :
+                        'bg-muted text-muted-foreground'
+                      }`}>
+                        {isDone && isValid ? <Check className="h-3 w-3" /> : isDone && !isValid ? <AlertTriangle className="h-3 w-3" /> : i + 1}
+                      </div>
+                      <span className="truncate">{step.label}</span>
+                    </button>
+                  );
+                })}
+              </nav>
 
-            {/* Preview panel */}
-            <div className="mt-6 rounded-lg border bg-muted/30 p-4 space-y-4 sticky top-[420px]">
-              <h4 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Scores</h4>
-              <ScoreBar label="Robustez" value={scores.robustness} color="primary" />
-              <ScoreBar label="Cobertura" value={scores.coverage} color="info" />
-              <div className="flex justify-between items-center text-xs">
-                <span className="text-muted-foreground">Risco</span>
-                <span className={`font-semibold ${scores.riskColor}`}>{scores.riskScore}</span>
-              </div>
-              <div className="border-t pt-3 space-y-1">
-                <p className="text-[10px] text-muted-foreground uppercase tracking-wider">Preview</p>
-                {formData.name && <p className="text-sm font-semibold">{formData.name}</p>}
-                {formData.area && <p className="text-xs text-muted-foreground">{formData.area}</p>}
-                {formData.model && <span className="rounded bg-muted px-1.5 py-0.5 text-[10px] font-medium">{modelOptions.find(m => m.value === formData.model)?.label || formData.model}</span>}
+              <div className="mt-6 rounded-lg border bg-muted/30 p-4 space-y-4">
+                <h4 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Scores</h4>
+                <ScoreBar label="Robustez" value={scores.robustness} color="primary" />
+                <ScoreBar label="Cobertura" value={scores.coverage} color="info" />
+                <div className="flex justify-between items-center text-xs">
+                  <span className="text-muted-foreground">Risco</span>
+                  <span className={`font-semibold ${scores.riskColor}`}>{scores.riskScore}</span>
+                </div>
+                <div className="border-t pt-3 space-y-1">
+                  <p className="text-[10px] text-muted-foreground uppercase tracking-wider">Preview</p>
+                  {formData.name && <p className="text-sm font-semibold">{formData.name}</p>}
+                  {formData.area && <p className="text-xs text-muted-foreground">{formData.area}</p>}
+                  {formData.model && <span className="rounded bg-muted px-1.5 py-0.5 text-[10px] font-medium">{modelOptions.find(m => m.value === formData.model)?.label || formData.model}</span>}
+                </div>
               </div>
             </div>
           </div>
@@ -541,7 +605,7 @@ export default function AssistantWizardPage() {
               </div>
             </div>
 
-            <div className="rounded-lg border bg-card p-6">
+            <div className="rounded-lg border bg-card p-4 sm:p-6">
               <div className="mb-6">
                 <h2 className="text-lg font-semibold flex items-center gap-2">
                   {(() => { const Icon = steps[currentStep].icon; return <Icon className="h-5 w-5 text-primary" />; })()}
@@ -549,18 +613,24 @@ export default function AssistantWizardPage() {
                 </h2>
                 <p className="text-sm text-muted-foreground mt-1">{steps[currentStep].description}</p>
               </div>
+              {formData.legacyInstructions && (
+                <div className="mb-5 rounded-lg border border-warning/30 bg-warning/10 p-3 text-xs text-warning">
+                  Esta versão é legada e não possui <code>configuration</code> estruturada. Os campos não foram inventados; as instruções anteriores serão preservadas em uma seção legada ao salvar.
+                </div>
+              )}
               {renderStepContent()}
             </div>
 
             {/* Navigation */}
-            <div className="flex items-center justify-between mt-4">
-              <Button variant="outline" onClick={() => setCurrentStep(Math.max(0, currentStep - 1))} disabled={currentStep === 0}>
+            <div className="mt-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+              <Button className="w-full sm:w-auto" variant="outline" onClick={() => setCurrentStep(Math.max(0, currentStep - 1))} disabled={currentStep === 0}>
                 <ArrowLeft className="h-4 w-4 mr-1" /> Anterior
               </Button>
-              <div className="flex items-center gap-2">
+              <div className="grid w-full grid-cols-1 gap-2 sm:flex sm:w-auto sm:items-center">
                 {currentStep === steps.length - 1 ? (
                   <>
                     <Button
+                      className="w-full sm:w-auto"
                       variant="outline"
                       onClick={() => { void handleSave(false); }}
                       disabled={createAssistantMutation.isPending || updateAssistantMutation.isPending}
@@ -568,6 +638,7 @@ export default function AssistantWizardPage() {
                       Salvar Rascunho
                     </Button>
                     <Button
+                      className="w-full sm:w-auto"
                       onClick={() => { void handleSave(true); }}
                       disabled={!stepValidation[11] || createAssistantMutation.isPending || updateAssistantMutation.isPending}
                     >
@@ -575,7 +646,7 @@ export default function AssistantWizardPage() {
                     </Button>
                   </>
                 ) : (
-                  <Button onClick={() => setCurrentStep(currentStep + 1)}>
+                  <Button className="w-full sm:w-auto" onClick={() => setCurrentStep(currentStep + 1)}>
                     Próximo <ArrowRight className="h-4 w-4 ml-1" />
                   </Button>
                 )}
@@ -637,7 +708,6 @@ function ReviewStep({ formData, scores, stepValidation }: {
     { label: 'Restrições definidas', ok: formData.restrictions.length > 0 },
     { label: 'Instruções críticas', ok: formData.criticalInstructions.length > 0 },
     { label: 'Bases de conhecimento', ok: formData.knowledgeBases.length > 0 },
-    { label: 'Ferramentas MCP', ok: formData.mcpTools.length > 0 },
     { label: 'Formato de resposta', ok: formData.responseFormat.length > 0 },
     { label: 'Exemplos positivos', ok: formData.positiveExamples.length > 0 },
     { label: 'Limites definidos', ok: formData.limits.length > 0 },
@@ -648,7 +718,7 @@ function ReviewStep({ formData, scores, stepValidation }: {
   return (
     <div className="space-y-5">
       {/* Scores */}
-      <div className="grid grid-cols-3 gap-4">
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-3 sm:gap-4">
         <div className="rounded-lg border p-4 text-center">
           <p className="text-xs text-muted-foreground uppercase tracking-wider mb-1">Robustez</p>
           <p className="text-3xl font-bold text-primary">{scores.robustness}%</p>
@@ -664,9 +734,9 @@ function ReviewStep({ formData, scores, stepValidation }: {
       </div>
 
       {/* Summary */}
-      <div className="rounded-lg border bg-muted/30 p-5 space-y-3">
+      <div className="rounded-lg border bg-muted/30 p-4 sm:p-5 space-y-3">
         <h4 className="font-semibold flex items-center gap-2"><Sparkles className="h-4 w-4 text-primary" />Resumo do Assistente</h4>
-        <div className="grid grid-cols-2 gap-x-8 gap-y-2 text-sm">
+        <div className="grid grid-cols-1 gap-x-8 gap-y-2 text-sm sm:grid-cols-2">
           <ReviewField label="Nome" value={formData.name} />
           <ReviewField label="Área" value={formData.area} />
           <ReviewField label="Ambiente" value={formData.environment} />
@@ -677,7 +747,7 @@ function ReviewStep({ formData, scores, stepValidation }: {
           <ReviewField label="Humor" value={formData.humor} />
           <ReviewField label="Formalidade" value={formData.formality} />
           <ReviewField label="Bases de conhecimento" value={`${formData.knowledgeBases.length} selecionada(s)`} />
-          <ReviewField label="Ferramentas MCP" value={`${formData.mcpTools.length} habilitada(s)`} />
+          <ReviewField label="Bindings MCP" value="Não alterados por este Wizard" />
         </div>
         {formData.objective && (
           <div className="border-t pt-2">
@@ -688,9 +758,9 @@ function ReviewStep({ formData, scores, stepValidation }: {
       </div>
 
       {/* Checklist */}
-      <div className="rounded-lg border p-5">
+      <div className="rounded-lg border p-4 sm:p-5">
         <h4 className="font-semibold mb-3">Checklist antes de publicar ({completedCount}/{checklist.length})</h4>
-        <div className="grid grid-cols-2 gap-2">
+        <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
           {checklist.map(item => (
             <div key={item.label} className="flex items-center gap-2 text-sm">
               {item.ok ? <CheckCircle className="h-4 w-4 text-success shrink-0" /> : <XCircle className="h-4 w-4 text-muted-foreground shrink-0" />}

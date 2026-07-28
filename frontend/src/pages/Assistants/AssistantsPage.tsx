@@ -230,24 +230,28 @@ export default function AssistantsPage() {
         )}
 
         {/* Sort controls */}
-        <div className="flex items-center gap-2 text-xs text-muted-foreground">
-          <ArrowUpDown className="h-3 w-3" />
-          <span>Ordenar por:</span>
-          {([
-            ['updatedAt', 'Atualização'],
-            ['name', 'Nome'],
-            ['conversations', 'Conversas'],
-            ['costThisMonth', 'Custo'],
-            ['satisfaction', 'Satisfação'],
-          ] as [SortField, string][]).map(([field, label]) => (
-            <button
-              key={field}
-              onClick={() => toggleSort(field)}
-              className={`rounded px-2 py-0.5 transition-colors ${sortField === field ? 'bg-primary/10 text-primary font-medium' : 'hover:bg-muted'}`}
-            >
-              {label} {sortField === field && (sortDir === 'asc' ? '↑' : '↓')}
-            </button>
-          ))}
+        <div className="flex min-w-0 flex-col gap-2 text-xs text-muted-foreground sm:flex-row sm:items-center">
+          <div className="flex shrink-0 items-center gap-2">
+            <ArrowUpDown className="h-3 w-3" />
+            <span>Ordenar por:</span>
+          </div>
+          <div className="flex min-w-0 flex-wrap gap-1.5">
+            {([
+              ['updatedAt', 'Atualização'],
+              ['name', 'Nome'],
+              ['conversations', 'Conversas'],
+              ['costThisMonth', 'Custo'],
+              ['satisfaction', 'Satisfação'],
+            ] as [SortField, string][]).map(([field, label]) => (
+              <button
+                key={field}
+                onClick={() => toggleSort(field)}
+                className={`whitespace-nowrap rounded px-2 py-0.5 transition-colors ${sortField === field ? 'bg-primary/10 text-primary font-medium' : 'hover:bg-muted'}`}
+              >
+                {label} {sortField === field && (sortDir === 'asc' ? '↑' : '↓')}
+              </button>
+            ))}
+          </div>
         </div>
 
         <QueryState
