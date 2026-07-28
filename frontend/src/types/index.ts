@@ -312,6 +312,7 @@ export interface CreateAgentRunInput {
 
 export interface Assistant {
   id: string;
+  workspaceId?: string;
   name: string;
   description: string;
   area: string;
@@ -344,6 +345,9 @@ export interface Assistant {
   limits?: string;
   escalationPolicy?: string;
   environment?: string;
+  modelProvider?: string;
+  instructions?: string;
+  configuration?: unknown | null;
   activePublication?: AssistantPublication | null;
   executionPolicy?: AssistantExecutionPolicy;
 }
@@ -358,6 +362,10 @@ export interface AssistantVersion {
   status: AssistantStatus;
   description?: string | null;
   instructions?: string | null;
+  modelProvider?: string | null;
+  modelName?: string | null;
+  temperature?: number | null;
+  configuration?: unknown | null;
   publishedAt?: string | null;
   archivedAt?: string | null;
 }
@@ -1180,6 +1188,7 @@ export interface AssistantWizardFormData {
   rules: string;
   restrictions: string;
   criticalInstructions: string;
+  modelProvider: string;
   model: string;
   fallbackModel: string;
   temperature: string;
@@ -1192,4 +1201,5 @@ export interface AssistantWizardFormData {
   mcpTools: string[];
   approvalActions: string;
   environment: string;
+  legacyInstructions?: string;
 }

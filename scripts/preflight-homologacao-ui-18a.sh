@@ -2,6 +2,7 @@
 set -euo pipefail
 
 MODE="${1:---dry-run}"
+STRICT_BASELINE=false
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 RUNBOOK="$ROOT_DIR/docs/ai-orchestration/ORCHESTRA_HOMOLOGACAO_FUNCIONAL_UI_18A.md"
 INVENTORY="$ROOT_DIR/docs/ai-orchestration/ui/ORCHESTRA_UI_INVENTARIO_18A.md"
@@ -25,20 +26,28 @@ usage() {
 Usage: scripts/preflight-homologacao-ui-18a.sh [MODE]
 
 Modes:
-  --dry-run       Validate the complete static/offline 18A preparation.
-  --check-matrix  Validate the machine-readable UI homologation matrix.
-  --template      Print only the suggested manual order and short templates.
-  --help          Print this help.
+  --dry-run          Validate the static/offline 18A preparation and safety gates.
+  --strict-baseline  Also require functional source to match the historical 18A hashes.
+  --check-matrix     Validate the machine-readable UI homologation matrix.
+  --template         Print only the suggested manual order and short templates.
+  --help             Print this help.
 
 All modes are offline and read-only. They do not call network or planned production
 URLs, deploy, start Docker Compose, migrate a database, execute MCP/provider/embeddings,
 launch a browser, test UI automatically, collect secrets, or change files.
+
+The default dry-run is forward-compatible with governed functional phases after 18A.
+Use --strict-baseline only to audit the original 18A functional-source snapshot.
 EOF
 }
 
 pass() {
   pass_count=$((pass_count + 1))
   printf 'PASS %s\n' "$1"
+}
+
+warn() {
+  printf 'WARN %s\n' "$1" >&2
 }
 
 fail() {
@@ -256,13 +265,21 @@ check_functional_fingerprints() {
   migrations_fingerprint="$(tree_fingerprint backend/prisma/migrations)"
   migration_count="$(find "$ROOT_DIR/backend/prisma/migrations" -type f | wc -l | tr -d ' ')"
 
-  [ "$backend_fingerprint" = "$EXPECTED_BACKEND_SRC_FINGERPRINT" ] \
-    || fail 'backend functional source differs from the 18A baseline'
-  pass 'backend functional source is unchanged from the 18A baseline'
+  if [ "$backend_fingerprint" = "$EXPECTED_BACKEND_SRC_FINGERPRINT" ]; then
+    pass 'backend functional source is unchanged from the historical 18A baseline'
+  elif [ "$STRICT_BASELINE" = true ]; then
+    fail 'backend functional source differs from the historical 18A baseline'
+  else
+    warn 'backend functional source differs from the historical 18A baseline; accepted in forward-compatible dry-run (use --strict-baseline to enforce)'
+  fi
 
-  [ "$frontend_fingerprint" = "$EXPECTED_FRONTEND_SRC_FINGERPRINT" ] \
-    || fail 'frontend functional source differs from the 18A baseline'
-  pass 'frontend functional source is unchanged from the 18A baseline'
+  if [ "$frontend_fingerprint" = "$EXPECTED_FRONTEND_SRC_FINGERPRINT" ]; then
+    pass 'frontend functional source is unchanged from the historical 18A baseline'
+  elif [ "$STRICT_BASELINE" = true ]; then
+    fail 'frontend functional source differs from the historical 18A baseline'
+  else
+    warn 'frontend functional source differs from the historical 18A baseline; accepted in forward-compatible dry-run (use --strict-baseline to enforce)'
+  fi
 
   [ "$schema_sha" = "$EXPECTED_PRISMA_SCHEMA_SHA256" ] \
     || fail 'Prisma schema differs from the 18A baseline'
@@ -324,6 +341,9 @@ case "$MODE" in
     ;;
   --dry-run)
     ;;
+  --strict-baseline)
+    STRICT_BASELINE=true
+    ;;
   *)
     usage >&2
     exit 2
@@ -351,5 +371,5 @@ check_ci
 check_planned_urls_absent_from_runtime
 check_functional_fingerprints
 
-printf '\n18A UI preflight summary: mode=dry-run PASS=%d FAIL=0 uiHomologation=true deployment=false productionTest=false realMcpExecution=false realProviderExecution=false bugFixing=false manualBrowserTestingPrepared=true\n' \
-  "$pass_count"
+printf '\n18A UI preflight summary: mode=%s PASS=%d FAIL=0 strictBaseline=%s uiHomologation=true deployment=false productionTest=false realMcpExecution=false realProviderExecution=false bugFixing=false manualBrowserTestingPrepared=true\n' \
+  "${MODE#--}" "$pass_count" "$STRICT_BASELINE"

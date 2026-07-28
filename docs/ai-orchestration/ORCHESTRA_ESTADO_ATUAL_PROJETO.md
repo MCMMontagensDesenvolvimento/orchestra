@@ -51,17 +51,47 @@
 > conforme as evidências. O runbook vigente é
 > `ORCHESTRA_HOMOLOGACAO_FUNCIONAL_UI_18A.md`.
 
+> Atualização de 28 de julho de 2026 — 18C: a causa raiz registrada na triagem 18B
+> foi corrigida no frontend. O Wizard de Assistants agora persiste e reidrata um
+> contrato `version.configuration` com `schemaVersion: 1`, compila instructions em
+> ordem determinística, preserva versões legadas sem inferência insegura, separa área
+> de `workspaceId` e sincroniza Knowledge Bindings antes de publicar. A edição usa o
+> detalhe do Assistant e bindings reais. MCP permanece somente informativo no Wizard.
+> Também foram corrigidos os layouts mobile do catálogo, stepper, scores, revisão e
+> ações. Não houve migration, alteração Prisma, deploy, provider externo, MCP real,
+> embeddings ou Chat/AgentRun. O próximo passo é homologação visual/manual da correção.
+> Documento vigente:
+> `ui/ORCHESTRA_UI_CORRECAO_WIZARD_ASSISTANTS_18C.md`.
+
+> Atualização de 28 de julho de 2026 — 18C.1: a validação da correção funcional
+> ganhou smoke/preflight próprios, offline e read-only. Como a 18C altera
+> deliberadamente o frontend do Wizard, os baselines 17D/18A preservam seus hashes
+> históricos em `--strict-baseline`, enquanto o `--dry-run` mantém os guardrails de
+> segurança obrigatórios e trata apenas a divergência integral de fonte como warning.
+> Secrets, URL de produção, deploy, Compose live, migration, MCP/provider real,
+> embeddings reais, Chat/AgentRun externo e browser live continuam bloqueantes. A CI
+> executa `scripts/smoke-correcao-wizard-assistants-18c.sh --dry-run`; o gate delimita
+> o diff imutável da fase a partir de `ca7e3db`, valida a allowlist de frontend e
+> confirma ausência de mudança em backend/Prisma sem bloquear fases posteriores. A
+> regressão transitiva 17D → 17C → 17B foi preservada; 17C/17B receberam a mesma
+> distinção de modo porque também rejeitavam genericamente qualquer diff funcional.
+> A suíte frontend completa confirmou 95/96: a única falha continua sendo o teste
+> preexistente de Analytics que espera zero chamadas, embora o serviço existente
+> consulte `/ai-observability/runtime-runs`; ambos permanecem sem diff e fora do
+> escopo 18C.1.
+
 ## 0. Resumo Executivo
 
 O Orchestra é hoje um **control plane corporativo de IA em estágio de MVP técnico avançado / homologação local**, com frontend React, API Express, persistência PostgreSQL/Prisma, governança de assistentes, conversas persistentes, `AgentRun`, Knowledge/RAG, catálogo MCP, auditoria, observabilidade técnica, avaliações determinísticas e um bridge Python/Agno executável por HTTP. O projeto já ultrapassou a condição de protótipo puramente visual: os principais domínios têm rotas, serviços, repositórios, modelos Prisma e testes reais. Evidências centrais: `frontend/src/App.tsx`, `backend/src/app/routes.ts`, `backend/prisma/schema.prisma`, `backend/src/modules/agent-runs`, `backend/src/modules/knowledge`, `backend/src/modules/runtime` e `runtime/agno-bridge`.
 
-A frente corrente 18A não muda essa implementação: ela estabelece a governança para
-homologá-la manualmente pela interface local. A matriz cobre as rotas canônicas e
-legadas, superfícies de Auth, Dashboard, Assistants, Knowledge, MCP, Chat, Analytics,
-Audit e Admin, seus estados e permissões inferíveis. O resultado desta fase é material
-de teste preparado, não UI aprovada: `manualBrowserTestingPrepared=true`,
-`bugFixing=false`, `deployment=false`, `realMcpExecution=false` e
-`realProviderExecution=false`.
+A frente 18A estabeleceu a governança da homologação manual e a 18B registrou a
+triagem read-only do Wizard de Assistants. A 18C corrige essa superfície no frontend,
+com persistência estruturada, fallback legado e bindings de Knowledge, mas ainda exige
+homologação visual/manual. As demais superfícies de Auth, Dashboard, Knowledge, MCP,
+Chat, Analytics, Audit e Admin mantêm o estado registrado pela matriz 18A.
+`manualBrowserTestingPrepared=true`, `assistantWizardFixImplemented=true`,
+`assistantWizardGate18c=true`, `historicalBaselinesStrictOptIn=true`,
+`deployment=false`, `realMcpExecution=false` e `realProviderExecution=false`.
 
 A trilha recente consolidou contexto conversacional, provider externo governado, observabilidade de Chat, execução por `agno_http`, RAG resolvido pelo control plane, descriptors de tools, autenticação do canal de runtime, gateway sandbox, bridge Agno em Docker, Knowledge/RAG operacional e política de escopo de resposta. A matriz Chat/RAG está codificada em testes e smokes estáticos. Evidências: documentos 15D–16K em `docs/ai-orchestration`, `backend/tests/api/agent-runs.test.ts`, `scripts/smoke-chat-rag-operacional-16k.sh` e `scripts/smoke-knowledge-rag-16i.sh`.
 

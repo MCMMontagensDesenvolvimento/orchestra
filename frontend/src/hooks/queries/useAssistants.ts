@@ -65,10 +65,18 @@ export const useAssistantTestResults = (id: string | undefined) =>
 export const useCreateAssistantMutation = () => {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: ({ formData, publish = false }: { formData: AssistantWizardFormData; publish?: boolean }) =>
-      assistantsService.create(formData, publish),
-    onSuccess: () => {
+    mutationFn: ({
+      formData,
+      publish = false,
+      syncKnowledgeBindings = true,
+    }: {
+      formData: AssistantWizardFormData;
+      publish?: boolean;
+      syncKnowledgeBindings?: boolean;
+    }) => assistantsService.create(formData, publish, syncKnowledgeBindings),
+    onSuccess: (assistant) => {
       void queryClient.invalidateQueries({ queryKey: queryKeys.assistants.all });
+      void queryClient.invalidateQueries({ queryKey: queryKeys.knowledge.assistantBindings(assistant.id) });
       void queryClient.invalidateQueries({ queryKey: queryKeys.audit.logs });
     },
   });
@@ -77,12 +85,22 @@ export const useCreateAssistantMutation = () => {
 export const useUpdateAssistantMutation = () => {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: ({ id, formData, publish = false }: { id: string; formData: AssistantWizardFormData; publish?: boolean }) =>
-      assistantsService.update(id, formData, publish),
+    mutationFn: ({
+      id,
+      formData,
+      publish = false,
+      syncKnowledgeBindings = true,
+    }: {
+      id: string;
+      formData: AssistantWizardFormData;
+      publish?: boolean;
+      syncKnowledgeBindings?: boolean;
+    }) => assistantsService.update(id, formData, publish, syncKnowledgeBindings),
     onSuccess: (_assistant, variables) => {
       void queryClient.invalidateQueries({ queryKey: queryKeys.assistants.all });
       void queryClient.invalidateQueries({ queryKey: queryKeys.assistants.detail(variables.id) });
       void queryClient.invalidateQueries({ queryKey: queryKeys.assistants.versions(variables.id) });
+      void queryClient.invalidateQueries({ queryKey: queryKeys.knowledge.assistantBindings(variables.id) });
       void queryClient.invalidateQueries({ queryKey: queryKeys.audit.logs });
     },
   });
