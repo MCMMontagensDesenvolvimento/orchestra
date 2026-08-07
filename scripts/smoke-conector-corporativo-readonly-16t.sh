@@ -22,6 +22,7 @@ ENV_CONFIG="$ROOT_DIR/backend/src/config/env.ts"
 EVAL_DIR="$ROOT_DIR/runtime/evals/16s"
 EVAL_RUNNER="$ROOT_DIR/scripts/evals-runtime-qualidade-16s.sh"
 EVAL_SMOKE="$ROOT_DIR/scripts/smoke-evals-qualidade-16s.sh"
+MCP_LOCAL_DEMO_SMOKE="$ROOT_DIR/scripts/smoke-mcp-tools-governado-local-18d.sh"
 TEST="$ROOT_DIR/backend/tests/unit/corporate-readonly-transport.test.ts"
 CI="$ROOT_DIR/.github/workflows/ci.yml"
 pass_count=0
@@ -78,6 +79,50 @@ reject_pattern() {
   local label="$3"
   if grep -Fq -- "$pattern" "$file"; then fail "$label is present"; fi
   pass "$label absent"
+}
+
+check_mcp_ui_fail_closed_state() {
+  if grep -Fq -- 'adapter corporativo aguardando configuração' "$MCP_HUB" \
+    && grep -Fq -- 'permanece aguardando configuração' "$MCP_DETAIL"
+  then
+    pass 'MCP Hub corporate fail-closed state (legacy UI)'
+    pass 'MCP detail corporate fail-closed state (legacy UI)'
+    return
+  fi
+
+  require_executable "$MCP_LOCAL_DEMO_SMOKE"
+  require_pattern "$MCP_HUB" \
+    'Fase 18D · MCP demo local pronto e execução bloqueada' \
+    'MCP Hub governed local catalog remains execution-blocked'
+  require_pattern "$MCP_HUB" \
+    'Rede externa, MCP remoto, tools de escrita, providers, embeddings e Chat/AgentRun reais permanecem desabilitados.' \
+    'MCP Hub 18D capabilities remain disabled'
+  require_pattern "$MCP_DETAIL" \
+    'O precheck valida readiness e policies sem executar tool, abrir rede, chamar provider, gerar embeddings ou iniciar Chat/AgentRun.' \
+    'MCP detail local demo is catalog/precheck only'
+  require_pattern "$MCP_DETAIL" 'execução permitida: não' 'MCP detail local execution remains blocked'
+
+  local output marker
+  output="$("$MCP_LOCAL_DEMO_SMOKE" --dry-run)" \
+    || fail '18D governed local MCP smoke compatibility'
+  for marker in \
+    'localDemo=true' \
+    'catalogTools=3' \
+    'precheckAllowed=false' \
+    'remoteMcpExecution=false' \
+    'writeToolsAllowed=false' \
+    'externalNetworkAllowed=false' \
+    'realProviderExecution=false' \
+    'realEmbeddingsExecution=false' \
+    'realChatAgentRunExecution=false'
+  do
+    grep -Fq -- "$marker" <<<"$output" \
+      || fail "18D governed local MCP marker $marker"
+    pass "18D governed local MCP marker $marker"
+  done
+
+  pass 'MCP Hub corporate fail-closed state (18D governed catalog/precheck)'
+  pass 'MCP detail corporate fail-closed state (18D governed catalog/precheck)'
 }
 
 for file in \
@@ -159,11 +204,10 @@ done
 reject_pattern "$GATEWAY" 'inputPreview: request.arguments' 'gateway raw arguments persistence'
 reject_pattern "$GATEWAY" 'outputPreview: content' 'gateway raw output persistence'
 
-require_pattern "$MCP_HUB" 'adapter corporativo aguardando configuração' 'MCP Hub corporate fail-closed state'
+check_mcp_ui_fail_closed_state
 require_pattern "$MCP_HUB" 'Referência lógica de secret' 'MCP Hub logical secret field'
 reject_pattern "$MCP_HUB" 'apiKey:' 'MCP Hub raw API key payload'
 require_pattern "$MCP_DETAIL" 'Testar readiness seguro' 'MCP detail safe readiness action'
-require_pattern "$MCP_DETAIL" 'permanece aguardando configuração' 'MCP detail corporate fail-closed state'
 
 require_file "$EVAL_DIR/cases.corporate-readonly.json"
 require_pattern "$EVAL_DIR/cases.corporate-readonly.json" '"corporate_disabled_default"' '16S corporate disabled case'
