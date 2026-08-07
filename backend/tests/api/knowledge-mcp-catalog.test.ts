@@ -80,6 +80,7 @@ const mocks = vi.hoisted(() => {
     findMcpToolCall: vi.fn(),
     listMcpToolCallEvents: vi.fn(),
     listBindings: vi.fn(),
+    listCatalogBindings: vi.fn(),
     createBinding: vi.fn(),
     updateBinding: vi.fn(),
     disableBinding: vi.fn(),
@@ -128,6 +129,7 @@ const sourceReferenceId = '00000000-0000-0000-0000-000000000612';
 const ragQueryId = '00000000-0000-0000-0000-000000000621';
 const ragQueryResultId = '00000000-0000-0000-0000-000000000622';
 const mcpServerId = '00000000-0000-0000-0000-000000000701';
+const mcpLocalDemoServerId = '00000000-0000-4000-8000-0000000018d0';
 const mcpToolId = '00000000-0000-0000-0000-000000000801';
 const mcpBindingId = '00000000-0000-0000-0000-000000000901';
 const mcpToolCallId = '00000000-0000-0000-0000-000000000911';
@@ -1039,6 +1041,7 @@ describe('knowledge and MCP catalog endpoints', () => {
     mocks.mcpRepository.listMcpToolCallEvents.mockResolvedValue([mcpToolCallEventFixture()]);
     mocks.mcpRepository.createBinding.mockResolvedValue(mcpBindingFixture());
     mocks.mcpRepository.listBindings.mockResolvedValue([mcpBindingFixture()]);
+    mocks.mcpRepository.listCatalogBindings.mockResolvedValue([mcpBindingFixture()]);
   });
 
   it('creates and lists knowledge bases', async () => {
@@ -2260,6 +2263,107 @@ describe('knowledge and MCP catalog endpoints', () => {
     expect(mocks.recordAuditEvent).toHaveBeenCalledWith(expect.objectContaining({ action: 'mcp_server_created' }));
     expect(mocks.recordAuditEvent).toHaveBeenCalledWith(expect.objectContaining({ action: 'mcp_tool_created' }));
     expect(mocks.recordAuditEvent).toHaveBeenCalledWith(expect.objectContaining({ action: 'mcp_policy_updated' }));
+    expect(mocks.recordAuditEvent).toHaveBeenCalledWith(expect.objectContaining({ action: 'mcp.tool.catalog.viewed' }));
+  });
+
+  it('exposes a fail-closed local demo precheck and protects the seeded catalog', async () => {
+    mocks.mcpRepository.findServer.mockResolvedValue(mcpServerFixture({
+      id: mcpLocalDemoServerId,
+      name: 'MCP Demo Local — Corporate Readonly',
+      serverType: 'local',
+      baseUrl: null,
+      trustLevel: 'trusted',
+      riskLevel: 'low',
+      metadata: {
+        phase: '18D',
+        localDemo: true,
+        readOnly: true,
+        sandboxOnly: true,
+        remoteExecution: false,
+        externalNetworkAllowed: false,
+        writeToolsAllowed: false,
+      },
+    }));
+
+    const precheckResponse = await request(createApp())
+      .get(`/api/v1/mcp/servers/${mcpLocalDemoServerId}/local-demo-precheck`)
+      .set('Cookie', [sessionCookie()])
+      .expect(200);
+
+    expect(precheckResponse.body.data).toMatchObject({
+      status: 'ready',
+      configured: true,
+      healthy: true,
+      allowed: false,
+      failClosed: true,
+      mode: 'local_demo_precheck',
+      policy: {
+        readOnly: true,
+        remoteExecution: false,
+        writeToolsAllowed: false,
+        externalNetworkAllowed: false,
+        sandboxOnly: true,
+        allowRuntimeExecution: false,
+      },
+    });
+    expect(mocks.recordAuditEvent).toHaveBeenCalledWith(expect.objectContaining({ action: 'mcp.precheck.demo_checked' }));
+
+    await request(createApp())
+      .get(`/api/v1/mcp/servers/${mcpLocalDemoServerId}`)
+      .set('Cookie', [sessionCookie()])
+      .expect(200);
+
+    expect(mocks.recordAuditEvent).toHaveBeenCalledWith(expect.objectContaining({ action: 'mcp.server.viewed' }));
+
+    const updateResponse = await request(createApp())
+      .patch(`/api/v1/mcp/servers/${mcpLocalDemoServerId}`)
+      .set('Cookie', [sessionCookie()])
+      .send({ description: 'attempted mutation' })
+      .expect(409);
+
+    expect(updateResponse.body.code).toBe('MCP_LOCAL_DEMO_READ_ONLY');
+    expect(mocks.mcpRepository.updateServer).not.toHaveBeenCalled();
+  });
+
+  it('lists MCP bindings for the Hub catalog', async () => {
+    const response = await request(createApp())
+      .get('/api/v1/mcp/bindings')
+      .set('Cookie', [sessionCookie()])
+      .expect(200);
+
+    expect(response.body.data).toHaveLength(1);
+    expect(response.body.data[0]).toMatchObject({
+      assistantId,
+      mcpServerId,
+      mcpToolId,
+      mode: 'sandbox_only',
+      isEnabled: true,
+    });
+  });
+
+  it('rejects tool-call creation for the precheck-only local demo catalog', async () => {
+    mocks.mcpRepository.findToolForExecution.mockResolvedValueOnce(lowRiskMcpToolFixture({
+      metadata: {
+        phase: '18D',
+        localDemo: true,
+        readOnly: true,
+        sandboxOnly: true,
+        remoteExecution: false,
+        externalNetworkAllowed: false,
+        writeToolsAllowed: false,
+        executionMode: 'precheck_only',
+      },
+    }));
+
+    const response = await request(createApp())
+      .post(`/api/v1/assistants/${assistantId}/mcp/tool-calls`)
+      .set('Cookie', [sessionCookie()])
+      .send({ mcpToolId, mode: 'sandbox', input: { query: 'demo local' } })
+      .expect(409);
+
+    expect(response.body.code).toBe('MCP_LOCAL_DEMO_PRECHECK_ONLY');
+    expect(mocks.mcpRepository.createMcpToolCallWithEvents).not.toHaveBeenCalled();
+    expect(mocks.recordAuditEvent).toHaveBeenCalledWith(expect.objectContaining({ action: 'mcp.precheck.blocked' }));
   });
 
   it('creates assistant MCP binding but blocks false approval override for high risk tools', async () => {

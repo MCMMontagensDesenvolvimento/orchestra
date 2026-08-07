@@ -123,6 +123,7 @@ export function mapMcpPrompt(prompt: McpPrompt) {
 
 export function mapAssistantMcpBinding(
   binding: AssistantMcpBinding & {
+    assistant?: { id: string; name: string; status: string } | null;
     server?: McpServer | null;
     tool?: (McpTool & { policies?: McpToolPolicy[] }) | null;
   },
@@ -132,6 +133,7 @@ export function mapAssistantMcpBinding(
     tenantId: binding.tenantId,
     workspaceId: binding.workspaceId,
     assistantId: binding.assistantId,
+    assistant: binding.assistant,
     mcpServerId: binding.mcpServerId,
     mcpToolId: binding.mcpToolId,
     isEnabled: binding.isEnabled,

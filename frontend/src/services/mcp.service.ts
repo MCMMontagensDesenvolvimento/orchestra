@@ -15,7 +15,7 @@ import type {
 } from '@/types';
 import {
   mockMcpServers, mockMcpTools, mockMcpResources, mockMcpPrompts, mockMcpBindings, mockToolExecutionLogs,
-} from '@/services/mocks';
+} from '@/services/mocks/mcp-demo-local.mock';
 import { mockResponse, mockFind } from '@/services/mocks/mock-utils';
 import { env } from '@/lib/env';
 import { apiClient, type ApiEnvelope, type PaginatedApiEnvelope } from './api/api-client';
@@ -119,6 +119,7 @@ interface ApiAssistantMcpBinding {
   isEnabled: boolean;
   mode: 'disabled' | 'sandbox_only' | 'enabled_placeholder';
   requiresApprovalOverride: boolean | null;
+  assistant?: { id: string; name: string; status: string } | null;
   server?: ApiMcpServer;
   tool?: ApiMcpTool;
   createdById: string | null;
@@ -235,6 +236,32 @@ export interface McpRemoteDiscoveryResult {
   };
 }
 
+export interface McpLocalDemoPrecheckResult {
+  serverId: string;
+  status: 'ready';
+  configured: true;
+  healthy: true;
+  allowed: false;
+  failClosed: true;
+  mode: 'local_demo_precheck';
+  reason: string;
+  checks: Array<{ name: string; status: 'pass'; message: string }>;
+  policy: {
+    readOnly: true;
+    remoteExecution: false;
+    writeToolsAllowed: false;
+    externalNetworkAllowed: false;
+    requiresApproval: true;
+    sandboxOnly: true;
+    allowRuntimeExecution: false;
+    blockedByDefault: true;
+    externalProviderAllowed: false;
+    realEmbeddingsAllowed: false;
+    chatAgentRunAllowed: false;
+    executionMode: 'precheck_only';
+  };
+}
+
 function formatDate(value?: string | null) {
   return value ? value.split('T')[0] : '';
 }
@@ -344,7 +371,7 @@ function mapBinding(binding: ApiAssistantMcpBinding): McpBinding {
     mcpServerId: binding.mcpServerId,
     mcpToolId: binding.mcpToolId,
     assistantId: binding.assistantId,
-    assistantName: binding.assistantId,
+    assistantName: binding.assistant?.name ?? binding.assistantId,
     toolsEnabled: tool ? [tool.name] : [],
     resourcesEnabled: [],
     createdAt: formatDate(binding.createdAt),
@@ -565,6 +592,41 @@ export const mcpService = {
     return response.data.data;
   },
 
+  async localDemoPrecheck(id: string): Promise<McpLocalDemoPrecheckResult> {
+    if (env.useMocks) return mockResponse({
+      serverId: id,
+      status: 'ready',
+      configured: true,
+      healthy: true,
+      allowed: false,
+      failClosed: true,
+      mode: 'local_demo_precheck',
+      reason: 'Catálogo demo local pronto para homologação visual; execução de tools permanece bloqueada.',
+      checks: [
+        { name: 'catalog', status: 'pass', message: '3 tools demo read-only catalogadas.' },
+        { name: 'local_only', status: 'pass', message: 'Nenhum transporte MCP remoto é criado.' },
+        { name: 'write_tools', status: 'pass', message: 'Tools de escrita não são permitidas.' },
+        { name: 'runtime_execution', status: 'pass', message: 'Execução permanece bloqueada; somente precheck determinístico.' },
+      ],
+      policy: {
+        readOnly: true,
+        remoteExecution: false,
+        writeToolsAllowed: false,
+        externalNetworkAllowed: false,
+        requiresApproval: true,
+        sandboxOnly: true,
+        allowRuntimeExecution: false,
+        blockedByDefault: true,
+        externalProviderAllowed: false,
+        realEmbeddingsAllowed: false,
+        chatAgentRunAllowed: false,
+        executionMode: 'precheck_only',
+      },
+    });
+    const response = await apiClient.get<ApiEnvelope<McpLocalDemoPrecheckResult>>(endpoints.mcp.localDemoPrecheck(id));
+    return response.data.data;
+  },
+
   async remoteDiscovery(id: string): Promise<McpRemoteDiscoveryResult> {
     if (env.useMocks) return mockResponse({
       serverId: id,
@@ -676,8 +738,8 @@ export const mcpService = {
 
   async bindings(assistantId?: string): Promise<McpBinding[]> {
     if (env.useMocks) return mockResponse(mockMcpBindings);
-    if (!assistantId) return [];
-    const response = await apiClient.get<ApiEnvelope<ApiAssistantMcpBinding[]>>(endpoints.assistants.mcpBindings(assistantId));
+    const endpoint = assistantId ? endpoints.assistants.mcpBindings(assistantId) : endpoints.mcp.bindings;
+    const response = await apiClient.get<ApiEnvelope<ApiAssistantMcpBinding[]>>(endpoint);
     return response.data.data.map(mapBinding);
   },
 

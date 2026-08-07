@@ -99,6 +99,9 @@ jobs:
       - name: Run 18C Assistant Wizard correction static gate
         run: scripts/smoke-correcao-wizard-assistants-18c.sh --dry-run
 
+      - name: Run 18D governed local MCP/tools static gate
+        run: scripts/smoke-mcp-tools-governado-local-18d.sh --dry-run
+
       - name: Run static production preflight
         run: scripts/preflight-prod-runtime-16o.sh --dry-run
 

@@ -19,6 +19,10 @@ import { getMcpRemoteConfig } from './remote/mcp-remote.config';
 import { mcpRemoteDiscoveryService } from './remote/mcp-remote-discovery.service';
 import { mcpRemoteReadinessService } from './remote/mcp-remote-readiness.service';
 import { createGovernedMcpRemoteTransport } from './remote/mcp-remote-transport.factory';
+import {
+  getMcpLocalDemoPrecheck,
+  isMcpLocalDemoMetadata,
+} from './local-demo/mcp-local-demo.catalog';
 import type {
   AssistantMcpBindingCreateInput,
   AssistantMcpBindingUpdateInput,
@@ -255,6 +259,16 @@ function assertRemoteServer(server: Awaited<ReturnType<typeof getServerOrThrow>>
   }
 }
 
+function assertLocalDemoCatalogMutable(metadata: unknown) {
+  if (isMcpLocalDemoMetadata(metadata)) {
+    throw new AppError(
+      409,
+      'MCP_LOCAL_DEMO_READ_ONLY',
+      'O catálogo MCP demo local da Fase 18D é imutável e deve ser restaurado somente pelo seed governado.',
+    );
+  }
+}
+
 function governedRemotePolicy(server: Awaited<ReturnType<typeof getServerOrThrow>>) {
   const policy = server.policies[0];
   return {
@@ -389,9 +403,43 @@ export const mcpService = {
     };
   },
 
-  async getServer(id: string, user: AuthenticatedUser) {
+  async getServer(id: string, user: AuthenticatedUser, context: RequestContext) {
     const server = await getServerOrThrow(id, user);
+    await audit({
+      user,
+      context,
+      action: 'mcp.server.viewed',
+      entity: 'mcp_server',
+      entityId: server.id,
+      workspaceId: server.workspaceId,
+      metadata: { serverType: server.serverType, localDemo: isMcpLocalDemoMetadata(server.metadata) },
+    });
     return mapMcpServer(server);
+  },
+
+  async getLocalDemoPrecheck(id: string, user: AuthenticatedUser, context: RequestContext) {
+    const server = await getServerOrThrow(id, user);
+    const precheck = getMcpLocalDemoPrecheck(server);
+    if (!precheck) {
+      throw new AppError(409, 'MCP_LOCAL_DEMO_REQUIRED', 'Precheck local disponível somente para o catálogo demo governado da Fase 18D.');
+    }
+    await audit({
+      user,
+      context,
+      action: 'mcp.precheck.demo_checked',
+      entity: 'mcp_server',
+      entityId: server.id,
+      workspaceId: server.workspaceId,
+      metadata: {
+        status: precheck.status,
+        allowed: precheck.allowed,
+        failClosed: precheck.failClosed,
+        remoteExecution: precheck.policy.remoteExecution,
+        externalNetworkAllowed: precheck.policy.externalNetworkAllowed,
+        writeToolsAllowed: precheck.policy.writeToolsAllowed,
+      },
+    });
+    return precheck;
   },
 
   async getRemoteReadiness(id: string, user: AuthenticatedUser) {
@@ -481,6 +529,7 @@ export const mcpService = {
 
   async updateServer(id: string, input: McpServerUpdateInput, user: AuthenticatedUser, context: RequestContext) {
     const current = await getServerOrThrow(id, user);
+    assertLocalDemoCatalogMutable(current.metadata);
     const server = await mcpRepository.updateServer(id, user.tenant.id, userWorkspaceIds(user), input);
     if (!server) {
       throw new AppError(404, 'MCP_SERVER_NOT_FOUND', 'MCP server nao encontrado.');
@@ -507,6 +556,7 @@ export const mcpService = {
 
   async archiveServer(id: string, user: AuthenticatedUser, context: RequestContext) {
     const current = await getServerOrThrow(id, user);
+    assertLocalDemoCatalogMutable(current.metadata);
     const server = await mcpRepository.archiveServer(id, user.tenant.id, userWorkspaceIds(user));
     if (!server) {
       throw new AppError(404, 'MCP_SERVER_NOT_FOUND', 'MCP server nao encontrado.');
@@ -526,6 +576,7 @@ export const mcpService = {
 
   async restoreServer(id: string, user: AuthenticatedUser, context: RequestContext) {
     const current = await getServerOrThrow(id, user);
+    assertLocalDemoCatalogMutable(current.metadata);
     const server = await mcpRepository.restoreServer(id, user.tenant.id, userWorkspaceIds(user));
     if (!server) {
       throw new AppError(404, 'MCP_SERVER_NOT_FOUND', 'MCP server nao encontrado.');
@@ -544,14 +595,24 @@ export const mcpService = {
     return mapMcpServer(server);
   },
 
-  async listTools(serverId: string, user: AuthenticatedUser) {
+  async listTools(serverId: string, user: AuthenticatedUser, context: RequestContext) {
     const server = await getServerOrThrow(serverId, user);
     const tools = await mcpRepository.listTools(server.id, user.tenant.id, userWorkspaceIds(user));
+    await audit({
+      user,
+      context,
+      action: 'mcp.tool.catalog.viewed',
+      entity: 'mcp_server',
+      entityId: server.id,
+      workspaceId: server.workspaceId,
+      metadata: { toolCount: tools.length, localDemo: isMcpLocalDemoMetadata(server.metadata) },
+    });
     return tools.map(mapMcpTool);
   },
 
   async createTool(serverId: string, input: McpToolCreateInput, user: AuthenticatedUser, context: RequestContext) {
     const server = await getServerOrThrow(serverId, user);
+    assertLocalDemoCatalogMutable(server.metadata);
     if (server.status === 'archived' || server.deletedAt) {
       throw new AppError(409, 'MCP_SERVER_ARCHIVED', 'MCP server arquivado nao aceita novas tools.');
     }
@@ -600,6 +661,7 @@ export const mcpService = {
     if (!current) {
       throw new AppError(404, 'MCP_TOOL_NOT_FOUND', 'MCP tool nao encontrada.');
     }
+    assertLocalDemoCatalogMutable(current.metadata);
     if ((input.riskLevel === 'high' || input.riskLevel === 'critical') && input.requiresApproval === false) {
       throw new AppError(422, 'MCP_APPROVAL_REQUIRED', 'Tools high ou critical exigem approval.');
     }
@@ -650,6 +712,7 @@ export const mcpService = {
     if (!current) {
       throw new AppError(404, 'MCP_TOOL_NOT_FOUND', 'MCP tool nao encontrada.');
     }
+    assertLocalDemoCatalogMutable(current.metadata);
     const tool = await mcpRepository.archiveTool(toolId, user.tenant.id, userWorkspaceIds(user));
     if (!tool) {
       throw new AppError(404, 'MCP_TOOL_NOT_FOUND', 'MCP tool nao encontrada.');
@@ -676,6 +739,7 @@ export const mcpService = {
 
   async createResource(serverId: string, input: McpResourceCreateInput, user: AuthenticatedUser, context: RequestContext) {
     const server = await getServerOrThrow(serverId, user);
+    assertLocalDemoCatalogMutable(server.metadata);
     if (server.status === 'archived' || server.deletedAt) {
       throw new AppError(409, 'MCP_SERVER_ARCHIVED', 'MCP server arquivado nao aceita novos resources.');
     }
@@ -705,6 +769,7 @@ export const mcpService = {
 
   async createPrompt(serverId: string, input: McpPromptCreateInput, user: AuthenticatedUser, context: RequestContext) {
     const server = await getServerOrThrow(serverId, user);
+    assertLocalDemoCatalogMutable(server.metadata);
     if (server.status === 'archived' || server.deletedAt) {
       throw new AppError(409, 'MCP_SERVER_ARCHIVED', 'MCP server arquivado nao aceita novos prompts.');
     }
@@ -732,6 +797,11 @@ export const mcpService = {
     return bindings.map(mapAssistantMcpBinding);
   },
 
+  async listCatalogBindings(user: AuthenticatedUser) {
+    const bindings = await mcpRepository.listCatalogBindings(user.tenant.id, userWorkspaceIds(user));
+    return bindings.map(mapAssistantMcpBinding);
+  },
+
   async createBinding(assistantId: string, input: AssistantMcpBindingCreateInput, user: AuthenticatedUser, context: RequestContext) {
     const assistant = await getAssistantOrThrow(assistantId, user);
     const server = await getServerOrThrow(input.mcpServerId, user);
@@ -749,6 +819,21 @@ export const mcpService = {
     }
     if (tool && (!tool.isEnabled || tool.deletedAt)) {
       throw new AppError(409, 'MCP_TOOL_NOT_BINDABLE', 'MCP tool deve estar habilitada para ser vinculada.');
+    }
+    if (isMcpLocalDemoMetadata(server.metadata)) {
+      const toolMetadata = tool?.metadata;
+      if (
+        !tool
+        || !isMcpLocalDemoMetadata(toolMetadata)
+        || input.mode !== 'sandbox_only'
+        || input.requiresApprovalOverride === false
+      ) {
+        throw new AppError(
+          422,
+          'MCP_LOCAL_DEMO_BINDING_GOVERNANCE_REQUIRED',
+          'Bindings do demo local exigem tool explícita, modo sandbox_only e approval preservado.',
+        );
+      }
     }
     if (tool && (tool.requiresApproval || requiresApprovalForRisk(tool.riskLevel)) && input.requiresApprovalOverride === false) {
       throw new AppError(422, 'MCP_APPROVAL_REQUIRED', 'Esta MCP tool exige approval e nao aceita override falso.');
@@ -794,6 +879,7 @@ export const mcpService = {
     if (!current) {
       throw new AppError(404, 'MCP_BINDING_NOT_FOUND', 'Binding MCP nao encontrado.');
     }
+    assertLocalDemoCatalogMutable(current.server?.metadata);
     if (current.tool && (current.tool.requiresApproval || requiresApprovalForRisk(current.tool.riskLevel)) && input.requiresApprovalOverride === false) {
       throw new AppError(422, 'MCP_APPROVAL_REQUIRED', 'Esta MCP tool exige approval e nao aceita override falso.');
     }
@@ -824,6 +910,11 @@ export const mcpService = {
 
   async removeBinding(assistantId: string, bindingId: string, user: AuthenticatedUser, context: RequestContext) {
     const assistant = await getAssistantOrThrow(assistantId, user);
+    const current = (await mcpRepository.listBindings(assistant.id, user.tenant.id, userWorkspaceIds(user))).find((item) => item.id === bindingId);
+    if (!current) {
+      throw new AppError(404, 'MCP_BINDING_NOT_FOUND', 'Binding MCP nao encontrado.');
+    }
+    assertLocalDemoCatalogMutable(current.server?.metadata);
     const binding = await mcpRepository.disableBinding(assistant.id, bindingId, user.tenant.id, userWorkspaceIds(user));
     if (!binding) {
       throw new AppError(404, 'MCP_BINDING_NOT_FOUND', 'Binding MCP nao encontrado.');
@@ -890,6 +981,30 @@ export const mcpService = {
         reasons: precheck.reasons,
       },
     });
+
+    if (isMcpLocalDemoMetadata(precheck.tool.metadata)) {
+      await audit({
+        user,
+        context,
+        action: 'mcp.precheck.blocked',
+        entity: 'mcp_tool',
+        entityId: precheck.tool.id,
+        workspaceId: precheck.assistant.workspaceId,
+        metadata: {
+          assistantId: precheck.assistant.id,
+          mcpServerId: precheck.tool.mcpServerId,
+          mode: 'precheck_only',
+          remoteExecution: false,
+          externalNetworkAllowed: false,
+          writeToolsAllowed: false,
+        },
+      });
+      throw new AppError(
+        409,
+        'MCP_LOCAL_DEMO_PRECHECK_ONLY',
+        'O catálogo demo local permite somente precheck determinístico; nenhuma tool é executada.',
+      );
+    }
 
     const now = new Date();
     const inputPreview = previewInput(input.input);

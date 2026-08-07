@@ -75,6 +75,9 @@ export function createMcpRouter() {
   router.get('/servers/:id', requireAuth, requirePermission('mcp.read'), validateParams(idParamsSchema), (req, res, next) => {
     void mcpController.getServer(req, res).catch(next);
   });
+  router.get('/servers/:id/local-demo-precheck', requireAuth, requirePermission('mcp.read'), validateParams(idParamsSchema), (req, res, next) => {
+    void mcpController.getLocalDemoPrecheck(req, res).catch(next);
+  });
   router.get('/servers/:id/remote-readiness', requireAuth, requirePermission('mcp.read'), validateParams(idParamsSchema), (req, res, next) => {
     void mcpController.getRemoteReadiness(req, res).catch(next);
   });
@@ -127,6 +130,9 @@ export function createMcpRouter() {
 
   router.get('/tool-calls', requireAuth, requirePermission('mcp.tools.read'), validateQuery(mcpToolCallsQuerySchema), (req, res, next) => {
     void mcpController.listToolCalls(req, res).catch(next);
+  });
+  router.get('/bindings', requireAuth, requirePermission('mcp.read'), (req, res, next) => {
+    void mcpController.listCatalogBindings(req, res).catch(next);
   });
   router.get('/tool-calls/:toolCallId', requireAuth, requirePermission('mcp.tools.read'), validateParams(mcpToolCallParamsSchema), (req, res, next) => {
     void mcpController.getToolCall(req, res).catch(next);

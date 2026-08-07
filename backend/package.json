@@ -20,6 +20,7 @@
     "prisma:migrate:deploy": "prisma migrate deploy",
     "prisma:seed": "prisma db seed",
     "prisma:seed:demo": "tsx prisma/seed.ts --demo",
+    "prisma:seed:mcp-demo-local": "tsx prisma/seed.ts --demo",
     "prisma:studio": "prisma studio"
   },
   "dependencies": {

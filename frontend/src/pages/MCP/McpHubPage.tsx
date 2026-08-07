@@ -27,7 +27,7 @@ import { useAssistants } from '@/hooks/queries/useAssistants';
 import {
   Plus, Server, Wrench, Shield, Search, MoreHorizontal, Eye, Pencil, Trash2,
   Copy, Filter, X, AlertTriangle, Link2, LayoutGrid, List, Power, PowerOff,
-  Globe, Settings, Key
+  Globe, Settings, Key, Lock
 } from 'lucide-react';
 import type { McpServer, McpServerStatus, RiskLevel } from '@/types';
 import type { McpServerPayload } from '@/services/mcp.service';
@@ -107,6 +107,15 @@ function buildServerPayload(formData: ServerFormData): McpServerPayload {
       phase: 'remote_readonly_homologation',
     },
   };
+}
+
+function metadataRecord(value: unknown): Record<string, unknown> {
+  return value && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : {};
+}
+
+function isGovernedLocalDemo(server: McpServer) {
+  const metadata = metadataRecord(server.metadata);
+  return server.serverType === 'local' && metadata.localDemo === true && metadata.phase === '18D';
 }
 
 export default function McpHubPage() {
@@ -414,13 +423,19 @@ export default function McpHubPage() {
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end" onClick={e => e.stopPropagation()}>
         <DropdownMenuItem onClick={() => navigate(`/app/mcp/${server.id}`)}><Eye className="h-4 w-4 mr-2" />Detalhes</DropdownMenuItem>
-        <DropdownMenuItem onClick={() => openEdit(server)}><Pencil className="h-4 w-4 mr-2" />Editar</DropdownMenuItem>
-        <DropdownMenuItem onClick={() => { void handleToggleStatus(server); }}>
-          {server.status === 'active' ? <><PowerOff className="h-4 w-4 mr-2" />Desativar</> : <><Power className="h-4 w-4 mr-2" />Ativar</>}
-        </DropdownMenuItem>
-        <DropdownMenuItem onClick={() => { void handleDuplicate(server); }}><Copy className="h-4 w-4 mr-2" />Duplicar</DropdownMenuItem>
-        <DropdownMenuSeparator />
-        <DropdownMenuItem onClick={() => openDelete(server)} className="text-destructive"><Trash2 className="h-4 w-4 mr-2" />Arquivar</DropdownMenuItem>
+        {isGovernedLocalDemo(server) ? (
+          <DropdownMenuItem disabled><Lock className="h-4 w-4 mr-2" />Catálogo protegido pelo seed</DropdownMenuItem>
+        ) : (
+          <>
+            <DropdownMenuItem onClick={() => openEdit(server)}><Pencil className="h-4 w-4 mr-2" />Editar</DropdownMenuItem>
+            <DropdownMenuItem onClick={() => { void handleToggleStatus(server); }}>
+              {server.status === 'active' ? <><PowerOff className="h-4 w-4 mr-2" />Desativar</> : <><Power className="h-4 w-4 mr-2" />Ativar</>}
+            </DropdownMenuItem>
+            <DropdownMenuItem onClick={() => { void handleDuplicate(server); }}><Copy className="h-4 w-4 mr-2" />Duplicar</DropdownMenuItem>
+            <DropdownMenuSeparator />
+            <DropdownMenuItem onClick={() => openDelete(server)} className="text-destructive"><Trash2 className="h-4 w-4 mr-2" />Arquivar</DropdownMenuItem>
+          </>
+        )}
       </DropdownMenuContent>
     </DropdownMenu>
   );
@@ -428,15 +443,15 @@ export default function McpHubPage() {
   return (
     <AppShell>
       <div className="space-y-6 animate-fade-in">
-        <PageHeader title="MCP Hub" description="Gestão centralizada de servidores MCP, ferramentas e permissões">
-          <Button onClick={() => { setFormData(defaultForm); setCreateOpen(true); }}><Plus className="h-4 w-4 mr-1" />Registrar Servidor</Button>
+        <PageHeader title="MCP Hub" description="Catálogo local demonstrável, read-only e governado">
+          <Button disabled title="Na Fase 18D o catálogo é instalado somente pelo seed local governado."><Lock className="h-4 w-4 mr-1" />Gerenciado por seed</Button>
         </PageHeader>
 
         <div className="flex gap-3 rounded-lg border border-warning/30 bg-warning/5 p-4">
           <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-warning" />
           <div>
-            <p className="text-sm font-medium">MCP read-only opt-in · adapter corporativo aguardando configuração</p>
-            <p className="mt-1 text-xs text-muted-foreground">O demo local continua homologado. O adapter corporativo aceita somente status não sensível e permanece fail-closed sem flags, origem HTTPS exata, secretRef, readiness, binding e policy explícitos. Escrita não está disponível.</p>
+            <p className="text-sm font-medium">Fase 18D · MCP demo local pronto e execução bloqueada</p>
+            <p className="mt-1 text-xs text-muted-foreground">O catálogo abaixo usa apenas stubs locais determinísticos. Rede externa, MCP remoto, tools de escrita, providers, embeddings e Chat/AgentRun reais permanecem desabilitados.</p>
           </div>
         </div>
 
@@ -499,17 +514,17 @@ export default function McpHubPage() {
           loading={<ListLoading rows={4} />}
           emptyIcon={<Server className="h-6 w-6" />}
           emptyTitle="Nenhum servidor MCP registrado"
-          emptyDescription="Registre um servidor MCP para disponibilizar ferramentas governadas aos assistentes."
+          emptyDescription="Execute o seed demo local governado para instalar o catálogo MCP da Fase 18D."
           emptyAction={
-            <Button onClick={() => { setFormData(defaultForm); setCreateOpen(true); }}>
-              <Plus className="h-4 w-4 mr-1" />Registrar servidor
+            <Button disabled>
+              <Lock className="h-4 w-4 mr-1" />Somente via seed local
             </Button>
           }
           errorTitle="Não foi possível carregar os servidores MCP"
           errorDescription="Tente novamente em instantes."
         >
         {filtered.length === 0 ? (
-          <EmptyState icon={<Server className="h-6 w-6" />} title="Nenhum servidor encontrado para os filtros" description="Ajuste os filtros ou registre um novo servidor." action={<Button onClick={() => { setFormData(defaultForm); setCreateOpen(true); }}><Plus className="h-4 w-4 mr-1" />Registrar</Button>} />
+          <EmptyState icon={<Server className="h-6 w-6" />} title="Nenhum servidor encontrado para os filtros" description="Ajuste ou limpe os filtros para reencontrar o catálogo demo local." />
         ) : viewMode === 'table' ? (
           <div className="rounded-lg border">
             <Table>
@@ -533,7 +548,11 @@ export default function McpHubPage() {
                     <TableCell>
                       <div className="flex items-center gap-2">
                         <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-warning/10 text-warning"><Server className="h-4 w-4" /></div>
-                        <div><p className="font-medium">{server.name}</p><p className="text-xs text-muted-foreground truncate max-w-[200px]">{server.description}</p></div>
+                        <div>
+                          <p className="font-medium">{server.name}</p>
+                          <p className="text-xs text-muted-foreground truncate max-w-[200px]">{server.description}</p>
+                          {isGovernedLocalDemo(server) && <div className="mt-1 flex flex-wrap gap-1"><Badge variant="secondary" className="text-[9px]">local</Badge><Badge variant="secondary" className="text-[9px]">demo</Badge><Badge variant="outline" className="text-[9px]">read-only</Badge><Badge variant="outline" className="text-[9px]">sandbox</Badge></div>}
+                        </div>
                       </div>
                     </TableCell>
                     <TableCell><StatusBadge status={server.status} /></TableCell>
@@ -560,6 +579,7 @@ export default function McpHubPage() {
                     <div>
                       <h3 className="font-semibold group-hover:text-primary transition-colors">{server.name}</h3>
                       <span className={`inline-flex rounded-full border px-2 py-0.5 text-[10px] font-medium ${riskColors[server.riskLevel]}`}>{server.riskLevel} risk</span>
+                      {isGovernedLocalDemo(server) && <div className="mt-1 flex flex-wrap gap-1"><Badge variant="secondary" className="text-[9px]">local</Badge><Badge variant="secondary" className="text-[9px]">demo</Badge><Badge variant="outline" className="text-[9px]">read-only</Badge></div>}
                     </div>
                   </div>
                   <div className="flex items-center gap-1">

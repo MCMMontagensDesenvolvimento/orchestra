@@ -114,6 +114,15 @@ baseline preexistente de Analytics que espera nenhuma chamada, enquanto a
 implementação existente consulta `/ai-observability/runtime-runs`; esse
 desalinhamento não possui diff na 18C e continua fora do escopo.
 
+A Fase 18D torna o MCP Hub demonstrável por um catálogo local seedado e
+idempotente, com um servidor `MCP Demo Local — Corporate Readonly`, três tools
+read-only, policies fail-closed, bindings `sandbox_only`, auditoria sanitizada e
+precheck visual que retorna `ready` sem autorizar execução (`allowed=false`). O
+catálogo seedado é protegido contra mutações e não possui URL, secret ou transporte
+MCP. Rede externa, write tools, providers, embeddings, Chat/AgentRun, produção,
+deploy e migrations permanecem bloqueados. Consulte
+`mcp/ORCHESTRA_MCP_TOOLS_GOVERNADO_LOCAL_18D.md`.
+
 A Fase 14H consolida o MVP tecnico da integracao com Agno Runtime, adicionando handoff operacional, checklist de homologacao/rollback e smoke seguro de MVP para runtime HTTP minimo e fronteira de frontend, sem feature nova, migration, frontend ou mudanca de defaults.
 
 A Fase 15C adiciona conversas persistentes privadas por usuario no Chat, mensagens persistidas, arquivamento logico, envio de mensagem pelo backend de conversa e resposta do assistente vinculada ao `AgentRun`.

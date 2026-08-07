@@ -33,6 +33,9 @@ const mcpToolInclude = {
 } satisfies Prisma.McpToolInclude;
 
 const bindingInclude = {
+  assistant: {
+    select: { id: true, name: true, status: true },
+  },
   server: {
     include: mcpServerInclude,
   },
@@ -377,6 +380,17 @@ export const mcpRepository = {
     return prisma.assistantMcpBinding.findMany({
       where: {
         assistantId,
+        tenantId,
+        workspaceId: { in: workspaceIds },
+      },
+      include: bindingInclude,
+      orderBy: [{ createdAt: 'desc' }],
+    });
+  },
+
+  listCatalogBindings(tenantId: string, workspaceIds: string[]) {
+    return prisma.assistantMcpBinding.findMany({
+      where: {
         tenantId,
         workspaceId: { in: workspaceIds },
       },

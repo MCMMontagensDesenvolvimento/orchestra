@@ -16,7 +16,12 @@ export const mcpController = {
   },
 
   async getServer(req: Request, res: Response) {
-    const data = await mcpService.getServer(req.params.id, req.user!);
+    const data = await mcpService.getServer(req.params.id, req.user!, requestContext(req));
+    return res.status(200).json({ data, requestId: req.requestId });
+  },
+
+  async getLocalDemoPrecheck(req: Request, res: Response) {
+    const data = await mcpService.getLocalDemoPrecheck(req.params.id, req.user!, requestContext(req));
     return res.status(200).json({ data, requestId: req.requestId });
   },
 
@@ -51,7 +56,12 @@ export const mcpController = {
   },
 
   async listTools(req: Request, res: Response) {
-    const data = await mcpService.listTools(req.params.id, req.user!);
+    const data = await mcpService.listTools(req.params.id, req.user!, requestContext(req));
+    return res.status(200).json({ data, requestId: req.requestId });
+  },
+
+  async listCatalogBindings(req: Request, res: Response) {
+    const data = await mcpService.listCatalogBindings(req.user!);
     return res.status(200).json({ data, requestId: req.requestId });
   },
 
