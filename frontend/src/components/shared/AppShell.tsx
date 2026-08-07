@@ -7,15 +7,38 @@ interface AppShellProps {
   children: ReactNode;
 }
 
+export const APP_SIDEBAR_COLLAPSED_STORAGE_KEY = 'orchestra.sidebar.collapsed';
+
+function readInitialSidebarState() {
+  if (typeof window === 'undefined') return false;
+  try {
+    return window.localStorage.getItem(APP_SIDEBAR_COLLAPSED_STORAGE_KEY) === 'true';
+  } catch {
+    return false;
+  }
+}
+
 export function AppShell({ children }: AppShellProps) {
-  const [collapsed, setCollapsed] = useState(false);
+  const [collapsed, setCollapsed] = useState(readInitialSidebarState);
   const [mobileOpen, setMobileOpen] = useState(false);
+
+  const toggleSidebar = () => {
+    setCollapsed((current) => {
+      const next = !current;
+      try {
+        window.localStorage.setItem(APP_SIDEBAR_COLLAPSED_STORAGE_KEY, String(next));
+      } catch {
+        // The layout still works when storage is unavailable or blocked by the browser.
+      }
+      return next;
+    });
+  };
 
   return (
     <div className="flex h-dvh overflow-hidden bg-background">
       {/* Sidebar desktop (md+) */}
       <div className="hidden md:flex">
-        <AppSidebar collapsed={collapsed} onToggle={() => setCollapsed(!collapsed)} />
+        <AppSidebar collapsed={collapsed} onToggle={toggleSidebar} />
       </div>
 
       {/* Sidebar mobile (drawer) */}
