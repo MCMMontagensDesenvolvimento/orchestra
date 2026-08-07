@@ -23,6 +23,7 @@ import type {
 import { mockAssistants, mockKnowledgeBases, mockDocuments } from '@/services/mocks';
 import { mockResponse, mockFind } from '@/services/mocks/mock-utils';
 import { env } from '@/lib/env';
+import { displayUserLabel } from '@/lib/display-safety';
 import { apiClient, type ApiEnvelope, type PaginatedApiEnvelope } from './api/api-client';
 import { endpoints } from './api/endpoints';
 
@@ -81,6 +82,7 @@ interface ApiKnowledgeDocument {
   chunkCount?: number;
   metadata?: Record<string, unknown> | null;
   createdById: string | null;
+  createdBy?: { id: string; name: string; email: string } | null;
   createdAt: string;
   updatedAt: string;
   deletedAt: string | null;
@@ -345,7 +347,7 @@ function mapDocument(document: ApiKnowledgeDocument): KnowledgeDocument {
     chunks: Number(document.chunkCount ?? document.metadata?.chunks ?? 0),
     chunkCount: Number(document.chunkCount ?? document.metadata?.chunks ?? 0),
     version: metadataString(document.metadata, 'version', '1.0'),
-    uploadedBy: document.createdById ?? 'Orchestra',
+    uploadedBy: document.createdBy?.name ?? displayUserLabel(document.createdById, 'Orchestra'),
     uploadedAt: formatDate(document.createdAt),
     lastProcessed: document.ingestedAt ?? (document.ingestionStatus === 'completed' || document.ingestionStatus === 'completed_placeholder' ? document.updatedAt : ''),
     updatedAt: document.updatedAt,

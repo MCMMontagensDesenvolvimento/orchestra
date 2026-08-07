@@ -1,5 +1,6 @@
 import type { AuditEventType, AuditLog, RiskLevel } from '@/types';
 import { env } from '@/lib/env';
+import { displayResourceLabel, displayUserLabel } from '@/lib/display-safety';
 import { mockAuditLogs } from '@/services/mocks';
 import { mockResponse } from '@/services/mocks/mock-utils';
 import { apiClient, type PaginatedApiEnvelope } from './api/api-client';
@@ -40,9 +41,9 @@ const mapAuditLog = (log: ApiAuditLog): AuditLog => ({
   id: log.id,
   event: eventMap[log.action] ?? 'policy_changed',
   description: `${log.action.replace(/_/g, ' ')} em ${log.entity}`,
-  user: log.actorUserId ?? 'sistema',
+  user: displayUserLabel(log.actorUserId, 'sistema'),
   timestamp: log.createdAt,
-  resource: log.entityId ?? log.entity,
+  resource: displayResourceLabel(log.entity, log.entityId),
   riskLevel: riskForAction(log.action),
 });
 

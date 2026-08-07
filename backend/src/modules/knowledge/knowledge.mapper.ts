@@ -66,6 +66,7 @@ export function mapKnowledgeBase(
 }
 
 export function mapKnowledgeDocument(document: KnowledgeDocument & {
+  createdBy?: { id: string; name: string; email: string } | null;
   _count?: { chunkEmbeddings?: number };
   chunkEmbeddings?: Array<{
     status: string;
@@ -108,6 +109,7 @@ export function mapKnowledgeDocument(document: KnowledgeDocument & {
     embeddingModel: latestEmbedding?.embeddingModel ?? null,
     metadata: document.metadata,
     createdById: document.createdById,
+    createdBy: document.createdBy ?? null,
     createdAt: document.createdAt.toISOString(),
     updatedAt: document.updatedAt.toISOString(),
     deletedAt: document.deletedAt?.toISOString() ?? null,
