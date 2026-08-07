@@ -80,6 +80,17 @@
 > consulte `/ai-observability/runtime-runs`; ambos permanecem sem diff e fora do
 > escopo 18C.1.
 
+> Atualização de 6 de agosto de 2026 — 18D: o MCP Hub deixa o empty state por
+> meio de um seed demo local, opt-in e idempotente sobre as tabelas existentes. O
+> catálogo contém um servidor local e três tools read-only com policies
+> `sandboxOnly=true`, `allowRuntimeExecution=false`, approval obrigatório, rede
+> externa e escrita bloqueadas. Três bindings `sandbox_only` são exibidos pela UI.
+> O novo precheck determinístico retorna `ready` para homologação visual, mas
+> `allowed=false`; nenhuma tool, transporte MCP, provider, embedding ou
+> Chat/AgentRun é executado. Prisma schema/migrations, produção e deploy permanecem
+> inalterados. Documento vigente:
+> `mcp/ORCHESTRA_MCP_TOOLS_GOVERNADO_LOCAL_18D.md`.
+
 ## 0. Resumo Executivo
 
 O Orchestra é hoje um **control plane corporativo de IA em estágio de MVP técnico avançado / homologação local**, com frontend React, API Express, persistência PostgreSQL/Prisma, governança de assistentes, conversas persistentes, `AgentRun`, Knowledge/RAG, catálogo MCP, auditoria, observabilidade técnica, avaliações determinísticas e um bridge Python/Agno executável por HTTP. O projeto já ultrapassou a condição de protótipo puramente visual: os principais domínios têm rotas, serviços, repositórios, modelos Prisma e testes reais. Evidências centrais: `frontend/src/App.tsx`, `backend/src/app/routes.ts`, `backend/prisma/schema.prisma`, `backend/src/modules/agent-runs`, `backend/src/modules/knowledge`, `backend/src/modules/runtime` e `runtime/agno-bridge`.

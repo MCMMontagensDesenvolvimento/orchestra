@@ -1,7 +1,13 @@
 import 'dotenv/config';
 import bcrypt from 'bcrypt';
 import { PrismaClient } from '@prisma/client';
+import { seedMcpLocalDemo } from './mcp-local-demo.seed';
 import { resolveSeedPolicy } from './seed-policy';
+import {
+  parseSeedTargetArguments,
+  resolveSeedTarget,
+  type ResolvedSeedTarget,
+} from './seed-target';
 
 const prisma = new PrismaClient();
 
@@ -195,41 +201,21 @@ const rolePermissionKeys: Record<string, string[]> = {
   ],
 };
 
-async function seedBootstrap() {
-  const tenant = await prisma.tenant.upsert({
-    where: { slug: 'orchestra-dev' },
-    update: {},
-    create: {
-      name: 'Orchestra Dev Tenant',
-      slug: 'orchestra-dev',
-    },
-  });
-
-  const workspace = await prisma.workspace.upsert({
-    where: {
-      tenantId_slug: {
-        tenantId: tenant.id,
-        slug: 'default',
-      },
-    },
-    update: {
-      description: 'Workspace padrao para desenvolvimento local.',
-    },
-    create: {
-      tenantId: tenant.id,
-      name: 'Default Workspace',
-      slug: 'default',
-      description: 'Workspace padrao para desenvolvimento local.',
-    },
-  });
-
+async function seedBootstrap({ tenant, workspace }: ResolvedSeedTarget) {
   const passwordHash = await bcrypt.hash('orchestra-dev-password', 12);
+  const adminEmail = tenant.slug === 'orchestra-dev'
+    ? 'admin.dev@orchestra.local'
+    : `admin.dev+${tenant.slug}@orchestra.local`;
   const admin = await prisma.user.upsert({
-    where: { email: 'admin.dev@orchestra.local' },
-    update: {},
+    where: { email: adminEmail },
+    update: {
+      tenantId: tenant.id,
+      name: 'Development Admin',
+      deletedAt: null,
+    },
     create: {
       tenantId: tenant.id,
-      email: 'admin.dev@orchestra.local',
+      email: adminEmail,
       name: 'Development Admin',
       passwordHash,
     },
@@ -340,9 +326,13 @@ async function seedDemoData(input: Awaited<ReturnType<typeof seedBootstrap>>) {
   const assistant = await prisma.assistant.upsert({
     where: { id: demoAssistantId },
     update: {
+      tenantId: input.tenant.id,
+      workspaceId: input.workspace.id,
       name: 'Assistant Foundation Example',
       description: 'Dummy assistant used only for local backend foundation validation.',
       status: 'draft',
+      createdById: input.admin.id,
+      deletedAt: null,
     },
     create: {
       id: demoAssistantId,
@@ -393,11 +383,21 @@ async function seedDemoData(input: Awaited<ReturnType<typeof seedBootstrap>>) {
       createdById: input.admin.id,
     },
   });
+
+  await seedMcpLocalDemo(prisma, {
+    tenantId: input.tenant.id,
+    workspaceId: input.workspace.id,
+    adminUserId: input.admin.id,
+    assistantId: assistant.id,
+  });
 }
 
 async function main() {
-  const policy = resolveSeedPolicy();
-  const bootstrap = await seedBootstrap();
+  const argv = process.argv.slice(2);
+  const policy = resolveSeedPolicy(process.env, argv);
+  const targetArguments = parseSeedTargetArguments(argv);
+  const target = await resolveSeedTarget(prisma, targetArguments);
+  const bootstrap = await seedBootstrap(target);
 
   if (policy.demoRequested) {
     await seedDemoData(bootstrap);
@@ -409,6 +409,7 @@ async function main() {
       `environment=${policy.environment}`,
       `tenant=${bootstrap.tenant.slug}`,
       `workspace=${bootstrap.workspace.slug}`,
+      `target=${target.source}`,
       `admin=${bootstrap.admin.email}`,
       `demo=${policy.demoRequested ? 'enabled' : 'disabled'}`,
     ].join(' '),
