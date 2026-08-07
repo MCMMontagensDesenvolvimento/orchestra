@@ -123,6 +123,13 @@ MCP. Rede externa, write tools, providers, embeddings, Chat/AgentRun, produção
 deploy e migrations permanecem bloqueados. Consulte
 `mcp/ORCHESTRA_MCP_TOOLS_GOVERNADO_LOCAL_18D.md`.
 
+A Fase 18E.1 faz hardening do shell autenticado pós-homologação: o perfil abre
+um menu antes do logout explícito, busca e notificações passam a declarar que
+não estão disponíveis, tenant/workspace aparecem somente como contexto e o
+collapse da Sidebar persiste localmente. Não há endpoint, alteração de RBAC ou
+autenticação, execução real, migration ou deploy. Consulte
+`ui/ORCHESTRA_UI_HARDENING_GOVERNANCA_18E_1.md`.
+
 A Fase 14H consolida o MVP tecnico da integracao com Agno Runtime, adicionando handoff operacional, checklist de homologacao/rollback e smoke seguro de MVP para runtime HTTP minimo e fronteira de frontend, sem feature nova, migration, frontend ou mudanca de defaults.
 
 A Fase 15C adiciona conversas persistentes privadas por usuario no Chat, mensagens persistidas, arquivamento logico, envio de mensagem pelo backend de conversa e resposta do assistente vinculada ao `AgentRun`.
@@ -242,6 +249,7 @@ Topicos esperados:
 - `ui/ORCHESTRA_UI_BUG_TEMPLATE_18A.md`: templates separados de bugs, melhorias, ajustes, dúvidas e evidências aprovadas.
 - `ui/ORCHESTRA_UI_TRIAGEM_ASSISTANTS_WIZARD_18B.md`: triagem read-only e causa raiz dos bugs de persistência, reidratação, bindings e responsividade do Wizard.
 - `ui/ORCHESTRA_UI_CORRECAO_WIZARD_ASSISTANTS_18C.md`: correção funcional do contrato estruturado, fallback legado, Knowledge Bindings e responsividade, sem execução externa.
+- `ui/ORCHESTRA_UI_HARDENING_GOVERNANCA_18E_1.md`: hardening do AppShell/Topbar com logout explícito, estados honestos para capacidades indisponíveis, contexto não interativo e persistência visual da Sidebar.
 - `scripts/preflight-correcao-wizard-assistants-18c.sh` e `scripts/smoke-correcao-wizard-assistants-18c.sh`: gate phase-aware, offline e read-only da correção 18C, com allowlist funcional e guardrails obrigatórios.
 - `ORCHESTRA_LLM_PROVIDER_INTEGRATION.md`: catalogo LLM, provider local deterministico, providers externos fail-closed e eventos LLM em AgentRun.
 - `ORCHESTRA_RAG_SEMANTICO_DISCOVERY.md`: discovery tecnico da Fase 10A para RAG semantico, embeddings e vector store.

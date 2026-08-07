@@ -1,6 +1,14 @@
-import { Bell, Search, ChevronDown, Menu } from 'lucide-react';
+import { Bell, Search, ChevronDown, LogOut, Menu } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { Button } from '@/components/ui/button';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu';
 import { useCurrentSession, useLogoutMutation } from '@/hooks/queries/useAuth';
 
 interface AppTopbarProps {
@@ -11,7 +19,13 @@ export function AppTopbar({ onToggleSidebar }: AppTopbarProps) {
   const navigate = useNavigate();
   const { data: session } = useCurrentSession();
   const logoutMutation = useLogoutMutation();
-  const userName = session?.user.name ?? 'Maria Silva';
+  const userName = session?.user.name ?? 'Usuário Orchestra';
+  const userEmail = session?.user.email ?? 'Sessão não carregada';
+  const currentWorkspace = session?.workspaces[0];
+  const tenantName = session?.tenant.name ?? 'Tenant indisponível';
+  const workspaceName = currentWorkspace?.name ?? 'Workspace indisponível';
+  const roleName = session?.roles[0] ?? currentWorkspace?.role ?? 'Contexto autenticado';
+  const roleLabel = roleName.replaceAll('_', ' ');
   const initials = userName
     .split(' ')
     .map((part) => part[0])
@@ -34,38 +48,67 @@ export function AppTopbar({ onToggleSidebar }: AppTopbarProps) {
         <Button variant="ghost" size="icon" onClick={onToggleSidebar} className="md:hidden shrink-0" aria-label="Abrir menu">
           <Menu className="h-4 w-4" />
         </Button>
-        <div className="hidden sm:flex items-center gap-2 rounded-md border bg-muted/50 px-3 py-1.5 min-w-0">
+        <div
+          className="hidden min-w-0 items-center gap-2 rounded-md border bg-muted/30 px-3 py-1.5 text-muted-foreground sm:flex"
+          role="status"
+          aria-label="Busca global em breve"
+          title="Busca global indisponível nesta fase"
+        >
           <Search className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
-          <input
-            type="text"
-            placeholder="Buscar assistentes, bases, ferramentas..."
-            className="w-48 lg:w-64 bg-transparent text-sm text-foreground placeholder:text-muted-foreground outline-none"
-            aria-label="Busca global"
-          />
-          <kbd className="hidden rounded border bg-background px-1.5 py-0.5 text-[10px] text-muted-foreground lg:inline">
-            Ctrl K
-          </kbd>
+          <span className="w-48 truncate text-sm lg:w-64">Busca global em breve</span>
         </div>
       </div>
       <div className="flex items-center gap-2 shrink-0">
-        <span className="hidden md:inline rounded-md border bg-muted/50 px-2.5 py-1 text-xs font-medium text-muted-foreground">
-          {session?.tenant.name ?? 'Acme Corp'}
-        </span>
-        <Button variant="ghost" size="icon" className="relative" aria-label="Notificacoes">
-          <Bell className="h-4 w-4" />
-          <span className="absolute right-1.5 top-1.5 h-2 w-2 rounded-full bg-primary" />
-        </Button>
-        <button
-          className="flex items-center gap-2 rounded-md px-2 py-1 hover:bg-muted transition-colors"
-          aria-label="Menu do usuario"
-          onClick={() => { void handleLogout(); }}
+        <div
+          className="hidden max-w-56 rounded-md border bg-muted/30 px-2.5 py-1 text-muted-foreground md:block"
+          role="status"
+          aria-label={`Contexto atual: tenant ${tenantName}, workspace ${workspaceName}`}
+          title="Contexto atual. A troca de tenant ou workspace está indisponível nesta fase."
         >
-          <div className="flex h-7 w-7 items-center justify-center rounded-full gradient-primary text-xs font-bold text-primary-foreground">
-            {initials}
-          </div>
-          <span className="hidden text-sm font-medium sm:inline">{userName}</span>
-          <ChevronDown className="hidden sm:inline h-3 w-3 text-muted-foreground" />
-        </button>
+          <span className="block text-[10px] uppercase tracking-wide">Contexto atual</span>
+          <span className="block truncate text-xs font-medium text-foreground">{tenantName} / {workspaceName}</span>
+        </div>
+        <div
+          className="flex items-center gap-1.5 rounded-md border bg-muted/30 px-2 py-1.5 text-muted-foreground"
+          role="status"
+          aria-label="Sem notificações nesta fase"
+          title="Notificações em breve"
+        >
+          <Bell className="h-4 w-4" />
+          <span className="hidden text-xs xl:inline">Sem notificações nesta fase</span>
+        </div>
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <button
+              className="flex items-center gap-2 rounded-md px-2 py-1 transition-colors hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+              aria-label="Abrir menu do usuário"
+              title="Abrir menu do usuário"
+            >
+              <div className="flex h-7 w-7 items-center justify-center rounded-full gradient-primary text-xs font-bold text-primary-foreground">
+                {initials}
+              </div>
+              <span className="hidden text-sm font-medium sm:inline">{userName}</span>
+              <ChevronDown className="hidden h-3 w-3 text-muted-foreground sm:inline" />
+            </button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end" className="w-72">
+            <DropdownMenuLabel className="space-y-1 font-normal">
+              <span className="block truncate text-sm font-medium">{userName}</span>
+              <span className="block truncate text-xs text-muted-foreground">{userEmail}</span>
+              <span className="block text-xs text-muted-foreground">Papel: {roleLabel}</span>
+              <span className="block truncate text-xs text-muted-foreground">{tenantName} / {workspaceName}</span>
+            </DropdownMenuLabel>
+            <DropdownMenuSeparator />
+            <DropdownMenuItem
+              className="text-destructive focus:text-destructive"
+              disabled={logoutMutation.isPending}
+              onSelect={() => { void handleLogout(); }}
+            >
+              <LogOut className="mr-2 h-4 w-4" />
+              {logoutMutation.isPending ? 'Saindo…' : 'Sair'}
+            </DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
       </div>
     </header>
   );
