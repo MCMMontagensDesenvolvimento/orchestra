@@ -291,9 +291,10 @@ export default function AnalyticsPage() {
             </FilterSelect>
             <FilterSelect label="Runtime provider" value={filterState.runtimeProvider} onValueChange={(value) => updateFilter('runtimeProvider', value)}>
               <SelectItem value="all">Todos</SelectItem>
-              {['local', 'agno_stub', 'agno_http', 'agno'].map((provider) => (
-                <SelectItem key={provider} value={provider}>{provider}</SelectItem>
-              ))}
+              <SelectItem value="local">Local</SelectItem>
+              <SelectItem value="agno_stub">Agno Stub</SelectItem>
+              <SelectItem value="agno_http">Agno HTTP</SelectItem>
+              <SelectItem value="agno">Agno</SelectItem>
             </FilterSelect>
             <FilterSelect label="Modo RAG" value={filterState.ragMode} onValueChange={(value) => updateFilter('ragMode', value)}>
               <SelectItem value="all">Todos</SelectItem>
