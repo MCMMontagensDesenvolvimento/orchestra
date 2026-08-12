@@ -73,6 +73,56 @@ function metadataRecord(value: unknown): Record<string, unknown> {
   return value && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : {};
 }
 
+function riskLevelLabel(riskLevel: RiskLevel) {
+  const labels: Record<RiskLevel, string> = {
+    low: 'Baixo',
+    medium: 'Médio',
+    high: 'Alto',
+    critical: 'Crítico',
+  };
+
+  return labels[riskLevel];
+}
+
+function authTypeLabel(authType: string) {
+  if (authType === 'api_key') return 'API Key';
+  if (authType === 'bearer') return 'Bearer Token';
+  if (authType === 'oauth') return 'OAuth 2.0';
+  if (authType === 'mTLS') return 'mTLS';
+  if (authType === 'none') return 'Sem autenticação';
+  return authType || 'Não informado';
+}
+
+function serverTypeLabel(serverType: string | null | undefined) {
+  if (serverType === 'local') return 'Local';
+  if (serverType === 'remote') return 'Remoto';
+  if (serverType === 'external') return 'Externo';
+  if (serverType === 'internal') return 'Interno';
+  return serverType || 'Não informado';
+}
+
+function bindingModeLabel(mode: string | null | undefined) {
+  if (mode === 'disabled') return 'Desabilitado';
+  if (mode === 'sandbox_only') return 'Somente sandbox';
+  if (mode === 'enabled_placeholder') return 'Preparado (placeholder)';
+  return mode || 'Não informado';
+}
+
+function formatDatePtBr(value: string | null | undefined) {
+  if (!value) return '—';
+
+  const dateOnlyMatch = value.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (dateOnlyMatch) {
+    const [, year, month, day] = dateOnlyMatch;
+    return `${day}/${month}/${year}`;
+  }
+
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return value;
+
+  return date.toLocaleDateString('pt-BR');
+}
+
 export default function McpDetailPage() {
   const { id } = useParams<{ id: string }>();
   const serverQuery = useMcpServer(id);
@@ -146,7 +196,7 @@ export default function McpDetailPage() {
       const result = await mcpService.remoteReadiness(id);
       setRemoteReadiness(result);
       toast({
-        title: result.status === 'ready' ? 'Demo read-only disponível' : 'MCP remoto bloqueado',
+        title: result.status === 'ready' ? 'Demo somente leitura disponível' : 'MCP remoto bloqueado',
         description: result.reason,
         variant: result.status === 'ready' ? 'default' : 'destructive',
       });
@@ -165,14 +215,14 @@ export default function McpDetailPage() {
       setRemoteDiscovery(result);
       setRemoteReadiness(result.readiness);
       toast({
-        title: result.status === 'completed' ? 'Catálogo read-only consultado' : 'Discovery bloqueado',
+        title: result.status === 'completed' ? 'Catálogo somente leitura consultado' : 'Descoberta bloqueada',
         description: result.status === 'completed'
-          ? `${result.tools.length} tools read-only encontradas.`
+          ? `${result.tools.length} ferramentas somente leitura encontradas.`
           : result.warnings[0]?.message ?? 'O boundary permaneceu fail-closed.',
         variant: result.status === 'completed' ? 'default' : 'destructive',
       });
     } catch (error) {
-      toast({ title: 'Discovery indisponível', description: error instanceof Error ? error.message : 'Falha sanitizada no transporte.', variant: 'destructive' });
+      toast({ title: 'Descoberta indisponível', description: error instanceof Error ? error.message : 'Falha sanitizada no transporte.', variant: 'destructive' });
     } finally {
       setRemoteCheckPending(null);
     }
@@ -202,8 +252,8 @@ export default function McpDetailPage() {
         name: toolForm.name.trim(),
         description: toolForm.description.trim() || undefined,
         riskLevel: toolForm.riskLevel,
-        inputSchema: parseJsonObject(toolForm.inputSchema, 'Input schema'),
-        outputSchema: parseJsonObject(toolForm.outputSchema, 'Output schema'),
+        inputSchema: parseJsonObject(toolForm.inputSchema, 'Schema de entrada'),
+        outputSchema: parseJsonObject(toolForm.outputSchema, 'Schema de saída'),
         requiresApproval: toolForm.requiresApproval || toolForm.riskLevel === 'high' || toolForm.riskLevel === 'critical',
         isEnabled: true,
         metadata: { phase: 'remote_readonly_foundation', readOnly: true },
@@ -231,15 +281,15 @@ export default function McpDetailPage() {
                   <h1 className="text-2xl font-bold">{server.name}</h1>
                   <StatusBadge status={server.status} />
                   <span className={`inline-flex rounded-full border px-2 py-0.5 text-[10px] font-medium ${riskColors[server.riskLevel]}`}>
-                    <Shield className="h-2.5 w-2.5 mr-0.5" />{server.riskLevel} risk
+                    <Shield className="h-2.5 w-2.5 mr-0.5" />Risco {riskLevelLabel(server.riskLevel)}
                   </span>
                   <Badge variant="outline" className="text-[10px]">v{server.version}</Badge>
-                  {isLocalDemo && <><Badge variant="secondary" className="text-[10px]">local</Badge><Badge variant="secondary" className="text-[10px]">demo</Badge><Badge variant="outline" className="text-[10px]">sandbox</Badge></>}
+                  {isLocalDemo && <><Badge variant="secondary" className="text-[10px]">Local</Badge><Badge variant="secondary" className="text-[10px]">Demo</Badge><Badge variant="outline" className="text-[10px]">Sandbox</Badge></>}
                 </div>
                 <p className="text-sm text-muted-foreground mt-0.5">{server.description}</p>
               </div>
             </div>
-            <Badge variant="outline">{isLocalDemo ? 'Ready · precheck only' : 'Externo opt-in · somente leitura'}</Badge>
+            <Badge variant="outline">{isLocalDemo ? 'Pronto · somente pré-checagem' : 'Externo opt-in · somente leitura'}</Badge>
           </div>
         </div>
 
@@ -247,23 +297,23 @@ export default function McpDetailPage() {
           <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-warning" />
           <div className="space-y-2">
             <p className="text-xs text-muted-foreground">{isLocalDemo
-              ? 'Este catálogo é local, determinístico e imutável na UI. O precheck valida readiness e policies sem executar tool, abrir rede, chamar provider, gerar embeddings ou iniciar Chat/AgentRun.'
-              : 'MCP remoto segue desligado por padrão e só alcança readiness com origem HTTPS exata, secretRef, flags, binding e policy aprovados. Nenhuma ação de escrita é oferecida.'}</p>
+              ? 'Este catálogo é local, determinístico e imutável na interface. A pré-checagem valida disponibilidade e políticas sem executar ferramenta, abrir rede, chamar provedor, gerar embeddings ou iniciar Chat/AgentRun.'
+              : 'O MCP remoto permanece desabilitado por padrão e só fica disponível com origem HTTPS exata, referência de credencial, configurações, vínculo e política aprovados. Nenhuma ação de escrita é oferecida.'}</p>
             {isLocalDemo && (
               <Button variant="outline" size="sm" disabled={remoteCheckPending !== null} onClick={() => { void checkLocalDemo(); }}>
                 {remoteCheckPending === 'local_precheck' ? <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" /> : <Shield className="mr-1 h-3.5 w-3.5" />}
-                Verificar precheck local
+                Verificar pré-checagem local
               </Button>
             )}
             {isRemoteServer && (
               <div className="flex flex-wrap gap-2">
                 <Button variant="outline" size="sm" disabled={remoteCheckPending !== null} onClick={() => { void checkRemoteReadiness(); }}>
                   {remoteCheckPending === 'readiness' ? <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" /> : <Shield className="mr-1 h-3.5 w-3.5" />}
-                  Testar readiness seguro
+                  Testar disponibilidade com segurança
                 </Button>
                 <Button variant="outline" size="sm" disabled={remoteCheckPending !== null} onClick={() => { void discoverRemoteCatalog(); }}>
                   {remoteCheckPending === 'discovery' ? <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" /> : <Search className="mr-1 h-3.5 w-3.5" />}
-                  Consultar catálogo read-only
+                  Consultar catálogo somente leitura
                 </Button>
               </div>
             )}
@@ -285,10 +335,10 @@ export default function McpDetailPage() {
               <div className="mt-3 flex flex-wrap gap-2">
                 {remoteDiscovery.tools.map((tool) => (
                   <Badge key={tool.externalName} variant="secondary">
-                    {tool.externalName} · {tool.inferredRiskLevel} · read-only
+                    {tool.externalName} · {tool.inferredRiskLevel} · somente leitura
                   </Badge>
                 ))}
-                {remoteDiscovery.tools.length === 0 && <span className="text-muted-foreground">Nenhuma tool exposta.</span>}
+                {remoteDiscovery.tools.length === 0 && <span className="text-muted-foreground">Nenhuma ferramenta exposta.</span>}
               </div>
             )}
           </div>
@@ -318,10 +368,10 @@ export default function McpDetailPage() {
         {/* KPIs */}
         <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-6 gap-3">
           {[
-            { icon: Wrench, label: 'Tools', value: tools.length },
-            { icon: FileCode, label: 'Resources', value: resources.length },
+            { icon: Wrench, label: 'Ferramentas', value: tools.length },
+            { icon: FileCode, label: 'Recursos', value: resources.length },
             { icon: MessageSquare, label: 'Prompts', value: prompts.length },
-            { icon: Link2, label: 'Bindings', value: bindings.length },
+            { icon: Link2, label: 'Vínculos', value: bindings.length },
             { icon: Zap, label: 'Execuções', value: logs.length },
             { icon: Clock, label: 'Última descoberta', value: server.lastSync ? new Date(server.lastSync).toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' }) : '—' },
           ].map((kpi, i) => (
@@ -335,11 +385,11 @@ export default function McpDetailPage() {
         {/* Tabs */}
         <Tabs defaultValue="tools" className="space-y-4">
           <TabsList>
-            <TabsTrigger value="tools">Tools ({tools.length})</TabsTrigger>
-            <TabsTrigger value="resources">Resources ({resources.length})</TabsTrigger>
+            <TabsTrigger value="tools">Ferramentas ({tools.length})</TabsTrigger>
+            <TabsTrigger value="resources">Recursos ({resources.length})</TabsTrigger>
             <TabsTrigger value="prompts">Prompts ({prompts.length})</TabsTrigger>
-            <TabsTrigger value="bindings">Bindings ({bindings.length})</TabsTrigger>
-            <TabsTrigger value="logs">Logs ({logs.length})</TabsTrigger>
+            <TabsTrigger value="bindings">Vínculos ({bindings.length})</TabsTrigger>
+            <TabsTrigger value="logs">Registros ({logs.length})</TabsTrigger>
             <TabsTrigger value="config">Configuração</TabsTrigger>
           </TabsList>
 
@@ -348,7 +398,7 @@ export default function McpDetailPage() {
             <div className="flex flex-wrap items-center gap-2">
               <div className="flex items-center gap-2 rounded-md border bg-muted/50 px-3 py-1.5 flex-1 max-w-sm">
                 <Search className="h-3.5 w-3.5 text-muted-foreground" />
-                <input type="text" value={toolSearch} onChange={e => setToolSearch(e.target.value)} placeholder="Buscar tools..." className="bg-transparent text-sm outline-none w-full" />
+                <input type="text" value={toolSearch} onChange={e => setToolSearch(e.target.value)} placeholder="Buscar ferramentas..." className="bg-transparent text-sm outline-none w-full" />
               </div>
               {!isRemoteServer && !isLocalDemo && (
                 <Button size="sm" onClick={() => setToolDialogOpen(true)}>
@@ -357,17 +407,17 @@ export default function McpDetailPage() {
               )}
             </div>
             {filteredTools.length === 0 ? (
-              <EmptyState icon={<Wrench className="h-6 w-6" />} title="Nenhuma tool" description={isRemoteServer ? 'Use o discovery seguro para consultar o catálogo read-only homologado.' : isLocalDemo ? 'Restaure o catálogo pelo seed demo local da Fase 18D.' : 'Este servidor não possui tools registradas.'} action={isRemoteServer || isLocalDemo ? undefined : <Button variant="outline" onClick={() => setToolDialogOpen(true)}><Plus className="h-4 w-4 mr-1" />Nova tool</Button>} />
+              <EmptyState icon={<Wrench className="h-6 w-6" />} title="Nenhuma ferramenta" description={isRemoteServer ? 'Use o discovery seguro para consultar o catálogo somente leitura homologado.' : isLocalDemo ? 'Restaure o catálogo pelo seed demo local da Fase 18D.' : 'Este servidor não possui ferramentas registradas.'} action={isRemoteServer || isLocalDemo ? undefined : <Button variant="outline" onClick={() => setToolDialogOpen(true)}><Plus className="h-4 w-4 mr-1" />Nova ferramenta</Button>} />
             ) : (
               <div className="rounded-lg border">
                 <Table>
                   <TableHeader>
                     <TableRow>
-                      <TableHead>Tool</TableHead>
+                      <TableHead>Ferramenta</TableHead>
                       <TableHead>Risco</TableHead>
                       <TableHead>Aprovação</TableHead>
                       <TableHead className="text-center">Execuções</TableHead>
-                      <TableHead>Input Schema</TableHead>
+                      <TableHead>Schema de entrada</TableHead>
                       <TableHead>Última Execução</TableHead>
                       <TableHead className="text-right">Sandbox</TableHead>
                     </TableRow>
@@ -381,10 +431,10 @@ export default function McpDetailPage() {
                           <div>
                             <p className="font-mono text-xs font-semibold">{tool.name}</p>
                             <p className="text-xs text-muted-foreground mt-0.5">{tool.description}</p>
-                            {isLocalDemo && <div className="mt-1 flex flex-wrap gap-1"><Badge variant="secondary" className="text-[9px]">demo</Badge><Badge variant="outline" className="text-[9px]">local stub</Badge><Badge variant="outline" className="text-[9px]">read-only</Badge></div>}
+                            {isLocalDemo && <div className="mt-1 flex flex-wrap gap-1"><Badge variant="secondary" className="text-[9px]">Demo</Badge><Badge variant="outline" className="text-[9px]">Stub local</Badge><Badge variant="outline" className="text-[9px]">Somente leitura</Badge></div>}
                           </div>
                         </TableCell>
-                        <TableCell><span className={`inline-flex rounded-full border px-2 py-0.5 text-[10px] font-medium ${riskColors[tool.riskLevel]}`}>{tool.riskLevel}</span></TableCell>
+                        <TableCell><span className={`inline-flex rounded-full border px-2 py-0.5 text-[10px] font-medium ${riskColors[tool.riskLevel]}`}>{riskLevelLabel(tool.riskLevel)}</span></TableCell>
                         <TableCell>
                           <div className="flex items-center gap-2">
                             <Switch checked={approvalStates[tool.id] ?? false} onCheckedChange={() => { void toggleApproval(tool.id); }} disabled={isRemoteServer || isLocalDemo || updateMcpToolMutation.isPending} />
@@ -396,7 +446,7 @@ export default function McpDetailPage() {
                         <TableCell className="text-xs text-muted-foreground">{tool.lastExecuted ? new Date(tool.lastExecuted).toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' }) : '—'}</TableCell>
                         <TableCell className="text-right">
                           {isLocalDemo ? (
-                            <Badge variant="outline" className="text-[10px]"><Lock className="mr-1 h-3 w-3" />precheck only</Badge>
+                            <Badge variant="outline" className="text-[10px]"><Lock className="mr-1 h-3 w-3" />Somente pré-checagem</Badge>
                           ) : boundAssistant ? (
                             <Button variant="ghost" size="sm" className="h-7 px-2 text-xs" onClick={() => navigate(`/app/assistants/${boundAssistant.assistantId}`)}>
                               <Zap className="h-3.5 w-3.5 mr-1" />Abrir
@@ -416,7 +466,7 @@ export default function McpDetailPage() {
           {/* Resources Tab */}
           <TabsContent value="resources" className="space-y-4">
             {resources.length === 0 ? (
-              <EmptyState icon={<FileCode className="h-6 w-6" />} title="Nenhum resource" description="Este servidor não possui resources registrados." />
+              <EmptyState icon={<FileCode className="h-6 w-6" />} title="Nenhum recurso" description="Este servidor não possui recursos registrados." />
             ) : (
               <div className="grid gap-3 sm:grid-cols-2">
                 {resources.map(res => (
@@ -469,8 +519,8 @@ export default function McpDetailPage() {
                   <TableHeader>
                     <TableRow>
                       <TableHead>Assistente</TableHead>
-                      <TableHead>Tools Habilitadas</TableHead>
-                      <TableHead>Resources</TableHead>
+                      <TableHead>Ferramentas habilitadas</TableHead>
+                      <TableHead>Recursos</TableHead>
                       <TableHead>Política de Aprovação</TableHead>
                       <TableHead>Vinculado em</TableHead>
                     </TableRow>
@@ -503,10 +553,10 @@ export default function McpDetailPage() {
                             <Badge variant={binding.approvalPolicy === 'manual' ? 'default' : 'secondary'} className="text-[10px]">
                               {binding.approvalPolicy === 'manual' ? '🔒 Manual' : binding.approvalPolicy === 'auto' ? '⚡ Auto' : '— Nenhuma'}
                             </Badge>
-                            {binding.mode && <Badge variant="outline" className="text-[10px]">{binding.mode}</Badge>}
+                            {binding.mode && <Badge variant="outline" className="text-[10px]">{bindingModeLabel(binding.mode)}</Badge>}
                           </div>
                         </TableCell>
-                        <TableCell className="text-xs text-muted-foreground">{binding.createdAt}</TableCell>
+                        <TableCell className="text-xs text-muted-foreground">{formatDatePtBr(binding.createdAt)}</TableCell>
                       </TableRow>
                     ))}
                   </TableBody>
@@ -524,7 +574,7 @@ export default function McpDetailPage() {
                 <Table>
                   <TableHeader>
                     <TableRow>
-                      <TableHead>Tool</TableHead>
+                      <TableHead>Ferramenta</TableHead>
                       <TableHead>Assistente</TableHead>
                       <TableHead>Usuário</TableHead>
                       <TableHead>Status</TableHead>
@@ -561,8 +611,8 @@ export default function McpDetailPage() {
                 <h3 className="font-semibold flex items-center gap-2"><Settings className="h-4 w-4" />Conexão</h3>
                 <div className="space-y-3">
                   <div className="flex justify-between text-sm"><span className="text-muted-foreground">Endpoint externo</span><code className="text-xs bg-muted px-2 py-0.5 rounded">{server.url || 'ausente'}</code></div>
-                  <div className="flex justify-between text-sm"><span className="text-muted-foreground">Tipo</span><span className="font-medium">{server.serverType ?? 'remote'}</span></div>
-                  <div className="flex justify-between text-sm"><span className="text-muted-foreground">Autenticação</span><span className="font-medium">{server.authType}</span></div>
+                  <div className="flex justify-between text-sm"><span className="text-muted-foreground">Tipo</span><span className="font-medium">{serverTypeLabel(server.serverType)}</span></div>
+                  <div className="flex justify-between text-sm"><span className="text-muted-foreground">Autenticação</span><span className="font-medium">{authTypeLabel(server.authType)}</span></div>
                   <div className="flex justify-between text-sm"><span className="text-muted-foreground">Versão</span><span className="font-medium">v{server.version}</span></div>
                   <div className="flex justify-between text-sm"><span className="text-muted-foreground">Última descoberta</span><span className="font-medium">{server.lastSync ? new Date(server.lastSync).toLocaleString('pt-BR') : '—'}</span></div>
                 </div>
@@ -570,26 +620,26 @@ export default function McpDetailPage() {
               <div className="rounded-lg border bg-card p-5 space-y-4">
                 <h3 className="font-semibold flex items-center gap-2"><Shield className="h-4 w-4" />Governança</h3>
                 <div className="space-y-3">
-                  <div className="flex justify-between text-sm"><span className="text-muted-foreground">Nível de Risco</span><span className={`rounded-full border px-2 py-0.5 text-xs font-medium ${riskColors[server.riskLevel]}`}>{server.riskLevel}</span></div>
-                  <div className="flex justify-between text-sm"><span className="text-muted-foreground">Owner</span><span className="font-medium">{server.owner}</span></div>
-                  <div className="flex justify-between text-sm"><span className="text-muted-foreground">Criação</span><span className="font-medium">{server.createdAt}</span></div>
-                  <div className="flex justify-between text-sm"><span className="text-muted-foreground">Tools com aprovação</span><span className="font-medium">{tools.filter(t => t.requiresApproval).length} de {tools.length}</span></div>
+                  <div className="flex justify-between text-sm"><span className="text-muted-foreground">Nível de Risco</span><span className={`rounded-full border px-2 py-0.5 text-xs font-medium ${riskColors[server.riskLevel]}`}>{riskLevelLabel(server.riskLevel)}</span></div>
+                  <div className="flex justify-between text-sm"><span className="text-muted-foreground">Responsável</span><span className="font-medium">{server.owner}</span></div>
+                  <div className="flex justify-between text-sm"><span className="text-muted-foreground">Criação</span><span className="font-medium">{formatDatePtBr(server.createdAt)}</span></div>
+                  <div className="flex justify-between text-sm"><span className="text-muted-foreground">Ferramentas com aprovação</span><span className="font-medium">{tools.filter(t => t.requiresApproval).length} de {tools.length}</span></div>
                 </div>
               </div>
             </div>
             {isLocalDemo && (
               <div className="rounded-lg border bg-card p-5">
-                <h3 className="font-semibold flex items-center gap-2"><Lock className="h-4 w-4" />Policies fail-closed da Fase 18D</h3>
+                <h3 className="font-semibold flex items-center gap-2"><Lock className="h-4 w-4" />Políticas fail-closed da Fase 18D</h3>
                 <div className="mt-4 grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
                   {[
-                    ['Read-only', serverMetadata.readOnly === true],
-                    ['Sandbox only', serverMetadata.sandboxOnly === true],
-                    ['Approval obrigatório', serverMetadata.requiresApproval === true],
-                    ['Blocked by default', serverMetadata.blockedByDefault === true],
+                    ['Somente leitura', serverMetadata.readOnly === true],
+                    ['Somente sandbox', serverMetadata.sandboxOnly === true],
+                    ['Aprovação obrigatória', serverMetadata.requiresApproval === true],
+                    ['Bloqueado por padrão', serverMetadata.blockedByDefault === true],
                     ['Execução remota', serverMetadata.remoteExecution === true],
                     ['Rede externa', serverMetadata.externalNetworkAllowed === true],
-                    ['Tools de escrita', serverMetadata.writeToolsAllowed === true],
-                    ['Runtime execution', serverMetadata.allowRuntimeExecution === true],
+                    ['Ferramentas de escrita', serverMetadata.writeToolsAllowed === true],
+                    ['Execução pelo runtime', serverMetadata.allowRuntimeExecution === true],
                   ].map(([label, enabled]) => (
                     <div key={String(label)} className="flex items-center justify-between rounded border px-3 py-2 text-xs">
                       <span>{label}</span>
@@ -597,7 +647,7 @@ export default function McpDetailPage() {
                     </div>
                   ))}
                 </div>
-                <p className="mt-3 text-xs text-muted-foreground">Providers externos, embeddings reais e Chat/AgentRun real também permanecem bloqueados. O catálogo é restaurável apenas pelo seed local idempotente.</p>
+                <p className="mt-3 text-xs text-muted-foreground">Provedores externos, embeddings reais e Chat/AgentRun real também permanecem bloqueados. O catálogo é restaurável apenas pelo seed local idempotente.</p>
               </div>
             )}
           </TabsContent>
@@ -635,11 +685,11 @@ export default function McpDetailPage() {
             </div>
             <div className="grid gap-4 sm:grid-cols-2">
               <div className="space-y-2">
-                <Label>Input schema</Label>
+                <Label>Schema de entrada</Label>
                 <Textarea value={toolForm.inputSchema} onChange={event => setToolForm(prev => ({ ...prev, inputSchema: event.target.value }))} rows={7} className="font-mono text-xs" />
               </div>
               <div className="space-y-2">
-                <Label>Output schema</Label>
+                <Label>Schema de saída</Label>
                 <Textarea value={toolForm.outputSchema} onChange={event => setToolForm(prev => ({ ...prev, outputSchema: event.target.value }))} rows={7} className="font-mono text-xs" />
               </div>
             </div>
