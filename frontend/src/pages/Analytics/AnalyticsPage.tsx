@@ -94,7 +94,7 @@ function compactId(value: string | null) {
 
 function humanize(value: string | null) {
   if (!value) return 'Não informado';
-  return value.replaceAll('_', ' ');
+  return value.replace(/_/g, ' ');
 }
 
 function FlagBadge({ value, trueLabel = 'Sim', falseLabel = 'Não' }: {
