@@ -17,6 +17,7 @@ import { KpiCard } from '@/components/shared/KpiCard';
 import { PageHeader } from '@/components/shared/PageHeader';
 import { ListLoading, QueryState } from '@/components/shared/QueryState';
 import { StatusBadge } from '@/components/shared/StatusBadge';
+import { safeSummaryPreview } from '@/lib/display-safety';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -222,13 +223,13 @@ export default function AnalyticsPage() {
           <div className="flex flex-col gap-3 lg:flex-row lg:items-end">
             <form onSubmit={applySearch} className="flex flex-1 gap-2">
               <label className="flex-1 space-y-1.5">
-                <span className="text-xs font-medium text-muted-foreground">Buscar em input_summary</span>
+                <span className="text-xs font-medium text-muted-foreground">Buscar em resumo seguro</span>
                 <div className="relative">
                   <Search className="absolute left-3 top-3 h-4 w-4 text-muted-foreground" />
                   <Input
                     value={searchInput}
                     onChange={(event) => setSearchInput(event.target.value)}
-                    placeholder="Resumo da entrada"
+                    placeholder="Resumo tratado da entrada"
                     className="pl-9"
                     maxLength={160}
                   />
@@ -319,7 +320,7 @@ export default function AnalyticsPage() {
               <Table>
                 <TableHeader>
                   <TableRow>
-                    <TableHead>Run / input_summary</TableHead>
+                    <TableHead>Run / resumo seguro</TableHead>
                     <TableHead>Status</TableHead>
                     <TableHead>Runtime / LLM</TableHead>
                     <TableHead>RAG / escopo</TableHead>
@@ -342,8 +343,8 @@ export default function AnalyticsPage() {
                     >
                       <TableCell className="max-w-[320px]">
                         <div className="font-mono text-xs text-muted-foreground">{compactId(run.runId)}</div>
-                        <div className="mt-1 truncate font-medium" title={run.inputSummary ?? undefined}>
-                          {run.inputSummary ?? 'Não informado'}
+                        <div className="mt-1 truncate font-medium" title={run.inputSummary ? 'Resumo tratado da entrada' : undefined}>
+                          {safeSummaryPreview(run.inputSummary, 96)}
                         </div>
                         <div className="mt-1 text-xs text-muted-foreground">{run.assistantName ?? run.assistantId}</div>
                       </TableCell>
@@ -457,7 +458,7 @@ function RuntimeRunDetailContent({ run }: { run: RuntimeRunDetail }) {
           <DataItem label="requestId" mono>{run.requestId ?? 'Não informado'}</DataItem>
           <DataItem label="Assistente">{run.assistantName ?? run.assistantId}</DataItem>
           <DataItem label="Versão">{run.assistantVersion ?? 'Não informado'}</DataItem>
-          <DataItem label="input_summary">{run.inputSummary ?? 'Não informado'}</DataItem>
+          <DataItem label="Resumo seguro da entrada">{safeSummaryPreview(run.inputSummary, 180)}</DataItem>
           <DataItem label="created_at">{formatDate(run.createdAt)}</DataItem>
         </dl>
       </Section>

@@ -44,10 +44,18 @@ export function displayResourceLabel(entity: string | null | undefined, entityId
   return `${entityLabel} · ${normalizedEntityId}`;
 }
 
-export function safeSummaryPreview(value: string | null | undefined, maxLength = 120): string {
-  const normalized = value?.replace(/\s+/g, ' ').trim();
+function redactTechnicalText(value: string): string {
+  return value
+    .replace(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/gi, '[email]')
+    .replace(/[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}/gi, '[id]')
+    .replace(/\bBearer\s+[A-Za-z0-9._~+/=-]+/gi, 'Bearer [redigido]')
+    .replace(/\b(api[_-]?key|token|secret|password)\b\s*[:=]\s*[^\s,;]+/gi, '$1=[redigido]');
+}
 
-  if (!normalized) return 'Não informado';
+export function safeSummaryPreview(value: string | null | undefined, maxLength = 120, fallback = 'Não informado'): string {
+  const normalized = redactTechnicalText(value?.replace(/\s+/g, ' ').trim() ?? '');
+
+  if (!normalized) return fallback;
   if (normalized.length <= maxLength) return normalized;
 
   return `${normalized.slice(0, Math.max(0, maxLength - 1)).trimEnd()}…`;

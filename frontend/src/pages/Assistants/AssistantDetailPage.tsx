@@ -81,6 +81,7 @@ import { useConversations } from '@/hooks/queries/useChat';
 import { useAuditLogs } from '@/hooks/queries/useAudit';
 import { useAnalytics } from '@/hooks/queries/useAnalytics';
 import { llmPolicySaveErrorDescription } from '@/lib/llm-policy-errors';
+import { safeSummaryPreview } from '@/lib/display-safety';
 import { env } from '@/lib/env';
 import {
   getAgentRunLlmSummary,
@@ -2764,7 +2765,7 @@ function AgentRunCard({ run, canCancel, isCancelling, onCancel }: {
             <Badge variant="secondary" className="text-[10px]">{run.mode}</Badge>
             <span className="font-mono text-[11px] text-muted-foreground">{compactId(run.id)}</span>
           </div>
-          <p className="text-sm font-medium">{run.inputSummary || 'Entrada sem resumo'}</p>
+          <p className="text-sm font-medium">{safeSummaryPreview(run.inputSummary, 96, 'Entrada sem resumo')}</p>
           <div className="flex flex-wrap gap-x-3 gap-y-1 text-[10px] text-muted-foreground">
             <span>trace {compactId(run.traceId)}</span>
             <span>request {compactId(run.requestId)}</span>
