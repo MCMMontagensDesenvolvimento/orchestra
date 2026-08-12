@@ -79,6 +79,33 @@ function authTypeForForm(authType: string) {
   return authType || 'none';
 }
 
+function authTypeLabel(authType: string) {
+  if (authType === 'api_key') return 'API Key';
+  if (authType === 'bearer') return 'Bearer Token';
+  if (authType === 'oauth') return 'OAuth 2.0';
+  if (authType === 'mTLS') return 'mTLS';
+  if (authType === 'none') return 'Sem autenticação';
+  return authType || 'Não informado';
+}
+
+function riskLevelLabel(riskLevel: RiskLevel) {
+  const labels: Record<RiskLevel, string> = {
+    low: 'Baixo',
+    medium: 'Médio',
+    high: 'Alto',
+    critical: 'Crítico',
+  };
+
+  return labels[riskLevel];
+}
+
+function bindingModeLabel(mode: string | undefined) {
+  if (mode === 'disabled') return 'Desabilitado';
+  if (mode === 'sandbox_only') return 'Somente sandbox';
+  if (mode === 'enabled_placeholder') return 'Preparado (placeholder)';
+  return mode || 'Não informado';
+}
+
 function statusForForm(status: McpServerStatus): McpServerStatus {
   if (status === 'inactive' || status === 'error') return 'disabled';
   return status;
@@ -299,8 +326,8 @@ export default function McpHubPage() {
         <TabsTrigger value="general" className="text-xs"><Settings className="h-3 w-3 mr-1" />Geral</TabsTrigger>
         <TabsTrigger value="connection" className="text-xs"><Globe className="h-3 w-3 mr-1" />Conexão</TabsTrigger>
         <TabsTrigger value="security" className="text-xs"><Shield className="h-3 w-3 mr-1" />Segurança</TabsTrigger>
-        <TabsTrigger value="tools" className="text-xs"><Wrench className="h-3 w-3 mr-1" />Tools</TabsTrigger>
-        <TabsTrigger value="bindings" className="text-xs"><Link2 className="h-3 w-3 mr-1" />Bindings</TabsTrigger>
+        <TabsTrigger value="tools" className="text-xs"><Wrench className="h-3 w-3 mr-1" />Ferramentas</TabsTrigger>
+        <TabsTrigger value="bindings" className="text-xs"><Link2 className="h-3 w-3 mr-1" />Vínculos</TabsTrigger>
       </TabsList>
 
       <TabsContent value="general" className="space-y-4 mt-4">
@@ -385,7 +412,7 @@ export default function McpHubPage() {
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center gap-2">
                     <code className="text-xs font-semibold">{tool.name}</code>
-                    <span className={`inline-flex rounded-full border px-1.5 py-0.5 text-[9px] font-medium ${riskColors[tool.riskLevel]}`}>{tool.riskLevel}</span>
+                    <span className={`inline-flex rounded-full border px-1.5 py-0.5 text-[9px] font-medium ${riskColors[tool.riskLevel]}`}>{riskLevelLabel(tool.riskLevel)}</span>
                   </div>
                   <p className="text-[11px] text-muted-foreground mt-0.5 truncate">{tool.description}</p>
                 </div>
@@ -397,7 +424,7 @@ export default function McpHubPage() {
       </TabsContent>
 
       <TabsContent value="bindings" className="space-y-4 mt-4">
-        <p className="text-xs text-muted-foreground">Bindings existentes em modo somente leitura. Alterações de vínculo não são simuladas nesta tela.</p>
+        <p className="text-xs text-muted-foreground">Vínculos existentes em modo somente leitura. Alterações de vínculo não são simuladas nesta tela.</p>
         <div className="space-y-2 max-h-[280px] overflow-y-auto pr-1">
           {mockMcpBindings.filter(binding => binding.serverId === selected?.id).map(binding => {
             const assistant = mockAssistants.find(item => item.id === binding.assistantId);
@@ -405,8 +432,8 @@ export default function McpHubPage() {
               <div key={binding.id} className="flex items-center gap-3 rounded-lg border p-3">
                 <Link2 className="h-4 w-4 text-muted-foreground" />
                 <div className="flex-1 min-w-0">
-                  <span className="text-sm font-medium">{assistant?.name ?? binding.assistantId}</span>
-                  <p className="text-[11px] text-muted-foreground">Modo: {binding.mode}</p>
+                  <span className="text-sm font-medium">{assistant?.name ?? 'Assistente interno'}</span>
+                  <p className="text-[11px] text-muted-foreground">Modo: {bindingModeLabel(binding.mode)}</p>
                 </div>
               </div>
             );
@@ -443,7 +470,7 @@ export default function McpHubPage() {
   return (
     <AppShell>
       <div className="space-y-6 animate-fade-in">
-        <PageHeader title="MCP Hub" description="Catálogo local demonstrável, read-only e governado">
+        <PageHeader title="MCP Hub" description="Catálogo local demonstrável, somente leitura e governado">
           <Button disabled title="Na Fase 18D o catálogo é instalado somente pelo seed local governado."><Lock className="h-4 w-4 mr-1" />Gerenciado por seed</Button>
         </PageHeader>
 
@@ -460,7 +487,7 @@ export default function McpHubPage() {
           {[
             { icon: Server, label: 'Servidores', value: stats.total, sub: `${stats.active} ativos` },
             { icon: Wrench, label: 'Ferramentas', value: stats.totalTools },
-            { icon: Link2, label: 'Bindings', value: stats.totalBindings },
+            { icon: Link2, label: 'Vínculos', value: stats.totalBindings },
             { icon: Shield, label: 'Aprovações', value: mockMcpTools.filter(t => t.requiresApproval).length, sub: 'requerem aprovação' },
           ].map((kpi, i) => (
             <div key={i} className="rounded-lg border bg-card p-4">
@@ -532,11 +559,11 @@ export default function McpHubPage() {
                 <TableRow>
                   <TableHead>Servidor</TableHead>
                   <TableHead>Status</TableHead>
-                  <TableHead>Auth</TableHead>
+                  <TableHead>Autenticação</TableHead>
                   <TableHead>Risco</TableHead>
-                  <TableHead className="text-center">Tools</TableHead>
-                  <TableHead className="text-center">Resources</TableHead>
-                  <TableHead className="text-center">Bindings</TableHead>
+                  <TableHead className="text-center">Ferramentas</TableHead>
+                  <TableHead className="text-center">Recursos</TableHead>
+                  <TableHead className="text-center">Vínculos</TableHead>
                   <TableHead>Versão</TableHead>
                   <TableHead>Última descoberta</TableHead>
                   <TableHead className="w-10"></TableHead>
@@ -551,13 +578,13 @@ export default function McpHubPage() {
                         <div>
                           <p className="font-medium">{server.name}</p>
                           <p className="text-xs text-muted-foreground truncate max-w-[200px]">{server.description}</p>
-                          {isGovernedLocalDemo(server) && <div className="mt-1 flex flex-wrap gap-1"><Badge variant="secondary" className="text-[9px]">local</Badge><Badge variant="secondary" className="text-[9px]">demo</Badge><Badge variant="outline" className="text-[9px]">read-only</Badge><Badge variant="outline" className="text-[9px]">sandbox</Badge></div>}
+                          {isGovernedLocalDemo(server) && <div className="mt-1 flex flex-wrap gap-1"><Badge variant="secondary" className="text-[9px]">Local</Badge><Badge variant="secondary" className="text-[9px]">Demo</Badge><Badge variant="outline" className="text-[9px]">Somente leitura</Badge><Badge variant="outline" className="text-[9px]">Sandbox</Badge></div>}
                         </div>
                       </div>
                     </TableCell>
                     <TableCell><StatusBadge status={server.status} /></TableCell>
-                    <TableCell className="text-xs">{server.authType}</TableCell>
-                    <TableCell><span className={`inline-flex rounded-full border px-2 py-0.5 text-[10px] font-medium ${riskColors[server.riskLevel]}`}>{server.riskLevel}</span></TableCell>
+                    <TableCell className="text-xs">{authTypeLabel(server.authType)}</TableCell>
+                    <TableCell><span className={`inline-flex rounded-full border px-2 py-0.5 text-[10px] font-medium ${riskColors[server.riskLevel]}`}>{riskLevelLabel(server.riskLevel)}</span></TableCell>
                     <TableCell className="text-center font-medium">{server.toolCount}</TableCell>
                     <TableCell className="text-center font-medium">{server.resourceCount}</TableCell>
                     <TableCell className="text-center font-medium">{server.bindings}</TableCell>
@@ -578,8 +605,8 @@ export default function McpHubPage() {
                     <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-warning/10 text-warning"><Server className="h-5 w-5" /></div>
                     <div>
                       <h3 className="font-semibold group-hover:text-primary transition-colors">{server.name}</h3>
-                      <span className={`inline-flex rounded-full border px-2 py-0.5 text-[10px] font-medium ${riskColors[server.riskLevel]}`}>{server.riskLevel} risk</span>
-                      {isGovernedLocalDemo(server) && <div className="mt-1 flex flex-wrap gap-1"><Badge variant="secondary" className="text-[9px]">local</Badge><Badge variant="secondary" className="text-[9px]">demo</Badge><Badge variant="outline" className="text-[9px]">read-only</Badge></div>}
+                      <span className={`inline-flex rounded-full border px-2 py-0.5 text-[10px] font-medium ${riskColors[server.riskLevel]}`}>Risco {riskLevelLabel(server.riskLevel)}</span>
+                      {isGovernedLocalDemo(server) && <div className="mt-1 flex flex-wrap gap-1"><Badge variant="secondary" className="text-[9px]">Local</Badge><Badge variant="secondary" className="text-[9px]">Demo</Badge><Badge variant="outline" className="text-[9px]">Somente leitura</Badge></div>}
                     </div>
                   </div>
                   <div className="flex items-center gap-1">
@@ -589,12 +616,12 @@ export default function McpHubPage() {
                 </div>
                 <p className="mt-3 text-sm text-muted-foreground line-clamp-2">{server.description}</p>
                 <div className="mt-2 text-xs text-muted-foreground flex items-center gap-2">
-                  <span>{server.authType}</span><span>·</span><span>v{server.version}</span><span>·</span><span>{server.owner}</span>
+                  <span>{authTypeLabel(server.authType)}</span><span>·</span><span>v{server.version}</span><span>·</span><span>{server.owner}</span>
                 </div>
                 <div className="mt-4 border-t pt-3 grid grid-cols-3 gap-2 text-center">
-                  <div><p className="text-lg font-bold">{server.toolCount}</p><p className="text-[10px] text-muted-foreground">Tools</p></div>
-                  <div><p className="text-lg font-bold">{server.resourceCount}</p><p className="text-[10px] text-muted-foreground">Resources</p></div>
-                  <div><p className="text-lg font-bold">{server.bindings}</p><p className="text-[10px] text-muted-foreground">Bindings</p></div>
+                  <div><p className="text-lg font-bold">{server.toolCount}</p><p className="text-[10px] text-muted-foreground">Ferramentas</p></div>
+                  <div><p className="text-lg font-bold">{server.resourceCount}</p><p className="text-[10px] text-muted-foreground">Recursos</p></div>
+                  <div><p className="text-lg font-bold">{server.bindings}</p><p className="text-[10px] text-muted-foreground">Vínculos</p></div>
                 </div>
               </div>
             ))}
@@ -633,7 +660,7 @@ export default function McpHubPage() {
       <Dialog open={deleteOpen} onOpenChange={setDeleteOpen}>
         <DialogContent>
           <DialogHeader><DialogTitle>Arquivar Servidor MCP</DialogTitle>
-            <DialogDescription>Tem certeza que deseja arquivar "{selected?.name}"? Bindings e políticas ficam preservados para auditoria.</DialogDescription>
+            <DialogDescription>Tem certeza que deseja arquivar "{selected?.name}"? Vínculos e políticas ficam preservados para auditoria.</DialogDescription>
           </DialogHeader>
           <DialogFooter><Button variant="outline" onClick={() => setDeleteOpen(false)}>Cancelar</Button><Button variant="destructive" onClick={() => { void handleDelete(); }} disabled={archiveMcpServerMutation.isPending}>Arquivar</Button></DialogFooter>
         </DialogContent>
