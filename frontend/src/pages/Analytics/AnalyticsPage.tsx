@@ -97,6 +97,44 @@ function humanize(value: string | null) {
   return value.replace(/_/g, ' ');
 }
 
+function statusLabel(value: AgentRunStatus) {
+  const labels: Record<AgentRunStatus, string> = {
+    queued: 'Na fila',
+    prechecking: 'Pré-checagem',
+    blocked: 'Bloqueado',
+    running: 'Em execução',
+    completed: 'Concluído',
+    failed: 'Falhou',
+    cancelled: 'Cancelado',
+  };
+
+  return labels[value];
+}
+
+function ragModeLabel(value: string | null) {
+  if (!value) return 'Não informado';
+
+  const labels: Record<string, string> = {
+    none: 'Sem RAG',
+    resolved_context: 'Contexto resolvido',
+    gateway: 'Gateway RAG',
+  };
+
+  return labels[value] ?? humanize(value);
+}
+
+function responseScopeLabel(value: string | null) {
+  if (!value) return 'Não informado';
+
+  const labels: Record<string, string> = {
+    knowledge_only: 'Somente base de conhecimento',
+    knowledge_first: 'Priorizar base de conhecimento',
+    general_allowed: 'Resposta geral permitida',
+  };
+
+  return labels[value] ?? humanize(value);
+}
+
 function FlagBadge({ value, trueLabel = 'Sim', falseLabel = 'Não' }: {
   value: boolean | null | undefined;
   trueLabel?: string;
@@ -247,8 +285,8 @@ export default function AnalyticsPage() {
           <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4 xl:grid-cols-8">
             <FilterSelect label="Status" value={filterState.status} onValueChange={(value) => updateFilter('status', value)}>
               <SelectItem value="all">Todos</SelectItem>
-              {['queued', 'prechecking', 'running', 'completed', 'failed', 'blocked', 'cancelled'].map((status) => (
-                <SelectItem key={status} value={status}>{humanize(status)}</SelectItem>
+              {(['queued', 'prechecking', 'running', 'completed', 'failed', 'blocked', 'cancelled'] as AgentRunStatus[]).map((status) => (
+                <SelectItem key={status} value={status}>{statusLabel(status)}</SelectItem>
               ))}
             </FilterSelect>
             <FilterSelect label="Runtime provider" value={filterState.runtimeProvider} onValueChange={(value) => updateFilter('runtimeProvider', value)}>
@@ -259,14 +297,14 @@ export default function AnalyticsPage() {
             </FilterSelect>
             <FilterSelect label="Modo RAG" value={filterState.ragMode} onValueChange={(value) => updateFilter('ragMode', value)}>
               <SelectItem value="all">Todos</SelectItem>
-              {['none', 'local_keyword', 'semantic_vector', 'hybrid'].map((mode) => (
-                <SelectItem key={mode} value={mode}>{humanize(mode)}</SelectItem>
-              ))}
+              <SelectItem value="none">Sem RAG</SelectItem>
+              <SelectItem value="resolved_context">Contexto resolvido</SelectItem>
+              <SelectItem value="gateway">Gateway RAG</SelectItem>
             </FilterSelect>
             <FilterSelect label="Escopo da resposta" value={filterState.responseScopeMode} onValueChange={(value) => updateFilter('responseScopeMode', value)}>
               <SelectItem value="all">Todos</SelectItem>
               {['knowledge_only', 'knowledge_first', 'general_allowed'].map((mode) => (
-                <SelectItem key={mode} value={mode}>{humanize(mode)}</SelectItem>
+                <SelectItem key={mode} value={mode}>{responseScopeLabel(mode)}</SelectItem>
               ))}
             </FilterSelect>
             <FilterSelect label="Fallback externo" value={filterState.fallbackOutsideKnowledgeUsed} onValueChange={(value) => updateFilter('fallbackOutsideKnowledgeUsed', value)}>
@@ -354,8 +392,8 @@ export default function AnalyticsPage() {
                         <div className="text-xs text-muted-foreground">{run.llmProvider ?? 'Provider não informado'} · {run.model ?? 'Modelo não informado'}</div>
                       </TableCell>
                       <TableCell>
-                        <div>{humanize(run.ragMode)} <span className="text-muted-foreground">({run.ragSourceCount ?? '—'} fontes)</span></div>
-                        <div className="text-xs text-muted-foreground">{humanize(run.responseScopeMode)}</div>
+                        <div>{ragModeLabel(run.ragMode)} <span className="text-muted-foreground">({run.ragSourceCount ?? '—'} fontes)</span></div>
+                        <div className="text-xs text-muted-foreground">{responseScopeLabel(run.responseScopeMode)}</div>
                       </TableCell>
                       <TableCell>
                         <div className="flex flex-wrap gap-1">
@@ -476,8 +514,8 @@ function RuntimeRunDetailContent({ run }: { run: RuntimeRunDetail }) {
 
       <Section title="Escopo da resposta e RAG" icon={<Database className="h-4 w-4 text-primary" />}>
         <dl className="grid gap-4 sm:grid-cols-3">
-          <DataItem label="Escopo da resposta">{humanize(run.responseScopeMode)}</DataItem>
-          <DataItem label="Modo RAG">{humanize(run.ragMode)}</DataItem>
+          <DataItem label="Escopo da resposta">{responseScopeLabel(run.responseScopeMode)}</DataItem>
+          <DataItem label="Modo RAG">{ragModeLabel(run.ragMode)}</DataItem>
           <DataItem label="Fontes RAG">{run.ragSourceCount ?? 'Não informado'}</DataItem>
           <DataItem label="Intenção RAG detectada"><FlagBadge value={run.ragIntentDetected} /></DataItem>
           <DataItem label="Motivo para não usar RAG">{humanize(run.ragSkippedReason)}</DataItem>
