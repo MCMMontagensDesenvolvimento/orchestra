@@ -102,6 +102,9 @@ jobs:
       - name: Run 18D governed local MCP/tools static gate
         run: scripts/smoke-mcp-tools-governado-local-18d.sh --dry-run
 
+      - name: Run 18F.1A governed remote MCP offline preflight gate
+        run: scripts/smoke-mcp-remoto-governado-18f.sh --dry-run
+
       - name: Run static production preflight
         run: scripts/preflight-prod-runtime-16o.sh --dry-run
 
