@@ -2,6 +2,7 @@ import { AppShell } from '@/components/shared/AppShell';
 import { PageHeader } from '@/components/shared/PageHeader';
 import { StatusBadge } from '@/components/shared/StatusBadge';
 import { useAuditLogs } from '@/hooks/queries/useAudit';
+import { auditActionLabel } from '@/services/audit.service';
 import { QueryState, ListLoading } from '@/components/shared/QueryState';
 import { Shield, Filter } from 'lucide-react';
 
@@ -82,7 +83,9 @@ export default function AuditPage() {
                     </td>
                     <td className="px-4 py-3">
                       <span className="rounded bg-muted px-2 py-0.5 text-xs font-medium">
-                        {eventLabels[log.event] || log.event}
+                        {log.action
+                          ? auditActionLabel(log.action)
+                          : eventLabels[log.event] || log.event}
                       </span>
                     </td>
                     <td className="px-4 py-3 text-xs max-w-xs truncate">{log.description}</td>
@@ -101,7 +104,9 @@ export default function AuditPage() {
               <div key={log.id} className="rounded-lg border bg-card p-3 space-y-2">
                 <div className="flex items-center justify-between gap-2">
                   <span className="rounded bg-muted px-2 py-0.5 text-xs font-medium truncate">
-                    {eventLabels[log.event] || log.event}
+                    {log.action
+                          ? auditActionLabel(log.action)
+                          : eventLabels[log.event] || log.event}
                   </span>
                   <StatusBadge status={log.riskLevel} />
                 </div>

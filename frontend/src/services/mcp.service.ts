@@ -296,7 +296,10 @@ function mapServer(server: ApiMcpServer): McpServer {
     bindings: server.bindingCount,
     lastSync: metadataString(metadata, 'lastSync', ''),
     url: server.baseUrl ?? '',
-    owner: server.createdBy?.name ?? server.createdById ?? 'Orchestra',
+    owner:
+      server.createdBy?.name
+      ?? server.createdBy?.email
+      ?? (server.createdById ? 'Responsável não disponível' : 'Sistema'),
     createdAt: formatDate(server.createdAt),
     updatedAt: server.updatedAt,
     deletedAt: server.deletedAt,

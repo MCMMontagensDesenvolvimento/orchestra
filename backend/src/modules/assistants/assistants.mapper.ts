@@ -10,9 +10,24 @@ import type {
 } from '@prisma/client';
 import { responseScopeModeFromMetadata } from '../../shared/policies/response-scope';
 
+type UserIdentity = {
+  id: string;
+  name: string;
+  email: string;
+};
+
+type AssistantVersionWithCreator = AssistantVersion & {
+  createdBy: UserIdentity;
+};
+
+type AssistantApprovalRequestWithActors = AssistantApprovalRequest & {
+  requestedBy: UserIdentity;
+  decidedBy: UserIdentity | null;
+};
+
 export function mapAssistant(
   assistant: Assistant & {
-    versions?: AssistantVersion[];
+    versions?: AssistantVersionWithCreator[];
     shares?: AssistantShare[];
     publications?: AssistantPublication[];
     executionPolicy?: AssistantExecutionPolicy | null;
@@ -46,6 +61,7 @@ export function mapAssistant(
       temperature: version.temperature?.toNumber() ?? null,
       configuration: version.configuration,
       createdById: version.createdById,
+      createdBy: version.createdBy,
       createdAt: version.createdAt.toISOString(),
       publishedAt: version.publishedAt?.toISOString() ?? null,
       archivedAt: version.archivedAt?.toISOString() ?? null,
@@ -57,7 +73,7 @@ export function mapAssistant(
   };
 }
 
-export function mapAssistantVersion(version: AssistantVersion) {
+export function mapAssistantVersion(version: AssistantVersionWithCreator) {
   return {
     id: version.id,
     assistantId: version.assistantId,
@@ -71,6 +87,7 @@ export function mapAssistantVersion(version: AssistantVersion) {
     temperature: version.temperature?.toNumber() ?? null,
     configuration: version.configuration,
     createdById: version.createdById,
+    createdBy: version.createdBy,
     createdAt: version.createdAt.toISOString(),
     publishedAt: version.publishedAt?.toISOString() ?? null,
     archivedAt: version.archivedAt?.toISOString() ?? null,
@@ -148,7 +165,7 @@ export function mapAssistantTestResult(result: AssistantTestResult) {
   };
 }
 
-export function mapAssistantApprovalRequest(approval: AssistantApprovalRequest) {
+export function mapAssistantApprovalRequest(approval: AssistantApprovalRequestWithActors) {
   return {
     id: approval.id,
     tenantId: approval.tenantId,
@@ -157,7 +174,9 @@ export function mapAssistantApprovalRequest(approval: AssistantApprovalRequest) 
     assistantVersionId: approval.assistantVersionId,
     publicationId: approval.publicationId,
     requestedById: approval.requestedById,
+    requestedBy: approval.requestedBy,
     decidedById: approval.decidedById,
+    decidedBy: approval.decidedBy,
     action: approval.action,
     status: approval.status,
     reason: approval.reason,

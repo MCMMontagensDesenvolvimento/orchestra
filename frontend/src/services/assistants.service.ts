@@ -41,6 +41,11 @@ interface ApiAssistantVersion {
   temperature: number | null;
   configuration?: unknown;
   createdById: string;
+  createdBy?: {
+    id: string;
+    name: string;
+    email: string;
+  };
   createdAt: string;
   publishedAt: string | null;
   archivedAt: string | null;
@@ -65,7 +70,17 @@ interface ApiAssistantApprovalRequest {
   assistantVersionId: string | null;
   publicationId: string | null;
   requestedById: string;
+  requestedBy?: {
+    id: string;
+    name: string;
+    email: string;
+  };
   decidedById: string | null;
+  decidedBy?: {
+    id: string;
+    name: string;
+    email: string;
+  } | null;
   action: AssistantApprovalAction;
   status: AssistantApprovalRequest['status'];
   reason: string | null;
@@ -151,7 +166,9 @@ const mapApproval = (approval: ApiAssistantApprovalRequest): AssistantApprovalRe
   assistantVersionId: approval.assistantVersionId,
   publicationId: approval.publicationId,
   requestedById: approval.requestedById,
+  requestedBy: approval.requestedBy,
   decidedById: approval.decidedById,
+  decidedBy: approval.decidedBy,
   action: approval.action,
   status: approval.status,
   reason: approval.reason,
@@ -211,7 +228,10 @@ const mapAssistant = (assistant: ApiAssistant): Assistant => {
     name: assistant.name,
     description: assistant.description ?? '',
     area: configuration?.identity.area ?? '',
-    owner: assistant.createdBy?.name ?? assistant.createdById,
+    owner:
+      assistant.createdBy?.name
+      ?? assistant.createdBy?.email
+      ?? 'Responsável não disponível',
     status: assistant.status,
     model: modelName,
     fallbackModel: configuration?.model.fallbackModel || modelName,
@@ -254,7 +274,12 @@ const mapVersion = (version: ApiAssistantVersion): AssistantVersion => ({
   assistantId: version.assistantId,
   version: version.version,
   changelog: version.displayName,
-  author: version.createdById,
+  createdById: version.createdById,
+  createdBy: version.createdBy,
+  author:
+    version.createdBy?.name
+    ?? version.createdBy?.email
+    ?? 'Autor não disponível',
   createdAt: version.createdAt,
   status: version.status,
   description: version.description,

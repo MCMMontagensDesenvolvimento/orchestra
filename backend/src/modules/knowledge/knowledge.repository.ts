@@ -37,6 +37,7 @@ const bindingInclude = {
 } satisfies Prisma.AssistantKnowledgeBindingInclude;
 
 const knowledgeDocumentInclude = {
+  createdBy: { select: { id: true, name: true, email: true } },
   _count: {
     select: {
       chunkEmbeddings: { where: { status: 'embedded' } },
@@ -613,6 +614,7 @@ export const knowledgeRepository = {
         metadata: jsonInput(input.metadata),
         createdById: input.createdById,
       },
+      include: knowledgeDocumentInclude,
     });
   },
 
@@ -649,6 +651,7 @@ export const knowledgeRepository = {
           : {}),
         metadata: input.metadata === null ? Prisma.JsonNull : jsonInput(input.metadata),
       },
+      include: knowledgeDocumentInclude,
     });
   },
 
@@ -661,6 +664,7 @@ export const knowledgeRepository = {
     return prisma.knowledgeDocument.update({
       where: { id: existing.id },
       data: { status: 'archived', deletedAt: new Date() },
+      include: knowledgeDocumentInclude,
     });
   },
 

@@ -16,11 +16,33 @@ import type {
   AssistantVersionCreateInput,
 } from './assistants.schema';
 
+const userIdentitySelect = {
+  id: true,
+  name: true,
+  email: true,
+} satisfies Prisma.UserSelect;
+
+const assistantVersionCreatorInclude = {
+  createdBy: {
+    select: userIdentitySelect,
+  },
+} satisfies Prisma.AssistantVersionInclude;
+
+const assistantApprovalActorsInclude = {
+  requestedBy: {
+    select: userIdentitySelect,
+  },
+  decidedBy: {
+    select: userIdentitySelect,
+  },
+} satisfies Prisma.AssistantApprovalRequestInclude;
+
 const assistantListInclude = {
   createdBy: { select: { id: true, name: true, email: true } },
   versions: {
     orderBy: { createdAt: 'desc' },
     take: 1,
+    include: assistantVersionCreatorInclude,
   },
   publications: {
     where: { status: 'active' },
@@ -34,6 +56,7 @@ const assistantDetailInclude = {
   createdBy: { select: { id: true, name: true, email: true } },
   versions: {
     orderBy: { createdAt: 'desc' },
+    include: assistantVersionCreatorInclude,
   },
   publications: {
     orderBy: { publishedAt: 'desc' },
@@ -248,12 +271,14 @@ export const assistantsRepository = {
     return prisma.assistantVersion.findMany({
       where: { assistantId },
       orderBy: { createdAt: 'desc' },
+      include: assistantVersionCreatorInclude,
     });
   },
 
   findVersion(assistantId: string, versionId: string) {
     return prisma.assistantVersion.findFirst({
       where: { id: versionId, assistantId },
+      include: assistantVersionCreatorInclude,
     });
   },
 
@@ -264,6 +289,7 @@ export const assistantsRepository = {
         assistantId: input.assistantId,
         ...versionData({ ...input, version: input.version ?? `0.${versionCount + 1}.0` }, input.createdById),
       },
+      include: assistantVersionCreatorInclude,
     });
   },
 
@@ -514,12 +540,14 @@ export const assistantsRepository = {
     return prisma.assistantApprovalRequest.findMany({
       where: { assistantId },
       orderBy: [{ createdAt: 'desc' }, { updatedAt: 'desc' }],
+      include: assistantApprovalActorsInclude,
     });
   },
 
   findApproval(assistantId: string, approvalId: string) {
     return prisma.assistantApprovalRequest.findFirst({
       where: { id: approvalId, assistantId },
+      include: assistantApprovalActorsInclude,
     });
   },
 
@@ -543,6 +571,7 @@ export const assistantsRepository = {
         reason: input.reason,
         metadata: input.metadata,
       },
+      include: assistantApprovalActorsInclude,
     });
   },
 
@@ -561,6 +590,7 @@ export const assistantsRepository = {
         decisionReason: input.decisionReason,
         decidedAt: new Date(),
       },
+      include: assistantApprovalActorsInclude,
     });
   },
 
@@ -572,6 +602,7 @@ export const assistantsRepository = {
         decisionReason: input.decisionReason,
         cancelledAt: new Date(),
       },
+      include: assistantApprovalActorsInclude,
     });
   },
 

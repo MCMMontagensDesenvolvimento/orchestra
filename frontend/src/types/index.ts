@@ -9,7 +9,7 @@ export type AssistantApprovalAction = 'publish' | 'rollback' | 'restore' | 'enab
 export type AssistantExecutionMode = 'draft_test' | 'sandbox' | 'published' | 'blocked' | 'archived';
 export type ResponseScopeMode = 'knowledge_only' | 'knowledge_first' | 'general_allowed';
 export type AgentRunStatus = 'queued' | 'prechecking' | 'blocked' | 'running' | 'completed' | 'failed' | 'cancelled';
-export type RuntimeProvider = 'local' | 'agno_stub' | 'agno';
+export type RuntimeProvider = 'local' | 'agno_stub' | 'agno' | 'agno_http';
 export type RuntimeHealthStatus = 'healthy' | 'degraded' | 'disabled' | 'misconfigured' | 'unavailable';
 export type RuntimeCapabilityMode = boolean | 'simulated' | 'planned';
 export type KnownLlmProvider = 'local_deterministic' | 'agno_local' | 'openai' | 'azure_openai' | 'anthropic';
@@ -37,7 +37,17 @@ export interface AssistantApprovalRequest {
   assistantVersionId?: string | null;
   publicationId?: string | null;
   requestedById: string;
+  requestedBy?: {
+    id: string;
+    name: string;
+    email: string;
+  };
   decidedById?: string | null;
+  decidedBy?: {
+    id: string;
+    name: string;
+    email: string;
+  } | null;
   action: AssistantApprovalAction;
   status: AssistantApprovalStatus;
   reason?: string | null;
@@ -357,6 +367,12 @@ export interface AssistantVersion {
   assistantId: string;
   version: string;
   changelog: string;
+  createdById: string;
+  createdBy?: {
+    id: string;
+    name: string;
+    email: string;
+  };
   author: string;
   createdAt: string;
   status: AssistantStatus;
@@ -1060,6 +1076,7 @@ export interface ConversationMessage {
 export interface AuditLog {
   id: string;
   event: AuditEventType;
+  action?: string;
   description: string;
   user: string;
   timestamp: string;

@@ -17,6 +17,7 @@ import { KpiCard } from '@/components/shared/KpiCard';
 import { PageHeader } from '@/components/shared/PageHeader';
 import { ListLoading, QueryState } from '@/components/shared/QueryState';
 import { StatusBadge } from '@/components/shared/StatusBadge';
+import { safeSummaryPreview } from '@/lib/display-safety';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -93,7 +94,45 @@ function compactId(value: string | null) {
 
 function humanize(value: string | null) {
   if (!value) return 'Não informado';
-  return value.replaceAll('_', ' ');
+  return value.replace(/_/g, ' ');
+}
+
+function statusLabel(value: AgentRunStatus) {
+  const labels: Record<AgentRunStatus, string> = {
+    queued: 'Na fila',
+    prechecking: 'Pré-checagem',
+    blocked: 'Bloqueado',
+    running: 'Em execução',
+    completed: 'Concluído',
+    failed: 'Falhou',
+    cancelled: 'Cancelado',
+  };
+
+  return labels[value];
+}
+
+function ragModeLabel(value: string | null) {
+  if (!value) return 'Não informado';
+
+  const labels: Record<string, string> = {
+    none: 'Sem RAG',
+    resolved_context: 'Contexto resolvido',
+    gateway: 'Gateway RAG',
+  };
+
+  return labels[value] ?? humanize(value);
+}
+
+function responseScopeLabel(value: string | null) {
+  if (!value) return 'Não informado';
+
+  const labels: Record<string, string> = {
+    knowledge_only: 'Somente base de conhecimento',
+    knowledge_first: 'Priorizar base de conhecimento',
+    general_allowed: 'Resposta geral permitida',
+  };
+
+  return labels[value] ?? humanize(value);
 }
 
 function FlagBadge({ value, trueLabel = 'Sim', falseLabel = 'Não' }: {
@@ -222,13 +261,13 @@ export default function AnalyticsPage() {
           <div className="flex flex-col gap-3 lg:flex-row lg:items-end">
             <form onSubmit={applySearch} className="flex flex-1 gap-2">
               <label className="flex-1 space-y-1.5">
-                <span className="text-xs font-medium text-muted-foreground">Buscar em input_summary</span>
+                <span className="text-xs font-medium text-muted-foreground">Buscar em resumo seguro</span>
                 <div className="relative">
                   <Search className="absolute left-3 top-3 h-4 w-4 text-muted-foreground" />
                   <Input
                     value={searchInput}
                     onChange={(event) => setSearchInput(event.target.value)}
-                    placeholder="Resumo da entrada"
+                    placeholder="Resumo tratado da entrada"
                     className="pl-9"
                     maxLength={160}
                   />
@@ -246,26 +285,27 @@ export default function AnalyticsPage() {
           <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4 xl:grid-cols-8">
             <FilterSelect label="Status" value={filterState.status} onValueChange={(value) => updateFilter('status', value)}>
               <SelectItem value="all">Todos</SelectItem>
-              {['queued', 'prechecking', 'running', 'completed', 'failed', 'blocked', 'cancelled'].map((status) => (
-                <SelectItem key={status} value={status}>{humanize(status)}</SelectItem>
+              {(['queued', 'prechecking', 'running', 'completed', 'failed', 'blocked', 'cancelled'] as AgentRunStatus[]).map((status) => (
+                <SelectItem key={status} value={status}>{statusLabel(status)}</SelectItem>
               ))}
             </FilterSelect>
             <FilterSelect label="Runtime provider" value={filterState.runtimeProvider} onValueChange={(value) => updateFilter('runtimeProvider', value)}>
               <SelectItem value="all">Todos</SelectItem>
-              {['local', 'agno_stub', 'agno_http', 'agno'].map((provider) => (
-                <SelectItem key={provider} value={provider}>{provider}</SelectItem>
-              ))}
+              <SelectItem value="local">Local</SelectItem>
+              <SelectItem value="agno_stub">Agno Stub</SelectItem>
+              <SelectItem value="agno_http">Agno HTTP</SelectItem>
+              <SelectItem value="agno">Agno</SelectItem>
             </FilterSelect>
-            <FilterSelect label="ragMode" value={filterState.ragMode} onValueChange={(value) => updateFilter('ragMode', value)}>
+            <FilterSelect label="Modo RAG" value={filterState.ragMode} onValueChange={(value) => updateFilter('ragMode', value)}>
               <SelectItem value="all">Todos</SelectItem>
-              {['none', 'local_keyword', 'semantic_vector', 'hybrid'].map((mode) => (
-                <SelectItem key={mode} value={mode}>{humanize(mode)}</SelectItem>
-              ))}
+              <SelectItem value="none">Sem RAG</SelectItem>
+              <SelectItem value="resolved_context">Contexto resolvido</SelectItem>
+              <SelectItem value="gateway">Gateway RAG</SelectItem>
             </FilterSelect>
-            <FilterSelect label="responseScopeMode" value={filterState.responseScopeMode} onValueChange={(value) => updateFilter('responseScopeMode', value)}>
+            <FilterSelect label="Escopo da resposta" value={filterState.responseScopeMode} onValueChange={(value) => updateFilter('responseScopeMode', value)}>
               <SelectItem value="all">Todos</SelectItem>
               {['knowledge_only', 'knowledge_first', 'general_allowed'].map((mode) => (
-                <SelectItem key={mode} value={mode}>{humanize(mode)}</SelectItem>
+                <SelectItem key={mode} value={mode}>{responseScopeLabel(mode)}</SelectItem>
               ))}
             </FilterSelect>
             <FilterSelect label="Fallback externo" value={filterState.fallbackOutsideKnowledgeUsed} onValueChange={(value) => updateFilter('fallbackOutsideKnowledgeUsed', value)}>
@@ -319,7 +359,7 @@ export default function AnalyticsPage() {
               <Table>
                 <TableHeader>
                   <TableRow>
-                    <TableHead>Run / input_summary</TableHead>
+                    <TableHead>Run / resumo seguro</TableHead>
                     <TableHead>Status</TableHead>
                     <TableHead>Runtime / LLM</TableHead>
                     <TableHead>RAG / escopo</TableHead>
@@ -342,10 +382,10 @@ export default function AnalyticsPage() {
                     >
                       <TableCell className="max-w-[320px]">
                         <div className="font-mono text-xs text-muted-foreground">{compactId(run.runId)}</div>
-                        <div className="mt-1 truncate font-medium" title={run.inputSummary ?? undefined}>
-                          {run.inputSummary ?? 'Não informado'}
+                        <div className="mt-1 truncate font-medium" title={run.inputSummary ? 'Resumo tratado da entrada' : undefined}>
+                          {safeSummaryPreview(run.inputSummary, 96)}
                         </div>
-                        <div className="mt-1 text-xs text-muted-foreground">{run.assistantName ?? run.assistantId}</div>
+                        <div className="mt-1 text-xs text-muted-foreground">{run.assistantName ?? `Assistente · ${compactId(run.assistantId)}`}</div>
                       </TableCell>
                       <TableCell><StatusBadge status={run.status} /></TableCell>
                       <TableCell>
@@ -353,8 +393,8 @@ export default function AnalyticsPage() {
                         <div className="text-xs text-muted-foreground">{run.llmProvider ?? 'Provider não informado'} · {run.model ?? 'Modelo não informado'}</div>
                       </TableCell>
                       <TableCell>
-                        <div>{run.ragMode ?? 'Não informado'} <span className="text-muted-foreground">({run.ragSourceCount ?? '—'} fontes)</span></div>
-                        <div className="text-xs text-muted-foreground">{humanize(run.responseScopeMode)}</div>
+                        <div>{ragModeLabel(run.ragMode)} <span className="text-muted-foreground">({run.ragSourceCount ?? '—'} fontes)</span></div>
+                        <div className="text-xs text-muted-foreground">{responseScopeLabel(run.responseScopeMode)}</div>
                       </TableCell>
                       <TableCell>
                         <div className="flex flex-wrap gap-1">
@@ -366,10 +406,10 @@ export default function AnalyticsPage() {
                       </TableCell>
                       <TableCell>
                         <div className="flex flex-wrap gap-1">
-                          <Badge variant="outline">{run.usageLimitMode ?? 'Não informado'}</Badge>
+                          <Badge variant="outline">{humanize(run.usageLimitMode)}</Badge>
                           <FlagBadge value={run.usageLimitBlocked} trueLabel="Bloqueado" falseLabel="Permitido" />
                         </div>
-                        <div className="mt-1 text-xs text-muted-foreground">{run.usageLimitMetric ?? 'Métrica não informada'}</div>
+                        <div className="mt-1 text-xs text-muted-foreground">{humanize(run.usageLimitMetric)}</div>
                       </TableCell>
                       <TableCell className="text-right">
                         <div>{formatLatency(run.latencyMs)}</div>
@@ -451,14 +491,14 @@ function RuntimeRunDetailContent({ run }: { run: RuntimeRunDetail }) {
     <div className="space-y-4 pb-8">
       <Section title="Identificação" icon={<Waypoints className="h-4 w-4 text-primary" />}>
         <dl className="grid gap-4 sm:grid-cols-2">
-          <DataItem label="runId" mono>{run.runId}</DataItem>
+          <DataItem label="Run" mono>{compactId(run.runId)}</DataItem>
           <DataItem label="status"><StatusBadge status={run.status} /></DataItem>
-          <DataItem label="traceId" mono>{run.traceId ?? 'Não informado'}</DataItem>
-          <DataItem label="requestId" mono>{run.requestId ?? 'Não informado'}</DataItem>
-          <DataItem label="Assistente">{run.assistantName ?? run.assistantId}</DataItem>
+          <DataItem label="Trace" mono>{compactId(run.traceId)}</DataItem>
+          <DataItem label="Requisição" mono>{compactId(run.requestId)}</DataItem>
+          <DataItem label="Assistente">{run.assistantName ?? `Assistente · ${compactId(run.assistantId)}`}</DataItem>
           <DataItem label="Versão">{run.assistantVersion ?? 'Não informado'}</DataItem>
-          <DataItem label="input_summary">{run.inputSummary ?? 'Não informado'}</DataItem>
-          <DataItem label="created_at">{formatDate(run.createdAt)}</DataItem>
+          <DataItem label="Resumo seguro da entrada">{safeSummaryPreview(run.inputSummary, 180)}</DataItem>
+          <DataItem label="Criado em">{formatDate(run.createdAt)}</DataItem>
         </dl>
       </Section>
 
@@ -467,40 +507,40 @@ function RuntimeRunDetailContent({ run }: { run: RuntimeRunDetail }) {
           <DataItem label="Runtime provider">{run.runtimeProvider ?? 'Não informado'}</DataItem>
           <DataItem label="LLM provider">{run.llmProvider ?? 'Não informado'}</DataItem>
           <DataItem label="Modelo">{run.model ?? 'Não informado'}</DataItem>
-          <DataItem label="externalProviderCalled"><FlagBadge value={run.externalProviderCalled} /></DataItem>
+          <DataItem label="Provider externo chamado"><FlagBadge value={run.externalProviderCalled} /></DataItem>
           <DataItem label="Latência">{formatLatency(run.latencyMs)}</DataItem>
           <DataItem label="Intervalo">{formatDate(run.startedAt)} → {formatDate(run.completedAt)}</DataItem>
         </dl>
       </Section>
 
-      <Section title="Response scope e RAG" icon={<Database className="h-4 w-4 text-primary" />}>
+      <Section title="Escopo da resposta e RAG" icon={<Database className="h-4 w-4 text-primary" />}>
         <dl className="grid gap-4 sm:grid-cols-3">
-          <DataItem label="responseScopeMode">{humanize(run.responseScopeMode)}</DataItem>
-          <DataItem label="ragMode">{run.ragMode ?? 'Não informado'}</DataItem>
-          <DataItem label="ragSourceCount">{run.ragSourceCount ?? 'Não informado'}</DataItem>
-          <DataItem label="ragIntentDetected"><FlagBadge value={run.ragIntentDetected} /></DataItem>
-          <DataItem label="ragSkippedReason">{run.ragSkippedReason ?? 'Não informado'}</DataItem>
-          <DataItem label="fallbackOutsideKnowledgeUsed"><FlagBadge value={run.fallbackOutsideKnowledgeUsed} /></DataItem>
-          <DataItem label="rawContentLogged"><FlagBadge value={run.rawContentLogged} /></DataItem>
-          <DataItem label="ragQueryId" mono>{run.ragQueryId ?? 'Não informado'}</DataItem>
+          <DataItem label="Escopo da resposta">{responseScopeLabel(run.responseScopeMode)}</DataItem>
+          <DataItem label="Modo RAG">{ragModeLabel(run.ragMode)}</DataItem>
+          <DataItem label="Fontes RAG">{run.ragSourceCount ?? 'Não informado'}</DataItem>
+          <DataItem label="Intenção RAG detectada"><FlagBadge value={run.ragIntentDetected} /></DataItem>
+          <DataItem label="Motivo para não usar RAG">{humanize(run.ragSkippedReason)}</DataItem>
+          <DataItem label="Fallback fora da base"><FlagBadge value={run.fallbackOutsideKnowledgeUsed} /></DataItem>
+          <DataItem label="Conteúdo bruto registrado"><FlagBadge value={run.rawContentLogged} /></DataItem>
+          <DataItem label="Consulta RAG" mono>{compactId(run.ragQueryId)}</DataItem>
         </dl>
       </Section>
 
       <Section title="Tools e uso" icon={<Gauge className="h-4 w-4 text-primary" />}>
         <p className="mb-4 text-xs text-muted-foreground">`simulated=false` com `externalMcpCalled=true` identifica a integração HTTP real do demo homologado. Bloqueios permanecem fail-closed e não registram argumentos nem respostas brutas.</p>
         <dl className="grid gap-4 sm:grid-cols-3">
-          <DataItem label="externalMcpCalled"><FlagBadge value={run.externalMcpCalled} /></DataItem>
-          <DataItem label="mcpRemoteEvaluationApplied"><FlagBadge value={run.mcpRemoteEvaluationApplied} /></DataItem>
-          <DataItem label="mcpRemoteAllowed"><FlagBadge value={run.mcpRemoteAllowed} /></DataItem>
-          <DataItem label="mcpRemoteBlocked"><FlagBadge value={run.mcpRemoteBlocked} /></DataItem>
-          <DataItem label="mcpRemoteReadOnly"><FlagBadge value={run.mcpRemoteReadOnly} /></DataItem>
-          <DataItem label="mcpRemoteBlockedReason">{run.mcpRemoteBlockedReason ?? 'Não informado'}</DataItem>
-          <DataItem label="mcpRemoteHost" mono>{run.mcpRemoteHost ?? 'Não informado'}</DataItem>
-          <DataItem label="mcpRemoteToolId" mono>{run.mcpRemoteToolId ?? 'Não informado'}</DataItem>
-          <DataItem label="mcpRemoteRiskLevel">{run.mcpRemoteRiskLevel ?? 'Não informado'}</DataItem>
-          <DataItem label="responseBytes">{run.responseBytes ?? 'Não informado'}</DataItem>
-          <DataItem label="simulated"><FlagBadge value={run.simulated} /></DataItem>
-          <DataItem label="toolCallsExecuted">{run.toolCallsExecuted ?? 'Não informado'}</DataItem>
+          <DataItem label="MCP externo chamado"><FlagBadge value={run.externalMcpCalled} /></DataItem>
+          <DataItem label="Avaliação MCP remoto aplicada"><FlagBadge value={run.mcpRemoteEvaluationApplied} /></DataItem>
+          <DataItem label="MCP remoto permitido"><FlagBadge value={run.mcpRemoteAllowed} /></DataItem>
+          <DataItem label="MCP remoto bloqueado"><FlagBadge value={run.mcpRemoteBlocked} /></DataItem>
+          <DataItem label="MCP remoto somente leitura"><FlagBadge value={run.mcpRemoteReadOnly} /></DataItem>
+          <DataItem label="Motivo do bloqueio MCP">{humanize(run.mcpRemoteBlockedReason)}</DataItem>
+          <DataItem label="Host MCP remoto" mono>{run.mcpRemoteHost ?? 'Não informado'}</DataItem>
+          <DataItem label="Ferramenta MCP" mono>{compactId(run.mcpRemoteToolId)}</DataItem>
+          <DataItem label="Risco MCP">{humanize(run.mcpRemoteRiskLevel)}</DataItem>
+          <DataItem label="Tamanho da resposta">{run.responseBytes ?? 'Não informado'}</DataItem>
+          <DataItem label="Execução simulada"><FlagBadge value={run.simulated} /></DataItem>
+          <DataItem label="Chamadas de ferramenta">{run.toolCallsExecuted ?? 'Não informado'}</DataItem>
           <DataItem label="Tokens de entrada">{formatInteger(run.inputTokens)}</DataItem>
           <DataItem label="Tokens de saída">{formatInteger(run.outputTokens)}</DataItem>
           <DataItem label="Tokens totais">{formatInteger(run.totalTokens)}</DataItem>
@@ -512,20 +552,20 @@ function RuntimeRunDetailContent({ run }: { run: RuntimeRunDetail }) {
 
       <Section title="Avaliação de custos, quotas e limites" icon={<ShieldCheck className="h-4 w-4 text-primary" />}>
         <dl className="grid gap-4 sm:grid-cols-3">
-          <DataItem label="usageLimitEvaluationApplied"><FlagBadge value={run.usageLimitEvaluationApplied} /></DataItem>
-          <DataItem label="usageLimitMode">{run.usageLimitMode ?? 'Não informado'}</DataItem>
-          <DataItem label="usageLimitExceeded"><FlagBadge value={run.usageLimitExceeded} /></DataItem>
-          <DataItem label="usageLimitEnforced"><FlagBadge value={run.usageLimitEnforced} /></DataItem>
-          <DataItem label="usageLimitBlocked"><FlagBadge value={run.usageLimitBlocked} /></DataItem>
-          <DataItem label="usageLimitReason">{run.usageLimitReason ?? 'Não informado'}</DataItem>
-          <DataItem label="usageLimitMetric">{run.usageLimitMetric ?? 'Não informado'}</DataItem>
-          <DataItem label="usageLimitScope">{run.usageLimitScope ?? 'Não informado'}</DataItem>
-          <DataItem label="usageLimitWindow">{run.usageLimitWindow ?? 'Não informado'}</DataItem>
-          <DataItem label="usageLimitCurrentValue">{formatInteger(run.usageLimitCurrentValue)}</DataItem>
-          <DataItem label="usageLimitThreshold">{formatInteger(run.usageLimitThreshold)}</DataItem>
-          <DataItem label="usageLimitPolicyId" mono>{run.usageLimitPolicyId ?? 'Não informado'}</DataItem>
-          <DataItem label="costCurrency">{run.costCurrency ?? 'Não informado'}</DataItem>
-          <DataItem label="costMinorUnits">{run.costCurrency && run.costMinorUnits ? formatInteger(run.costMinorUnits) : 'Não informado'}</DataItem>
+          <DataItem label="Avaliação de limite aplicada"><FlagBadge value={run.usageLimitEvaluationApplied} /></DataItem>
+          <DataItem label="Modo de limite">{humanize(run.usageLimitMode)}</DataItem>
+          <DataItem label="Limite excedido"><FlagBadge value={run.usageLimitExceeded} /></DataItem>
+          <DataItem label="Limite aplicado"><FlagBadge value={run.usageLimitEnforced} /></DataItem>
+          <DataItem label="Bloqueado por limite"><FlagBadge value={run.usageLimitBlocked} /></DataItem>
+          <DataItem label="Motivo do limite">{humanize(run.usageLimitReason)}</DataItem>
+          <DataItem label="Métrica do limite">{humanize(run.usageLimitMetric)}</DataItem>
+          <DataItem label="Escopo do limite">{humanize(run.usageLimitScope)}</DataItem>
+          <DataItem label="Janela do limite">{humanize(run.usageLimitWindow)}</DataItem>
+          <DataItem label="Uso atual">{formatInteger(run.usageLimitCurrentValue)}</DataItem>
+          <DataItem label="Limite configurado">{formatInteger(run.usageLimitThreshold)}</DataItem>
+          <DataItem label="Política de limite" mono>{compactId(run.usageLimitPolicyId)}</DataItem>
+          <DataItem label="Moeda">{run.costCurrency ?? 'Não informado'}</DataItem>
+          <DataItem label="Custo em unidades mínimas">{run.costCurrency && run.costMinorUnits ? formatInteger(run.costMinorUnits) : 'Não informado'}</DataItem>
         </dl>
       </Section>
 

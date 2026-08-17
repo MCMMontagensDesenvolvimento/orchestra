@@ -123,7 +123,11 @@ export default function AdminPage() {
                   {workspaces.map((workspace) => (
                     <div key={workspace.id} className="p-4">
                       <p className="font-medium">{workspace.name}</p>
-                      <p className="text-xs text-muted-foreground">{workspace.description ?? workspace.slug ?? workspace.id}</p>
+                      {(workspace.description || workspace.slug) && (
+                        <p className="text-xs text-muted-foreground">
+                          {workspace.description ?? workspace.slug}
+                        </p>
+                      )}
                     </div>
                   ))}
                 </div>
