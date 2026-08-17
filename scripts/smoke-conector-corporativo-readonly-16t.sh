@@ -98,7 +98,7 @@ check_mcp_ui_fail_closed_state() {
     'Rede externa, MCP remoto, tools de escrita, providers, embeddings e Chat/AgentRun reais permanecem desabilitados.' \
     'MCP Hub 18D capabilities remain disabled'
   require_pattern "$MCP_DETAIL" \
-    'O precheck valida readiness e policies sem executar tool, abrir rede, chamar provider, gerar embeddings ou iniciar Chat/AgentRun.' \
+    'Este catálogo é local, determinístico e imutável na interface. A pré-checagem valida disponibilidade e políticas sem executar ferramenta, abrir rede, chamar provedor, gerar embeddings ou iniciar Chat/AgentRun.' \
     'MCP detail local demo is catalog/precheck only'
   require_pattern "$MCP_DETAIL" 'execução permitida: não' 'MCP detail local execution remains blocked'
 
@@ -207,7 +207,7 @@ reject_pattern "$GATEWAY" 'outputPreview: content' 'gateway raw output persisten
 check_mcp_ui_fail_closed_state
 require_pattern "$MCP_HUB" 'Referência lógica de secret' 'MCP Hub logical secret field'
 reject_pattern "$MCP_HUB" 'apiKey:' 'MCP Hub raw API key payload'
-require_pattern "$MCP_DETAIL" 'Testar readiness seguro' 'MCP detail safe readiness action'
+require_pattern "$MCP_DETAIL" 'Testar disponibilidade com segurança' 'MCP detail safe readiness action'
 
 require_file "$EVAL_DIR/cases.corporate-readonly.json"
 require_pattern "$EVAL_DIR/cases.corporate-readonly.json" '"corporate_disabled_default"' '16S corporate disabled case'

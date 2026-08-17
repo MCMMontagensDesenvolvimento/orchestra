@@ -63,6 +63,15 @@ export const auditService = {
         where,
         orderBy: { [query.sortBy]: query.sortDirection },
         ...paginationOffset(query),
+        include: {
+          actor: {
+            select: {
+              id: true,
+              name: true,
+              email: true,
+            },
+          },
+        },
       }),
       prisma.auditLog.count({ where }),
     ]);
@@ -72,6 +81,7 @@ export const auditService = {
         tenantId: record.tenantId,
         workspaceId: record.workspaceId,
         actorUserId: record.actorUserId,
+        actor: record.actor,
         action: record.action,
         entity: record.entity,
         entityId: record.entityId,

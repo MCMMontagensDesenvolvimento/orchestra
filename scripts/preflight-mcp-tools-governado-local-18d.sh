@@ -209,7 +209,7 @@ reject_pattern "$CATALOG" '(fetch[[:space:]]*\(|axios|node:https|node:http|McpRe
 reject_pattern "$SEED" '(baseUrl:[[:space:]]*["'\'']https?://|secretRef:[[:space:]]*["'\''][^"'\'']+)' 'remote URL or secret reference in local demo seed'
 reject_pattern "$FRONTEND_MOCK" '(https?://|writeOperation:[[:space:]]*true|allowRuntimeExecution:[[:space:]]*true)' 'remote/write/runtime capability in frontend demo fixture'
 require_pattern "$FRONTEND_MOCK" 'export const mockToolExecutionLogs: ToolExecutionLog[] = []' 'frontend demo has zero execution logs'
-require_pattern "$DETAIL" 'Verificar precheck local' 'governed local precheck UI action'
+require_pattern "$DETAIL" 'Verificar pré-checagem local' 'governed local precheck UI action'
 require_pattern "$DETAIL" 'execução permitida: não' 'UI communicates blocked execution'
 require_pattern "$HUB" 'Gerenciado por seed' 'dangerous Hub registration action is disabled'
 

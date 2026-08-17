@@ -1,3 +1,4 @@
+import { compactTechnicalId } from '@/lib/display-safety';
 import { FormEvent, useMemo, useState } from 'react';
 import { Link, useParams, useSearchParams } from 'react-router-dom';
 import {
@@ -933,19 +934,23 @@ function toLocalMessages(messages: ChatMessage[]): LocalChatMessage[] {
 }
 
 function apiErrorMessage(error: unknown) {
-  if (!isApiError(error)) return 'Nao foi possivel enviar a mensagem. Tente novamente.';
+  if (!isApiError(error)) return 'Não foi possível enviar a mensagem. Tente novamente.';
 
-  const requestId = error.requestId ? ` requestId=${error.requestId}` : '';
+  const requestReference = error.requestId
+    ? ` Referência: ${compactTechnicalId(error.requestId)}.`
+    : '';
 
   if (error.status === HttpStatus.FORBIDDEN) {
-    return `Sem permissao para executar este assistente.${requestId}`;
+    return `Sem permissão para executar este assistente.${requestReference}`;
   }
 
   if (error.status === HttpStatus.NOT_FOUND) {
-    return `Conversa ou assistente nao encontrado.${requestId}`;
+    return `Conversa ou assistente não encontrado.${requestReference}`;
   }
 
-  return `Nao foi possivel enviar a mensagem.${error.code ? ` codigo=${error.code}` : ''}${requestId}`;
+  const errorCode = error.code ? ` Código: ${error.code}.` : '';
+
+  return `Não foi possível enviar a mensagem.${errorCode}${requestReference}`;
 }
 
 function runRuntimeRows(run: AgentRun): TechnicalRow[] {
@@ -954,9 +959,9 @@ function runRuntimeRows(run: AgentRun): TechnicalRow[] {
   const usage = asRecord(runtime?.usage);
 
   return [
-    row('runId', run.id),
-    row('traceId', run.traceId),
-    row('requestId', run.requestId),
+    row('runId', compactTechnicalId(run.id)),
+    row('traceId', run.traceId ? compactTechnicalId(run.traceId) : undefined),
+    row('requestId', run.requestId ? compactTechnicalId(run.requestId) : undefined),
     row('status', run.status),
     row('mode', run.mode),
     row('source', run.source),
@@ -1019,7 +1024,12 @@ function safeEventMetadataRows(event: AgentRunEvent): TechnicalRow[] {
     row('provider', metadata.provider),
     row('llmProvider', llmSummary.provider ? llmProviderLabel(llmSummary.provider) : undefined),
     row('model', llmSummary.model),
-    row('traceId', metadata.traceId),
+    row(
+      'traceId',
+      typeof metadata.traceId === 'string'
+        ? compactTechnicalId(metadata.traceId)
+        : metadata.traceId,
+    ),
     row('runtimeStatus', metadata.runtimeStatus),
     row('runtimeErrorCode', metadata.runtimeErrorCode),
     row('latencyMs', formatLlmLatency(llmSummary.latencyMs) ?? llmSummary.latencyMs),

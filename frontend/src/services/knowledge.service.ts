@@ -23,7 +23,6 @@ import type {
 import { mockAssistants, mockKnowledgeBases, mockDocuments } from '@/services/mocks';
 import { mockResponse, mockFind } from '@/services/mocks/mock-utils';
 import { env } from '@/lib/env';
-import { displayUserLabel } from '@/lib/display-safety';
 import { apiClient, type ApiEnvelope, type PaginatedApiEnvelope } from './api/api-client';
 import { endpoints } from './api/endpoints';
 
@@ -306,7 +305,10 @@ function mapKnowledgeBase(base: ApiKnowledgeBase): KnowledgeBase {
     chunkSize: Number(metadata.chunkSize ?? 512),
     chunkOverlap: Number(metadata.chunkOverlap ?? 64),
     retention: metadataString(metadata, 'retention', '2 anos') as RetentionPeriod,
-    owner: base.owner?.name ?? base.ownerUserId ?? 'Orchestra',
+    owner:
+      base.owner?.name
+      ?? base.owner?.email
+      ?? (base.ownerUserId ? 'Responsável não disponível' : 'Sem responsável'),
     createdAt: formatDate(base.createdAt),
     updatedAt: base.updatedAt,
     deletedAt: base.deletedAt,
@@ -347,7 +349,10 @@ function mapDocument(document: ApiKnowledgeDocument): KnowledgeDocument {
     chunks: Number(document.chunkCount ?? document.metadata?.chunks ?? 0),
     chunkCount: Number(document.chunkCount ?? document.metadata?.chunks ?? 0),
     version: metadataString(document.metadata, 'version', '1.0'),
-    uploadedBy: document.createdBy?.name ?? displayUserLabel(document.createdById, 'Orchestra'),
+    uploadedBy:
+      document.createdBy?.name
+      ?? document.createdBy?.email
+      ?? (document.createdById ? 'Responsável não disponível' : 'Sistema'),
     uploadedAt: formatDate(document.createdAt),
     lastProcessed: document.ingestedAt ?? (document.ingestionStatus === 'completed' || document.ingestionStatus === 'completed_placeholder' ? document.updatedAt : ''),
     updatedAt: document.updatedAt,

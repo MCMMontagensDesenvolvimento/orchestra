@@ -81,7 +81,7 @@ import { useConversations } from '@/hooks/queries/useChat';
 import { useAuditLogs } from '@/hooks/queries/useAudit';
 import { useAnalytics } from '@/hooks/queries/useAnalytics';
 import { llmPolicySaveErrorDescription } from '@/lib/llm-policy-errors';
-import { safeSummaryPreview } from '@/lib/display-safety';
+import { humanizeTechnicalToken, safeSummaryPreview } from '@/lib/display-safety';
 import { env } from '@/lib/env';
 import {
   getAgentRunLlmSummary,
@@ -110,7 +110,7 @@ type LlmPolicyForm = {
 };
 
 const tabs: { id: TabId; label: string; icon: typeof Bot }[] = [
-  { id: 'overview', label: 'Overview', icon: Bot },
+  { id: 'overview', label: 'Visão geral', icon: Bot },
   { id: 'config', label: 'Configuração', icon: Wrench },
   { id: 'governance', label: 'Governança', icon: Shield },
   { id: 'runs', label: 'Execuções', icon: Activity },
@@ -372,7 +372,7 @@ export default function AssistantDetailPage() {
 
   const handleMcpSandboxPrecheck = async (toolId = activeSandboxToolId) => {
     if (!toolId) {
-      toast.error('Selecione uma tool MCP');
+      toast.error('Selecione uma ferramenta MCP');
       return;
     }
     try {
@@ -384,7 +384,7 @@ export default function AssistantDetailPage() {
           input: parseMcpSandboxInput(),
         },
       });
-      toast.success('Precheck sandbox executado');
+      toast.success('Pré-checagem de sandbox executada');
     } catch (error) {
       toast.error('Nao foi possivel executar precheck MCP', {
         description: error instanceof Error ? error.message : 'Tente novamente em instantes.',
@@ -394,7 +394,7 @@ export default function AssistantDetailPage() {
 
   const handleMcpSandboxRun = async (toolId = activeSandboxToolId) => {
     if (!toolId) {
-      toast.error('Selecione uma tool MCP');
+      toast.error('Selecione uma ferramenta MCP');
       return;
     }
     try {
@@ -431,9 +431,14 @@ export default function AssistantDetailPage() {
         },
       });
       setRunInput('');
-      toast.success(run.status === 'blocked' ? 'Execucao bloqueada pelo precheck' : 'Execucao simulada concluida', {
-        description: `${run.id} · ${run.traceId}`,
-      });
+      toast.success(
+        run.status === 'blocked'
+          ? 'Execução bloqueada pela pré-checagem'
+          : 'Execução simulada concluída',
+        {
+          description: `Execução ${compactId(run.id)} · Rastreamento ${compactId(run.traceId)}`,
+        },
+      );
     } catch (error) {
       toast.error('Nao foi possivel criar a execucao', {
         description: error instanceof Error ? error.message : 'Tente novamente em instantes.',
@@ -500,7 +505,7 @@ export default function AssistantDetailPage() {
       });
       setApprovalDialogOpen(false);
       setApprovalForm({ action: 'publish', reason: '', assistantVersionId: versions[0]?.id ?? '' });
-      toast.success('Approval solicitado');
+      toast.success('Aprovação solicitada');
     } catch (error) {
       toast.error('Nao foi possivel solicitar approval', {
         description: error instanceof Error ? error.message : 'Tente novamente em instantes.',
@@ -512,15 +517,15 @@ export default function AssistantDetailPage() {
     try {
       if (decision === 'approve') {
         await approveApprovalMutation.mutateAsync({ id: assistant.id, approvalId, decisionReason: 'Aprovado pela governanca.' });
-        toast.success('Approval aprovado');
+        toast.success('Aprovação aprovada');
       }
       if (decision === 'reject') {
         await rejectApprovalMutation.mutateAsync({ id: assistant.id, approvalId, decisionReason: 'Rejeitado pela governanca.' });
-        toast.success('Approval rejeitado');
+        toast.success('Aprovação rejeitada');
       }
       if (decision === 'cancel') {
         await cancelApprovalMutation.mutateAsync({ id: assistant.id, approvalId, decisionReason: 'Cancelado pela governanca.' });
-        toast.success('Approval cancelado');
+        toast.success('Aprovação cancelada');
       }
     } catch (error) {
       toast.error('Nao foi possivel decidir approval', {
@@ -567,12 +572,12 @@ export default function AssistantDetailPage() {
   const handleLlmPolicyUpdate = async (payload: LlmPolicyUpdatePayload) => {
     try {
       await updateExecutionPolicyMutation.mutateAsync({ id: assistant.id, payload });
-      toast.success('Policy LLM atualizada', {
+      toast.success('Política LLM atualizada', {
         description: payload.allowExternalLlmProviders ? 'OpenAI foi atualizado na policy do assistant.' : 'OpenAI foi removido da policy do assistant.',
       });
       return true;
     } catch (error) {
-      toast.error('Nao foi possivel salvar policy LLM', {
+      toast.error('Não foi possível salvar a política LLM', {
         description: llmPolicySaveErrorDescription(error),
       });
       return false;
@@ -677,7 +682,7 @@ ${assistant.escalationPolicy || 'Não definida'}
 - Temperatura: ${assistant.temperature}
 
 ## Bases de Conhecimento
-${kbs.map(kb => `- ${kb.name} (${kb.documentCount} docs, ${kb.totalChunks} chunks)`).join('\n') || '- Nenhuma'}
+${kbs.map(kb => `- ${kb.name} (${kb.documentCount} documentos, ${kb.totalChunks} trechos)`).join('\n') || '- Nenhuma'}
 
 ## Ferramentas MCP
 ${tools.map(t => `- ${t.name}: ${t.description}${t.requiresApproval ? ' [REQUER APROVAÇÃO]' : ''}`).join('\n') || '- Nenhuma'}`;
@@ -837,7 +842,7 @@ ${tools.map(t => `- ${t.name}: ${t.description}${t.requiresApproval ? ' [REQUER 
                     <div key={kb.id} className="flex items-center justify-between text-sm p-2 rounded-md bg-muted/30">
                       <div>
                         <p className="font-medium">{kb.name}</p>
-                        <p className="text-xs text-muted-foreground">{kb.documentCount} docs · {kb.totalChunks.toLocaleString()} chunks</p>
+                        <p className="text-xs text-muted-foreground">{kb.documentCount} documentos · {kb.totalChunks.toLocaleString()} trechos</p>
                       </div>
                       <StatusBadge status={kb.status} />
                     </div>
@@ -976,7 +981,7 @@ ${tools.map(t => `- ${t.name}: ${t.description}${t.requiresApproval ? ' [REQUER 
                 <div className="mb-4 flex items-center justify-between gap-2">
                   <div>
                     <h3 className="text-sm font-semibold flex items-center gap-2">
-                      <Shield className="h-4 w-4 text-primary" /> Approvals
+                      <Shield className="h-4 w-4 text-primary" /> Aprovações
                     </h3>
                     <p className="text-xs text-muted-foreground">{pendingApprovals.length} pendente(s)</p>
                   </div>
@@ -998,9 +1003,11 @@ ${tools.map(t => `- ${t.name}: ${t.description}${t.requiresApproval ? ' [REQUER 
                       <div key={approval.id} className="rounded-md border p-3">
                         <div className="flex items-start justify-between gap-2">
                           <div className="min-w-0">
-                            <p className="text-sm font-medium">{approval.action.replace(/_/g, ' ')}</p>
+                            <p className="text-sm font-medium">{approvalActionLabel(approval.action)}</p>
                             <p className="text-xs text-muted-foreground">
-                              {approval.requestedById} · {new Date(approval.createdAt).toLocaleString('pt-BR')}
+                              {approval.requestedBy?.name
+  ?? approval.requestedBy?.email
+  ?? 'Solicitante não disponível'} · {new Date(approval.createdAt).toLocaleString('pt-BR')}
                             </p>
                             {approval.reason && <p className="mt-1 text-xs text-muted-foreground">{approval.reason}</p>}
                           </div>
@@ -1032,7 +1039,7 @@ ${tools.map(t => `- ${t.name}: ${t.description}${t.requiresApproval ? ' [REQUER 
                     ))}
                   </div>
                 ) : (
-                  <p className="text-sm text-muted-foreground">Nenhum approval registrado.</p>
+                  <p className="text-sm text-muted-foreground">Nenhuma aprovação registrada.</p>
                 )}
               </div>
 
@@ -1050,9 +1057,13 @@ ${tools.map(t => `- ${t.name}: ${t.description}${t.requiresApproval ? ' [REQUER 
                 <div className="rounded-lg border bg-card p-5">
                   <div className="mb-4 flex items-center justify-between gap-2">
                     <h3 className="text-sm font-semibold flex items-center gap-2">
-                      <Wrench className="h-4 w-4 text-primary" /> Execution Policy
+                      <Wrench className="h-4 w-4 text-primary" /> Política de execução
                     </h3>
-                    {executionPolicy && <StatusBadge status={executionPolicy.executionMode} />}
+                    {executionPolicy && (
+  <Badge variant="secondary" className="text-[10px]">
+    {executionModeLabel(executionPolicy.executionMode)}
+  </Badge>
+)}
                   </div>
                   {executionPolicy ? (
                     <div className="space-y-3">
@@ -1065,9 +1076,9 @@ ${tools.map(t => `- ${t.name}: ${t.description}${t.requiresApproval ? ' [REQUER 
                         >
                           <SelectTrigger><SelectValue /></SelectTrigger>
                           <SelectContent>
-                            <SelectItem value="draft_test">Draft test</SelectItem>
+                            <SelectItem value="draft_test">Teste em rascunho</SelectItem>
                             <SelectItem value="sandbox">Sandbox</SelectItem>
-                            <SelectItem value="published">Published</SelectItem>
+                            <SelectItem value="published">Publicado</SelectItem>
                             <SelectItem value="blocked">Blocked</SelectItem>
                           </SelectContent>
                         </Select>
@@ -1091,7 +1102,7 @@ ${tools.map(t => `- ${t.name}: ${t.description}${t.requiresApproval ? ' [REQUER 
                         </p>
                       </div>
                       <PolicySwitch
-                        label="Approval para publicar"
+                        label="Aprovação para publicar"
                         checked={executionPolicy.requiresApprovalToPublish}
                         disabled={!hasPermission('assistants.execution.configure') || updateExecutionPolicyMutation.isPending}
                         onCheckedChange={checked => { void handlePolicyUpdate({ requiresApprovalToPublish: checked }); }}
@@ -1103,13 +1114,13 @@ ${tools.map(t => `- ${t.name}: ${t.description}${t.requiresApproval ? ' [REQUER 
                         onCheckedChange={checked => { void handlePolicyUpdate({ sandboxEnabled: checked }); }}
                       />
                       <PolicySwitch
-                        label="Teste draft"
+                        label="Teste em rascunho"
                         checked={executionPolicy.allowDraftTesting}
                         disabled={!hasPermission('assistants.execution.configure') || updateExecutionPolicyMutation.isPending}
                         onCheckedChange={checked => { void handlePolicyUpdate({ allowDraftTesting: checked }); }}
                       />
                       <PolicySwitch
-                        label="Execução published"
+                        label="Execução publicada"
                         checked={executionPolicy.allowPublishedExecution}
                         disabled={!hasPermission('assistants.execution.configure') || updateExecutionPolicyMutation.isPending}
                         onCheckedChange={checked => { void handlePolicyUpdate({ allowPublishedExecution: checked }); }}
@@ -1121,9 +1132,9 @@ ${tools.map(t => `- ${t.name}: ${t.description}${t.requiresApproval ? ' [REQUER 
                         onCheckedChange={checked => { void handlePolicyUpdate({ isExecutionEnabled: checked }); }}
                       />
                       <div className="grid grid-cols-2 gap-2 border-t pt-3 text-xs text-muted-foreground">
-                        <span>Tools externas: {executionPolicy.sandboxBlocksExternalTools ? 'bloqueadas' : 'liberadas'}</span>
-                        <span>Providers reais: {executionPolicy.sandboxBlocksRealProviders ? 'bloqueados' : 'liberados'}</span>
-                        <span>Auth sandbox: {executionPolicy.sandboxRequiresAuth ? 'obrigatorio' : 'opcional'}</span>
+                        <span>Ferramentas externas: {executionPolicy.sandboxBlocksExternalTools ? 'bloqueadas' : 'liberadas'}</span>
+                        <span>Provedores reais: {executionPolicy.sandboxBlocksRealProviders ? 'bloqueados' : 'liberados'}</span>
+                        <span>Autenticação do sandbox: {executionPolicy.sandboxRequiresAuth ? 'obrigatória' : 'opcional'}</span>
                         <span>Logs: {executionPolicy.sandboxLogsRequired ? 'obrigatorios' : 'opcionais'}</span>
                       </div>
                     </div>
@@ -1134,15 +1145,15 @@ ${tools.map(t => `- ${t.name}: ${t.description}${t.requiresApproval ? ' [REQUER 
 
                 <div className="rounded-lg border bg-card p-5">
                   <h3 className="mb-4 text-sm font-semibold flex items-center gap-2">
-                    <Play className="h-4 w-4 text-primary" /> Execution Precheck
+                    <Play className="h-4 w-4 text-primary" /> Pré-checagem de execução
                   </h3>
                   <div className="flex flex-col gap-3 sm:flex-row">
                     <Select value={precheckMode} onValueChange={value => setPrecheckMode(value as AssistantExecutionMode)}>
                       <SelectTrigger className="sm:w-48"><SelectValue /></SelectTrigger>
                       <SelectContent>
-                        <SelectItem value="draft_test">Draft test</SelectItem>
+                        <SelectItem value="draft_test">Teste em rascunho</SelectItem>
                         <SelectItem value="sandbox">Sandbox</SelectItem>
-                        <SelectItem value="published">Published</SelectItem>
+                        <SelectItem value="published">Publicado</SelectItem>
                       </SelectContent>
                     </Select>
                     <Button onClick={() => { void handleExecutionPrecheck(); }} disabled={executionPrecheckMutation.isPending}>
@@ -1206,7 +1217,7 @@ ${tools.map(t => `- ${t.name}: ${t.description}${t.requiresApproval ? ' [REQUER 
                     </h3>
                     <p className="text-xs text-muted-foreground">Run controlado com precheck e runtime adapter.</p>
                   </div>
-                  <Badge variant="outline" className="text-[10px]">sem provider externo</Badge>
+                  <Badge variant="outline" className="text-[10px]">sem provedor externo</Badge>
                 </div>
                 <div className="space-y-4">
                   <div className="space-y-2">
@@ -1214,9 +1225,9 @@ ${tools.map(t => `- ${t.name}: ${t.description}${t.requiresApproval ? ' [REQUER 
                     <Select value={runMode} onValueChange={value => setRunMode(value as AssistantExecutionMode)}>
                       <SelectTrigger><SelectValue /></SelectTrigger>
                       <SelectContent>
-                        <SelectItem value="draft_test">Draft test</SelectItem>
+                        <SelectItem value="draft_test">Teste em rascunho</SelectItem>
                         <SelectItem value="sandbox">Sandbox</SelectItem>
-                        <SelectItem value="published">Published</SelectItem>
+                        <SelectItem value="published">Publicado</SelectItem>
                         <SelectItem value="blocked">Blocked</SelectItem>
                       </SelectContent>
                     </Select>
@@ -1232,7 +1243,7 @@ ${tools.map(t => `- ${t.name}: ${t.description}${t.requiresApproval ? ' [REQUER 
                     />
                     <div className="flex items-center justify-between text-[10px] text-muted-foreground">
                       <span>{runInput.length}/2000</span>
-                      <span>{executionPolicy?.executionMode ? `Policy: ${executionPolicy.executionMode}` : 'Policy pendente'}</span>
+                      <span>{executionPolicy?.executionMode ? `Política: ${executionModeLabel(executionPolicy.executionMode)}` : 'Política pendente'}</span>
                     </div>
                   </div>
                   <Button
@@ -1291,24 +1302,24 @@ ${tools.map(t => `- ${t.name}: ${t.description}${t.requiresApproval ? ' [REQUER 
               <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                 <div>
                   <h3 className="text-sm font-semibold flex items-center gap-2">
-                    <BookOpen className="h-4 w-4 text-primary" />RAG Readiness
+                    <BookOpen className="h-4 w-4 text-primary" />Prontidão do RAG
                   </h3>
-                  <p className="text-xs text-muted-foreground">Retrieval local por keyword, com fontes e citações persistidas.</p>
+                  <p className="text-xs text-muted-foreground">Recuperação local por palavra-chave, com fontes e citações persistidas.</p>
                 </div>
                 <Button variant="outline" size="sm" onClick={() => { void ragReadinessQuery.refetch(); }}>
-                  <RefreshCw className="h-3.5 w-3.5 mr-1" />Checar readiness
+                  <RefreshCw className="h-3.5 w-3.5 mr-1" />Verificar prontidão
                 </Button>
               </div>
               {ragReadinessQuery.isLoading ? (
-                <p className="text-sm text-muted-foreground">Carregando readiness...</p>
+                <p className="text-sm text-muted-foreground">Carregando prontidão...</p>
               ) : ragReadiness ? (
                 <div className="space-y-4">
                   <div className="grid gap-3 sm:grid-cols-5">
-                    <div className="rounded-md border p-3"><p className="text-[10px] text-muted-foreground">Status</p><p className="text-sm font-semibold">{ragReady ? 'ready' : 'blocked'}</p></div>
+                    <div className="rounded-md border p-3"><p className="text-[10px] text-muted-foreground">Status</p><p className="text-sm font-semibold">{readinessStatusLabel(ragReady ? 'ready' : 'blocked')}</p></div>
                     <div className="rounded-md border p-3"><p className="text-[10px] text-muted-foreground">Bases</p><p className="text-sm font-semibold">{ragReadiness.knowledgeBaseCount ?? ragReadiness.knowledgeBasesBound}</p></div>
                     <div className="rounded-md border p-3"><p className="text-[10px] text-muted-foreground">Documentos</p><p className="text-sm font-semibold">{ragReadiness.documentCount ?? ragReadiness.documentsIngested}</p></div>
-                    <div className="rounded-md border p-3"><p className="text-[10px] text-muted-foreground">Chunks</p><p className="text-sm font-semibold">{ragReadiness.chunkCount ?? ragReadiness.chunksAvailable}</p></div>
-                    <div className="rounded-md border p-3"><p className="text-[10px] text-muted-foreground">Sources</p><p className="text-sm font-semibold">{ragReadiness.sourceReferenceCount ?? 0}</p></div>
+                    <div className="rounded-md border p-3"><p className="text-[10px] text-muted-foreground">Trechos</p><p className="text-sm font-semibold">{ragReadiness.chunkCount ?? ragReadiness.chunksAvailable}</p></div>
+                    <div className="rounded-md border p-3"><p className="text-[10px] text-muted-foreground">Fontes</p><p className="text-sm font-semibold">{ragReadiness.sourceReferenceCount ?? 0}</p></div>
                   </div>
                   {ragBlockedReasons.length > 0 && (
                     <div className="rounded-md border border-warning/30 bg-warning/5 p-3">
@@ -1332,7 +1343,7 @@ ${tools.map(t => `- ${t.name}: ${t.description}${t.requiresApproval ? ' [REQUER 
                       <input
                         value={ragSearchQuery}
                         onChange={event => setRagSearchQuery(event.target.value)}
-                        placeholder="Consulta local em chunks autorizados"
+                        placeholder="Consulta local em trechos autorizados"
                         className="w-full bg-transparent text-sm outline-none"
                       />
                     </div>
@@ -1443,7 +1454,7 @@ ${tools.map(t => `- ${t.name}: ${t.description}${t.requiresApproval ? ' [REQUER 
                     <p className="mt-2 text-sm text-muted-foreground">{kb.description}</p>
                     <div className="mt-3 grid grid-cols-3 gap-2 text-center border-t pt-3">
                       <div><p className="text-lg font-bold">{kb.documentCount}</p><p className="text-[10px] text-muted-foreground">Documentos</p></div>
-                      <div><p className="text-lg font-bold">{kb.totalChunks.toLocaleString()}</p><p className="text-[10px] text-muted-foreground">Chunks</p></div>
+                      <div><p className="text-lg font-bold">{kb.totalChunks.toLocaleString()}</p><p className="text-[10px] text-muted-foreground">Trechos</p></div>
                       <div><p className="text-lg font-bold">{kb.size}</p><p className="text-[10px] text-muted-foreground">Tamanho</p></div>
                     </div>
                     <p className="mt-2 text-[10px] text-muted-foreground">Última atualização: {new Date(kb.lastUpdated).toLocaleDateString('pt-BR')}</p>
@@ -1465,7 +1476,7 @@ ${tools.map(t => `- ${t.name}: ${t.description}${t.requiresApproval ? ' [REQUER 
             <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
               <div>
                 <h3 className="text-sm font-semibold">Ferramentas MCP Habilitadas ({tools.length})</h3>
-                <p className="text-xs text-muted-foreground">Precheck e execução sandbox local com policies do backend.</p>
+                <p className="text-xs text-muted-foreground">Pré-checagem e execução em sandbox local com políticas do backend.</p>
               </div>
               <Button variant="outline" size="sm" onClick={() => setMcpBindingDialogOpen(true)}><Server className="h-3.5 w-3.5 mr-1" />Vincular Ferramenta</Button>
             </div>
@@ -1477,39 +1488,39 @@ ${tools.map(t => `- ${t.name}: ${t.description}${t.requiresApproval ? ' [REQUER 
                     <h4 className="text-sm font-semibold flex items-center gap-2"><Shield className="h-4 w-4 text-primary" />MCP Sandbox</h4>
                     <p className="text-xs text-muted-foreground">Execução determinística sem chamada MCP externa.</p>
                   </div>
-                  <Badge variant="outline" className="text-[10px]">sandbox</Badge>
+                  <Badge variant="outline" className="text-[10px]">Sandbox</Badge>
                 </div>
                 <div className="space-y-4">
                   <div className="space-y-2">
-                    <Label>Tool</Label>
+                    <Label>Ferramenta</Label>
                     <Select value={activeSandboxToolId || 'none'} onValueChange={value => setSelectedSandboxToolId(value === 'none' ? '' : value)}>
                       <SelectTrigger><SelectValue /></SelectTrigger>
                       <SelectContent>
-                        {tools.length === 0 && <SelectItem value="none">Nenhuma tool vinculada</SelectItem>}
+                        {tools.length === 0 && <SelectItem value="none">Nenhuma ferramenta vinculada</SelectItem>}
                         {tools.map(tool => (
-                          <SelectItem key={tool.id} value={tool.id}>{tool.name} · {tool.riskLevel}</SelectItem>
+                          <SelectItem key={tool.id} value={tool.id}>{tool.name} · {riskLevelLabel(tool.riskLevel)}</SelectItem>
                         ))}
                       </SelectContent>
                     </Select>
                   </div>
                   {selectedSandboxTool && (
                     <div className="grid grid-cols-3 gap-2 text-xs">
-                      <div className="rounded-md border p-2"><p className="text-[10px] text-muted-foreground">Risco</p><StatusBadge status={selectedSandboxTool.riskLevel} /></div>
-                      <div className="rounded-md border p-2"><p className="text-[10px] text-muted-foreground">Approval</p><p className="font-medium">{selectedSandboxTool.requiresApproval ? 'Obrigatorio' : 'Nao'}</p></div>
-                      <div className="rounded-md border p-2"><p className="text-[10px] text-muted-foreground">Modo</p><p className="font-medium">sandbox_only</p></div>
+                      <div className="rounded-md border p-2"><p className="text-[10px] text-muted-foreground">Risco</p><Badge variant="outline" className="text-[10px]">{riskLevelLabel(selectedSandboxTool.riskLevel)}</Badge></div>
+                      <div className="rounded-md border p-2"><p className="text-[10px] text-muted-foreground">Aprovação</p><p className="font-medium">{selectedSandboxTool.requiresApproval ? 'Obrigatório' : 'Não'}</p></div>
+                      <div className="rounded-md border p-2"><p className="text-[10px] text-muted-foreground">Modo</p><p className="font-medium">Somente sandbox</p></div>
                     </div>
                   )}
                   <div className="space-y-2">
-                    <Label>Input</Label>
+                    <Label>Entrada</Label>
                     <Textarea value={mcpSandboxInput} onChange={event => setMcpSandboxInput(event.target.value)} rows={6} maxLength={4000} className="font-mono text-xs" />
                     <p className="text-[10px] text-muted-foreground">{mcpSandboxInput.length}/4000</p>
                   </div>
                   <div className="flex flex-col gap-2 sm:flex-row">
                     <Button variant="outline" onClick={() => { void handleMcpSandboxPrecheck(); }} disabled={!activeSandboxToolId || mcpSandboxPrecheckMutation.isPending}>
-                      <Shield className="h-3.5 w-3.5 mr-1" />Precheck sandbox
+                      <Shield className="h-3.5 w-3.5 mr-1" />Pré-checagem sandbox
                     </Button>
                     <Button onClick={() => { void handleMcpSandboxRun(); }} disabled={!activeSandboxToolId || mcpSandboxToolCallMutation.isPending}>
-                      <Play className="h-3.5 w-3.5 mr-1" />Run sandbox test
+                      <Play className="h-3.5 w-3.5 mr-1" />Executar teste em sandbox
                     </Button>
                   </div>
                 </div>
@@ -1600,7 +1611,7 @@ ${tools.map(t => `- ${t.name}: ${t.description}${t.requiresApproval ? ' [REQUER 
               <div className="rounded-lg border bg-card p-5">
                 <div className="mb-4 flex items-center justify-between gap-2">
                   <div>
-                    <h4 className="text-sm font-semibold flex items-center gap-2"><Clock className="h-4 w-4 text-primary" />Tool call history</h4>
+                    <h4 className="text-sm font-semibold flex items-center gap-2"><Clock className="h-4 w-4 text-primary" />Histórico de chamadas de ferramenta</h4>
                     <p className="text-xs text-muted-foreground">{assistantMcpToolCalls.length} registro(s)</p>
                   </div>
                   <Button variant="outline" size="sm" onClick={() => { void refetchAssistantMcpToolCalls(); }}>
@@ -1616,16 +1627,16 @@ ${tools.map(t => `- ${t.name}: ${t.description}${t.requiresApproval ? ' [REQUER 
                     ))}
                   </div>
                 ) : (
-                  <p className="text-sm text-muted-foreground">Nenhuma tool call registrada.</p>
+                  <p className="text-sm text-muted-foreground">Nenhuma chamada de ferramenta registrada.</p>
                 )}
               </div>
 
               <div className="rounded-lg border bg-card p-5">
-                <h4 className="mb-4 text-sm font-semibold flex items-center gap-2"><GitBranch className="h-4 w-4 text-primary" />Timeline</h4>
+                <h4 className="mb-4 text-sm font-semibold flex items-center gap-2"><GitBranch className="h-4 w-4 text-primary" />Linha do tempo</h4>
                 {selectedMcpToolCall ? (
                   <McpToolCallTimeline call={selectedMcpToolCall} />
                 ) : (
-                  <p className="text-sm text-muted-foreground">Selecione uma tool call para ver eventos.</p>
+                  <p className="text-sm text-muted-foreground">Selecione uma chamada de ferramenta para visualizar os eventos.</p>
                 )}
               </div>
             </div>
@@ -1974,23 +1985,23 @@ ${tools.map(t => `- ${t.name}: ${t.description}${t.requiresApproval ? ' [REQUER 
         <Dialog open={mcpBindingDialogOpen} onOpenChange={setMcpBindingDialogOpen}>
           <DialogContent className="max-w-md">
             <DialogHeader>
-              <DialogTitle>Vincular Tool MCP</DialogTitle>
-              <DialogDescription>Crie um binding governado em modo sandbox, sem execução MCP real.</DialogDescription>
+              <DialogTitle>Vincular ferramenta MCP</DialogTitle>
+              <DialogDescription>Crie um vínculo governado em modo sandbox, sem execução MCP real.</DialogDescription>
             </DialogHeader>
             {availableMcpTools.length > 0 ? (
               <div className="space-y-2">
-                <Label>Tool</Label>
+                <Label>Ferramenta</Label>
                 <Select value={selectedMcpToolId} onValueChange={setSelectedMcpToolId}>
-                  <SelectTrigger><SelectValue placeholder="Selecione uma tool" /></SelectTrigger>
+                  <SelectTrigger><SelectValue placeholder="Selecione uma ferramenta" /></SelectTrigger>
                   <SelectContent>
                     {availableMcpTools.map(tool => (
-                      <SelectItem key={tool.id} value={tool.id}>{tool.name} · risco {tool.riskLevel}</SelectItem>
+                      <SelectItem key={tool.id} value={tool.id}>{tool.name} · risco {riskLevelLabel(tool.riskLevel)}</SelectItem>
                     ))}
                   </SelectContent>
                 </Select>
               </div>
             ) : (
-              <p className="text-sm text-muted-foreground">Não há tools disponíveis para vincular.</p>
+              <p className="text-sm text-muted-foreground">Não há ferramentas disponíveis para vincular.</p>
             )}
             <DialogFooter>
               <Button variant="outline" onClick={() => setMcpBindingDialogOpen(false)}>Cancelar</Button>
@@ -2030,7 +2041,7 @@ function buildSections(a: Assistant, kbs: KnowledgeBase[], tls: McpTool[]): Prom
     { id: 'limits', title: 'Limites', content: a.limits || 'Não definidos', editable: true },
     { id: 'escalation', title: 'Política de Escalonamento', content: a.escalationPolicy || 'Não definida', editable: true },
     { id: 'model', title: 'Configuração do Modelo', content: `- Modelo principal: ${a.model}\n- Modelo fallback: ${a.fallbackModel}\n- Temperatura: ${a.temperature}`, editable: false },
-    { id: 'knowledge', title: 'Bases de Conhecimento', content: kbs.length > 0 ? kbs.map(kb => `- ${kb.name} (${kb.documentCount} docs, ${kb.totalChunks} chunks)`).join('\n') : '- Nenhuma', editable: false },
+    { id: 'knowledge', title: 'Bases de Conhecimento', content: kbs.length > 0 ? kbs.map(kb => `- ${kb.name} (${kb.documentCount} documentos, ${kb.totalChunks} trechos)`).join('\n') : '- Nenhuma', editable: false },
     { id: 'tools_section', title: 'Ferramentas MCP', content: tls.length > 0 ? tls.map(t => `- ${t.name}: ${t.description}${t.requiresApproval ? ' [REQUER APROVAÇÃO]' : ''}`).join('\n') : '- Nenhuma', editable: false },
   ];
 }
@@ -2143,7 +2154,7 @@ function PromptCompiledTab({ assistant, kbs, tools, compiledPrompt }: {
           <h3 className="text-sm font-semibold flex items-center gap-2"><FileCode className="h-4 w-4 text-primary" />Prompt Compilado</h3>
           <Badge variant="secondary" className="text-[10px] gap-1"><Hash className="h-2.5 w-2.5" />{sections.length} seções</Badge>
           <Badge variant="outline" className="text-[10px]">~{tokenCount.toLocaleString()} tokens</Badge>
-          <Badge variant="outline" className="text-[10px]">{charCount.toLocaleString()} chars</Badge>
+          <Badge variant="outline" className="text-[10px]">{charCount.toLocaleString()} caracteres</Badge>
         </div>
         <div className="flex items-center gap-2 flex-wrap">
           <div className="flex items-center gap-0.5 rounded-md border p-0.5">
@@ -2188,7 +2199,7 @@ function PromptCompiledTab({ assistant, kbs, tools, compiledPrompt }: {
                         <div className="space-y-3">
                           <Textarea value={editValue} onChange={e => setEditValue(e.target.value)} rows={Math.max(3, editValue.split('\n').length + 1)} className="font-mono text-sm" />
                           <div className="flex items-center justify-between">
-                            <span className="text-[10px] text-muted-foreground">~{estTokens(editValue)} tokens · {editValue.length} chars</span>
+                            <span className="text-[10px] text-muted-foreground">~{estTokens(editValue)} tokens · {editValue.length} caracteres</span>
                             <div className="flex gap-2">
                               <Button variant="ghost" size="sm" className="h-7" onClick={cancelEdit}><X className="h-3.5 w-3.5 mr-1" />Cancelar</Button>
                               <Button size="sm" className="h-7" onClick={saveEdit}><Save className="h-3.5 w-3.5 mr-1" />Salvar</Button>
@@ -2300,9 +2311,77 @@ function compactId(value?: string | null) {
   return `${value.slice(0, 8)}...${value.slice(-6)}`;
 }
 
+function approvalActionLabel(action: AssistantApprovalAction) {
+  const labels: Record<AssistantApprovalAction, string> = {
+    publish: 'Publicação',
+    rollback: 'Reversão',
+    restore: 'Restauração',
+    enable_execution: 'Habilitar execução',
+    configure_sandbox: 'Configurar sandbox',
+  };
+
+  return labels[action];
+}
+
+function mcpModeLabel(mode?: string | null) {
+  if (mode === 'disabled') return 'Desabilitado';
+  if (mode === 'sandbox_only') return 'Somente sandbox';
+  if (mode === 'enabled_placeholder') return 'Preparado (placeholder)';
+  if (mode === 'precheck_only') return 'Somente pré-checagem';
+
+  return mode ? mode.replace(/_/g, ' ') : 'Não informado';
+}
+
+function riskLevelLabel(value?: string | null) {
+  if (value === 'low') return 'Baixo';
+  if (value === 'medium') return 'Médio';
+  if (value === 'high') return 'Alto';
+  if (value === 'critical') return 'Crítico';
+
+  return humanizeTechnicalToken(value, 'Não informado');
+}
+
+function providerLabel(value?: string | null) {
+  if (value === 'local') return 'Local';
+  if (value === 'local_deterministic') return 'Local determinístico';
+  if (value === 'openai') return 'OpenAI';
+  if (value === 'agno') return 'Agno';
+  if (value === 'agno_stub') return 'Agno Stub';
+  if (value === 'agno_http') return 'Agno HTTP';
+
+  return humanizeTechnicalToken(value, 'Não informado');
+}
+
+function executionModeLabel(value?: string | null) {
+  if (value === 'draft_test') return 'Teste em rascunho';
+  if (value === 'published') return 'Publicado';
+  if (value === 'sandbox') return 'Sandbox';
+
+  return humanizeTechnicalToken(value, 'Não informado');
+}
+
+function readinessStatusLabel(value?: string | null) {
+  if (value === 'ready') return 'Pronto';
+  if (value === 'blocked') return 'Bloqueado';
+  if (value === 'not_ready') return 'Não pronto';
+  if (value === 'unavailable') return 'Indisponível';
+
+  return humanizeTechnicalToken(value, 'Não informado');
+}
+
+function runtimeHealthMessageLabel(value?: string | null) {
+  if (!value) return '';
+
+  if (value === 'Agno HTTP runtime reported healthy.') {
+    return 'Runtime Agno HTTP saudável.';
+  }
+
+  return value;
+}
+
 function capabilityText(value: unknown) {
   if (value === true) return 'sim';
-  if (value === false) return 'nao';
+  if (value === false) return 'não';
   if (value === 'simulated') return 'simulado';
   if (value === 'planned') return 'planejado';
   if (value === 'planned_but_disabled') return 'planejado/desligado';
@@ -2384,16 +2463,20 @@ function LlmExecutionPolicyPanel({ policy, isLoading, isError, canEdit, isSaving
       <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
         <div>
           <h3 className="text-sm font-semibold flex items-center gap-2">
-            <Shield className="h-4 w-4 text-primary" /> Governanca LLM
+            <Shield className="h-4 w-4 text-primary" /> Governança LLM
           </h3>
-          <p className="text-xs text-muted-foreground">Policy LLM governada pelo backend, sem secrets, prompts brutos ou outputs brutos.</p>
+          <p className="text-xs text-muted-foreground">Política LLM governada pelo backend, sem segredos, prompts brutos ou saídas brutas.</p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
-          <Badge variant={isEditing ? 'secondary' : 'outline'} className="text-[10px]">{isEditing ? 'Editando' : 'Read-only'}</Badge>
-          {policy && <StatusBadge status={policy.executionMode} />}
+          <Badge variant={isEditing ? 'secondary' : 'outline'} className="text-[10px]">{isEditing ? 'Editando' : 'Somente leitura'}</Badge>
+          {policy && (
+  <Badge variant="secondary" className="text-[10px]">
+    {executionModeLabel(policy.executionMode)}
+  </Badge>
+)}
           {!isEditing && (
             <Button variant="outline" size="sm" onClick={beginEdit} disabled={!canEditPolicy || isLoading}>
-              <Pencil className="h-3.5 w-3.5 mr-1.5" />Editar policy LLM
+              <Pencil className="h-3.5 w-3.5 mr-1.5" />Editar política LLM
             </Button>
           )}
           <Button variant="outline" size="sm" onClick={onRefresh} disabled={isLoading}>
@@ -2403,53 +2486,53 @@ function LlmExecutionPolicyPanel({ policy, isLoading, isError, canEdit, isSaving
       </div>
 
       {isLoading && !policy ? (
-        <p className="text-sm text-muted-foreground">Carregando policy de execucao LLM...</p>
+        <p className="text-sm text-muted-foreground">Carregando política de execução LLM...</p>
       ) : isError && !policy ? (
         <div className="rounded-md border border-destructive/30 bg-destructive/5 p-3">
-          <p className="text-sm font-medium text-destructive">Nao foi possivel carregar a policy de execucao.</p>
-          <p className="mt-1 text-xs text-muted-foreground">Tente novamente em instantes. Nenhuma mensagem tecnica interna e exibida aqui.</p>
+          <p className="text-sm font-medium text-destructive">Não foi possível carregar a política de execução.</p>
+          <p className="mt-1 text-xs text-muted-foreground">Tente novamente em instantes. Nenhuma mensagem técnica interna é exibida aqui.</p>
         </div>
       ) : !policy ? (
-        <p className="text-sm text-muted-foreground">Policy ainda nao carregada pelo backend.</p>
+        <p className="text-sm text-muted-foreground">Política ainda não carregada pelo backend.</p>
       ) : (
         <div className="space-y-4">
           {isEditing && (
             <div className="rounded-md border bg-muted/20 p-4">
               <div className="grid gap-4 lg:grid-cols-[1fr_1fr_0.8fr]">
                 <PolicyEditSwitch
-                  label="Provider externo"
-                  description="Quando desligado, a allowlist fica vazia e o default volta para local_deterministic."
+                  label="Provedor externo"
+                  description="Quando desabilitado, a lista de provedores permitidos fica vazia e o provedor padrão volta para Local determinístico."
                   checked={form.allowExternalLlmProviders}
                   disabled={isSaving}
                   onCheckedChange={updateExternalProviders}
                 />
                 <PolicyEditSwitch
                   label="Permitir OpenAI"
-                  description="OpenAI e apenas valor de policy. Credenciais continuam somente no backend."
+                  description="OpenAI é apenas um valor de política. As credenciais continuam somente no backend."
                   checked={form.openaiAllowed}
                   disabled={isSaving}
                   onCheckedChange={updateOpenAiAllowed}
                 />
                 <div className="space-y-2">
-                  <Label>Provider default</Label>
+                  <Label>Provedor padrão</Label>
                   <Select value={form.defaultProvider} onValueChange={value => updateDefaultProvider(value as 'local_deterministic' | 'openai')} disabled={isSaving}>
                     <SelectTrigger><SelectValue /></SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="local_deterministic">local_deterministic</SelectItem>
-                      <SelectItem value="openai">openai</SelectItem>
+                      <SelectItem value="local_deterministic">Local determinístico</SelectItem>
+                      <SelectItem value="openai">OpenAI</SelectItem>
                     </SelectContent>
                   </Select>
-                  <p className="text-xs text-muted-foreground">Selecionar openai inclui OpenAI na allowlist automaticamente.</p>
+                  <p className="text-xs text-muted-foreground">Selecionar OpenAI inclui o provedor na lista de permitidos automaticamente.</p>
                 </div>
               </div>
               {policy.sandboxEnabled && policy.sandboxBlocksRealProviders && (
                 <p className="mt-3 rounded-md border border-warning/30 bg-warning/10 px-3 py-2 text-xs text-warning">
-                  Sandbox bloqueia provider real mesmo que OpenAI esteja permitido para outros modos.
+                  O sandbox bloqueia o provedor real mesmo que OpenAI esteja permitido para outros modos.
                 </p>
               )}
               <div className="mt-4 flex flex-wrap gap-2">
                 <Button size="sm" onClick={() => { void save(); }} disabled={isSaving}>
-                  <Save className="h-3.5 w-3.5 mr-1.5" />{isSaving ? 'Salvando...' : 'Salvar policy LLM'}
+                  <Save className="h-3.5 w-3.5 mr-1.5" />{isSaving ? 'Salvando...' : 'Salvar política LLM'}
                 </Button>
                 <Button variant="outline" size="sm" onClick={cancelEdit} disabled={isSaving}>
                   <X className="h-3.5 w-3.5 mr-1.5" />Cancelar
@@ -2463,81 +2546,81 @@ function LlmExecutionPolicyPanel({ policy, isLoading, isError, canEdit, isSaving
 
           {!canEdit && (
             <p className="rounded-md border bg-muted/30 px-3 py-2 text-xs text-muted-foreground">
-              Seu usuario nao possui permissao para editar esta policy. Alteracoes continuam bloqueadas pelo backend.
+              Seu usuário não possui permissão para editar esta política. As alterações continuam bloqueadas pelo backend.
             </p>
           )}
 
           <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
             <PolicySignal
-              label="Provider externo"
+              label="Provedor externo"
               positive={displayedExternalProvidersAllowed}
-              positiveText="Provider externo habilitado"
-              negativeText="Provider externo bloqueado"
-              detail="Controlado por allowExternalLlmProviders"
+              positiveText="Provedor externo habilitado"
+              negativeText="Provedor externo bloqueado"
+              detail="Controlado pela política de provedores externos"
             />
             <PolicySignal
               label="OpenAI"
               positive={displayedOpenAiAllowed}
-              positiveText="OpenAI permitido por policy"
-              negativeText="OpenAI bloqueado por policy"
-              detail="Exige provider externo habilitado e openai na allowlist"
+              positiveText="OpenAI permitido pela política"
+              negativeText="OpenAI bloqueado pela política"
+              detail="Exige provedor externo habilitado e OpenAI na lista de provedores permitidos"
             />
             <PolicySignal
               label="Sandbox"
               positive={policy.sandboxEnabled}
               positiveText="Sandbox habilitado"
               negativeText="Sandbox desabilitado"
-              detail={policy.sandboxRequiresAuth ? 'Auth sandbox obrigatoria' : 'Auth sandbox opcional'}
+              detail={policy.sandboxRequiresAuth ? 'Autenticação do sandbox obrigatória' : 'Autenticação do sandbox opcional'}
             />
             <PolicySignal
-              label="Provider real"
+              label="Provedor real"
               positive={sandboxBlocksRealProvider}
-              positiveText="Sandbox bloqueia provider real"
-              negativeText={policy.sandboxEnabled ? 'Sandbox nao bloqueia provider real' : 'Sandbox desabilitado'}
-              detail={policy.sandboxBlocksExternalTools ? 'Tools externas bloqueadas' : 'Tools externas liberadas'}
+              positiveText="Sandbox bloqueia provedor real"
+              negativeText={policy.sandboxEnabled ? 'Sandbox não bloqueia provedor real' : 'Sandbox desabilitado'}
+              detail={policy.sandboxBlocksExternalTools ? 'Ferramentas externas bloqueadas' : 'Ferramentas externas liberadas'}
             />
           </div>
 
           <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
             <PolicySignal
-              label="Draft test"
+              label="Teste em rascunho"
               positive={policy.allowDraftTesting}
-              positiveText="Draft test permitido"
-              negativeText="Draft test bloqueado"
-              detail={`Modo atual: ${policy.executionMode}`}
+              positiveText="Teste em rascunho permitido"
+              negativeText="Teste em rascunho bloqueado"
+              detail={`Modo atual: ${executionModeLabel(policy.executionMode)}`}
             />
             <PolicySignal
-              label="Published"
+              label="Publicado"
               positive={policy.allowPublishedExecution}
-              positiveText="Execucao publicada permitida"
-              negativeText="Execucao publicada bloqueada"
-              detail={policy.requiresApprovalToPublish ? 'Publicacao exige approval' : 'Approval de publicacao opcional'}
+              positiveText="Execução publicada permitida"
+              negativeText="Execução publicada bloqueada"
+              detail={policy.requiresApprovalToPublish ? 'Publicação exige aprovação' : 'Aprovação de publicação opcional'}
             />
             <PolicySignal
-              label="Execucao geral"
+              label="Execução geral"
               positive={policy.isExecutionEnabled}
-              positiveText="Execucao geral habilitada"
-              negativeText="Execucao geral bloqueada"
-              detail={policy.sandboxLogsRequired ? 'Logs de sandbox obrigatorios' : 'Logs de sandbox opcionais'}
+              positiveText="Execução geral habilitada"
+              negativeText="Execução geral bloqueada"
+              detail={policy.sandboxLogsRequired ? 'Logs de sandbox obrigatórios' : 'Logs de sandbox opcionais'}
             />
             <div className="rounded-md border p-3">
-              <p className="text-[11px] font-medium uppercase text-muted-foreground">Provider default</p>
-              <Badge variant="secondary" className="mt-2 font-mono text-[10px]">{displayedDefaultProvider}</Badge>
+              <p className="text-[11px] font-medium uppercase text-muted-foreground">Provedor padrão</p>
+              <Badge variant="secondary" className="mt-2 font-mono text-[10px]">{providerLabel(displayedDefaultProvider)}</Badge>
               <p className="mt-2 text-xs text-muted-foreground">
-                {displayedDefaultProvider === 'openai' ? 'Default externo definido pela policy' : 'Fallback seguro sem provider externo definido'}
+                {displayedDefaultProvider === 'openai' ? 'Provedor externo padrão definido pela política' : 'Fallback seguro sem provedor externo definido'}
               </p>
             </div>
           </div>
 
           <div className="rounded-md border p-3">
-            <p className="text-[11px] font-medium uppercase text-muted-foreground">Allowlist LLM</p>
+            <p className="text-[11px] font-medium uppercase text-muted-foreground">Provedores LLM permitidos</p>
             <div className="mt-2 flex flex-wrap gap-2">
               {displayedAllowedProviders.length > 0 ? (
                 displayedAllowedProviders.map(provider => (
-                  <Badge key={provider} variant="outline" className="font-mono text-[10px]">{provider}</Badge>
+                  <Badge key={provider} variant="outline" className="font-mono text-[10px]">{providerLabel(provider)}</Badge>
                 ))
               ) : (
-                <Badge variant="outline" className="text-[10px]">Nenhum provider externo permitido</Badge>
+                <Badge variant="outline" className="text-[10px]">Nenhum provedor externo permitido</Badge>
               )}
             </div>
           </div>
@@ -2625,7 +2708,7 @@ function RuntimePanel({ health, capabilities, config, providers, isLoading, onRe
       <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
         <div>
           <h3 className="text-sm font-semibold flex items-center gap-2">
-            <Zap className="h-4 w-4 text-primary" />Runtime Provider
+            <Zap className="h-4 w-4 text-primary" />Provedor de runtime
           </h3>
           <p className="text-xs text-muted-foreground">Boundary oficial de execução, governado pelo backend.</p>
         </div>
@@ -2638,24 +2721,24 @@ function RuntimePanel({ health, capabilities, config, providers, isLoading, onRe
       ) : (
         <div className="grid gap-3 md:grid-cols-4">
           <div className="rounded-md border p-3">
-            <p className="text-[10px] text-muted-foreground">Provider atual</p>
+            <p className="text-[10px] text-muted-foreground">Provedor atual</p>
             <div className="mt-1 flex flex-wrap items-center gap-2">
-              <Badge variant="secondary" className="font-mono text-[10px]">{activeProvider?.provider ?? config?.provider ?? health?.provider ?? 'local'}</Badge>
+              <Badge variant="secondary" className="font-mono text-[10px]">{providerLabel(activeProvider?.provider ?? config?.provider ?? health?.provider ?? 'local')}</Badge>
               {panelHealth && <StatusBadge status={panelHealth.status} />}
             </div>
-            {health?.message && <p className="mt-2 text-xs text-muted-foreground">{health.message}</p>}
+            {health?.message && <p className="mt-2 text-xs text-muted-foreground">{runtimeHealthMessageLabel(health.message)}</p>}
           </div>
           <div className="rounded-md border p-3">
-            <p className="text-[10px] text-muted-foreground">Feature flags</p>
+            <p className="text-[10px] text-muted-foreground">Configurações de execução</p>
             <div className="mt-2 space-y-1 text-xs">
-              <p>Precheck: {config?.requirePrecheck ? 'obrigatorio' : 'opcional'}</p>
-              <p>Tools externas: {config?.externalToolsAllowed ? 'liberadas' : 'bloqueadas'}</p>
-              <p>Fallback provider: {config?.allowProviderFallback ? 'habilitado' : 'bloqueado'}</p>
-              <p>Timeout: {config?.requestTimeoutMs ?? 15000}ms</p>
+              <p>Pré-checagem: {config?.requirePrecheck ? 'obrigatória' : 'opcional'}</p>
+              <p>Ferramentas externas: {config?.externalToolsAllowed ? 'liberadas' : 'bloqueadas'}</p>
+              <p>Fallback do provedor: {config?.allowProviderFallback ? 'habilitado' : 'bloqueado'}</p>
+              <p>Tempo limite: {config?.requestTimeoutMs ?? 15000}ms</p>
             </div>
           </div>
           <div className="rounded-md border p-3">
-            <p className="text-[10px] text-muted-foreground">Capabilities</p>
+            <p className="text-[10px] text-muted-foreground">Capacidades</p>
             <div className="mt-2 grid grid-cols-2 gap-x-3 gap-y-1 text-xs">
               <span>RAG: {capabilityText(capabilities?.supportsRagContext ?? false)}</span>
               <span>MCP: {capabilityText(capabilities?.supportsMcpTools ?? false)}</span>
@@ -2670,13 +2753,13 @@ function RuntimePanel({ health, capabilities, config, providers, isLoading, onRe
               {agno?.health && <StatusBadge status={agno.health.status} />}
             </div>
             <div className="mt-2 space-y-1 text-xs text-muted-foreground">
-              <p>Enabled: {config?.agnoEnabled ? 'sim' : 'nao'} · Configurado: {config?.agnoConfigured ? 'sim' : 'nao'}</p>
-              <p>Execucao: {config?.agnoExecutionEnabled ? 'habilitada' : 'desligada'} · Healthcheck: {config?.agnoHealthcheckEnabled ? 'on' : 'off'}</p>
-              <p>Sandbox: {config?.agnoRequireSandbox ? 'obrigatorio' : 'opcional'} · Remote MCP: {config?.agnoAllowRemoteMcp ? 'liberado' : 'bloqueado'}</p>
-              <p>RAG ctx: {config?.agnoSendRagContext ? 'on' : 'off'} · MCP desc: {config?.agnoSendMcpToolDescriptors ? 'on' : 'off'}</p>
+              <p>Habilitado: {config?.agnoEnabled ? 'sim' : 'não'} · Configurado: {config?.agnoConfigured ? 'sim' : 'não'}</p>
+              <p>Execução: {config?.agnoExecutionEnabled ? 'habilitada' : 'desligada'} · Verificação: {config?.agnoHealthcheckEnabled ? 'sim' : 'não'}</p>
+              <p>Sandbox: {config?.agnoRequireSandbox ? 'obrigatório' : 'opcional'} · MCP remoto: {config?.agnoAllowRemoteMcp ? 'liberado' : 'bloqueado'}</p>
+              <p>Contexto RAG: {config?.agnoSendRagContext ? 'sim' : 'não'} · Descritores MCP: {config?.agnoSendMcpToolDescriptors ? 'sim' : 'não'}</p>
             </div>
             {config?.agnoEnabled && !config.agnoConfigured && (
-              <p className="mt-2 text-xs text-warning">AGNO_BASE_URL nao configurado no backend.</p>
+              <p className="mt-2 text-xs text-warning">AGNO_BASE_URL não configurado no backend.</p>
             )}
           </div>
         </div>
@@ -2698,9 +2781,9 @@ function LlmProviderPanel({ config, providers, isLoading, onRefresh }: {
       <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
         <div>
           <h3 className="text-sm font-semibold flex items-center gap-2">
-            <Bot className="h-4 w-4 text-primary" />LLM Providers
+            <Bot className="h-4 w-4 text-primary" />Provedores LLM
           </h3>
-          <p className="text-xs text-muted-foreground">Catalogo sanitizado backend-only, sem secrets ou prompt bruto.</p>
+          <p className="text-xs text-muted-foreground">Catálogo sanitizado somente no backend, sem segredos ou prompt bruto.</p>
         </div>
         <Button variant="outline" size="sm" onClick={onRefresh} disabled={isLoading}>
           <RefreshCw className="h-3.5 w-3.5 mr-1" />Atualizar
@@ -2711,32 +2794,32 @@ function LlmProviderPanel({ config, providers, isLoading, onRefresh }: {
       ) : (
         <div className="grid gap-3 lg:grid-cols-[0.85fr_1.15fr]">
           <div className="rounded-md border p-3">
-            <p className="text-[10px] text-muted-foreground">Provider LLM atual</p>
+            <p className="text-[10px] text-muted-foreground">Provedor LLM atual</p>
             <div className="mt-1 flex flex-wrap items-center gap-2">
-              <Badge variant="secondary" className="font-mono text-[10px]">{current?.provider ?? config?.defaultProvider ?? 'local_deterministic'}</Badge>
+              <Badge variant="secondary" className="font-mono text-[10px]">{providerLabel(current?.provider ?? config?.defaultProvider ?? 'local_deterministic')}</Badge>
               {current?.health && <StatusBadge status={current.health.status} />}
             </div>
             <div className="mt-3 grid grid-cols-2 gap-2 text-xs text-muted-foreground">
-              <span>Catalogo externo: {config?.providersEnabled ? 'habilitado' : 'desligado'}</span>
-              <span>Execucao externa: {config?.executionEnabled ? 'habilitada' : 'desligada'}</span>
-              <span>Raw prompt: {config?.storeRawPrompts ? 'armazenado' : 'bloqueado'}</span>
-              <span>Raw output: {config?.storeRawOutputs ? 'armazenado' : 'bloqueado'}</span>
-              <span>Input preview: {config?.maxInputPreviewChars ?? 500} chars</span>
-              <span>Output preview: {config?.maxOutputPreviewChars ?? 800} chars</span>
+              <span>Catálogo externo: {config?.providersEnabled ? 'habilitado' : 'desligado'}</span>
+              <span>Execução externa: {config?.executionEnabled ? 'habilitada' : 'desligada'}</span>
+              <span>Prompt bruto: {config?.storeRawPrompts ? 'armazenado' : 'bloqueado'}</span>
+              <span>Saída bruta: {config?.storeRawOutputs ? 'armazenado' : 'bloqueado'}</span>
+              <span>Prévia da entrada: {config?.maxInputPreviewChars ?? 500} caracteres</span>
+              <span>Prévia da saída: {config?.maxOutputPreviewChars ?? 800} caracteres</span>
             </div>
           </div>
           <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
             {externalProviders.map(provider => (
               <div key={provider.provider} className="rounded-md border p-3">
                 <div className="flex items-center justify-between gap-2">
-                  <Badge variant="outline" className="font-mono text-[10px]">{provider.provider}</Badge>
+                  <Badge variant="outline" className="font-mono text-[10px]">{providerLabel(provider.provider)}</Badge>
                   <StatusBadge status={provider.health.status} />
                 </div>
                 <div className="mt-2 space-y-1 text-xs text-muted-foreground">
-                  <p>Enabled: {provider.capabilities.enabled ? 'sim' : 'nao'} · Config: {provider.capabilities.configured ? 'sim' : 'nao'}</p>
-                  <p>Execucao: {provider.capabilities.executionEnabled ? 'habilitada' : 'bloqueada'}</p>
-                  <p>Chat: {capabilityText(provider.capabilities.supportsChatCompletion)} · Tools: {capabilityText(provider.capabilities.supportsToolCalling)}</p>
-                  <p>Modelo: {provider.capabilities.defaultModel ?? 'nao configurado'}</p>
+                  <p>Habilitado: {provider.capabilities.enabled ? 'sim' : 'não'} · Configuração: {provider.capabilities.configured ? 'sim' : 'não'}</p>
+                  <p>Execução: {provider.capabilities.executionEnabled ? 'habilitada' : 'bloqueada'}</p>
+                  <p>Chat: {capabilityText(provider.capabilities.supportsChatCompletion)} · Ferramentas: {capabilityText(provider.capabilities.supportsToolCalling)}</p>
+                  <p>Modelo: {provider.capabilities.defaultModel ?? 'não configurado'}</p>
                 </div>
               </div>
             ))}
@@ -2817,7 +2900,7 @@ function McpPrecheckCard({ precheck }: { precheck: McpExecutionPrecheck }) {
           <Badge variant="outline" className="text-[10px]">{precheck.mode}</Badge>
           <StatusBadge status={precheck.policy.riskLevel} />
         </div>
-        <span className="text-xs text-muted-foreground">{precheck.policy.requiresApproval ? 'approval required' : 'auto'}</span>
+        <span className="text-xs text-muted-foreground">{precheck.policy.requiresApproval ? 'Aprovação obrigatória' : 'Automática'}</span>
       </div>
       {precheck.reasons.length > 0 && (
         <p className="mt-2 text-xs text-muted-foreground">{precheck.reasons.join(', ')}</p>
@@ -2848,10 +2931,10 @@ function McpToolCallCard({ call, selected, onSelect }: {
         <div className="min-w-0 space-y-1">
           <div className="flex flex-wrap items-center gap-2">
             <StatusBadge status={call.status} />
-            <Badge variant="secondary" className="text-[10px]">{call.mode}</Badge>
+            <Badge variant="secondary" className="text-[10px]">{mcpModeLabel(call.mode)}</Badge>
             <span className="font-mono text-[11px] text-muted-foreground">{compactId(call.id)}</span>
           </div>
-          <p className="truncate text-sm font-medium">{call.tool?.name ?? call.mcpToolId}</p>
+          <p className="truncate text-sm font-medium">{call.tool?.name ?? 'Ferramenta MCP'}</p>
           <div className="flex flex-wrap gap-x-3 gap-y-1 text-[10px] text-muted-foreground">
             <span>trace {compactId(call.traceId)}</span>
             <span>{new Date(call.createdAt).toLocaleString('pt-BR')}</span>
@@ -2878,7 +2961,7 @@ function McpToolCallTimeline({ call }: { call: McpToolCallRecord }) {
         </div>
         {call.inputPreview && (
           <div className="mt-3 rounded bg-muted/50 p-2">
-            <p className="mb-1 text-[10px] text-muted-foreground">Input preview</p>
+            <p className="mb-1 text-[10px] text-muted-foreground">Prévia da entrada</p>
             <pre className="max-h-28 overflow-auto whitespace-pre-wrap text-xs">{call.inputPreview}</pre>
           </div>
         )}

@@ -37,7 +37,17 @@ export interface AssistantApprovalRequest {
   assistantVersionId?: string | null;
   publicationId?: string | null;
   requestedById: string;
+  requestedBy?: {
+    id: string;
+    name: string;
+    email: string;
+  };
   decidedById?: string | null;
+  decidedBy?: {
+    id: string;
+    name: string;
+    email: string;
+  } | null;
   action: AssistantApprovalAction;
   status: AssistantApprovalStatus;
   reason?: string | null;
@@ -357,6 +367,12 @@ export interface AssistantVersion {
   assistantId: string;
   version: string;
   changelog: string;
+  createdById: string;
+  createdBy?: {
+    id: string;
+    name: string;
+    email: string;
+  };
   author: string;
   createdAt: string;
   status: AssistantStatus;
@@ -1060,6 +1076,7 @@ export interface ConversationMessage {
 export interface AuditLog {
   id: string;
   event: AuditEventType;
+  action?: string;
   description: string;
   user: string;
   timestamp: string;
