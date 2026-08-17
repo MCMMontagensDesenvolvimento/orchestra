@@ -24,6 +24,17 @@ TRANSPORT="$REMOTE_DIR/mcp-remote-transport.ts"
 TRANSPORT_FACTORY="$REMOTE_DIR/mcp-remote-transport.factory.ts"
 CORPORATE_CONFIG="$REMOTE_DIR/corporate-readonly/corporate-readonly.config.ts"
 CORPORATE_TRANSPORT="$REMOTE_DIR/corporate-readonly/corporate-readonly.transport.ts"
+CORPORATE_TARGET_DIR="$ROOT_DIR/backend/src/modules/corporate-readonly-target"
+CORPORATE_TARGET_CONFIG="$CORPORATE_TARGET_DIR/corporate-readonly-target.config.ts"
+CORPORATE_TARGET_AUTH="$CORPORATE_TARGET_DIR/corporate-readonly-target.auth.ts"
+CORPORATE_TARGET_ROUTES="$CORPORATE_TARGET_DIR/corporate-readonly-target.routes.ts"
+APP_ROUTES="$ROOT_DIR/backend/src/app/routes.ts"
+APP_MIDDLEWARES="$ROOT_DIR/backend/src/app/middlewares.ts"
+ERROR_HANDLER="$ROOT_DIR/backend/src/shared/middleware/error-handler.middleware.ts"
+REQUEST_ID_MIDDLEWARE="$ROOT_DIR/backend/src/shared/middleware/request-id.middleware.ts"
+LOGGER="$ROOT_DIR/backend/src/infrastructure/logger/logger.ts"
+CORPORATE_TARGET_TEST="$ROOT_DIR/backend/tests/api/corporate-readonly-target.test.ts"
+CORPORATE_TRANSPORT_TEST="$ROOT_DIR/backend/tests/unit/corporate-readonly-transport.test.ts"
 pass_count=0
 
 usage() {
@@ -135,17 +146,34 @@ check_phase_scope() {
       docs/ai-orchestration/mcp/ORCHESTRA_MCP_REMOTO_GOVERNADO_REAL_18F.md|\
       scripts/preflight-mcp-remoto-governado-18f.sh|\
       scripts/smoke-mcp-remoto-governado-18f.sh|\
+      scripts/smoke-readiness-https-tool-status-16y.sh|\
+      scripts/readiness-https-tool-status-16y.sh|\
+      scripts/smoke-alinhamento-tool-status-16x.sh|\
+      scripts/smoke-primeira-tool-status-16w.sh|\
+      scripts/homologacao-primeira-tool-status-16w.sh|\
       docs/ai-orchestration/README.md|\
-      .github/workflows/ci.yml)
+      .github/workflows/ci.yml|\
+      .env.example|\
+      backend/.env.example|\
+      docker-compose.prod.yml|\
+      backend/src/app/middlewares.ts|\
+      backend/src/app/routes.ts|\
+      backend/src/config/env.ts|\
+      backend/src/infrastructure/logger/logger.ts|\
+      backend/src/modules/corporate-readonly-target/*|\
+      backend/src/modules/mcp/remote/corporate-readonly/corporate-readonly.transport.ts|\
+      backend/src/shared/middleware/error-handler.middleware.ts|\
+      backend/src/shared/middleware/request-id.middleware.ts|\
+      backend/tests/api/corporate-readonly-target.test.ts|\
+      backend/tests/unit/corporate-readonly-transport.test.ts)
         ;;
       *)
-        fail "file outside the 18F.1A allowlist changed: $path"
+        fail "file outside the 18F.1A/18F.1B.1 allowlist changed: $path"
         ;;
     esac
   done < <(phase_change_records)
-  pass '18F.1A changes are limited to the five authorized artifacts'
-  pass 'frontend/backend functional code, Prisma, migrations, env examples and Compose are unchanged'
-  pass 'historical 16U and 16Y artifacts are unchanged'
+  pass '18F changes are limited to the authorized 18F.1A and 18F.1B.1 artifacts'
+  pass 'frontend functional code, Prisma and migrations are unchanged'
 }
 
 check_fail_closed_defaults() {
@@ -159,9 +187,11 @@ check_fail_closed_defaults() {
     require_exact_line "$file" 'MCP_REMOTE_REQUIRE_SECRET_REF=true' "${file#"$ROOT_DIR/"} requires secretRef"
     require_exact_line "$file" 'MCP_REMOTE_ALLOW_WRITE_TOOLS=false' "${file#"$ROOT_DIR/"} blocks write tools"
     require_exact_line "$file" 'MCP_CORPORATE_READONLY_ENABLED=false' "${file#"$ROOT_DIR/"} keeps corporate adapter disabled"
+    require_exact_line "$file" 'MCP_CORPORATE_READONLY_TARGET_ENABLED=false' "${file#"$ROOT_DIR/"} keeps corporate inbound target disabled"
     require_exact_line "$file" 'MCP_CORPORATE_READONLY_ALLOWED_ORIGIN=' "${file#"$ROOT_DIR/"} keeps corporate origin empty"
     reject_pattern "$file" '^MCP_CORPORATE_READONLY_ORIGIN=' "${file#"$ROOT_DIR/"} operational origin variable"
     reject_pattern "$file" '^MCP_CORPORATE_READONLY_SECRET_REF=' "${file#"$ROOT_DIR/"} operational secretRef variable"
+    reject_pattern "$file" '^ORCHESTRA_CORPORATE_READONLY_STATUS_TOKEN=' "${file#"$ROOT_DIR/"} target token variable"
   done
 
   for pattern in \
@@ -172,6 +202,7 @@ check_fail_closed_defaults() {
     "MCP_REMOTE_REQUIRE_SECRET_REF: booleanString('true')" \
     "MCP_REMOTE_ALLOW_WRITE_TOOLS: booleanString('false')" \
     "MCP_CORPORATE_READONLY_ENABLED: booleanString('false')" \
+    "MCP_CORPORATE_READONLY_TARGET_ENABLED: booleanString('false')" \
     "MCP_CORPORATE_READONLY_ALLOWED_ORIGIN: z.string().default('')"
   do
     require_pattern "$ENV_CONFIG" "$pattern" "backend fail-closed default $pattern"
@@ -186,12 +217,16 @@ check_fail_closed_defaults() {
     'MCP_REMOTE_REQUIRE_SECRET_REF: "true"' \
     'MCP_REMOTE_ALLOW_WRITE_TOOLS: "false"' \
     'MCP_CORPORATE_READONLY_ENABLED: "false"' \
+    'MCP_CORPORATE_READONLY_TARGET_ENABLED: "false"' \
     'MCP_CORPORATE_READONLY_ALLOWED_ORIGIN: ""'
   do
     require_pattern "$PROD_COMPOSE" "$pattern" "production fail-closed setting $pattern"
   done
   reject_pattern "$PROD_COMPOSE" 'MCP_CORPORATE_READONLY_ORIGIN:' 'production operational origin variable'
   reject_pattern "$PROD_COMPOSE" 'MCP_CORPORATE_READONLY_SECRET_REF:' 'production operational secretRef variable'
+  require_pattern "$PROD_COMPOSE" \
+    'ORCHESTRA_CORPORATE_READONLY_STATUS_TOKEN: "${ORCHESTRA_CORPORATE_READONLY_STATUS_TOKEN:-}"' \
+    'production injects the target token only from the process environment'
 }
 
 run_dry_run() {
@@ -199,7 +234,10 @@ run_dry_run() {
   for file in \
     "$RUNBOOK" "$DOC_INDEX" "$CI" "$ROOT_ENV" "$BACKEND_ENV" "$ENV_CONFIG" "$PROD_COMPOSE" \
     "$REMOTE_CONFIG" "$REMOTE_CLIENT" "$READINESS" "$DISCOVERY" "$EGRESS" "$READONLY_POLICY" \
-    "$TRANSPORT" "$TRANSPORT_FACTORY" "$CORPORATE_CONFIG" "$CORPORATE_TRANSPORT"
+    "$TRANSPORT" "$TRANSPORT_FACTORY" "$CORPORATE_CONFIG" "$CORPORATE_TRANSPORT" \
+    "$CORPORATE_TARGET_CONFIG" "$CORPORATE_TARGET_AUTH" "$CORPORATE_TARGET_ROUTES" \
+    "$APP_ROUTES" "$APP_MIDDLEWARES" "$ERROR_HANDLER" "$REQUEST_ID_MIDDLEWARE" "$LOGGER" \
+    "$CORPORATE_TARGET_TEST" "$CORPORATE_TRANSPORT_TEST"
   do
     require_file "$file"
   done
@@ -247,6 +285,65 @@ run_dry_run() {
     'corporate resolver requires the governed secretRef namespace'
   require_pattern "$CORPORATE_TRANSPORT" "method: 'GET'" 'corporate transport remains GET-only'
   reject_pattern "$CORPORATE_TRANSPORT" "method:[[:space:]]*'(POST|PUT|PATCH|DELETE)'" 'write method in corporate transport'
+  for path in \
+    '/v1/corporate-readonly/health' \
+    '/v1/corporate-readonly/status' \
+    '/v1/corporate-readonly/status/availability'
+  do
+    require_pattern "$CORPORATE_TRANSPORT" "'$path'" "corporate transport fixed authenticated path $path"
+  done
+  reject_pattern "$CORPORATE_TRANSPORT" "'/health'" 'public health fallback in corporate transport'
+  reject_pattern "$CORPORATE_TRANSPORT" "'/v1/status'" 'public status fallback in corporate transport'
+  reject_pattern "$CORPORATE_TRANSPORT" "'/v1/status/availability'" 'public availability fallback in corporate transport'
+
+  require_pattern "$APP_ROUTES" \
+    "app.use('/v1/corporate-readonly', createCorporateReadonlyTargetRouter(dependencies));" \
+    'authenticated corporate target route mount'
+  for route in "'/health'" "'/status'" "'/status/availability'"; do
+    require_pattern "$CORPORATE_TARGET_ROUTES" "router.get($route, authenticate, requireEmptyRequest" \
+      "authenticated corporate target GET route $route"
+  done
+  require_pattern "$CORPORATE_TARGET_AUTH" "req.get('authorization')" \
+    'corporate target reads only the Authorization header'
+  require_pattern "$CORPORATE_TARGET_AUTH" 'timingSafeEqual(actual, expected)' \
+    'corporate target uses timing-safe Bearer comparison'
+  require_pattern "$CORPORATE_TARGET_AUTH" '!config.enabled || !isValidCorporateReadonlyTargetToken(config.token)' \
+    'corporate target fails closed without gate and valid token'
+  require_pattern "$CORPORATE_TARGET_CONFIG" 'env.ORCHESTRA_CORPORATE_READONLY_STATUS_TOKEN' \
+    'corporate target token comes only from target process environment'
+  require_pattern "$APP_MIDDLEWARES" 'isCorporateReadonlyBoundaryUrl(req.url)' \
+    'corporate target requests are excluded from HTTP auto-logging'
+  require_pattern "$ERROR_HANDLER" "candidate.type === 'entity.parse.failed'" \
+    'malformed JSON is detected from the body-parser error type'
+  require_pattern "$ERROR_HANDLER" "message: 'JSON inválido.'" \
+    'malformed JSON has a fixed public message'
+  require_pattern "$LOGGER" "'err.body'" 'logger redacts err.body defensively'
+  require_pattern "$LOGGER" "'error.body'" 'logger redacts error.body defensively'
+  require_pattern "$REQUEST_ID_MIDDLEWARE" '!isCorporateReadonlyBoundaryUrl(req.originalUrl)' \
+    'corporate target ignores caller-provided request IDs'
+  for file in "$CORPORATE_TARGET_CONFIG" "$CORPORATE_TARGET_AUTH" "$CORPORATE_TARGET_ROUTES"; do
+    reject_pattern "$file" \
+      'modules/(mcp|audit|agent-runs)|infrastructure/prisma|recordAuditEvent|console\.log|process\.env\[' \
+      "forbidden MCP, audit, database, raw environment or logging dependency in ${file#"$ROOT_DIR/"}"
+  done
+  for marker in \
+    'blocks missing, empty, incorrect, Basic, query, and body credentials identically' \
+    'fails closed when the inbound gate is disabled or the target secret is invalid' \
+    'returns only the strict authenticated health contract' \
+    'sanitizes malformed JSON before logging or returning a public error' \
+    'replaces caller request IDs throughout the corporate boundary' \
+    'preserves caller request IDs outside the corporate boundary' \
+    'does not expose %s on any corporate target path' \
+    'preserves the public health and status endpoints without Authorization'
+  do
+    require_pattern "$CORPORATE_TARGET_TEST" "$marker" "corporate target API test $marker"
+  done
+  require_pattern "$CORPORATE_TRANSPORT_TEST" \
+    'never falls back to the public health path after an authenticated target failure' \
+    'corporate transport no-public-fallback test'
+  require_pattern "$CORPORATE_TRANSPORT_TEST" \
+    "authorization: ['Bearer', 'opaque-test-value'].join(' ')" \
+    'corporate transport Bearer forwarding test'
 
   for section in \
     '## Objetivo da 18F' '## Diagnóstico 18F.0' '## Divisão da Fase 18F' \

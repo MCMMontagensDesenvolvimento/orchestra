@@ -6,7 +6,10 @@ import helmet from 'helmet';
 import pinoHttp from 'pino-http';
 import { env } from '../config/env';
 import { logger } from '../infrastructure/logger/logger';
-import { requestIdMiddleware } from '../shared/middleware/request-id.middleware';
+import {
+  isCorporateReadonlyBoundaryUrl,
+  requestIdMiddleware,
+} from '../shared/middleware/request-id.middleware';
 
 export function registerMiddlewares(app: express.Express) {
   app.disable('x-powered-by');
@@ -22,6 +25,7 @@ export function registerMiddlewares(app: express.Express) {
       autoLogging: {
         ignore: (req) =>
           req.url === '/health'
+          || isCorporateReadonlyBoundaryUrl(req.url)
           || req.url?.startsWith('/api/v1/auth/microsoft/callback'),
       },
     }),

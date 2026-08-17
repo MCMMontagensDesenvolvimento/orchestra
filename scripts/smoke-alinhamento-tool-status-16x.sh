@@ -124,9 +124,9 @@ status_paths="$(
     | sort -u \
     | paste -sd, -
 )"
-[ "$status_paths" = '/health,/v1/status,/v1/status/availability' ] \
+[ "$status_paths" = '/v1/corporate-readonly/health,/v1/corporate-readonly/status,/v1/corporate-readonly/status/availability' ] \
   || fail "corporate transport contains an unexpected status path: $status_paths"
-pass 'corporate transport contains only the three fixed status paths'
+pass 'corporate transport contains only the three fixed authenticated status paths'
 
 for pattern in \
   'accepts the strict 16V status payload' \

@@ -1,7 +1,8 @@
 # Orchestra — MCP remoto governado real (Fase 18F)
 
-Status desta entrega: **18F.1A concluída como preflight estritamente offline**. Este
-runbook não autoriza nem realiza qualquer operação remota.
+Status desta entrega: **18F.1A concluída e 18F.1B.1 implementada como boundary
+autenticado estritamente offline**. A readiness HTTPS real da 18F.1B continua não
+executada. Este runbook não autoriza nem realiza qualquer operação remota.
 
 ## Objetivo da 18F
 
@@ -34,6 +35,7 @@ inalterados.
 | Subfase | Resultado autorizado | Rede | Execution |
 | --- | --- | --- | --- |
 | 18F.1A | Preflight offline e contrato operacional | não | bloqueada |
+| 18F.1B.1 | Boundary target corporativo autenticado e testes offline | não | bloqueada |
 | 18F.1B | Readiness HTTPS real supervisionado | somente em janela futura aprovada | bloqueada |
 | 18F.1C | Discovery remoto real read-only | somente em janela futura aprovada | bloqueada |
 | 18F.1D | Primeira tool read-only real supervisionada | somente em janela futura aprovada | autorização própria |
@@ -78,7 +80,8 @@ produção, endpoint novo, alteração de frontend/backend funcional ou mudança
 - **16U** definiu uma homologação supervisionada que inclui execução única e, por isso,
   requer `MCP_REMOTE_EXECUTION_ENABLED=true`; seus artefatos são históricos e não mudam.
 - **16Y** validou estruturalmente o readiness HTTPS ligado à futura tool e também mantém
-  o contrato histórico de execution habilitada na janela; seus artefatos não mudam.
+  o contrato histórico de execution habilitada na janela; somente seu smoke estático
+  reconhece os novos paths, sem apagar a evidência histórica do runbook.
 - **16Z** preparou a publicação HTTPS futura sem materializá-la.
 - **17A** definiu o plano de deploy homologado, mas não autorizou deploy ou produção.
 - **18D** forneceu catálogo e precheck MCP locais, sem transporte remoto ou execução.
@@ -142,6 +145,101 @@ resolve a referência.
 O preflight não lê a variável apontada, não aceita credencial raw e não imprime nem
 persiste o valor real. Nenhum modo carrega `.env` automaticamente.
 
+## Blocker identificado antes da 18F.1B
+
+A auditoria offline encontrou uma assimetria no desenho anterior. O
+`CorporateReadonlyHttpTransport` exigia `secretRef`, resolvia o valor e enviava
+`Authorization: Bearer`, mas chamava os endpoints públicos `GET /health`,
+`GET /v1/status` e `GET /v1/status/availability`. Esses handlers não validam Bearer.
+
+Assim, o `secretRef` era um gate do client e proteção do acesso à credencial, mas um
+sucesso não comprovava autenticação ponta a ponta nem identidade read-only no target.
+Esse é um blocker para readiness **autenticada**, embora não impeça um teste de mera
+conectividade HTTPS. A 18F.1B.1 corrige o contrato em código sem abrir rede.
+
+## Boundary corporativo autenticado da 18F.1B.1
+
+Os endpoints operacionais públicos permanecem semanticamente inalterados e continuam
+fora do target corporativo:
+
+```text
+GET /health
+GET /v1/status
+GET /v1/status/availability
+```
+
+O boundary inbound dedicado contém somente três rotas GET fixas, sem parâmetros de
+path, query ou body e sem fallback público:
+
+```text
+GET /v1/corporate-readonly/health
+GET /v1/corporate-readonly/status
+GET /v1/corporate-readonly/status/availability
+```
+
+O health autenticado retorna exatamente `status`, `service`, `timestamp` e `requestId`,
+compatível com `CorporateReadonlyHttpTransport.checkHealth()`. Status e availability
+retornam exatamente `status`, `summary` e `updatedAt`, conforme o contrato 16X. Não há
+campos adicionais, conteúdo raw, header, token, secretRef ou detalhe interno.
+
+O transporte usa exclusivamente os três paths autenticados. Uma falha neles encerra a
+operação; não existe tentativa subsequente em `/health` ou `/v1/status*` públicos.
+
+## Gate inbound e autenticação efetiva
+
+`MCP_CORPORATE_READONLY_ENABLED` continua governando somente o transporte outbound. Ele
+não foi reutilizado porque acoplar a habilitação do client à exposição do target uniria
+duas direções de confiança distintas. O boundary inbound possui gate dedicado:
+
+```text
+MCP_CORPORATE_READONLY_TARGET_ENABLED=false
+```
+
+O default é `false` nos env examples, no schema e no Compose de produção. Habilitar o
+transporte outbound não abre automaticamente o target inbound.
+
+O token esperado existe somente como
+`ORCHESTRA_CORPORATE_READONLY_STATUS_TOKEN` no environment ou secret manager do processo
+target. Não há valor ou placeholder de credencial nos env examples. O Compose apenas
+permite a injeção do ambiente externo e mantém o gate inbound fechado.
+
+O middleware aceita exclusivamente o texto exato `Bearer <token>` no header
+`Authorization`. O token configurado precisa ter de 12 a 4096 caracteres ASCII
+imprimíveis sem espaço, as mesmas restrições materiais do resolver corporativo. Ausência
+de gate, token ausente/inválido, Bearer ausente, vazio, Basic ou Bearer incorreto falham
+fechado com resposta sanitizada. A comparação usa digest de tamanho fixo e
+`timingSafeEqual`; não há diferença de erro que revele o valor esperado.
+
+Para o target planejado no próprio backend Orchestra, o valor lógico gravado em
+`McpServer.secretRef` deve ser
+`env://ORCHESTRA_CORPORATE_READONLY_STATUS_TOKEN`. O resolver do client e o middleware
+do target então usam o mesmo valor mantido apenas no ambiente seguro do processo. O
+valor real nunca deve ser impresso, persistido, incluído em metadata ou copiado para
+evidência.
+
+O auto-logging HTTP ignora integralmente o prefixo `/v1/corporate-readonly/`, evitando
+captura de Authorization e também de tentativas indevidas por query. O boundary não
+chama audit, banco, MCP, provider, discovery, tool ou AgentRun.
+
+## Estado offline da 18F.1B.1
+
+A implementação e seus testes usam apenas token sintético determinístico dentro do
+processo de teste. Nesta subfase:
+
+```text
+network=false
+realReadiness=false
+realDiscovery=false
+realToolExecution=false
+browserRequired=false
+deployment=false
+migration=false
+production=false
+```
+
+Nenhuma chamada HTTPS, DNS, MCP, provider ou browser foi realizada. A 18F.1B real
+permanece não executada e exige janela, autorização e evidência manual sanitizada.
+
 ## Execução do preflight
 
 Todos os modos são offline:
@@ -162,10 +260,12 @@ credencial. `--go-no-go-template` apenas imprime o checklist textual de decisão
 
 - os defaults versionados de remote, discovery, execution, read-only e adapter
   corporativo continuam `false`;
+- o gate inbound `MCP_CORPORATE_READONLY_TARGET_ENABLED` continua `false`;
 - write tools continuam bloqueadas e secretRef continua obrigatória;
 - allowlist e origem corporativa continuam vazias nos artefatos versionados;
 - o transporte genérico continua `FailClosedMcpRemoteClientTransport` quando nenhum
   destino governado corresponde;
+- o transporte corporativo não possui fallback para os endpoints públicos;
 - o preflight não chama o service de discovery, client, factory ou transporte;
 - qualquer variável ausente, valor divergente, origem não pública ou secretRef não
   lógico resulta em NO-GO.
@@ -207,6 +307,8 @@ resposta de provider/MCP, conteúdo de banco ou screenshot com dado sensível.
   funcional seja chamado nesta subfase;
 - secretRef lógica válida sintaticamente não comprova existência, permissão ou rotação da
   credencial.
+- habilitar somente o outbound ou somente o inbound não completa o handshake; os dois
+  gates e o mesmo segredo server-side precisam ser aprovados na futura janela.
 
 ## Rollback da 18F.1A
 
@@ -228,3 +330,8 @@ header de autorização ou payload bruto.
 
 A 18F.1A não executa nem agenda esse handoff. Discovery permanece reservado à 18F.1C e
 a primeira tool real à 18F.1D.
+
+Antes da janela, confirmar separadamente o gate outbound, o gate inbound, a referência
+lógica cadastrada, a presença do token apenas no secret manager/processo target, os três
+paths autenticados, TLS/egress e a ausência de fallback. A evidência não pode conter o
+token, Authorization, secretRef, headers ou payload bruto.

@@ -13,6 +13,18 @@ ROOT_ENV="$ROOT_DIR/.env.example"
 BACKEND_ENV="$ROOT_DIR/backend/.env.example"
 ENV_CONFIG="$ROOT_DIR/backend/src/config/env.ts"
 PROD_COMPOSE="$ROOT_DIR/docker-compose.prod.yml"
+CORPORATE_TRANSPORT="$ROOT_DIR/backend/src/modules/mcp/remote/corporate-readonly/corporate-readonly.transport.ts"
+CORPORATE_TARGET_DIR="$ROOT_DIR/backend/src/modules/corporate-readonly-target"
+CORPORATE_TARGET_CONFIG="$CORPORATE_TARGET_DIR/corporate-readonly-target.config.ts"
+CORPORATE_TARGET_AUTH="$CORPORATE_TARGET_DIR/corporate-readonly-target.auth.ts"
+CORPORATE_TARGET_ROUTES="$CORPORATE_TARGET_DIR/corporate-readonly-target.routes.ts"
+APP_ROUTES="$ROOT_DIR/backend/src/app/routes.ts"
+APP_MIDDLEWARES="$ROOT_DIR/backend/src/app/middlewares.ts"
+ERROR_HANDLER="$ROOT_DIR/backend/src/shared/middleware/error-handler.middleware.ts"
+REQUEST_ID_MIDDLEWARE="$ROOT_DIR/backend/src/shared/middleware/request-id.middleware.ts"
+LOGGER="$ROOT_DIR/backend/src/infrastructure/logger/logger.ts"
+CORPORATE_TARGET_TEST="$ROOT_DIR/backend/tests/api/corporate-readonly-target.test.ts"
+CORPORATE_TRANSPORT_TEST="$ROOT_DIR/backend/tests/unit/corporate-readonly-transport.test.ts"
 pass_count=0
 
 usage() {
@@ -141,15 +153,33 @@ check_phase_scope() {
       docs/ai-orchestration/mcp/ORCHESTRA_MCP_REMOTO_GOVERNADO_REAL_18F.md|\
       scripts/preflight-mcp-remoto-governado-18f.sh|\
       scripts/smoke-mcp-remoto-governado-18f.sh|\
+      scripts/smoke-readiness-https-tool-status-16y.sh|\
+      scripts/readiness-https-tool-status-16y.sh|\
+      scripts/smoke-alinhamento-tool-status-16x.sh|\
+      scripts/smoke-primeira-tool-status-16w.sh|\
+      scripts/homologacao-primeira-tool-status-16w.sh|\
       docs/ai-orchestration/README.md|\
-      .github/workflows/ci.yml)
+      .github/workflows/ci.yml|\
+      .env.example|\
+      backend/.env.example|\
+      docker-compose.prod.yml|\
+      backend/src/app/middlewares.ts|\
+      backend/src/app/routes.ts|\
+      backend/src/config/env.ts|\
+      backend/src/infrastructure/logger/logger.ts|\
+      backend/src/modules/corporate-readonly-target/*|\
+      backend/src/modules/mcp/remote/corporate-readonly/corporate-readonly.transport.ts|\
+      backend/src/shared/middleware/error-handler.middleware.ts|\
+      backend/src/shared/middleware/request-id.middleware.ts|\
+      backend/tests/api/corporate-readonly-target.test.ts|\
+      backend/tests/unit/corporate-readonly-transport.test.ts)
         ;;
       *)
-        fail "file outside the 18F.1A allowlist changed: $path"
+        fail "file outside the 18F.1A/18F.1B.1 allowlist changed: $path"
         ;;
     esac
   done < <(phase_change_records)
-  pass '18F.1A change scope contains only authorized documentation, scripts and CI'
+  pass '18F change scope contains only authorized 18F.1A and 18F.1B.1 artifacts'
 
   if git -C "$ROOT_DIR" diff --name-only "$PHASE_BASE_COMMIT" -- \
     backend/prisma/schema.prisma backend/prisma/migrations | grep -q .; then
@@ -181,7 +211,13 @@ case "$MODE" in
   *) usage >&2; exit 2 ;;
 esac
 
-for file in "$RUNBOOK" "$DOC_INDEX" "$CI" "$ROOT_ENV" "$BACKEND_ENV" "$ENV_CONFIG" "$PROD_COMPOSE"; do
+for file in \
+  "$RUNBOOK" "$DOC_INDEX" "$CI" "$ROOT_ENV" "$BACKEND_ENV" "$ENV_CONFIG" "$PROD_COMPOSE" \
+  "$CORPORATE_TRANSPORT" "$CORPORATE_TARGET_CONFIG" "$CORPORATE_TARGET_AUTH" \
+  "$CORPORATE_TARGET_ROUTES" "$APP_ROUTES" "$APP_MIDDLEWARES" \
+  "$ERROR_HANDLER" "$REQUEST_ID_MIDDLEWARE" "$LOGGER" \
+  "$CORPORATE_TARGET_TEST" "$CORPORATE_TRANSPORT_TEST"
+do
   require_file "$file"
 done
 require_executable "$PREFLIGHT"
@@ -322,9 +358,62 @@ for file in "$ROOT_ENV" "$BACKEND_ENV"; do
   require_exact_line "$file" 'MCP_REMOTE_REQUIRE_SECRET_REF=true' "${file#"$ROOT_DIR/"} required secretRef"
   require_exact_line "$file" 'MCP_REMOTE_ALLOW_WRITE_TOOLS=false' "${file#"$ROOT_DIR/"} blocked write tools"
   require_exact_line "$file" 'MCP_CORPORATE_READONLY_ENABLED=false' "${file#"$ROOT_DIR/"} corporate adapter default"
+  require_exact_line "$file" 'MCP_CORPORATE_READONLY_TARGET_ENABLED=false' "${file#"$ROOT_DIR/"} corporate inbound target default"
   require_exact_line "$file" 'MCP_CORPORATE_READONLY_ALLOWED_ORIGIN=' "${file#"$ROOT_DIR/"} empty corporate origin"
+  reject_pattern "$file" '^ORCHESTRA_CORPORATE_READONLY_STATUS_TOKEN=' "${file#"$ROOT_DIR/"} target token variable"
 done
 pass 'versioned env defaults remain closed and contain no operational origin'
+
+require_pattern "$ENV_CONFIG" "MCP_CORPORATE_READONLY_TARGET_ENABLED: booleanString('false')" \
+  'backend corporate target default is fail-closed'
+require_pattern "$PROD_COMPOSE" 'MCP_CORPORATE_READONLY_TARGET_ENABLED: "false"' \
+  'production corporate target remains disabled'
+require_pattern "$PROD_COMPOSE" \
+  'ORCHESTRA_CORPORATE_READONLY_STATUS_TOKEN: "${ORCHESTRA_CORPORATE_READONLY_STATUS_TOKEN:-}"' \
+  'production target token is environment-only'
+require_pattern "$APP_ROUTES" \
+  "app.use('/v1/corporate-readonly', createCorporateReadonlyTargetRouter(dependencies));" \
+  'corporate target boundary is mounted separately from public status'
+require_pattern "$CORPORATE_TARGET_AUTH" 'timingSafeEqual(actual, expected)' \
+  'corporate target uses timing-safe authentication'
+require_pattern "$CORPORATE_TARGET_AUTH" "req.get('authorization')" \
+  'corporate target authenticates only from Authorization'
+require_pattern "$APP_MIDDLEWARES" 'isCorporateReadonlyBoundaryUrl(req.url)' \
+  'corporate target requests are not auto-logged'
+require_pattern "$ERROR_HANDLER" "candidate.type === 'entity.parse.failed'" \
+  'malformed JSON is detected from the body-parser error type'
+require_pattern "$ERROR_HANDLER" "message: 'JSON inválido.'" \
+  'malformed JSON has a fixed public message'
+require_pattern "$LOGGER" "'err.body'" 'logger redacts err.body defensively'
+require_pattern "$LOGGER" "'error.body'" 'logger redacts error.body defensively'
+require_pattern "$REQUEST_ID_MIDDLEWARE" '!isCorporateReadonlyBoundaryUrl(req.originalUrl)' \
+  'corporate target ignores caller-provided request IDs'
+
+for path in \
+  '/v1/corporate-readonly/health' \
+  '/v1/corporate-readonly/status' \
+  '/v1/corporate-readonly/status/availability'
+do
+  require_pattern "$CORPORATE_TRANSPORT" "'$path'" "transport authenticated path $path"
+done
+reject_pattern "$CORPORATE_TRANSPORT" "'/health'" 'public health fallback in corporate transport'
+reject_pattern "$CORPORATE_TRANSPORT" "'/v1/status'" 'public status fallback in corporate transport'
+reject_pattern "$CORPORATE_TRANSPORT" "'/v1/status/availability'" 'public availability fallback in corporate transport'
+require_pattern "$CORPORATE_TARGET_TEST" \
+  'preserves the public health and status endpoints without Authorization' \
+  'public health and status preservation API test'
+require_pattern "$CORPORATE_TARGET_TEST" \
+  'sanitizes malformed JSON before logging or returning a public error' \
+  'malformed JSON non-leak API test'
+require_pattern "$CORPORATE_TARGET_TEST" \
+  'replaces caller request IDs throughout the corporate boundary' \
+  'corporate request ID reflection regression test'
+require_pattern "$CORPORATE_TARGET_TEST" \
+  'preserves caller request IDs outside the corporate boundary' \
+  'public request ID compatibility test'
+require_pattern "$CORPORATE_TRANSPORT_TEST" \
+  'never falls back to the public health path after an authenticated target failure' \
+  'transport no-public-fallback test'
 
 require_exact_line "$CI" '        run: scripts/smoke-mcp-remoto-governado-18f.sh --dry-run' 'CI invokes only the 18F.1A dry-run smoke'
 [ "$(grep -Fc -- 'scripts/smoke-mcp-remoto-governado-18f.sh --dry-run' "$CI")" -eq 1 ] \

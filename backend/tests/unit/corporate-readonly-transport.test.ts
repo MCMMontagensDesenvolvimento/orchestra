@@ -106,7 +106,7 @@ function client(transport: CorporateReadonlyHttpTransport, overrides: Partial<Co
     serverId: 'corporate-readonly-server',
     baseUrl: corporateOrigin,
     authType: 'bearer',
-    secretRef: 'env://ORCHESTRA_CORPORATE_READONLY_STATUS',
+    secretRef: 'env://ORCHESTRA_CORPORATE_READONLY_STATUS_TOKEN',
     credentialsConfigured: true,
     timeoutMs: 1000,
     ...overrides,
@@ -149,7 +149,7 @@ describe('corporate read-only governed transport', () => {
       serverId: 'corporate-private-server',
       baseUrl: blockedOrigin,
       authType: 'bearer',
-      secretRef: 'env://ORCHESTRA_CORPORATE_READONLY_STATUS',
+      secretRef: 'env://ORCHESTRA_CORPORATE_READONLY_STATUS_TOKEN',
       credentialsConfigured: true,
       timeoutMs: 1000,
     }, { ...remoteConfig, egressAllowlist: blockedOrigin }, { transport });
@@ -191,8 +191,12 @@ describe('corporate read-only governed transport', () => {
     });
     expect(fetchImplementation).toHaveBeenCalledOnce();
     const [url, init] = fetchImplementation.mock.calls[0];
-    expect(url).toBe(`${corporateOrigin}/v1/status`);
+    expect(url).toBe(`${corporateOrigin}/v1/corporate-readonly/status`);
     expect(init).toEqual(expect.objectContaining({ method: 'GET', redirect: 'manual' }));
+    expect(init?.headers).toEqual(expect.objectContaining({
+      accept: 'application/json',
+      authorization: ['Bearer', 'opaque-test-value'].join(' '),
+    }));
   });
 
   it('accepts the strict 16V availability payload through its fixed GET endpoint', async () => {
@@ -211,7 +215,7 @@ describe('corporate read-only governed transport', () => {
       updatedAt: '2026-07-21T12:00:00.000Z',
     });
     const [url, init] = fetchImplementation.mock.calls[0];
-    expect(url).toBe(`${corporateOrigin}/v1/status/availability`);
+    expect(url).toBe(`${corporateOrigin}/v1/corporate-readonly/status/availability`);
     expect(init).toEqual(expect.objectContaining({ method: 'GET', redirect: 'manual' }));
   });
 
@@ -234,8 +238,45 @@ describe('corporate read-only governed transport', () => {
     expect(JSON.stringify(readiness)).not.toContain(requestIdMarker);
     expect(JSON.stringify(readiness)).not.toContain('orchestra-backend');
     const [url, init] = fetchImplementation.mock.calls[0];
-    expect(url).toBe(`${corporateOrigin}/health`);
+    expect(url).toBe(`${corporateOrigin}/v1/corporate-readonly/health`);
     expect(init).toEqual(expect.objectContaining({ method: 'GET', redirect: 'manual' }));
+  });
+
+  it('discovers the single read-only tool only after the authenticated health path succeeds', async () => {
+    const { transport, fetchImplementation } = transportWithResponse({
+      status: 'ok',
+      service: 'orchestra-backend',
+      timestamp: '2026-08-17T12:00:00.000Z',
+      requestId: 'req_synthetic_discovery',
+    });
+    const discovery = await client(transport).discoverTools({
+      tenantId: '00000000-0000-0000-0000-000000000010',
+      workspaceId: '00000000-0000-0000-0000-000000000020',
+      serverId: 'corporate-readonly-server',
+      requestedByUserId: '00000000-0000-0000-0000-000000000070',
+      requestId: 'request-corporate-discovery',
+      mode: 'dry_run',
+      timeoutMs: 1000,
+    });
+
+    expect(discovery.tools).toHaveLength(1);
+    expect(discovery.tools[0]?.externalName).toBe(corporateReadonlyToolName);
+    expect(fetchImplementation).toHaveBeenCalledOnce();
+    expect(fetchImplementation.mock.calls[0]?.[0]).toBe(
+      `${corporateOrigin}/v1/corporate-readonly/health`,
+    );
+  });
+
+  it('never falls back to the public health path after an authenticated target failure', async () => {
+    const { transport, fetchImplementation } = transportWithResponse({}, 404);
+
+    await expect(client(transport).checkHealth()).rejects.toMatchObject({
+      code: 'MCP_REMOTE_TRANSPORT_FAILED',
+    });
+    expect(fetchImplementation).toHaveBeenCalledOnce();
+    expect(fetchImplementation.mock.calls[0]?.[0]).toBe(
+      `${corporateOrigin}/v1/corporate-readonly/health`,
+    );
   });
 
   it.each([

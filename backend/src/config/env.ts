@@ -56,6 +56,14 @@ const agnoRuntimeHttpTimeout = z.preprocess(
   blankToUndefined,
   z.coerce.number().int().min(agnoRuntimeHttpTimeoutMinMs).max(agnoRuntimeHttpTimeoutMaxMs).default(15000),
 );
+const corporateReadonlyStatusToken = z.preprocess(
+  blankToUndefined,
+  z.string()
+    .min(12)
+    .max(4096)
+    .regex(/^[\x21-\x7e]+$/)
+    .optional(),
+);
 
 const envSchema = z.object({
   NODE_ENV: z.enum(['development', 'test', 'production']).default('development'),
@@ -137,6 +145,8 @@ const envSchema = z.object({
   MCP_REMOTE_ALLOW_INSECURE_LOCAL_DEMO: booleanString('false'),
   MCP_REMOTE_LOCAL_DEMO_ORIGIN: z.preprocess(blankToUndefined, z.string().url().optional()),
   MCP_CORPORATE_READONLY_ENABLED: booleanString('false'),
+  MCP_CORPORATE_READONLY_TARGET_ENABLED: booleanString('false'),
+  ORCHESTRA_CORPORATE_READONLY_STATUS_TOKEN: corporateReadonlyStatusToken,
   MCP_CORPORATE_READONLY_ALLOWED_ORIGIN: z.string().default(''),
   MCP_CORPORATE_READONLY_TIMEOUT_MS: z.coerce.number().int().min(100).max(5000).default(3000),
   MCP_CORPORATE_READONLY_MAX_RESPONSE_BYTES: z.coerce.number().int().min(1024).max(65_536).default(16_384),

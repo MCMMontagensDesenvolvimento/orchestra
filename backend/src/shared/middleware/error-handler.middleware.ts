@@ -4,6 +4,19 @@ import { env } from '../../config/env';
 import { logger } from '../../infrastructure/logger/logger';
 import { AppError } from '../errors/app-error';
 
+interface BodyParserError {
+  type?: unknown;
+  status?: unknown;
+  statusCode?: unknown;
+}
+
+function isMalformedJsonBodyParserError(error: unknown): error is BodyParserError {
+  if (error === null || typeof error !== 'object') return false;
+  const candidate = error as BodyParserError;
+  return candidate.type === 'entity.parse.failed'
+    && (candidate.status === 400 || candidate.statusCode === 400);
+}
+
 export function errorHandler(
   error: unknown,
   req: Request,
@@ -11,6 +24,22 @@ export function errorHandler(
   _next: NextFunction,
 ) {
   void _next;
+
+  if (isMalformedJsonBodyParserError(error)) {
+    logger.warn({
+      error: {
+        type: 'entity.parse.failed',
+        status: 400,
+      },
+      requestId: req.requestId,
+    }, 'Invalid JSON request');
+    return res.status(400).json({
+      status: 400,
+      code: 'INVALID_JSON',
+      message: 'JSON inválido.',
+      requestId: req.requestId,
+    });
+  }
 
   if (error instanceof ZodError) {
     return res.status(422).json({

@@ -37,7 +37,10 @@ const unsafeMarkup = /[<>]/;
 const defaultMaxRequestBytes = 512;
 
 type FetchImplementation = typeof fetch;
-type CorporateReadonlyPath = '/health' | '/v1/status' | '/v1/status/availability';
+type CorporateReadonlyPath =
+  | '/v1/corporate-readonly/health'
+  | '/v1/corporate-readonly/status'
+  | '/v1/corporate-readonly/status/availability';
 export type CorporateReadonlyCredentialResolver = (secretRef: string) => Promise<string>;
 
 export interface CorporateReadonlyTransportOptions {
@@ -200,7 +203,7 @@ function sanitizedStatus(value: unknown, pathname: CorporateReadonlyPath) {
     throw transportError();
   }
 
-  if (pathname === '/health') {
+  if (pathname === '/v1/corporate-readonly/health') {
     if (
       !hasExactKeys(value, legacyHealthKeys)
       || value.service !== 'orchestra-backend'
@@ -279,8 +282,8 @@ export class CorporateReadonlyHttpTransport implements McpRemoteClientTransport 
   }
 
   async checkHealth(input: McpRemoteClientTransportContext): Promise<{ status: 'healthy'; simulated: boolean }> {
-    const { value } = await this.getJson(input, '/health');
-    sanitizedStatus(value, '/health');
+    const { value } = await this.getJson(input, '/v1/corporate-readonly/health');
+    sanitizedStatus(value, '/v1/corporate-readonly/health');
     return { status: 'healthy', simulated: false };
   }
 
@@ -315,7 +318,9 @@ export class CorporateReadonlyHttpTransport implements McpRemoteClientTransport 
       throw new AppError(409, 'MCP_REMOTE_TOOL_OPERATION_BLOCKED', 'Corporate read-only tool is not allowlisted.');
     }
     const scope = normalizedScope(input.input, this.maxRequestBytes);
-    const pathname = scope === 'availability' ? '/v1/status/availability' : '/v1/status';
+    const pathname = scope === 'availability'
+      ? '/v1/corporate-readonly/status/availability'
+      : '/v1/corporate-readonly/status';
     const { value, bytes } = await this.getJson(input, pathname);
     const content = JSON.stringify(sanitizedStatus(value, pathname));
     return { content, responseBytes: bytes, simulated: false };

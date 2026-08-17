@@ -189,9 +189,9 @@ require_pattern "$TRANSPORT" "corporateReadonlyToolName = 'corporate.status.read
 require_pattern "$TRANSPORT" "allowedScopes = new Set(['summary', 'availability'])" \
   'only fixed status scopes remain allowed'
 require_pattern "$TRANSPORT" "method: 'GET'" 'corporate transport remains GET-only'
-require_pattern "$TRANSPORT" "'/health'" 'fixed health path'
-require_pattern "$TRANSPORT" "'/v1/status'" 'fixed status path'
-require_pattern "$TRANSPORT" "'/v1/status/availability'" 'fixed availability path'
+require_pattern "$TRANSPORT" "'/v1/corporate-readonly/health'" 'fixed authenticated health path'
+require_pattern "$TRANSPORT" "'/v1/corporate-readonly/status'" 'fixed authenticated status path'
+require_pattern "$TRANSPORT" "'/v1/corporate-readonly/status/availability'" 'fixed authenticated availability path'
 reject_pattern "$TRANSPORT" "method:[[:space:]]*'(POST|PUT|PATCH|DELETE)'" \
   'corporate transport write method'
 status_paths="$(
@@ -200,9 +200,9 @@ status_paths="$(
     | sort -u \
     | paste -sd, -
 )"
-[ "$status_paths" = '/health,/v1/status,/v1/status/availability' ] \
+[ "$status_paths" = '/v1/corporate-readonly/health,/v1/corporate-readonly/status,/v1/corporate-readonly/status/availability' ] \
   || fail "corporate transport contains an unexpected status path: $status_paths"
-pass 'corporate transport contains only the three fixed status paths'
+pass 'corporate transport contains only the three fixed authenticated status paths'
 require_pattern "$POLICY" 'hasDangerousMcpRemoteOperation(input.tool)' \
   'write-like remote operations remain blocked'
 require_pattern "$POLICY" "return block('dangerous_operation')" \

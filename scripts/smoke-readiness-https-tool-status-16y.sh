@@ -254,9 +254,9 @@ status_paths="$(
     | sort -u \
     | paste -sd, -
 )"
-[ "$status_paths" = '/health,/v1/status,/v1/status/availability' ] \
+[ "$status_paths" = '/v1/corporate-readonly/health,/v1/corporate-readonly/status,/v1/corporate-readonly/status/availability' ] \
   || fail "corporate transport contains an unexpected status path: $status_paths"
-pass 'corporate transport contains only the three fixed status paths'
+pass 'corporate transport contains only the three fixed authenticated status paths'
 require_pattern "$TRANSPORT" "required: ['status', 'summary', 'updatedAt']" \
   'tool output contract remains status, summary and updatedAt'
 require_pattern "$FACTORY" "target.protocol === 'https:'" \

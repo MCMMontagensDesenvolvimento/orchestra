@@ -81,9 +81,12 @@ run_dry_run() {
   require_pattern "$TRANSPORT" "corporateReadonlyToolName = 'corporate.status.read'" \
     'the corporate tool name remains fixed'
   require_pattern "$TRANSPORT" "method: 'GET'" 'the corporate transport remains GET-only'
-  require_pattern "$TRANSPORT" "'/health'" 'the health path remains fixed'
-  require_pattern "$TRANSPORT" "'/v1/status'" 'the status path remains fixed'
-  require_pattern "$TRANSPORT" "'/v1/status/availability'" 'the availability path remains fixed'
+  require_pattern "$TRANSPORT" "'/v1/corporate-readonly/health'" \
+    'the authenticated health path remains fixed'
+  require_pattern "$TRANSPORT" "'/v1/corporate-readonly/status'" \
+    'the authenticated status path remains fixed'
+  require_pattern "$TRANSPORT" "'/v1/corporate-readonly/status/availability'" \
+    'the authenticated availability path remains fixed'
   require_pattern "$FACTORY" "target.protocol === 'https:'" \
     'the corporate transport selector still requires HTTPS'
   require_pattern "$ENV_CONFIG" "MCP_REMOTE_ENABLED: booleanString('false')" \

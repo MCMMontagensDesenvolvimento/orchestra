@@ -1,6 +1,10 @@
 import express from 'express';
 import { createHealthRouter, type HealthDependencies } from '../modules/health/health.routes';
 import { createStatusRouter, type StatusDependencies } from '../modules/status/status.routes';
+import {
+  createCorporateReadonlyTargetRouter,
+  type CorporateReadonlyTargetDependencies,
+} from '../modules/corporate-readonly-target/corporate-readonly-target.routes';
 import { createAuthRouter } from '../modules/auth/auth.routes';
 import { createTenantsRouter } from '../modules/tenants/tenants.routes';
 import { createWorkspacesRouter } from '../modules/workspaces/workspaces.routes';
@@ -26,11 +30,12 @@ import { createLlmRouter } from '../modules/llm/llm.routes';
 import { createAiObservabilityRouter } from '../modules/ai-observability/ai-observability.routes';
 import { createAiQualityRouter } from '../modules/ai-quality/ai-quality.routes';
 
-export type AppDependencies = HealthDependencies & StatusDependencies;
+export type AppDependencies = HealthDependencies & StatusDependencies & CorporateReadonlyTargetDependencies;
 
 export function registerRoutes(app: express.Express, dependencies: AppDependencies = {}) {
   app.use('/health', createHealthRouter(dependencies));
   app.use('/v1/status', createStatusRouter(dependencies));
+  app.use('/v1/corporate-readonly', createCorporateReadonlyTargetRouter(dependencies));
 
   const api = express.Router();
   api.use('/auth', createAuthRouter());
