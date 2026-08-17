@@ -242,6 +242,9 @@ run_dry_run() {
   require_pattern "$READONLY_POLICY" 'if (input.config.allowWriteTools)' 'read-only policy rejects write-enabled configuration'
   require_pattern "$TRANSPORT" 'export class FailClosedMcpRemoteClientTransport' 'fail-closed remote transport exists'
   require_pattern "$TRANSPORT_FACTORY" 'return new FailClosedMcpRemoteClientTransport();' 'transport factory falls back closed'
+  require_pattern "$CORPORATE_TRANSPORT" \
+    'const match = /^env:\/\/(ORCHESTRA_CORPORATE_READONLY_[A-Z0-9_]+)$/.exec(secretRef);' \
+    'corporate resolver requires the governed secretRef namespace'
   require_pattern "$CORPORATE_TRANSPORT" "method: 'GET'" 'corporate transport remains GET-only'
   reject_pattern "$CORPORATE_TRANSPORT" "method:[[:space:]]*'(POST|PUT|PATCH|DELETE)'" 'write method in corporate transport'
 
@@ -260,6 +263,18 @@ run_dry_run() {
   do
     require_pattern "$RUNBOOK" "$marker" "runbook boundary $marker"
   done
+  require_pattern "$RUNBOOK" 'env://ORCHESTRA_CORPORATE_READONLY_[A-Z0-9_]+' \
+    'runbook records the governed secretRef namespace'
+  require_pattern "$RUNBOOK" 'o mesmo valor lógico deve ser gravado em' \
+    'runbook requires the same logical preflight reference at runtime'
+  require_pattern "$RUNBOOK" '`McpServer.secretRef`' \
+    'runbook links the runtime reference to McpServer.secretRef'
+  require_pattern "$RUNBOOK" 'environment ou secret manager do processo backend' \
+    'runbook keeps the real secret only in the backend secret boundary'
+  require_pattern "$RUNBOOK" 'não cria `AgentRun`, `ToolCall` ou audit persistido' \
+    'runbook records the read-only 18F.1B persistence boundary'
+  require_pattern "$RUNBOOK" 'evidência da 18F.1B será manual e sanitizada' \
+    'runbook defines manual sanitized 18F.1B evidence'
 
   require_pattern "$DOC_INDEX" 'A Fase 18F.1A adiciona somente o preflight offline' 'documentation index references the offline-only 18F.1A'
   require_exact_line "$CI" '        run: scripts/smoke-mcp-remoto-governado-18f.sh --dry-run' 'CI invokes only the 18F.1A dry-run smoke'
@@ -427,9 +442,11 @@ NODE18F
     || fail 'MCP_REMOTE_EGRESS_ALLOWLIST must contain exactly the single approved origin'
   pass 'egress allowlist contains exactly the single approved origin'
 
-  [[ "$MCP_CORPORATE_READONLY_SECRET_REF" =~ ^env://[A-Z][A-Z0-9_]{2,127}$ ]] \
-    || fail 'MCP_CORPORATE_READONLY_SECRET_REF must be a logical env reference'
-  pass 'corporate secretRef is logical and was neither resolved nor printed'
+  [ "${#MCP_CORPORATE_READONLY_SECRET_REF}" -le 240 ] \
+    || fail 'MCP_CORPORATE_READONLY_SECRET_REF exceeds the governed logical reference limit'
+  [[ "$MCP_CORPORATE_READONLY_SECRET_REF" =~ ^env://ORCHESTRA_CORPORATE_READONLY_[A-Z0-9_]+$ ]] \
+    || fail 'MCP_CORPORATE_READONLY_SECRET_REF must use the governed corporate env namespace'
+  pass 'corporate secretRef uses the governed namespace and was neither resolved nor printed'
 }
 
 render_go_no_go_template() {
@@ -440,7 +457,7 @@ render_go_no_go_template() {
 [ ] Remote and discovery are enabled only in the approved ephemeral process.
 [ ] Execution remains false and write tools remain blocked.
 [ ] The single public HTTPS origin, allowed origin and egress allowlist are textually equal.
-[ ] The secretRef is logical env:// and was not resolved.
+[ ] The secretRef uses env://ORCHESTRA_CORPORATE_READONLY_*, is at most 240 characters and was not resolved.
 [ ] Versioned defaults, origins and phase scope remain fail-closed.
 [ ] Evidence is sanitized and reviewed by the accountable operator.
 [ ] Handoff to 18F.1B is not implicit and requires a separate approved window.

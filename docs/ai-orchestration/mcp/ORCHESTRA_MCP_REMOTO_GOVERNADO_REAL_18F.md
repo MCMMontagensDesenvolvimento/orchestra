@@ -125,10 +125,22 @@ funcional.
 
 ## SecretRef
 
-`MCP_CORPORATE_READONLY_SECRET_REF` também existe somente no processo operacional. O
-preflight aceita apenas referência lógica `env://` com nome de variável em maiúsculas.
-Ele não resolve a referência, não lê a variável apontada, não aceita credencial raw e
-não imprime o valor da referência. Nenhum modo carrega `.env` automaticamente.
+`MCP_CORPORATE_READONLY_SECRET_REF` é uma variável operacional do preflight e existe
+somente no processo efêmero do operador. Ela aceita exclusivamente uma referência no
+formato `env://ORCHESTRA_CORPORATE_READONLY_[A-Z0-9_]+`, com ao menos um caractere no
+sufixo e no máximo 240 caracteres no total, alinhada ao resolver, ao client e ao schema
+de entrada atuais.
+
+Para a readiness real futura, o mesmo valor lógico deve ser gravado em
+`McpServer.secretRef`. O backend não lê
+`MCP_CORPORATE_READONLY_SECRET_REF` diretamente: o campo do servidor é a referência que
+o transporte recebe. O valor real apontado pela referência deve existir apenas no
+environment ou secret manager do processo backend. O resolver real exige valor de 12 a
+4096 caracteres ASCII imprimíveis, mas a 18F.1A não verifica esse conteúdo porque nunca
+resolve a referência.
+
+O preflight não lê a variável apontada, não aceita credencial raw e não imprime nem
+persiste o valor real. Nenhum modo carrega `.env` automaticamente.
 
 ## Execução do preflight
 
@@ -166,7 +178,8 @@ GO exige, cumulativamente:
 - `--local-check` concluído com as onze variáveis efêmeras e sem revelar valores;
 - execution e write tools explicitamente bloqueadas;
 - origem pública HTTPS única, igualdade textual e allowlist unitária;
-- secretRef lógica sem resolução;
+- secretRef no namespace `env://ORCHESTRA_CORPORATE_READONLY_*`, limitada a 240
+  caracteres e sem resolução;
 - defaults e escopo da fase intactos;
 - evidência sanitizada revisada por responsável humano.
 
@@ -208,6 +221,10 @@ A 18F.1B deverá ter autorização e janela próprias para **readiness HTTPS rea
 supervisionado**, ainda com `MCP_REMOTE_EXECUTION_ENABLED=false`. Antes de qualquer
 rede, deverá identificar responsável, endpoint aprovado por canal não versionado,
 política de DNS/egress, evidências sanitizadas, timeout, interrupção e rollback.
+
+O caminho atual de readiness 18F.1B não cria `AgentRun`, `ToolCall` ou audit persistido.
+Por isso, a evidência da 18F.1B será manual e sanitizada, sem secretRef, valor real,
+header de autorização ou payload bruto.
 
 A 18F.1A não executa nem agenda esse handoff. Discovery permanece reservado à 18F.1C e
 a primeira tool real à 18F.1D.

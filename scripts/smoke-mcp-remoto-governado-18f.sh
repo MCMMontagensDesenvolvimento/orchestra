@@ -234,7 +234,7 @@ if grep -Eq -- '^(PASS|FAIL)|summary:' <<<"$GO_NOGO_OUTPUT"; then fail 'GO/NO-GO
 pass 'GO/NO-GO mode prints only the offline decision checklist and changes nothing'
 
 safe_origin='https://mcp-preflight.example'
-safe_secret_ref='env://ORCHESTRA_MCP_PREFLIGHT_TOKEN'
+safe_secret_ref='env://ORCHESTRA_CORPORATE_READONLY_STATUS_TOKEN'
 LOCAL_OUTPUT="$(run_local_profile true true false true false true true \
   "$safe_origin" "$safe_origin" "$safe_origin" "$safe_secret_ref")" \
   || fail 'valid local-check profile'
@@ -291,10 +291,27 @@ if run_local_profile true true false true false true true "$safe_origin" "$safe_
 fi
 pass 'local-check enforces textual equality of origin, corporate allowlist and egress allowlist'
 
-if run_local_profile true true false true false true true "$safe_origin" "$safe_origin" "$safe_origin" 'raw-credential-value' >/dev/null 2>&1; then
-  fail 'local-check accepted a raw credential instead of env:// secretRef'
+invalid_secret_refs=(
+  'env://ORCHESTRA_STATUS_READONLY_TOKEN'
+  'env://OTHER_TOKEN'
+  'synthetic-raw-token-value'
+  "Bearer"" synthetic-placeholder-value"
+  ''
+)
+for invalid_secret_ref in "${invalid_secret_refs[@]}"; do
+  if run_local_profile true true false true false true true \
+    "$safe_origin" "$safe_origin" "$safe_origin" "$invalid_secret_ref" >/dev/null 2>&1
+  then
+    fail 'local-check accepted a secretRef outside the governed corporate namespace'
+  fi
+done
+overlong_secret_ref="env://ORCHESTRA_CORPORATE_READONLY_$(printf 'A%.0s' {1..206})"
+if run_local_profile true true false true false true true \
+  "$safe_origin" "$safe_origin" "$safe_origin" "$overlong_secret_ref" >/dev/null 2>&1
+then
+  fail 'local-check accepted a logical secretRef longer than 240 characters'
 fi
-pass 'local-check accepts only a logical env:// secretRef and never resolves it'
+pass 'local-check accepts only the bounded corporate env:// namespace and never resolves it'
 
 for file in "$ROOT_ENV" "$BACKEND_ENV"; do
   require_exact_line "$file" 'MCP_REMOTE_ENABLED=false' "${file#"$ROOT_DIR/"} remote MCP default"
