@@ -9,21 +9,29 @@ services:
 
     environment:
       NODE_ENV: production
+
       DATABASE_URL: "${DATABASE_URL:?DATABASE_URL is required}"
       JWT_SECRET: "${JWT_SECRET:?JWT_SECRET is required}"
       FRONTEND_ORIGIN: "${FRONTEND_ORIGIN:?FRONTEND_ORIGIN is required}"
+
       COOKIE_SECURE: "true"
       COOKIE_SAME_SITE: "${COOKIE_SAME_SITE:-lax}"
+
       DEV_LOGIN_ENABLED: "false"
       LOG_LEVEL: "${LOG_LEVEL:-info}"
+
+      # Runtime externo permanece fechado nesta homologação
       RUNTIME_PROVIDER: "${RUNTIME_PROVIDER:-local}"
       RUNTIME_ALLOW_PROVIDER_FALLBACK: "false"
       RUNTIME_ALLOW_EXTERNAL_TOOLS: "false"
+
       AGNO_ENABLED: "false"
       AGNO_EXECUTION_ENABLED: "false"
       AGNO_HEALTHCHECK_ENABLED: "false"
       AGNO_ALLOW_EXTERNAL_TOOLS: "false"
       AGNO_ALLOW_REMOTE_MCP: "false"
+
+      # MCP remoto
       MCP_REMOTE_ENABLED: "${MCP_REMOTE_ENABLED:-false}"
       MCP_REMOTE_DISCOVERY_ENABLED: "${MCP_REMOTE_DISCOVERY_ENABLED:-false}"
       MCP_REMOTE_EXECUTION_ENABLED: "${MCP_REMOTE_EXECUTION_ENABLED:-false}"
@@ -31,10 +39,19 @@ services:
       MCP_REMOTE_EGRESS_ALLOWLIST: "${MCP_REMOTE_EGRESS_ALLOWLIST:-}"
       MCP_REMOTE_REQUIRE_SECRET_REF: "true"
       MCP_REMOTE_ALLOW_WRITE_TOOLS: "false"
+
+      # Corporate readonly outbound/client
       MCP_CORPORATE_READONLY_ENABLED: "${MCP_CORPORATE_READONLY_ENABLED:-false}"
       MCP_CORPORATE_READONLY_ALLOWED_ORIGIN: "${MCP_CORPORATE_READONLY_ALLOWED_ORIGIN:-}"
+
+      # Corporate readonly inbound/target
       MCP_CORPORATE_READONLY_TARGET_ENABLED: "${MCP_CORPORATE_READONLY_TARGET_ENABLED:-false}"
+
+      # Valor somente pelo Environment do Coolify.
+      # Nunca colocar o valor real neste arquivo.
       ORCHESTRA_CORPORATE_READONLY_STATUS_TOKEN: "${ORCHESTRA_CORPORATE_READONLY_STATUS_TOKEN:-}"
+
+      # Outros providers continuam fechados
       LLM_PROVIDERS_ENABLED: "false"
       LLM_EXECUTION_ENABLED: "false"
       OPENAI_ENABLED: "false"
