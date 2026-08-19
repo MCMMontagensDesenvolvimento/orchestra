@@ -15,6 +15,7 @@
     "test:coverage": "vitest --coverage",
     "test:api": "vitest tests/api",
     "prisma:bootstrap": "prisma db seed",
+    "prisma:seed:mcm": "tsx prisma/seed-mcm.ts",
     "prisma:generate": "prisma generate",
     "prisma:migrate:dev": "prisma migrate dev",
     "prisma:migrate:deploy": "prisma migrate deploy",
