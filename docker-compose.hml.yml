@@ -20,6 +20,18 @@ services:
       DEV_LOGIN_ENABLED: "false"
       LOG_LEVEL: "${LOG_LEVEL:-info}"
 
+      # Microsoft SSO
+      MICROSOFT_SSO_ENABLED: "${MICROSOFT_SSO_ENABLED:?MICROSOFT_SSO_ENABLED is required}"
+      MICROSOFT_CLIENT_ID: "${MICROSOFT_CLIENT_ID:?MICROSOFT_CLIENT_ID is required}"
+      MICROSOFT_CLIENT_SECRET: "${MICROSOFT_CLIENT_SECRET:?MICROSOFT_CLIENT_SECRET is required}"
+      MICROSOFT_TENANT_ID: "${MICROSOFT_TENANT_ID:?MICROSOFT_TENANT_ID is required}"
+      MICROSOFT_ALLOWED_TENANT_IDS: "${MICROSOFT_ALLOWED_TENANT_IDS:?MICROSOFT_ALLOWED_TENANT_IDS is required}"
+      MICROSOFT_ALLOWED_DOMAINS: "${MICROSOFT_ALLOWED_DOMAINS:?MICROSOFT_ALLOWED_DOMAINS is required}"
+      MICROSOFT_REDIRECT_URI: "${MICROSOFT_REDIRECT_URI:?MICROSOFT_REDIRECT_URI is required}"
+      MICROSOFT_POST_LOGOUT_REDIRECT_URI: "${MICROSOFT_POST_LOGOUT_REDIRECT_URI:?MICROSOFT_POST_LOGOUT_REDIRECT_URI is required}"
+      MICROSOFT_SSO_AUTO_LINK_BY_EMAIL: "${MICROSOFT_SSO_AUTO_LINK_BY_EMAIL:-false}"
+
+
       # Runtime externo permanece fechado nesta homologação
       RUNTIME_PROVIDER: "${RUNTIME_PROVIDER:-local}"
       RUNTIME_ALLOW_PROVIDER_FALLBACK: "false"
@@ -84,6 +96,39 @@ services:
       timeout: 5s
       retries: 5
       start_period: 30s
+
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile.prod
+      args:
+        VITE_API_URL: "${VITE_API_URL:?VITE_API_URL is required}"
+        VITE_USE_MOCKS: "false"
+
+    restart: unless-stopped
+
+    depends_on:
+      backend:
+        condition: service_healthy
+
+    expose:
+      - "8080"
+
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "wget",
+          "-q",
+          "-O",
+          "/dev/null",
+          "http://127.0.0.1:8080/healthz"
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 20s
 
   migrate:
     build:
