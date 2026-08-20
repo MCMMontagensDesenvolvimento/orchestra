@@ -276,7 +276,7 @@ export default function KnowledgePage() {
   return (
     <AppShell>
       <div className="space-y-6 animate-fade-in">
-        <PageHeader title="Knowledge Hub" description="Catálogo governado de bases, documentos e ingestão placeholder">
+        <PageHeader title="Knowledge Hub" description="Catálogo governado de bases, documentos e preparação para ingestão">
           <Button onClick={() => { setFormData(defaultFormData); setCreateOpen(true); }}>
             <Plus className="h-4 w-4 mr-1" />Nova Base
           </Button>

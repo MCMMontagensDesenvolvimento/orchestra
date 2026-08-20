@@ -196,7 +196,7 @@ export default function McpDetailPage() {
       const result = await mcpService.remoteReadiness(id);
       setRemoteReadiness(result);
       toast({
-        title: result.status === 'ready' ? 'Demo somente leitura disponível' : 'MCP remoto bloqueado',
+        title: result.status === 'ready' ? 'MCP remoto somente leitura disponível' : 'MCP remoto bloqueado',
         description: result.reason,
         variant: result.status === 'ready' ? 'default' : 'destructive',
       });

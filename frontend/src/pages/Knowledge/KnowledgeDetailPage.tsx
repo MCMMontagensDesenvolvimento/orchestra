@@ -400,7 +400,7 @@ export default function KnowledgeDetailPage() {
               <span className="text-sm font-medium">{docStats.processing} documento{docStats.processing > 1 ? 's' : ''} em processamento</span>
             </div>
             <Progress value={docStats.progress} className="h-2" />
-            <p className="text-xs text-muted-foreground mt-1">{docStats.progress}% dos documentos com ingestão placeholder</p>
+            <p className="text-xs text-muted-foreground mt-1">{docStats.progress}% dos documentos preparados para ingestão</p>
           </div>
         )}
 
@@ -919,7 +919,7 @@ export default function KnowledgeDetailPage() {
           <DialogHeader>
             <DialogTitle>Arquivar Documento</DialogTitle>
             <DialogDescription>
-              Tem certeza que deseja arquivar "{selectedDoc?.name}"? O histórico de ingestão placeholder será preservado.
+              Tem certeza que deseja arquivar "{selectedDoc?.name}"? O histórico de preparação e ingestão será preservado.
             </DialogDescription>
           </DialogHeader>
           <DialogFooter>

@@ -93,7 +93,7 @@ function LlmCatalogContent({ config, providers }: { config?: LlmConfig; provider
           detail="Providers visiveis somente via backend"
         />
         <SummaryTile
-          label="Execucao LLM"
+          label="Execução LLM global"
           value={config?.executionEnabled ? 'Habilitada' : 'Bloqueada'}
           detail={`Timeout: ${config?.providerTimeoutMs ?? 30000}ms`}
         />
@@ -116,7 +116,7 @@ function LlmCatalogContent({ config, providers }: { config?: LlmConfig; provider
                 <th className="px-3 py-2 text-left font-medium text-muted-foreground">Status</th>
                 <th className="px-3 py-2 text-left font-medium text-muted-foreground">Enabled</th>
                 <th className="px-3 py-2 text-left font-medium text-muted-foreground">Configured</th>
-                <th className="px-3 py-2 text-left font-medium text-muted-foreground">Execution</th>
+                <th className="px-3 py-2 text-left font-medium text-muted-foreground">Capacidade de execução</th>
                 <th className="px-3 py-2 text-left font-medium text-muted-foreground">Modelo</th>
                 <th className="px-3 py-2 text-left font-medium text-muted-foreground">Health</th>
               </tr>

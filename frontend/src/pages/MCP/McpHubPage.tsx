@@ -470,15 +470,16 @@ export default function McpHubPage() {
   return (
     <AppShell>
       <div className="space-y-6 animate-fade-in">
-        <PageHeader title="MCP Hub" description="Catálogo local demonstrável, somente leitura e governado">
-          <Button disabled title="Na Fase 18D o catálogo é instalado somente pelo seed local governado."><Lock className="h-4 w-4 mr-1" />Gerenciado por seed</Button>
-        </PageHeader>
+        <PageHeader
+          title="MCP Hub"
+          description="Catálogo governado de servidores MCP locais e remotos"
+        />
 
         <div className="flex gap-3 rounded-lg border border-warning/30 bg-warning/5 p-4">
           <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-warning" />
           <div>
-            <p className="text-sm font-medium">Fase 18D · MCP demo local pronto e execução bloqueada</p>
-            <p className="mt-1 text-xs text-muted-foreground">O catálogo abaixo usa apenas stubs locais determinísticos. Rede externa, MCP remoto, tools de escrita, providers, embeddings e Chat/AgentRun reais permanecem desabilitados.</p>
+            <p className="text-sm font-medium">MCP governado · descoberta remota disponível e execução bloqueada</p>
+            <p className="mt-1 text-xs text-muted-foreground">Servidores locais e remotos operam sob políticas fail-closed. A descoberta remota pode ser consultada, enquanto execução remota, tools de escrita e integrações externas permanecem bloqueadas.</p>
           </div>
         </div>
 
@@ -541,17 +542,12 @@ export default function McpHubPage() {
           loading={<ListLoading rows={4} />}
           emptyIcon={<Server className="h-6 w-6" />}
           emptyTitle="Nenhum servidor MCP registrado"
-          emptyDescription="Execute o seed demo local governado para instalar o catálogo MCP da Fase 18D."
-          emptyAction={
-            <Button disabled>
-              <Lock className="h-4 w-4 mr-1" />Somente via seed local
-            </Button>
-          }
+          emptyDescription="Cadastre ou restaure um servidor MCP governado para iniciar o catálogo."
           errorTitle="Não foi possível carregar os servidores MCP"
           errorDescription="Tente novamente em instantes."
         >
         {filtered.length === 0 ? (
-          <EmptyState icon={<Server className="h-6 w-6" />} title="Nenhum servidor encontrado para os filtros" description="Ajuste ou limpe os filtros para reencontrar o catálogo demo local." />
+          <EmptyState icon={<Server className="h-6 w-6" />} title="Nenhum servidor encontrado para os filtros" description="Ajuste ou limpe os filtros para reencontrar os servidores MCP cadastrados." />
         ) : viewMode === 'table' ? (
           <div className="rounded-lg border">
             <Table>

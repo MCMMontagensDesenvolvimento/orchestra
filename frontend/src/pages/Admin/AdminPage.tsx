@@ -1,3 +1,4 @@
+import { useEffect } from 'react';
 import { AppShell } from '@/components/shared/AppShell';
 import { PageHeader } from '@/components/shared/PageHeader';
 import { Button } from '@/components/ui/button';
@@ -20,6 +21,10 @@ export default function AdminPage() {
   const workspacesQuery = useWorkspaces();
   const location = useLocation();
   const activePath = location.pathname;
+
+  useEffect(() => {
+    window.scrollTo({ top: 0, left: 0, behavior: 'auto' });
+  }, [location.pathname]);
   const users = usersQuery.data ?? [];
   const roles = rolesQuery.data ?? [];
   const permissions = permissionsQuery.data ?? [];
