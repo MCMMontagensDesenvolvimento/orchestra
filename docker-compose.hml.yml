@@ -4,23 +4,16 @@ services:
       context: ./backend
       dockerfile: Dockerfile.prod
       target: runner
-
     restart: unless-stopped
-
     environment:
       NODE_ENV: production
-
       DATABASE_URL: "${DATABASE_URL:?DATABASE_URL is required}"
       JWT_SECRET: "${JWT_SECRET:?JWT_SECRET is required}"
       FRONTEND_ORIGIN: "${FRONTEND_ORIGIN:?FRONTEND_ORIGIN is required}"
-
       COOKIE_SECURE: "true"
       COOKIE_SAME_SITE: "${COOKIE_SAME_SITE:-lax}"
-
       DEV_LOGIN_ENABLED: "false"
       LOG_LEVEL: "${LOG_LEVEL:-info}"
-
-      # Microsoft SSO
       MICROSOFT_SSO_ENABLED: "${MICROSOFT_SSO_ENABLED:?MICROSOFT_SSO_ENABLED is required}"
       MICROSOFT_CLIENT_ID: "${MICROSOFT_CLIENT_ID:?MICROSOFT_CLIENT_ID is required}"
       MICROSOFT_CLIENT_SECRET: "${MICROSOFT_CLIENT_SECRET:?MICROSOFT_CLIENT_SECRET is required}"
@@ -30,20 +23,14 @@ services:
       MICROSOFT_REDIRECT_URI: "${MICROSOFT_REDIRECT_URI:?MICROSOFT_REDIRECT_URI is required}"
       MICROSOFT_POST_LOGOUT_REDIRECT_URI: "${MICROSOFT_POST_LOGOUT_REDIRECT_URI:?MICROSOFT_POST_LOGOUT_REDIRECT_URI is required}"
       MICROSOFT_SSO_AUTO_LINK_BY_EMAIL: "${MICROSOFT_SSO_AUTO_LINK_BY_EMAIL:-false}"
-
-
-      # Runtime externo permanece fechado nesta homologação
       RUNTIME_PROVIDER: "${RUNTIME_PROVIDER:-local}"
       RUNTIME_ALLOW_PROVIDER_FALLBACK: "false"
       RUNTIME_ALLOW_EXTERNAL_TOOLS: "false"
-
       AGNO_ENABLED: "false"
       AGNO_EXECUTION_ENABLED: "false"
       AGNO_HEALTHCHECK_ENABLED: "false"
       AGNO_ALLOW_EXTERNAL_TOOLS: "false"
       AGNO_ALLOW_REMOTE_MCP: "false"
-
-      # MCP remoto
       MCP_REMOTE_ENABLED: "${MCP_REMOTE_ENABLED:-false}"
       MCP_REMOTE_DISCOVERY_ENABLED: "${MCP_REMOTE_DISCOVERY_ENABLED:-false}"
       MCP_REMOTE_EXECUTION_ENABLED: "${MCP_REMOTE_EXECUTION_ENABLED:-false}"
@@ -51,19 +38,10 @@ services:
       MCP_REMOTE_EGRESS_ALLOWLIST: "${MCP_REMOTE_EGRESS_ALLOWLIST:-}"
       MCP_REMOTE_REQUIRE_SECRET_REF: "true"
       MCP_REMOTE_ALLOW_WRITE_TOOLS: "false"
-
-      # Corporate readonly outbound/client
       MCP_CORPORATE_READONLY_ENABLED: "${MCP_CORPORATE_READONLY_ENABLED:-false}"
       MCP_CORPORATE_READONLY_ALLOWED_ORIGIN: "${MCP_CORPORATE_READONLY_ALLOWED_ORIGIN:-}"
-
-      # Corporate readonly inbound/target
       MCP_CORPORATE_READONLY_TARGET_ENABLED: "${MCP_CORPORATE_READONLY_TARGET_ENABLED:-false}"
-
-      # Valor somente pelo Environment do Coolify.
-      # Nunca colocar o valor real neste arquivo.
       ORCHESTRA_CORPORATE_READONLY_STATUS_TOKEN: "${ORCHESTRA_CORPORATE_READONLY_STATUS_TOKEN:-}"
-
-      # Outros providers continuam fechados
       LLM_PROVIDERS_ENABLED: "false"
       LLM_EXECUTION_ENABLED: "false"
       OPENAI_ENABLED: "false"
@@ -74,16 +52,13 @@ services:
       ANTHROPIC_EXECUTION_ENABLED: "false"
       EMBEDDINGS_ENABLED: "false"
       EMBEDDINGS_EXECUTION_ENABLED: "false"
-
     expose:
       - "3000"
-
     depends_on:
       db:
         condition: service_healthy
       migrate:
         condition: service_completed_successfully
-
     healthcheck:
       test:
         [
@@ -97,24 +72,20 @@ services:
       retries: 5
       start_period: 30s
 
-
   frontend:
     build:
       context: ./frontend
       dockerfile: Dockerfile.prod
       args:
-        VITE_API_URL: "${VITE_API_URL:?VITE_API_URL is required}"
+        VITE_APP_ENV: "homologation"
+        VITE_API_BASE_URL: "${VITE_API_BASE_URL:?VITE_API_BASE_URL is required}"
         VITE_USE_MOCKS: "false"
-
     restart: unless-stopped
-
     depends_on:
       backend:
         condition: service_healthy
-
     expose:
       - "8080"
-
     healthcheck:
       test:
         [
@@ -135,29 +106,22 @@ services:
       context: ./backend
       dockerfile: Dockerfile.prod
       target: operations
-
     restart: "no"
-
     environment:
       DATABASE_URL: "${DATABASE_URL:?DATABASE_URL is required}"
-
     depends_on:
       db:
         condition: service_healthy
 
   db:
     image: pgvector/pgvector:0.8.3-pg16
-
     restart: unless-stopped
-
     environment:
       POSTGRES_DB: "${POSTGRES_DB:?POSTGRES_DB is required}"
       POSTGRES_USER: "${POSTGRES_USER:?POSTGRES_USER is required}"
       POSTGRES_PASSWORD: "${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}"
-
     volumes:
       - orchestra_hml_db_data:/var/lib/postgresql/data
-
     healthcheck:
       test:
         [
