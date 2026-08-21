@@ -150,6 +150,28 @@ function ledgersWhere(tenantId: string, workspaceIds: string[], query: McpRemote
 export class McpRemoteCatalogAdminPersistenceRepository {
   constructor(private readonly db: RemoteCatalogAdminPrisma = defaultPrisma) {}
 
+  listDiscoverySpecs(
+    tenantId: string,
+    workspaceId: string,
+    serverId: string,
+  ) {
+    return this.db.mcpRemoteCatalogEntry.findMany({
+      where: {
+        tenantId,
+        workspaceId,
+        mcpServerId: serverId,
+        deletedAt: null,
+      },
+      select: {
+        externalName: true,
+        specHash: true,
+      },
+      orderBy: {
+        externalName: 'asc',
+      },
+    });
+  }
+
   async listEntries(tenantId: string, workspaceIds: string[], query: McpRemoteCatalogEntriesQuery) {
     const where = entriesWhere(tenantId, workspaceIds, query);
     const orderBy = { [query.sortBy]: query.sortDirection } satisfies Prisma.McpRemoteCatalogEntryOrderByWithRelationInput;

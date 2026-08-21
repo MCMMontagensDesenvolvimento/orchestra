@@ -17,6 +17,7 @@ import { mcpRepository } from './mcp.repository';
 import { McpRemoteClient } from './remote/mcp-remote.client';
 import { getMcpRemoteConfig } from './remote/mcp-remote.config';
 import { mcpRemoteDiscoveryService } from './remote/mcp-remote-discovery.service';
+import { mcpRemoteCatalogAdminRepository } from './remote/mcp-remote-catalog-admin.repository';
 import { mcpRemoteReadinessService } from './remote/mcp-remote-readiness.service';
 import { createGovernedMcpRemoteTransport } from './remote/mcp-remote-transport.factory';
 import {
@@ -469,6 +470,12 @@ export const mcpService = {
   async discoverRemoteTools(id: string, user: AuthenticatedUser, context: RequestContext) {
     const server = await getServerOrThrow(id, user);
     assertRemoteServer(server);
+    const existingTools = await mcpRemoteCatalogAdminRepository.listDiscoverySpecs(
+      user.tenant.id,
+      server.workspaceId,
+      server.id,
+    );
+
     const result = await mcpRemoteDiscoveryService.runGovernedDiscovery({
       tenantId: user.tenant.id,
       workspaceId: server.workspaceId,
@@ -477,7 +484,7 @@ export const mcpService = {
       credentialsConfigured: Boolean(server.secretRef),
       requestedByUserId: user.id,
       requestId: context.requestId,
-      existingTools: [],
+      existingTools,
     });
     await audit({
       user,
@@ -489,6 +496,10 @@ export const mcpService = {
       metadata: {
         status: result.status,
         toolCount: result.tools.length,
+        existingToolCount: existingTools.length,
+        addedCount: result.diff.added.length,
+        changedCount: result.diff.changed.length,
+        removedCount: result.diff.removed.length,
         transportCalled: result.sanitizedMetadata.transportCalled === true,
         ...(typeof result.sanitizedMetadata.mcpRemoteHost === 'string'
           ? { mcpRemoteHost: result.sanitizedMetadata.mcpRemoteHost }
