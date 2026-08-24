@@ -84,6 +84,26 @@ export function createMcpRouter() {
   router.get('/servers/:id/remote-discovery', requireAuth, requirePermission('mcp.tools.read'), validateParams(idParamsSchema), (req, res, next) => {
     void mcpController.discoverRemoteTools(req, res).catch(next);
   });
+  router.post(
+    '/servers/:id/remote-review',
+    requireAuth,
+    requirePermission('mcp.manage'),
+    validateParams(idParamsSchema),
+    (req, res, next) => {
+      void mcpController.createRemoteReviewPackage(req, res).catch(next);
+    },
+  );
+
+  router.post(
+    '/servers/:id/remote-import-plan',
+    requireAuth,
+    requirePermission('mcp.manage'),
+    validateParams(idParamsSchema),
+    (req, res, next) => {
+      void mcpController.createRemoteImportPlan(req, res).catch(next);
+    },
+  );
+
   router.patch(
     '/servers/:id',
     requireAuth,

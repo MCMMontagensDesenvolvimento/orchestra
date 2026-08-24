@@ -35,6 +35,24 @@ export const mcpController = {
     return res.status(200).json({ data, requestId: req.requestId });
   },
 
+  async createRemoteReviewPackage(req: Request, res: Response) {
+    const data = await mcpService.createRemoteReviewPackage(
+      req.params.id,
+      req.user!,
+      requestContext(req),
+    );
+    return res.status(200).json({ data, requestId: req.requestId });
+  },
+
+  async createRemoteImportPlan(req: Request, res: Response) {
+    const data = await mcpService.createRemoteImportPlan(
+      req.params.id,
+      req.user!,
+      requestContext(req),
+    );
+    return res.status(200).json({ data, requestId: req.requestId });
+  },
+
   async createServer(req: Request, res: Response) {
     const data = await mcpService.createServer(req.body, req.user!, requestContext(req));
     return res.status(201).json({ data, requestId: req.requestId });

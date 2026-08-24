@@ -218,4 +218,238 @@ describe('mcpService remote discovery with persisted catalog', () => {
     );
     expect(auditPayload).not.toContain('env://');
   });
+  it('creates a fail-closed review package from the catalog-aware discovery', async () => {
+    const reviewPackage = await mcpService.createRemoteReviewPackage(
+      serverId,
+      user as never,
+      {
+        requestId: 'req_remote_review_package',
+      },
+    );
+
+    expect(mocks.listDiscoverySpecs).toHaveBeenCalledWith(
+      tenantId,
+      workspaceId,
+      serverId,
+    );
+
+    expect(mocks.runGovernedDiscovery).toHaveBeenCalledWith(
+      expect.objectContaining({
+        tenantId,
+        workspaceId,
+        existingTools: [
+          {
+            externalName: 'corporate.status.read',
+            specHash: 'a'.repeat(64),
+          },
+        ],
+      }),
+    );
+
+    expect(reviewPackage).toEqual(
+      expect.objectContaining({
+        serverId,
+        tenantId,
+        workspaceId,
+        decision: expect.objectContaining({
+          status: 'no_changes',
+          requiresHumanReview: false,
+        }),
+        applyPlan: expect.objectContaining({
+          status: 'blocked',
+          canApply: false,
+        }),
+      }),
+    );
+
+    expect(mocks.recordAuditEvent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        action: 'mcp_remote_discovery_review_package_created',
+        entity: 'mcp_server',
+        entityId: serverId,
+        metadata: expect.objectContaining({
+          decisionStatus: 'no_changes',
+          noCatalogImport: true,
+          noRuntimePublish: true,
+          noToolExecution: true,
+        }),
+      }),
+    );
+  });
+
+  it('creates a non-applicable import plan without persistence or runtime enablement', async () => {
+    const result = await mcpService.createRemoteImportPlan(
+      serverId,
+      user as never,
+      {
+        requestId: 'req_remote_import_plan',
+      },
+    );
+
+    const { reviewPackage, plan } = result;
+
+    expect(reviewPackage.snapshotHash).toBe(plan.snapshotHash);
+    expect(reviewPackage.snapshotId).toBe(plan.snapshotId);
+    expect(reviewPackage.decision.status).toBe('no_changes');
+
+    expect(plan).toEqual(
+      expect.objectContaining({
+        serverId,
+        tenantId,
+        workspaceId,
+        status: 'no_changes',
+        sourceDecisionStatus: 'no_changes',
+        preflight: expect.objectContaining({
+          canApply: false,
+          canApplyAutomatically: false,
+        }),
+      }),
+    );
+
+    expect(plan.operations).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          externalName: 'corporate.status.read',
+          type: 'noop',
+          canApply: false,
+          canApplyAutomatically: false,
+          policyDraft: expect.objectContaining({
+            allowRuntimeExecution: false,
+            sandboxOnly: true,
+            blockedByDefault: true,
+            runtimeEnabled: false,
+            remoteExecutionEnabled: false,
+          }),
+        }),
+      ]),
+    );
+
+    expect(mocks.recordAuditEvent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        action: 'mcp_remote_catalog_import_plan_created',
+        entity: 'mcp_server',
+        entityId: serverId,
+        metadata: expect.objectContaining({
+          status: 'no_changes',
+          canApply: false,
+          canApplyAutomatically: false,
+          noCatalogPersistence: true,
+          noRuntimePublish: true,
+          noToolExecution: true,
+        }),
+      }),
+    );
+
+    const serialized = JSON.stringify({
+      plan,
+      audit: mocks.recordAuditEvent.mock.calls,
+    });
+
+    expect(serialized).not.toContain(
+      'ORCHESTRA_CORPORATE_READONLY_STATUS_TOKEN',
+    );
+    expect(serialized).not.toContain('env://');
+  });
+
+  it('keeps a newly discovered low-risk tool pending human approval under the conservative policy', async () => {
+    mocks.listDiscoverySpecs.mockResolvedValueOnce([]);
+
+    mocks.runGovernedDiscovery.mockResolvedValueOnce({
+      serverId,
+      status: 'completed',
+      discoveredAt: '2026-08-21T10:30:00.000Z',
+      tools: [
+        {
+          externalName: 'corporate.status.read',
+          displayName: 'Corporate Status Read',
+          description: 'Read corporate readonly status.',
+          specHash: 'b'.repeat(64),
+          inferredRiskLevel: 'low',
+          requiresApproval: false,
+          defaultPolicy: {
+            allowRuntimeExecution: false,
+            sandboxOnly: true,
+            blockedByDefault: true,
+          },
+        },
+      ],
+      diff: {
+        added: ['corporate.status.read'],
+        changed: [],
+        removed: [],
+      },
+      warnings: [],
+      readiness: {
+        status: 'ready',
+        reason: 'Remote MCP discovery is ready.',
+      },
+      sanitizedMetadata: {
+        executionBlocked: true,
+        transportCalled: true,
+        mcpRemoteHost: 'api-hml.orchestra.mcm.eng.br',
+        toolCount: 1,
+      },
+    });
+
+    const result = await mcpService.createRemoteImportPlan(
+      serverId,
+      user as never,
+      {
+        requestId: 'req_remote_new_tool_plan',
+      },
+    );
+
+    const { reviewPackage, plan } = result;
+
+    expect(reviewPackage.snapshotHash).toBe(plan.snapshotHash);
+
+    expect(reviewPackage.decision).toEqual(
+      expect.objectContaining({
+        status: 'pending_human_review',
+        requiresHumanReview: true,
+      }),
+    );
+
+    expect(reviewPackage.diff).toEqual({
+      added: ['corporate.status.read'],
+      changed: [],
+      removed: [],
+    });
+
+    expect(plan).toEqual(
+      expect.objectContaining({
+        status: 'pending_approval',
+        sourceDecisionStatus: 'pending_human_review',
+      }),
+    );
+
+    expect(plan.operations).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          externalName: 'corporate.status.read',
+          type: 'create_tool_draft',
+          canApply: false,
+          canApplyAutomatically: false,
+          policyDraft: expect.objectContaining({
+            allowRuntimeExecution: false,
+            sandboxOnly: true,
+            blockedByDefault: true,
+            requiresApproval: true,
+            approvalMode: 'manual',
+            runtimeEnabled: false,
+            remoteExecutionEnabled: false,
+          }),
+        }),
+      ]),
+    );
+
+    expect(plan.preflight).toEqual(
+      expect.objectContaining({
+        canApply: false,
+        canApplyAutomatically: false,
+        requiresManualApproval: true,
+      }),
+    );
+  });
+
 });

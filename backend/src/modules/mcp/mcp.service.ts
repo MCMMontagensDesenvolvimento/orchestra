@@ -17,6 +17,8 @@ import { mcpRepository } from './mcp.repository';
 import { McpRemoteClient } from './remote/mcp-remote.client';
 import { getMcpRemoteConfig } from './remote/mcp-remote.config';
 import { mcpRemoteDiscoveryService } from './remote/mcp-remote-discovery.service';
+import { mcpRemoteDiscoveryApprovalService } from './remote/mcp-remote-discovery-approval.service';
+import { McpRemoteCatalogImportPlanService } from './remote/mcp-remote-catalog-import-plan.service';
 import { mcpRemoteCatalogAdminRepository } from './remote/mcp-remote-catalog-admin.repository';
 import { mcpRemoteReadinessService } from './remote/mcp-remote-readiness.service';
 import { createGovernedMcpRemoteTransport } from './remote/mcp-remote-transport.factory';
@@ -392,6 +394,58 @@ async function buildMcpExecutionPrecheck(
   };
 }
 
+const mcpRemoteCatalogImportPlanService = new McpRemoteCatalogImportPlanService();
+
+const conservativeRemoteReviewPolicy = {
+  allowAutoApproveLowRisk: false,
+  allowAutoApproveMediumRisk: false,
+  requireHumanReviewForHighRisk: true,
+  requireHumanReviewForCriticalRisk: true,
+  requireHumanReviewForChangedTools: true,
+  requireHumanReviewForRemovedTools: true,
+  blockedByDefault: true,
+} as const;
+
+const conservativeRemoteImportPolicy = {
+  allowPlanForPendingReview: true,
+  allowPlanForApprovedFutureImport: true,
+  allowHighRiskPlan: false,
+  allowCriticalRiskPlan: false,
+  blockedByDefault: true,
+} as const;
+
+async function runRemoteDiscoveryWithCatalog(
+  id: string,
+  user: AuthenticatedUser,
+  context: RequestContext,
+) {
+  const server = await getServerOrThrow(id, user);
+  assertRemoteServer(server);
+
+  const existingTools = await mcpRemoteCatalogAdminRepository.listDiscoverySpecs(
+    user.tenant.id,
+    server.workspaceId,
+    server.id,
+  );
+
+  const discovery = await mcpRemoteDiscoveryService.runGovernedDiscovery({
+    tenantId: user.tenant.id,
+    workspaceId: server.workspaceId,
+    server,
+    policy: governedRemotePolicy(server),
+    credentialsConfigured: Boolean(server.secretRef),
+    requestedByUserId: user.id,
+    requestId: context.requestId,
+    existingTools,
+  });
+
+  return {
+    server,
+    existingTools,
+    discovery,
+  };
+}
+
 export const mcpService = {
   async listServers(user: AuthenticatedUser, query: McpServersQuery, context: RequestContext) {
     if (query.workspaceId) {
@@ -468,24 +522,11 @@ export const mcpService = {
   },
 
   async discoverRemoteTools(id: string, user: AuthenticatedUser, context: RequestContext) {
-    const server = await getServerOrThrow(id, user);
-    assertRemoteServer(server);
-    const existingTools = await mcpRemoteCatalogAdminRepository.listDiscoverySpecs(
-      user.tenant.id,
-      server.workspaceId,
-      server.id,
-    );
-
-    const result = await mcpRemoteDiscoveryService.runGovernedDiscovery({
-      tenantId: user.tenant.id,
-      workspaceId: server.workspaceId,
+    const {
       server,
-      policy: governedRemotePolicy(server),
-      credentialsConfigured: Boolean(server.secretRef),
-      requestedByUserId: user.id,
-      requestId: context.requestId,
       existingTools,
-    });
+      discovery: result,
+    } = await runRemoteDiscoveryWithCatalog(id, user, context);
     await audit({
       user,
       context,
@@ -507,6 +548,109 @@ export const mcpService = {
       },
     });
     return result;
+  },
+
+  async createRemoteReviewPackage(id: string, user: AuthenticatedUser, context: RequestContext) {
+    const {
+      server,
+      existingTools,
+      discovery,
+    } = await runRemoteDiscoveryWithCatalog(id, user, context);
+
+    const reviewPackage = mcpRemoteDiscoveryApprovalService.createReviewPackage({
+      tenantId: user.tenant.id,
+      workspaceId: server.workspaceId,
+      requestedByUserId: user.id,
+      requestId: context.requestId,
+      discovery,
+      existingTools,
+      approvalPolicy: conservativeRemoteReviewPolicy,
+    });
+
+    await audit({
+      user,
+      context,
+      action: 'mcp_remote_discovery_review_package_created',
+      entity: 'mcp_server',
+      entityId: server.id,
+      workspaceId: server.workspaceId,
+      metadata: {
+        snapshotHash: reviewPackage.snapshotHash,
+        decisionStatus: reviewPackage.decision.status,
+        requiresHumanReview: reviewPackage.humanReview.required,
+        totalTools: reviewPackage.summary.totalTools,
+        addedCount: reviewPackage.summary.added,
+        changedCount: reviewPackage.summary.changed,
+        removedCount: reviewPackage.summary.removed,
+        warningCount: reviewPackage.summary.warnings,
+        lowRiskCount: reviewPackage.riskSummary.low,
+        mediumRiskCount: reviewPackage.riskSummary.medium,
+        highRiskCount: reviewPackage.riskSummary.high,
+        criticalRiskCount: reviewPackage.riskSummary.critical,
+        transportCalled: discovery.sanitizedMetadata.transportCalled === true,
+        noCatalogImport: true,
+        noRuntimePublish: true,
+        noToolExecution: true,
+      },
+    });
+
+    return reviewPackage;
+  },
+
+  async createRemoteImportPlan(id: string, user: AuthenticatedUser, context: RequestContext) {
+    const {
+      server,
+      existingTools,
+      discovery,
+    } = await runRemoteDiscoveryWithCatalog(id, user, context);
+
+    const reviewPackage = mcpRemoteDiscoveryApprovalService.createReviewPackage({
+      tenantId: user.tenant.id,
+      workspaceId: server.workspaceId,
+      requestedByUserId: user.id,
+      requestId: context.requestId,
+      discovery,
+      existingTools,
+      approvalPolicy: conservativeRemoteReviewPolicy,
+    });
+
+    const plan = mcpRemoteCatalogImportPlanService.createImportPlan({
+      reviewPackage,
+      importPolicy: conservativeRemoteImportPolicy,
+      existingCatalogTools: existingTools,
+    });
+
+    await audit({
+      user,
+      context,
+      action: 'mcp_remote_catalog_import_plan_created',
+      entity: 'mcp_server',
+      entityId: server.id,
+      workspaceId: server.workspaceId,
+      metadata: {
+        snapshotHash: plan.snapshotHash,
+        planHash: plan.planHash,
+        status: plan.status,
+        sourceDecisionStatus: plan.sourceDecisionStatus,
+        totalOperations: plan.summary.totalOperations,
+        createCount: plan.summary.create,
+        updateCount: plan.summary.update,
+        deprecateCount: plan.summary.deprecate,
+        noopCount: plan.summary.noop,
+        blockedCount: plan.summary.blocked,
+        requiresManualApproval: plan.preflight.requiresManualApproval,
+        canApply: plan.preflight.canApply,
+        canApplyAutomatically: plan.preflight.canApplyAutomatically,
+        noCatalogPersistence: true,
+        noRuntimePublish: true,
+        noToolExecution: true,
+      },
+    });
+
+    return {
+      reviewPackage,
+      plan,
+    };
   },
 
   async createServer(input: McpServerCreateInput, user: AuthenticatedUser, context: RequestContext) {
