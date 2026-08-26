@@ -18,7 +18,8 @@ import { McpRemoteClient } from './remote/mcp-remote.client';
 import { getMcpRemoteConfig } from './remote/mcp-remote.config';
 import { mcpRemoteDiscoveryService } from './remote/mcp-remote-discovery.service';
 import { mcpRemoteDiscoveryApprovalService } from './remote/mcp-remote-discovery-approval.service';
-import { McpRemoteCatalogImportPlanService } from './remote/mcp-remote-catalog-import-plan.service';
+import { mcpRemoteCatalogImportPlanService } from './remote/mcp-remote-catalog-import-plan.service';
+import { mcpRemoteCatalogImportPlanPersistenceRepository } from './remote/mcp-remote-catalog-import-plan.repository';
 import { mcpRemoteCatalogAdminRepository } from './remote/mcp-remote-catalog-admin.repository';
 import { mcpRemoteReadinessService } from './remote/mcp-remote-readiness.service';
 import { createGovernedMcpRemoteTransport } from './remote/mcp-remote-transport.factory';
@@ -394,7 +395,6 @@ async function buildMcpExecutionPrecheck(
   };
 }
 
-const mcpRemoteCatalogImportPlanService = new McpRemoteCatalogImportPlanService();
 
 const conservativeRemoteReviewPolicy = {
   allowAutoApproveLowRisk: false,
@@ -620,6 +620,11 @@ export const mcpService = {
       existingCatalogTools: existingTools,
     });
 
+    await mcpRemoteCatalogImportPlanPersistenceRepository.persistImmutable({
+      reviewPackage,
+      plan,
+    });
+
     await audit({
       user,
       context,
@@ -641,7 +646,9 @@ export const mcpService = {
         requiresManualApproval: plan.preflight.requiresManualApproval,
         canApply: plan.preflight.canApply,
         canApplyAutomatically: plan.preflight.canApplyAutomatically,
-        noCatalogPersistence: true,
+        planPersisted: true,
+        planPersistenceMode: 'server_side_immutable',
+        noCatalogMutation: true,
         noRuntimePublish: true,
         noToolExecution: true,
       },

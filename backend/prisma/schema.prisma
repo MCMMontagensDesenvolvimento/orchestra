@@ -60,6 +60,7 @@ model Tenant {
   mcpToolCallEvents          McpToolCallEvent[]
   mcpRemoteCatalogEntries    McpRemoteCatalogEntry[]
   mcpRemoteCatalogLedgers    McpRemoteCatalogApplyLedger[]
+  mcpRemoteCatalogImportPlans McpRemoteCatalogImportPlanRecord[]
   conversations              Conversation[]
   conversationMessages       ConversationMessage[]
 
@@ -110,6 +111,7 @@ model Workspace {
   mcpToolCallEvents          McpToolCallEvent[]
   mcpRemoteCatalogEntries    McpRemoteCatalogEntry[]
   mcpRemoteCatalogLedgers    McpRemoteCatalogApplyLedger[]
+  mcpRemoteCatalogImportPlans McpRemoteCatalogImportPlanRecord[]
   aiRunUsageEvents           AiRunUsageEvent[]
   aiUsageLimitPolicies       AiUsageLimitPolicy[]
   aiObservabilityAlertRules   AiObservabilityAlertRule[]
@@ -167,6 +169,7 @@ model User {
   approvedMcpRemoteCatalogEntries   McpRemoteCatalogEntry[]       @relation("McpRemoteCatalogEntryApprover")
   deprecatedMcpRemoteCatalogEntries McpRemoteCatalogEntry[]       @relation("McpRemoteCatalogEntryDeprecator")
   approvedMcpRemoteCatalogLedgers   McpRemoteCatalogApplyLedger[] @relation("McpRemoteCatalogApplyLedgerApprover")
+  requestedMcpRemoteCatalogImportPlans McpRemoteCatalogImportPlanRecord[] @relation("McpRemoteCatalogImportPlanRequester")
   aiRunUsageEvents                  AiRunUsageEvent[]             @relation("AiRunUsageEventUser")
   scopedAiUsageLimitPolicies        AiUsageLimitPolicy[]          @relation("AiUsageLimitPolicyScopedUser")
   createdAiUsageLimitPolicies       AiUsageLimitPolicy[]          @relation("AiUsageLimitPolicyCreatedBy")
@@ -958,8 +961,9 @@ model McpServer {
   bindings             AssistantMcpBinding[]
   policies             McpToolPolicy[]
   toolCalls            McpToolCall[]
-  remoteCatalogEntries McpRemoteCatalogEntry[]
-  remoteCatalogLedgers McpRemoteCatalogApplyLedger[]
+  remoteCatalogEntries     McpRemoteCatalogEntry[]
+  remoteCatalogLedgers     McpRemoteCatalogApplyLedger[]
+  remoteCatalogImportPlans McpRemoteCatalogImportPlanRecord[]
 
   @@index([tenantId])
   @@index([workspaceId])
@@ -1167,6 +1171,40 @@ model McpRemoteCatalogEntry {
   @@index([approvedByUserId])
   @@index([deprecatedByUserId])
   @@map("mcp_remote_catalog_entries")
+}
+
+model McpRemoteCatalogImportPlanRecord {
+  id                   String    @id @default(uuid()) @db.Uuid
+  tenantId             String    @map("tenant_id") @db.Uuid
+  workspaceId          String    @map("workspace_id") @db.Uuid
+  mcpServerId          String    @map("server_id") @db.Uuid
+  planId               String    @map("plan_id") @db.VarChar(160)
+  planHash             String    @map("plan_hash") @db.Char(64)
+  snapshotId           String    @map("snapshot_id") @db.VarChar(160)
+  snapshotHash         String    @map("snapshot_hash") @db.Char(64)
+  requestedByUserId    String?   @map("requested_by_user_id") @db.Uuid
+  requestId            String    @map("request_id") @db.VarChar(160)
+  sourceDecisionStatus String    @map("source_decision_status") @db.VarChar(64)
+  planStatus           String    @map("plan_status") @db.VarChar(64)
+  reviewPayload        Json      @map("review_payload")
+  planPayload          Json      @map("plan_payload")
+  schemaVersion        Int       @default(1) @map("schema_version")
+  consumedAt           DateTime? @map("consumed_at")
+  createdAt            DateTime  @default(now()) @map("created_at")
+  updatedAt            DateTime  @updatedAt @map("updated_at")
+
+  tenant      Tenant    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  server      McpServer @relation(fields: [mcpServerId], references: [id], onDelete: Cascade)
+  requestedBy User?     @relation("McpRemoteCatalogImportPlanRequester", fields: [requestedByUserId], references: [id], onDelete: SetNull)
+
+  @@unique([tenantId, workspaceId, mcpServerId, planId], map: "mcp_remote_catalog_import_plans_scope_plan_key")
+  @@index([tenantId, workspaceId, mcpServerId, planStatus])
+  @@index([planHash])
+  @@index([snapshotHash])
+  @@index([requestedByUserId])
+  @@index([createdAt])
+  @@map("mcp_remote_catalog_import_plans")
 }
 
 model McpRemoteCatalogApplyLedger {

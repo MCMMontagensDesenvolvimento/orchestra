@@ -16,6 +16,9 @@ const mocks = vi.hoisted(() => ({
   mcpRemoteDiscoveryService: {
     runGovernedDiscovery: vi.fn(),
   },
+  mcpRemoteCatalogImportPlanPersistenceRepository: {
+    persistImmutable: vi.fn(),
+  },
   recordAuditEvent: vi.fn().mockResolvedValue(undefined),
 }));
 
@@ -29,6 +32,11 @@ vi.mock('../../src/modules/mcp/remote/mcp-remote-catalog-admin.repository', () =
 
 vi.mock('../../src/modules/mcp/remote/mcp-remote-discovery.service', () => ({
   mcpRemoteDiscoveryService: mocks.mcpRemoteDiscoveryService,
+}));
+
+vi.mock('../../src/modules/mcp/remote/mcp-remote-catalog-import-plan.repository', () => ({
+  mcpRemoteCatalogImportPlanPersistenceRepository:
+    mocks.mcpRemoteCatalogImportPlanPersistenceRepository,
 }));
 
 vi.mock('../../src/modules/audit/audit.service', () => ({
@@ -176,6 +184,11 @@ describe('MCP remote review and import plan API', () => {
       discoveryFixture(),
     );
 
+    mocks.mcpRemoteCatalogImportPlanPersistenceRepository.persistImmutable
+      .mockResolvedValue({
+        id: '00000000-0000-0000-0000-000000000801',
+      });
+
     mocks.recordAuditEvent.mockResolvedValue(undefined);
   });
 
@@ -211,6 +224,10 @@ describe('MCP remote review and import plan API', () => {
     ).not.toHaveBeenCalled();
     expect(
       mocks.mcpRemoteDiscoveryService.runGovernedDiscovery,
+    ).not.toHaveBeenCalled();
+
+    expect(
+      mocks.mcpRemoteCatalogImportPlanPersistenceRepository.persistImmutable,
     ).not.toHaveBeenCalled();
   });
 
@@ -350,7 +367,9 @@ describe('MCP remote review and import plan API', () => {
           status: 'pending_approval',
           canApply: false,
           canApplyAutomatically: false,
-          noCatalogPersistence: true,
+          planPersisted: true,
+          planPersistenceMode: 'server_side_immutable',
+          noCatalogMutation: true,
           noRuntimePublish: true,
           noToolExecution: true,
         }),

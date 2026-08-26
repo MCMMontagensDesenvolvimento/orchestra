@@ -396,7 +396,8 @@ function sanitizedMetadata(input: {
     sourceDecisionStatus: input.reviewPackage.decision.status,
     status: input.status,
     operationTypes: input.operationTypes,
-    noCatalogPersistence: true,
+    planPersistenceMode: 'server_side_immutable',
+    noCatalogMutation: true,
     noRuntimePublish: true,
     noToolExecution: true,
     canApply: false,
@@ -483,7 +484,7 @@ export class McpRemoteCatalogImportPlanService {
         riskSummary: riskSummaryValue,
         operationTypes: types,
         metadata: {
-          noCatalogPersistence: true,
+          noCatalogMutation: true,
           noRuntimePublish: true,
           noToolExecution: true,
         },

@@ -4,6 +4,7 @@ const mocks = vi.hoisted(() => ({
   findServer: vi.fn(),
   listDiscoverySpecs: vi.fn(),
   runGovernedDiscovery: vi.fn(),
+  persistImmutable: vi.fn(),
   recordAuditEvent: vi.fn(),
 }));
 
@@ -22,6 +23,12 @@ vi.mock('../../src/modules/mcp/remote/mcp-remote-catalog-admin.repository', () =
 vi.mock('../../src/modules/mcp/remote/mcp-remote-discovery.service', () => ({
   mcpRemoteDiscoveryService: {
     runGovernedDiscovery: mocks.runGovernedDiscovery,
+  },
+}));
+
+vi.mock('../../src/modules/mcp/remote/mcp-remote-catalog-import-plan.repository', () => ({
+  mcpRemoteCatalogImportPlanPersistenceRepository: {
+    persistImmutable: mocks.persistImmutable,
   },
 }));
 
@@ -123,6 +130,9 @@ describe('mcpService remote discovery with persisted catalog', () => {
       },
     });
 
+    mocks.persistImmutable.mockResolvedValue({
+      id: '00000000-0000-0000-0000-000000000801',
+    });
     mocks.recordAuditEvent.mockResolvedValue(undefined);
   });
 
@@ -277,7 +287,7 @@ describe('mcpService remote discovery with persisted catalog', () => {
     );
   });
 
-  it('creates a non-applicable import plan without persistence or runtime enablement', async () => {
+  it('creates and persists an immutable import plan without catalog mutation or runtime enablement', async () => {
     const result = await mcpService.createRemoteImportPlan(
       serverId,
       user as never,
@@ -324,6 +334,12 @@ describe('mcpService remote discovery with persisted catalog', () => {
       ]),
     );
 
+    expect(mocks.persistImmutable).toHaveBeenCalledTimes(1);
+    expect(mocks.persistImmutable).toHaveBeenCalledWith({
+      reviewPackage,
+      plan,
+    });
+
     expect(mocks.recordAuditEvent).toHaveBeenCalledWith(
       expect.objectContaining({
         action: 'mcp_remote_catalog_import_plan_created',
@@ -333,7 +349,9 @@ describe('mcpService remote discovery with persisted catalog', () => {
           status: 'no_changes',
           canApply: false,
           canApplyAutomatically: false,
-          noCatalogPersistence: true,
+          planPersisted: true,
+          planPersistenceMode: 'server_side_immutable',
+          noCatalogMutation: true,
           noRuntimePublish: true,
           noToolExecution: true,
         }),
@@ -349,6 +367,25 @@ describe('mcpService remote discovery with persisted catalog', () => {
       'ORCHESTRA_CORPORATE_READONLY_STATUS_TOKEN',
     );
     expect(serialized).not.toContain('env://');
+  });
+
+  it('does not audit import plan creation when immutable persistence fails', async () => {
+    mocks.persistImmutable.mockRejectedValueOnce(
+      new Error('immutable plan persistence failed'),
+    );
+
+    await expect(
+      mcpService.createRemoteImportPlan(
+        serverId,
+        user as never,
+        {
+          requestId: 'req_remote_import_plan_persistence_failure',
+        },
+      ),
+    ).rejects.toThrow('immutable plan persistence failed');
+
+    expect(mocks.persistImmutable).toHaveBeenCalledTimes(1);
+    expect(mocks.recordAuditEvent).not.toHaveBeenCalled();
   });
 
   it('keeps a newly discovered low-risk tool pending human approval under the conservative policy', async () => {
