@@ -241,7 +241,7 @@ function blockedOutput(input: McpRemoteDiscoveryInput, readiness: McpRemoteReadi
     diff: {
       added: [],
       changed: [],
-      removed: (input.existingTools ?? []).map((tool) => tool.externalName).sort(),
+      removed: [],
     },
     warnings,
     readiness,
@@ -363,7 +363,7 @@ export class McpRemoteDiscoveryService {
         diff: {
           added: [],
           changed: [],
-          removed: (input.existingTools ?? []).map((tool) => tool.externalName).sort(),
+          removed: [],
         },
         warnings,
         readiness,

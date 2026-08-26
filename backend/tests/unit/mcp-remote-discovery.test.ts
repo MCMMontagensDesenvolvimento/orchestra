@@ -157,6 +157,78 @@ describe('MCP remote governed discovery', () => {
     expect(transport.discoverTools).not.toHaveBeenCalled();
   });
 
+  it('does not infer removed tools when discovery is blocked before transport', async () => {
+    const { McpRemoteDiscoveryService } = await loadRemote();
+
+    const transport: McpRemoteDiscoveryTransport = {
+      discoverTools: vi.fn(),
+    };
+
+    const service = new McpRemoteDiscoveryService({
+      transport,
+      config: failClosedConfig,
+      resolveHost: resolvePublicHost,
+    });
+
+    const result = await service.runGovernedDiscovery(
+      discoveryInput({
+        existingTools: [
+          {
+            externalName: 'corporate.status.read',
+            specHash: 'a'.repeat(64),
+          },
+        ],
+      }),
+    );
+
+    expect(result.status).toBe('blocked');
+    expect(result.diff).toEqual({
+      added: [],
+      changed: [],
+      removed: [],
+    });
+    expect(transport.discoverTools).not.toHaveBeenCalled();
+  });
+
+  it('does not infer removed tools when remote discovery fails', async () => {
+    const { McpRemoteDiscoveryService } = await loadRemote();
+
+    const transport: McpRemoteDiscoveryTransport = {
+      discoverTools: vi.fn(async () => {
+        throw new Error('transport unavailable');
+      }),
+    };
+
+    const service = new McpRemoteDiscoveryService({
+      transport,
+      config: discoveryEnabledExecutionBlockedConfig,
+      resolveHost: resolvePublicHost,
+    });
+
+    const result = await service.runGovernedDiscovery(
+      discoveryInput({
+        existingTools: [
+          {
+            externalName: 'corporate.status.read',
+            specHash: 'a'.repeat(64),
+          },
+        ],
+      }),
+    );
+
+    expect(result.status).toBe('failed');
+    expect(result.diff).toEqual({
+      added: [],
+      changed: [],
+      removed: [],
+    });
+    expect(result.sanitizedMetadata).toMatchObject({
+      transportCalled: true,
+      executionBlocked: true,
+    });
+    expect(transport.discoverTools).toHaveBeenCalledTimes(1);
+  });
+
   it('allows governed discovery while execution remains disabled and normalizes returned tools', async () => {
     const { McpRemoteDiscoveryService } = await loadRemote();
     const fetchMock = vi.fn();
