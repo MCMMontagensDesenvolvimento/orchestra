@@ -53,6 +53,20 @@ export const mcpController = {
     return res.status(200).json({ data, requestId: req.requestId });
   },
 
+  async applyRemoteImportPlan(req: Request, res: Response) {
+    const data = await mcpService.applyRemoteImportPlan(
+      req.params.id,
+      req.body,
+      req.user!,
+      requestContext(req),
+    );
+
+    return res.status(200).json({
+      data,
+      requestId: req.requestId,
+    });
+  },
+
   async createServer(req: Request, res: Response) {
     const data = await mcpService.createServer(req.body, req.user!, requestContext(req));
     return res.status(201).json({ data, requestId: req.requestId });

@@ -195,6 +195,20 @@ export const assistantMcpBindingParamsSchema = z.object({
   bindingId: z.string().uuid(),
 });
 
+export const mcpRemoteImportApplySchema = z.object({
+  planId: z.string()
+    .trim()
+    .regex(/^mcp_remote_catalog_import_plan_[a-f0-9]{24}$/),
+  planHash: z.string()
+    .trim()
+    .regex(/^[a-f0-9]{64}$/),
+  confirmManualApply: z.literal(true),
+  approvalReason: z.string()
+    .trim()
+    .min(8)
+    .max(1000),
+}).strict();
+
 export const mcpExecutionRequestSchema = z.object({
   mcpToolId: z.string().uuid(),
   agentRunId: z.string().uuid().optional(),
@@ -223,6 +237,7 @@ export type McpResourceCreateInput = z.infer<typeof mcpResourceCreateSchema>;
 export type McpPromptCreateInput = z.infer<typeof mcpPromptCreateSchema>;
 export type AssistantMcpBindingCreateInput = z.infer<typeof assistantMcpBindingCreateSchema>;
 export type AssistantMcpBindingUpdateInput = z.infer<typeof assistantMcpBindingUpdateSchema>;
+export type McpRemoteImportApplyInput = z.infer<typeof mcpRemoteImportApplySchema>;
 export type McpExecutionRequestInput = z.infer<typeof mcpExecutionRequestSchema>;
 export type McpToolCallsQuery = z.infer<typeof mcpToolCallsQuerySchema>;
 export type McpToolCallStatus = typeof mcpToolCallStatusValues[number];

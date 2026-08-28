@@ -634,25 +634,52 @@ export class McpRemoteCatalogImportApplyPersistenceRepository implements McpRemo
   }
 
   async reserveApply(input: McpRemoteCatalogApplyReservationInput): Promise<void> {
-    const existing = await this.db.mcpRemoteCatalogApplyLedger.findFirst({
-      where: {
-        tenantId: input.tenantId,
-        workspaceId: input.workspaceId,
-        mcpServerId: input.serverId,
-        idempotencyKey: input.idempotencyKey,
-      },
-    });
-    if (existing) {
-      if (existing.status === 'started') throw new McpRemoteCatalogApplyInProgressError();
-      throw new McpRemoteCatalogApplyConflictError('apply ledger already has a final result for this idempotency key.');
+    const scope = {
+      tenantId: input.tenantId,
+      workspaceId: input.workspaceId,
+      mcpServerId: input.serverId,
+    };
+
+    const existingByIdempotencyKey =
+      await this.db.mcpRemoteCatalogApplyLedger.findFirst({
+        where: {
+          ...scope,
+          idempotencyKey: hashOrSha256(input.idempotencyKey),
+        },
+      });
+
+    if (existingByIdempotencyKey) {
+      if (existingByIdempotencyKey.status === 'started') {
+        throw new McpRemoteCatalogApplyInProgressError();
+      }
+
+      throw new McpRemoteCatalogApplyConflictError(
+        'apply ledger already has a final result for this idempotency key.',
+      );
+    }
+
+    const existingByPlan =
+      await this.db.mcpRemoteCatalogApplyLedger.findFirst({
+        where: {
+          ...scope,
+          planId: input.planId,
+        },
+      });
+
+    if (existingByPlan) {
+      if (existingByPlan.status === 'started') {
+        throw new McpRemoteCatalogApplyInProgressError();
+      }
+
+      throw new McpRemoteCatalogApplyConflictError(
+        'apply ledger already has a final result for this governed import plan.',
+      );
     }
 
     try {
       await this.db.mcpRemoteCatalogApplyLedger.create({
         data: {
-          tenantId: input.tenantId,
-          workspaceId: input.workspaceId,
-          mcpServerId: input.serverId,
+          ...scope,
           planId: input.planId,
           planHash: hashOrSha256(input.planHash),
           snapshotHash: hashOrSha256(input.snapshotHash),
@@ -660,7 +687,9 @@ export class McpRemoteCatalogImportApplyPersistenceRepository implements McpRemo
           applyHash: hashOrSha256(input.applyHash),
           idempotencyKey: hashOrSha256(input.idempotencyKey),
           approvedByUserId: input.approvedByUserId,
-          approvalReasonHash: input.approvalReasonHash ? hashOrSha256(input.approvalReasonHash) : undefined,
+          approvalReasonHash: input.approvalReasonHash
+            ? hashOrSha256(input.approvalReasonHash)
+            : undefined,
           status: 'started',
           summary: undefined,
           operationResults: undefined,
@@ -668,7 +697,10 @@ export class McpRemoteCatalogImportApplyPersistenceRepository implements McpRemo
         },
       });
     } catch (error) {
-      if (prismaErrorCode(error) === 'P2002') throw new McpRemoteCatalogApplyInProgressError();
+      if (prismaErrorCode(error) === 'P2002') {
+        throw new McpRemoteCatalogApplyInProgressError();
+      }
+
       throw error;
     }
   }

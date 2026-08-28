@@ -1,5 +1,5 @@
 import { describe, expect, it, vi, afterEach } from 'vitest';
-import type { PrismaClient } from '@prisma/client';
+import { Prisma, type PrismaClient } from '@prisma/client';
 import {
   MCP_REMOTE_CATALOG_APPLY_IN_PROGRESS,
   McpRemoteCatalogImportApplyPersistenceRepository,
@@ -197,9 +197,27 @@ class FakeRemoteCatalogPrisma {
         ledger.tenantId === data.tenantId
         && ledger.workspaceId === data.workspaceId
         && ledger.mcpServerId === data.mcpServerId
-        && ledger.idempotencyKey === data.idempotencyKey
+        && (
+          ledger.idempotencyKey === data.idempotencyKey
+          || ledger.applyId === data.applyId
+          || ledger.planId === data.planId
+        )
       ))) {
-        throw new Error('unique ledger conflict');
+        throw new Prisma.PrismaClientKnownRequestError(
+          'unique ledger conflict',
+          {
+            code: 'P2002',
+            clientVersion: Prisma.prismaVersion.client,
+            meta: {
+              target: [
+                'tenant_id',
+                'workspace_id',
+                'server_id',
+                'plan_id',
+              ],
+            },
+          },
+        );
       }
       const ledger: LedgerRow = {
         id: `ledger_${this.ledgers.length + 1}`,
@@ -629,6 +647,76 @@ describe('MCP remote catalog import apply persistence repository 11J', () => {
       serverId,
       approvalReasonHash: hashB,
     })).rejects.toMatchObject({ code: MCP_REMOTE_CATALOG_APPLY_IN_PROGRESS });
+  });
+
+  it('blocks a second reservation for the same plan with another idempotency key', async () => {
+    const { fake, repository } = repositoryWith();
+
+    await repository.reserveApply({
+      ...applyContext(),
+      tenantId,
+      workspaceId,
+      serverId,
+      approvalReasonHash: hashB,
+    });
+
+    await expect(
+      repository.reserveApply({
+        ...applyContext({
+          applyId: 'mcp_remote_catalog_apply_second_approver',
+          applyHash: hashB,
+          idempotencyKey: hashC,
+          approvedByUserId: '00000000-0000-0000-0000-000000000041',
+        }),
+        tenantId,
+        workspaceId,
+        serverId,
+        approvalReasonHash: hashB,
+      }),
+    ).rejects.toMatchObject({
+      code: MCP_REMOTE_CATALOG_APPLY_IN_PROGRESS,
+    });
+
+    expect(fake.ledgers).toHaveLength(1);
+  });
+
+  it('does not mutate the catalog twice when another approver applies the same plan', async () => {
+    const { fake, repository } = repositoryWith();
+    const service = new McpRemoteCatalogImportApplyService(repository);
+
+    const firstInput = {
+      plan: importPlan(),
+      authorization: {
+        approvedByUserId,
+        approvalReason: 'Human review approved the blocked draft.',
+        confirmManualApply: true,
+      },
+      appliedAt,
+    };
+
+    const first = await service.applyImportPlan(firstInput);
+
+    const second = await service.applyImportPlan({
+      ...firstInput,
+      authorization: {
+        ...firstInput.authorization,
+        approvedByUserId: '00000000-0000-0000-0000-000000000041',
+      },
+      appliedAt: '2026-06-27T17:00:00.000Z',
+    });
+
+    expect(first.status).toBe('applied');
+    expect(second.status).toBe('blocked');
+
+    expect(fake.entries).toHaveLength(1);
+    expect(fake.ledgers).toHaveLength(1);
+
+    expect(fake.operationalWrites).toEqual({
+      mcpTool: 0,
+      mcpToolPolicy: 0,
+      assistantMcpBinding: 0,
+      mcpToolCall: 0,
+    });
   });
 
   it('keeps sanitized audit data through the existing audit port', async () => {

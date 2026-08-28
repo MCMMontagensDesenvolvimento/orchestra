@@ -15,6 +15,7 @@ import {
   mcpPromptCreateSchema,
   mcpResourceCreateSchema,
   mcpExecutionRequestSchema,
+  mcpRemoteImportApplySchema,
   mcpServerChildParamsSchema,
   mcpServerCreateSchema,
   mcpServersQuerySchema,
@@ -101,6 +102,17 @@ export function createMcpRouter() {
     validateParams(idParamsSchema),
     (req, res, next) => {
       void mcpController.createRemoteImportPlan(req, res).catch(next);
+    },
+  );
+
+  router.post(
+    '/servers/:id/remote-import-apply',
+    requireAuth,
+    requirePermission('mcp.manage'),
+    validateParams(idParamsSchema),
+    validateBody(mcpRemoteImportApplySchema),
+    (req, res, next) => {
+      void mcpController.applyRemoteImportPlan(req, res).catch(next);
     },
   );
 

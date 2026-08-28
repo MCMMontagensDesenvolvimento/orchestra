@@ -361,11 +361,11 @@ export class McpRemoteCatalogImportApplyService {
     const authReasons = validateAuthorization(input.authorization);
     const applyKey = idempotencyKey(input);
     const metadata = {
-      source: 'mcp_remote_catalog_import_apply_11f',
+      source: 'mcp_remote_catalog_manual_apply',
+      manualApproval: true,
       dryRun: input.options?.dryRun === true,
       noRuntimeEnablement: true,
       noRemoteToolExecution: true,
-      noPublicEndpoint: true,
     };
 
     if (authReasons.length > 0) {

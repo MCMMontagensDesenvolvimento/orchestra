@@ -56,6 +56,49 @@ function sha256(value: unknown) {
   return createHash('sha256').update(stableStringify(value)).digest('hex');
 }
 
+export type McpRemoteCatalogImportPlanHashInput = Pick<
+  McpRemoteCatalogImportPlan,
+  | 'snapshotId'
+  | 'snapshotHash'
+  | 'serverId'
+  | 'tenantId'
+  | 'workspaceId'
+  | 'requestedByUserId'
+  | 'requestId'
+  | 'createdAt'
+  | 'sourceDecisionStatus'
+  | 'status'
+  | 'operations'
+  | 'summary'
+  | 'riskSummary'
+  | 'validation'
+  | 'preflight'
+  | 'sanitizedMetadata'
+>;
+
+export function computeMcpRemoteCatalogImportPlanHash(
+  plan: McpRemoteCatalogImportPlanHashInput,
+) {
+  return sha256({
+    snapshotId: plan.snapshotId,
+    snapshotHash: plan.snapshotHash,
+    serverId: plan.serverId,
+    tenantId: plan.tenantId,
+    workspaceId: plan.workspaceId,
+    requestedByUserId: plan.requestedByUserId,
+    requestId: plan.requestId,
+    createdAt: plan.createdAt,
+    sourceDecisionStatus: plan.sourceDecisionStatus,
+    status: plan.status,
+    operations: plan.operations,
+    summary: plan.summary,
+    riskSummary: plan.riskSummary,
+    validation: plan.validation,
+    preflight: plan.preflight,
+    sanitizedMetadata: plan.sanitizedMetadata,
+  });
+}
+
 function safeString(value: unknown, maxChars: number): string | undefined {
   if (typeof value !== 'string') return undefined;
   const normalized = value.replace(/\s+/g, ' ').trim();
@@ -444,7 +487,7 @@ export class McpRemoteCatalogImportPlanService {
       preflight: preflightValue,
       sanitizedMetadata: metadata,
     };
-    const planHash = sha256(hashPayload);
+    const planHash = computeMcpRemoteCatalogImportPlanHash(hashPayload);
 
     return {
       planId: `mcp_remote_catalog_import_plan_${planHash.slice(0, 24)}`,

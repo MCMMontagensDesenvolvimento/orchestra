@@ -1233,6 +1233,7 @@ model McpRemoteCatalogApplyLedger {
 
   @@unique([tenantId, workspaceId, mcpServerId, idempotencyKey], map: "mcp_remote_catalog_apply_ledgers_scope_idempotency_key")
   @@unique([tenantId, workspaceId, mcpServerId, applyId], map: "mcp_remote_catalog_apply_ledgers_scope_apply_key")
+  @@unique([tenantId, workspaceId, mcpServerId, planId], map: "mcp_remote_catalog_apply_ledgers_scope_plan_key")
   @@index([tenantId, workspaceId, mcpServerId, status])
   @@index([tenantId])
   @@index([workspaceId])

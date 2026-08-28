@@ -20,6 +20,8 @@ import { mcpRemoteDiscoveryService } from './remote/mcp-remote-discovery.service
 import { mcpRemoteDiscoveryApprovalService } from './remote/mcp-remote-discovery-approval.service';
 import { mcpRemoteCatalogImportPlanService } from './remote/mcp-remote-catalog-import-plan.service';
 import { mcpRemoteCatalogImportPlanPersistenceRepository } from './remote/mcp-remote-catalog-import-plan.repository';
+import { McpRemoteCatalogImportApplyService } from './remote/mcp-remote-catalog-import-apply.service';
+import { McpRemoteCatalogImportApplyPersistenceRepository } from './remote/mcp-remote-catalog-import-apply.repository';
 import { mcpRemoteCatalogAdminRepository } from './remote/mcp-remote-catalog-admin.repository';
 import { mcpRemoteReadinessService } from './remote/mcp-remote-readiness.service';
 import { createGovernedMcpRemoteTransport } from './remote/mcp-remote-transport.factory';
@@ -31,6 +33,7 @@ import type {
   AssistantMcpBindingCreateInput,
   AssistantMcpBindingUpdateInput,
   McpExecutionRequestInput,
+  McpRemoteImportApplyInput,
   McpToolCallsQuery,
   McpPromptCreateInput,
   McpResourceCreateInput,
@@ -396,6 +399,11 @@ async function buildMcpExecutionPrecheck(
 }
 
 
+const mcpRemoteCatalogImportApplyService =
+  new McpRemoteCatalogImportApplyService(
+    new McpRemoteCatalogImportApplyPersistenceRepository(),
+  );
+
 const conservativeRemoteReviewPolicy = {
   allowAutoApproveLowRisk: false,
   allowAutoApproveMediumRisk: false,
@@ -658,6 +666,104 @@ export const mcpService = {
       reviewPackage,
       plan,
     };
+  },
+
+  async applyRemoteImportPlan(
+    id: string,
+    input: McpRemoteImportApplyInput,
+    user: AuthenticatedUser,
+    context: RequestContext,
+  ) {
+    const server = await getServerOrThrow(id, user);
+    assertRemoteServer(server);
+
+    let loadedPlan;
+
+    try {
+      loadedPlan =
+        await mcpRemoteCatalogImportPlanPersistenceRepository.findForApply({
+          tenantId: user.tenant.id,
+          workspaceId: server.workspaceId,
+          serverId: server.id,
+          planId: input.planId,
+        });
+    } catch (error) {
+      const code =
+        typeof error === 'object' &&
+        error !== null &&
+        'code' in error
+          ? String((error as { code?: unknown }).code)
+          : '';
+
+      if (code === 'MCP_REMOTE_IMPORT_PLAN_PERSISTENCE_CONFLICT') {
+        throw new AppError(
+          409,
+          'MCP_REMOTE_IMPORT_PLAN_INTEGRITY_FAILED',
+          'Plano MCP remoto persistido falhou na verificacao de integridade.',
+        );
+      }
+
+      throw error;
+    }
+
+    if (!loadedPlan) {
+      throw new AppError(
+        404,
+        'MCP_REMOTE_IMPORT_PLAN_NOT_FOUND',
+        'Plano MCP remoto persistido nao encontrado.',
+      );
+    }
+
+    if (loadedPlan.record.planHash !== input.planHash) {
+      throw new AppError(
+        409,
+        'MCP_REMOTE_IMPORT_PLAN_HASH_MISMATCH',
+        'O hash informado nao corresponde ao plano MCP remoto persistido.',
+      );
+    }
+
+    const result =
+      await mcpRemoteCatalogImportApplyService.applyImportPlan({
+        plan: loadedPlan.plan,
+        authorization: {
+          approvedByUserId: user.id,
+          approvalReason: input.approvalReason,
+          confirmManualApply: input.confirmManualApply,
+        },
+        options: {
+          allowPendingApprovalApply: true,
+        },
+      });
+
+    await audit({
+      user,
+      context,
+      action: 'mcp_remote_catalog_import_manual_apply_requested',
+      entity: 'mcp_server',
+      entityId: server.id,
+      workspaceId: server.workspaceId,
+      metadata: {
+        planId: loadedPlan.plan.planId,
+        planHash: loadedPlan.plan.planHash,
+        snapshotHash: loadedPlan.plan.snapshotHash,
+        applyId: result.applyId,
+        applyHash: result.applyHash,
+        status: result.status,
+        noRuntimeEnablement: true,
+        noRemoteToolExecution: true,
+        noToolMaterialization: true,
+      },
+    });
+
+    if (result.status === 'blocked') {
+      throw new AppError(
+        409,
+        'MCP_REMOTE_CATALOG_IMPORT_APPLY_BLOCKED',
+        'O Manual Apply do plano MCP remoto foi bloqueado pela governanca.',
+      );
+    }
+
+    return result;
   },
 
   async createServer(input: McpServerCreateInput, user: AuthenticatedUser, context: RequestContext) {

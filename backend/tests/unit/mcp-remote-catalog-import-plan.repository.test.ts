@@ -334,7 +334,12 @@ describe('MCP remote catalog immutable import plan persistence', () => {
         planId: pair.plan.planId,
       }),
     ).resolves.toMatchObject({
-      planId: pair.plan.planId,
+      record: expect.objectContaining({
+        planId: pair.plan.planId,
+      }),
+      plan: expect.objectContaining({
+        planId: pair.plan.planId,
+      }),
     });
 
     await expect(
