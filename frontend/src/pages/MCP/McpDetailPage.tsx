@@ -24,6 +24,7 @@ import {
   useMcpTools,
   useUpdateMcpToolMutation,
 } from '@/hooks/queries/useMcp';
+import { useCurrentSession } from '@/hooks/queries/useAuth';
 import {
   ArrowLeft, Server, Wrench, FileCode, MessageSquare, Link2, Shield, Clock, Globe,
   Settings, AlertTriangle, CheckCircle2, XCircle, Loader2,
@@ -31,7 +32,18 @@ import {
 } from 'lucide-react';
 import type { RiskLevel } from '@/types';
 import { mcpService } from '@/services/mcp.service';
-import type { McpLocalDemoPrecheckResult, McpRemoteDiscoveryResult, McpRemoteReadinessResult, McpToolPayload } from '@/services/mcp.service';
+import type {
+  McpLocalDemoPrecheckResult,
+  McpRemoteDiscoveryResult,
+  McpRemoteImportApplyResult,
+  McpRemoteImportPlanResult,
+  McpRemoteReadinessResult,
+  McpToolPayload,
+} from '@/services/mcp.service';
+import {
+  buildMcpRemoteManualApplyPayload,
+  isMcpRemoteManualApplyReady,
+} from './mcpRemoteApproval';
 import { toast } from '@/hooks/use-toast';
 
 const riskColors: Record<RiskLevel, string> = {
@@ -123,9 +135,22 @@ function formatDatePtBr(value: string | null | undefined) {
   return date.toLocaleDateString('pt-BR');
 }
 
+function formatDateTimePtBr(value: string | null | undefined) {
+  if (!value) return '—';
+
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return value;
+
+  return date.toLocaleString('pt-BR', {
+    dateStyle: 'short',
+    timeStyle: 'short',
+  });
+}
+
 export default function McpDetailPage() {
   const { id } = useParams<{ id: string }>();
   const serverQuery = useMcpServer(id);
+  const { data: currentSession } = useCurrentSession();
   const { data: mockMcpTools = [] } = useMcpTools(id);
   const { data: mockMcpResources = [] } = useMcpResources(id);
   const { data: mockMcpPrompts = [] } = useMcpPrompts(id);
@@ -135,6 +160,7 @@ export default function McpDetailPage() {
   const updateMcpToolMutation = useUpdateMcpToolMutation();
   const navigate = useNavigate();
   const server = serverQuery.data;
+  const currentUser = currentSession?.user;
 
   const tools = useMemo(() => mockMcpTools.filter(t => t.serverId === id), [mockMcpTools, id]);
   const resources = useMemo(() => mockMcpResources.filter(r => r.serverId === id), [mockMcpResources, id]);
@@ -150,8 +176,15 @@ export default function McpDetailPage() {
   const [toolForm, setToolForm] = useState(defaultToolForm);
   const [remoteReadiness, setRemoteReadiness] = useState<McpRemoteReadinessResult | null>(null);
   const [remoteDiscovery, setRemoteDiscovery] = useState<McpRemoteDiscoveryResult | null>(null);
+  const [remoteImportPlan, setRemoteImportPlan] = useState<McpRemoteImportPlanResult | null>(null);
+  const [remoteApplyResult, setRemoteApplyResult] = useState<McpRemoteImportApplyResult | null>(null);
+  const [manualApplyDialogOpen, setManualApplyDialogOpen] = useState(false);
+  const [approvalReason, setApprovalReason] = useState('');
+  const [manualApplyConfirmed, setManualApplyConfirmed] = useState(false);
   const [localPrecheck, setLocalPrecheck] = useState<McpLocalDemoPrecheckResult | null>(null);
-  const [remoteCheckPending, setRemoteCheckPending] = useState<'readiness' | 'discovery' | 'local_precheck' | null>(null);
+  const [remoteCheckPending, setRemoteCheckPending] = useState<
+    'readiness' | 'discovery' | 'plan' | 'apply' | 'local_precheck' | null
+  >(null);
 
   useEffect(() => {
     setApprovalStates(Object.fromEntries(tools.map(t => [t.id, t.requiresApproval])));
@@ -228,6 +261,108 @@ export default function McpDetailPage() {
     }
   };
 
+  const prepareRemoteImportPlan = async () => {
+    if (!id) return;
+
+    setRemoteCheckPending('plan');
+
+    try {
+      const result = await mcpService.remoteImportPlan(id);
+
+      setRemoteImportPlan(result);
+      setRemoteApplyResult(null);
+
+      toast({
+        title: result.plan.status === 'pending_approval'
+          ? 'Plano governado aguardando aprovação'
+          : result.plan.status === 'no_changes'
+            ? 'Catálogo remoto sem alterações'
+            : 'Plano governado preparado',
+        description: result.plan.status === 'pending_approval'
+          ? `${result.plan.operations.length} operação(ões) requerem revisão manual.`
+          : `${result.plan.operations.length} operação(ões) no plano atual.`,
+      });
+    } catch (error) {
+      toast({
+        title: 'Não foi possível preparar o Import Plan',
+        description: error instanceof Error
+          ? error.message
+          : 'Falha sanitizada ao preparar o plano governado.',
+        variant: 'destructive',
+      });
+    } finally {
+      setRemoteCheckPending(null);
+    }
+  };
+
+  const openManualApplyDialog = () => {
+    const plan = remoteImportPlan?.plan;
+
+    if (!isMcpRemoteManualApplyReady(plan)) {
+      toast({
+        title: 'Plano não disponível para aprovação',
+        description:
+          'O plano atual não atende aos gates governados de Manual Apply.',
+        variant: 'destructive',
+      });
+      return;
+    }
+
+    if (!currentUser) {
+      toast({
+        title: 'Identidade da sessão indisponível',
+        description:
+          'Recarregue a sessão antes de registrar uma aprovação manual.',
+        variant: 'destructive',
+      });
+      return;
+    }
+
+    setApprovalReason('');
+    setManualApplyConfirmed(false);
+    setManualApplyDialogOpen(true);
+  };
+
+  const applyRemoteImportPlan = async () => {
+    if (!id || !remoteImportPlan) return;
+
+    try {
+      const payload = buildMcpRemoteManualApplyPayload(
+        remoteImportPlan.plan,
+        approvalReason,
+      );
+
+      setRemoteCheckPending('apply');
+
+      const result = await mcpService.remoteImportApply(id, payload);
+
+      setRemoteApplyResult(result);
+      setManualApplyDialogOpen(false);
+      setManualApplyConfirmed(false);
+      setApprovalReason('');
+
+      toast({
+        title: result.status === 'applied'
+          ? 'Aprovado para o catálogo governado'
+          : 'Manual Apply concluído',
+        description: result.status === 'applied'
+          ? 'A aprovação foi registrada sem habilitar runtime ou execução remota.'
+          : `Resultado do Manual Apply: ${result.status}.`,
+        variant: result.status === 'blocked' ? 'destructive' : 'default',
+      });
+    } catch (error) {
+      toast({
+        title: 'Manual Apply não concluído',
+        description: error instanceof Error
+          ? error.message
+          : 'A governança bloqueou ou não concluiu a aprovação.',
+        variant: 'destructive',
+      });
+    } finally {
+      setRemoteCheckPending(null);
+    }
+  };
+
   const toggleApproval = async (toolId: string) => {
     const tool = tools.find(t => t.id === toolId);
     if (!tool) return;
@@ -298,7 +433,7 @@ export default function McpDetailPage() {
           <div className="space-y-2">
             <p className="text-xs text-muted-foreground">{isLocalDemo
               ? 'Este catálogo é local, determinístico e imutável na interface. A pré-checagem valida disponibilidade e políticas sem executar ferramenta, abrir rede, chamar provedor, gerar embeddings ou iniciar Chat/AgentRun.'
-              : 'O MCP remoto permanece desabilitado por padrão e só fica disponível com origem HTTPS exata, referência de credencial, configurações, vínculo e política aprovados. Nenhuma ação de escrita é oferecida.'}</p>
+              : 'O MCP remoto permanece governado e somente leitura. Execução remota e ferramentas de escrita continuam bloqueadas; a única mutação disponível nesta fase é a aprovação humana do catálogo governado.'}</p>
             {isLocalDemo && (
               <Button variant="outline" size="sm" disabled={remoteCheckPending !== null} onClick={() => { void checkLocalDemo(); }}>
                 {remoteCheckPending === 'local_precheck' ? <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" /> : <Shield className="mr-1 h-3.5 w-3.5" />}
@@ -314,6 +449,24 @@ export default function McpDetailPage() {
                 <Button variant="outline" size="sm" disabled={remoteCheckPending !== null} onClick={() => { void discoverRemoteCatalog(); }}>
                   {remoteCheckPending === 'discovery' ? <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" /> : <Search className="mr-1 h-3.5 w-3.5" />}
                   Consultar catálogo somente leitura
+                </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  disabled={
+                    remoteCheckPending !== null
+                    || remoteDiscovery?.status !== 'completed'
+                    || (
+                      remoteImportPlan !== null
+                      && remoteApplyResult === null
+                    )
+                  }
+                  onClick={() => { void prepareRemoteImportPlan(); }}
+                >
+                  {remoteCheckPending === 'plan'
+                    ? <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" />
+                    : <Shield className="mr-1 h-3.5 w-3.5" />}
+                  Gerar plano para aprovação
                 </Button>
               </div>
             )}
@@ -339,6 +492,179 @@ export default function McpDetailPage() {
                   </Badge>
                 ))}
                 {remoteDiscovery.tools.length === 0 && <span className="text-muted-foreground">Nenhuma ferramenta exposta.</span>}
+              </div>
+            )}
+          </div>
+        )}
+
+        {isRemoteServer && remoteImportPlan && (
+          <div className="rounded-lg border border-warning/30 bg-card p-5 space-y-4">
+            <div className="flex flex-wrap items-start justify-between gap-3">
+              <div>
+                <div className="flex flex-wrap items-center gap-2">
+                  <Shield className="h-4 w-4 text-warning" />
+                  <h3 className="font-semibold">Plano governado de importação</h3>
+                  <Badge
+                    variant={
+                      remoteApplyResult?.status === 'applied'
+                        ? 'default'
+                        : 'secondary'
+                    }
+                  >
+                    {remoteApplyResult?.status === 'applied'
+                      ? 'Aprovado para o catálogo'
+                      : remoteImportPlan.plan.status}
+                  </Badge>
+                </div>
+                <p className="mt-1 text-xs text-muted-foreground">
+                  A aprovação altera somente o catálogo governado. Ela não
+                  materializa McpTool e não habilita execução remota.
+                </p>
+              </div>
+
+              {!remoteApplyResult && (
+                <Button
+                  size="sm"
+                  onClick={openManualApplyDialog}
+                  disabled={
+                    !isMcpRemoteManualApplyReady(remoteImportPlan.plan)
+                    || remoteCheckPending !== null
+                    || !currentUser
+                  }
+                >
+                  <Shield className="mr-1 h-3.5 w-3.5" />
+                  Aprovar inclusão no catálogo
+                </Button>
+              )}
+            </div>
+
+            <div className="grid gap-2 text-xs sm:grid-cols-2 lg:grid-cols-4">
+              <div className="rounded border bg-background/70 p-3">
+                <p className="text-muted-foreground">Decisão de origem</p>
+                <p className="mt-1 font-medium">
+                  {remoteImportPlan.plan.sourceDecisionStatus}
+                </p>
+              </div>
+              <div className="rounded border bg-background/70 p-3">
+                <p className="text-muted-foreground">Aprovação</p>
+                <p className="mt-1 font-medium">
+                  {remoteImportPlan.plan.preflight.requiresManualApproval
+                    ? 'Manual obrigatória'
+                    : 'Não requerida'}
+                </p>
+              </div>
+              <div className="rounded border bg-background/70 p-3">
+                <p className="text-muted-foreground">Runtime</p>
+                <p className="mt-1 font-medium">Desabilitado</p>
+              </div>
+              <div className="rounded border bg-background/70 p-3">
+                <p className="text-muted-foreground">Materialização</p>
+                <p className="mt-1 font-medium">Não realizada</p>
+              </div>
+            </div>
+
+            <div className="space-y-2">
+              {remoteImportPlan.plan.operations.map((operation) => (
+                <div
+                  key={operation.operationId}
+                  className="rounded-lg border bg-background/70 p-4"
+                >
+                  <div className="flex flex-wrap items-start justify-between gap-3">
+                    <div>
+                      <p className="font-medium">{operation.displayName}</p>
+                      <p className="font-mono text-xs text-muted-foreground">
+                        {operation.externalName}
+                      </p>
+                    </div>
+                    <div className="flex flex-wrap gap-1">
+                      <span
+                        className={`inline-flex rounded-full border px-2 py-0.5 text-[10px] font-medium ${riskColors[operation.riskLevel]}`}
+                      >
+                        Risco {riskLevelLabel(operation.riskLevel)}
+                      </span>
+                      <Badge variant="outline">
+                        {operation.type === 'create_tool_draft'
+                          ? 'Incluir no catálogo'
+                          : operation.type}
+                      </Badge>
+                    </div>
+                  </div>
+
+                  <p className="mt-2 text-xs text-muted-foreground">
+                    {operation.reason}
+                  </p>
+
+                  <div className="mt-3 flex flex-wrap gap-2">
+                    <Badge variant="outline">
+                      Aprovação: {operation.requiresApproval ? 'manual' : 'não'}
+                    </Badge>
+                    <Badge variant="outline">
+                      Runtime: {operation.policyDraft.runtimeEnabled ? 'habilitado' : 'desabilitado'}
+                    </Badge>
+                    <Badge variant="outline">
+                      Execução remota: {operation.policyDraft.remoteExecutionEnabled ? 'habilitada' : 'desabilitada'}
+                    </Badge>
+                    <Badge variant="outline">
+                      Bloqueado por padrão: {operation.policyDraft.blockedByDefault ? 'sim' : 'não'}
+                    </Badge>
+                  </div>
+                </div>
+              ))}
+
+              {remoteImportPlan.plan.operations.length === 0 && (
+                <div className="rounded border p-4 text-xs text-muted-foreground">
+                  Nenhuma alteração de catálogo foi proposta neste snapshot.
+                </div>
+              )}
+            </div>
+
+            <div className="rounded border bg-muted/30 p-3 text-xs">
+              <div className="grid gap-2 sm:grid-cols-2">
+                <div>
+                  <span className="text-muted-foreground">Plan ID</span>
+                  <code className="mt-1 block break-all">
+                    {remoteImportPlan.plan.planId}
+                  </code>
+                </div>
+                <div>
+                  <span className="text-muted-foreground">Snapshot</span>
+                  <code className="mt-1 block break-all">
+                    {remoteImportPlan.plan.snapshotId}
+                  </code>
+                </div>
+              </div>
+            </div>
+
+            {remoteApplyResult?.status === 'applied' && (
+              <div className="rounded-lg border border-success/30 bg-success/5 p-4">
+                <div className="flex items-center gap-2">
+                  <CheckCircle2 className="h-4 w-4 text-success" />
+                  <p className="font-medium">Aprovado para o catálogo governado</p>
+                </div>
+
+                <div className="mt-3 grid gap-2 text-xs sm:grid-cols-2 lg:grid-cols-4">
+                  {currentUser && (
+                    <div>
+                      <p className="text-muted-foreground">Aprovado por</p>
+                      <p className="font-medium">{currentUser.name}</p>
+                      <p className="text-muted-foreground">{currentUser.email}</p>
+                    </div>
+                  )}
+                  <div>
+                    <p className="text-muted-foreground">Aplicado em</p>
+                    <p className="font-medium">
+                      {formatDateTimePtBr(remoteApplyResult.appliedAt)}
+                    </p>
+                  </div>
+                  <div>
+                    <p className="text-muted-foreground">Runtime</p>
+                    <p className="font-medium">Desabilitado</p>
+                  </div>
+                  <div>
+                    <p className="text-muted-foreground">McpTool</p>
+                    <p className="font-medium">Não materializado</p>
+                  </div>
+                </div>
               </div>
             )}
           </div>
@@ -653,6 +979,126 @@ export default function McpDetailPage() {
           </TabsContent>
         </Tabs>
       </div>
+
+      <Dialog
+        open={manualApplyDialogOpen}
+        onOpenChange={(open) => {
+          if (remoteCheckPending !== 'apply') {
+            setManualApplyDialogOpen(open);
+          }
+        }}
+      >
+        <DialogContent className="max-w-xl">
+          <DialogHeader>
+            <DialogTitle>Aprovar inclusão no catálogo</DialogTitle>
+            <DialogDescription>
+              Esta aprovação altera somente o catálogo MCP governado.
+              Runtime, execução remota e materialização de McpTool permanecem bloqueados.
+            </DialogDescription>
+          </DialogHeader>
+
+          {remoteImportPlan && (
+            <div className="space-y-4">
+              <div className="rounded-lg border bg-muted/30 p-4">
+                <div className="space-y-3 text-sm">
+                  <div className="flex justify-between gap-4">
+                    <span className="text-muted-foreground">Operações</span>
+                    <span className="font-medium">
+                      {remoteImportPlan.plan.operations.length}
+                    </span>
+                  </div>
+                  <div className="flex justify-between gap-4">
+                    <span className="text-muted-foreground">Aprovação</span>
+                    <span className="font-medium">Manual obrigatória</span>
+                  </div>
+                  <div className="flex justify-between gap-4">
+                    <span className="text-muted-foreground">Runtime</span>
+                    <span className="font-medium">Desabilitado</span>
+                  </div>
+                  <div className="flex justify-between gap-4">
+                    <span className="text-muted-foreground">Execução remota</span>
+                    <span className="font-medium">Desabilitada</span>
+                  </div>
+                  <div className="flex justify-between gap-4">
+                    <span className="text-muted-foreground">Materialização</span>
+                    <span className="font-medium">Não realizada</span>
+                  </div>
+                </div>
+              </div>
+
+              {currentUser && (
+                <div className="rounded-lg border p-3 text-sm">
+                  <p className="text-xs text-muted-foreground">
+                    A aprovação será registrada em nome de
+                  </p>
+                  <p className="mt-1 font-medium">{currentUser.name}</p>
+                  <p className="text-xs text-muted-foreground">
+                    {currentUser.email}
+                  </p>
+                </div>
+              )}
+
+              <div className="space-y-2">
+                <Label htmlFor="mcp-approval-reason">
+                  Motivo da aprovação
+                </Label>
+                <Textarea
+                  id="mcp-approval-reason"
+                  value={approvalReason}
+                  onChange={(event) => setApprovalReason(event.target.value)}
+                  rows={4}
+                  maxLength={1000}
+                  placeholder="Descreva o motivo corporativo desta aprovação..."
+                />
+                <div className="flex justify-between text-[10px] text-muted-foreground">
+                  <span>Mínimo de 8 caracteres</span>
+                  <span>{approvalReason.length}/1000</span>
+                </div>
+              </div>
+
+              <label className="flex items-start gap-3 rounded-lg border p-3">
+                <Switch
+                  checked={manualApplyConfirmed}
+                  onCheckedChange={setManualApplyConfirmed}
+                />
+                <div>
+                  <p className="text-sm font-medium">
+                    Confirmo a aprovação manual deste plano
+                  </p>
+                  <p className="text-xs text-muted-foreground">
+                    Confirmo somente a inclusão no catálogo governado.
+                    Nenhuma execução MCP é autorizada por esta ação.
+                  </p>
+                </div>
+              </label>
+            </div>
+          )}
+
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => setManualApplyDialogOpen(false)}
+              disabled={remoteCheckPending === 'apply'}
+            >
+              Cancelar
+            </Button>
+            <Button
+              onClick={() => { void applyRemoteImportPlan(); }}
+              disabled={
+                remoteCheckPending === 'apply'
+                || !manualApplyConfirmed
+                || approvalReason.trim().length < 8
+                || !currentUser
+              }
+            >
+              {remoteCheckPending === 'apply' && (
+                <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" />
+              )}
+              Aprovar inclusão no catálogo
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       <Dialog open={toolDialogOpen} onOpenChange={setToolDialogOpen}>
         <DialogContent className="max-w-2xl">

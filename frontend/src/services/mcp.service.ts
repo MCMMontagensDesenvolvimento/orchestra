@@ -236,6 +236,135 @@ export interface McpRemoteDiscoveryResult {
   };
 }
 
+export interface McpRemoteImportPlanOperation {
+  operationId: string;
+  type: 'create_tool_draft' | 'update_tool_draft' | 'deprecate_tool_draft' | 'noop';
+  externalName: string;
+  displayName: string;
+  reason: string;
+  riskLevel: RiskLevel;
+  requiresApproval: boolean;
+  canApply: boolean;
+  canApplyAutomatically: boolean;
+  specHash: string;
+  previousSpecHash?: string | null;
+  policyDraft: {
+    allowRuntimeExecution: boolean;
+    sandboxOnly: boolean;
+    blockedByDefault: boolean;
+    approvalMode: string;
+    runtimeEnabled: boolean;
+    remoteExecutionEnabled: boolean;
+  };
+  validationMessages: Array<{
+    code: string;
+    level: string;
+    message: string;
+  }>;
+}
+
+export interface McpRemoteImportPlan {
+  planId: string;
+  planHash: string;
+  snapshotId: string;
+  snapshotHash: string;
+  serverId: string;
+  tenantId: string;
+  workspaceId: string;
+  requestedByUserId: string;
+  requestId: string;
+  createdAt: string;
+  sourceDecisionStatus: string;
+  status: 'pending_approval' | 'ready_for_manual_apply' | 'no_changes' | 'blocked';
+  operations: McpRemoteImportPlanOperation[];
+  summary: {
+    totalOperations: number;
+    create: number;
+    update: number;
+    deprecate: number;
+    noop: number;
+    blocked: number;
+  };
+  riskSummary: {
+    low: number;
+    medium: number;
+    high: number;
+    critical: number;
+  };
+  validation: {
+    valid: boolean;
+    errors: unknown[];
+    warnings: unknown[];
+  };
+  preflight: {
+    canApply: boolean;
+    canApplyAutomatically: boolean;
+    requiresManualApproval: boolean;
+    checks: Array<{
+      name: string;
+      status: 'pass' | 'fail' | 'skipped';
+      message: string;
+    }>;
+  };
+  sanitizedMetadata: Record<string, unknown>;
+}
+
+export interface McpRemoteImportPlanResult {
+  reviewPackage: {
+    decision: {
+      status: string;
+      requiresHumanReview: boolean;
+      reasons: string[];
+    };
+    snapshotId: string;
+    snapshotHash: string;
+    sanitizedMetadata: Record<string, unknown>;
+  };
+  plan: McpRemoteImportPlan;
+}
+
+export interface McpRemoteImportApplyPayload {
+  planId: string;
+  planHash: string;
+  confirmManualApply: true;
+  approvalReason: string;
+}
+
+export interface McpRemoteImportApplyResult {
+  applyId: string;
+  applyHash: string;
+  idempotencyKey: string;
+  planId: string;
+  planHash: string;
+  snapshotHash: string;
+  serverId: string;
+  tenantId: string;
+  workspaceId: string;
+  approvedByUserId: string;
+  appliedAt: string;
+  status: 'applied' | 'blocked' | 'no_changes';
+  operationResults: Array<{
+    operationId: string;
+    type: string;
+    externalName: string;
+    status: 'applied' | 'blocked' | 'skipped' | 'failed' | 'noop' | 'idempotent';
+    catalogItemId?: string;
+    reason?: string;
+    runtimeEnabled?: boolean;
+    remoteExecutionEnabled?: boolean;
+  }>;
+  summary: {
+    total: number;
+    applied: number;
+    blocked: number;
+    skipped: number;
+    failed: number;
+    noop: number;
+    idempotent: number;
+  };
+  sanitizedMetadata: Record<string, unknown>;
+}
+
 export interface McpLocalDemoPrecheckResult {
   serverId: string;
   status: 'ready';
@@ -640,6 +769,38 @@ export const mcpService = {
       sanitizedMetadata: { transportCalled: false, reason: 'remote_disabled' },
     });
     const response = await apiClient.get<ApiEnvelope<McpRemoteDiscoveryResult>>(endpoints.mcp.remoteDiscovery(id));
+    return response.data.data;
+  },
+
+  async remoteImportPlan(id: string): Promise<McpRemoteImportPlanResult> {
+    if (env.useMocks) {
+      throw new Error(
+        'Import Plan MCP remoto não é simulado. Use um ambiente governado conectado.',
+      );
+    }
+
+    const response = await apiClient.post<ApiEnvelope<McpRemoteImportPlanResult>>(
+      endpoints.mcp.remoteImportPlan(id),
+    );
+
+    return response.data.data;
+  },
+
+  async remoteImportApply(
+    id: string,
+    payload: McpRemoteImportApplyPayload,
+  ): Promise<McpRemoteImportApplyResult> {
+    if (env.useMocks) {
+      throw new Error(
+        'Manual Apply MCP remoto não é simulado. Use um ambiente governado conectado.',
+      );
+    }
+
+    const response = await apiClient.post<ApiEnvelope<McpRemoteImportApplyResult>>(
+      endpoints.mcp.remoteImportApply(id),
+      payload,
+    );
+
     return response.data.data;
   },
 
