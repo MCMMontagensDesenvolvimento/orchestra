@@ -135,6 +135,22 @@ function formatDatePtBr(value: string | null | undefined) {
   return date.toLocaleDateString('pt-BR');
 }
 
+function remotePlanStatusLabel(status: string) {
+  if (status === 'pending_approval') return 'Aguardando aprovação';
+  if (status === 'ready_for_manual_apply') return 'Pronto para aprovação manual';
+  if (status === 'no_changes') return 'Sem alterações';
+  if (status === 'blocked') return 'Bloqueado';
+  return status;
+}
+
+function remoteOperationLabel(type: string) {
+  if (type === 'create_tool_draft') return 'Incluir no catálogo';
+  if (type === 'update_tool_draft') return 'Atualizar catálogo';
+  if (type === 'deprecate_tool_draft') return 'Descontinuar do catálogo';
+  if (type === 'noop') return 'Sem alteração';
+  return type;
+}
+
 function formatDateTimePtBr(value: string | null | undefined) {
   if (!value) return '—';
 
@@ -280,7 +296,9 @@ export default function McpDetailPage() {
             : 'Plano governado preparado',
         description: result.plan.status === 'pending_approval'
           ? `${result.plan.operations.length} operação(ões) requerem revisão manual.`
-          : `${result.plan.operations.length} operação(ões) no plano atual.`,
+          : result.plan.status === 'no_changes'
+            ? 'Nenhuma alteração aplicável foi identificada no catálogo remoto.'
+            : `${result.plan.operations.length} operação(ões) no plano atual.`,
       });
     } catch (error) {
       toast({
@@ -479,7 +497,9 @@ export default function McpDetailPage() {
               <Badge variant={remoteReadiness?.status === 'ready' ? 'default' : 'destructive'}>
                 {remoteReadiness?.status ?? remoteDiscovery?.status}
               </Badge>
-              <Badge variant="outline">fail-closed: {remoteReadiness?.failClosed ? 'sim' : 'não'}</Badge>
+              <Badge variant="outline">
+                Bloqueio fail-closed: {remoteReadiness?.failClosed ? 'acionado' : 'não acionado'}
+              </Badge>
               <Badge variant="outline">simulated: {String(remoteReadiness?.simulated ?? false)}</Badge>
               {remoteReadiness?.mcpRemoteHost && <Badge variant="outline">host: {remoteReadiness.mcpRemoteHost}</Badge>}
             </div>
@@ -513,7 +533,7 @@ export default function McpDetailPage() {
                   >
                     {remoteApplyResult?.status === 'applied'
                       ? 'Aprovado para o catálogo'
-                      : remoteImportPlan.plan.status}
+                      : remotePlanStatusLabel(remoteImportPlan.plan.status)}
                   </Badge>
                 </div>
                 <p className="mt-1 text-xs text-muted-foreground">
@@ -522,27 +542,31 @@ export default function McpDetailPage() {
                 </p>
               </div>
 
-              {!remoteApplyResult && (
+              {!remoteApplyResult && isMcpRemoteManualApplyReady(remoteImportPlan.plan) && (
                 <Button
                   size="sm"
                   onClick={openManualApplyDialog}
-                  disabled={
-                    !isMcpRemoteManualApplyReady(remoteImportPlan.plan)
-                    || remoteCheckPending !== null
-                    || !currentUser
-                  }
+                  disabled={remoteCheckPending !== null || !currentUser}
                 >
                   <Shield className="mr-1 h-3.5 w-3.5" />
                   Aprovar inclusão no catálogo
                 </Button>
               )}
+
+              {!remoteApplyResult
+                && remoteImportPlan.plan.status === 'no_changes' && (
+                  <Badge variant="outline" className="gap-1">
+                    <CheckCircle2 className="h-3.5 w-3.5 text-success" />
+                    Nenhuma aprovação necessária
+                  </Badge>
+                )}
             </div>
 
             <div className="grid gap-2 text-xs sm:grid-cols-2 lg:grid-cols-4">
               <div className="rounded border bg-background/70 p-3">
                 <p className="text-muted-foreground">Decisão de origem</p>
                 <p className="mt-1 font-medium">
-                  {remoteImportPlan.plan.sourceDecisionStatus}
+                  {remotePlanStatusLabel(remoteImportPlan.plan.sourceDecisionStatus)}
                 </p>
               </div>
               <div className="rounded border bg-background/70 p-3">
@@ -583,20 +607,24 @@ export default function McpDetailPage() {
                         Risco {riskLevelLabel(operation.riskLevel)}
                       </span>
                       <Badge variant="outline">
-                        {operation.type === 'create_tool_draft'
-                          ? 'Incluir no catálogo'
-                          : operation.type}
+                        {remoteOperationLabel(operation.type)}
                       </Badge>
                     </div>
                   </div>
 
                   <p className="mt-2 text-xs text-muted-foreground">
-                    {operation.reason}
+                    {operation.type === 'noop'
+                      ? 'O descritor da ferramenta permanece inalterado no snapshot governado mais recente.'
+                      : operation.reason}
                   </p>
 
                   <div className="mt-3 flex flex-wrap gap-2">
                     <Badge variant="outline">
-                      Aprovação: {operation.requiresApproval ? 'manual' : 'não'}
+                      Aprovação: {operation.type === 'noop'
+                        ? 'não aplicável'
+                        : operation.requiresApproval
+                          ? 'manual'
+                          : 'não'}
                     </Badge>
                     <Badge variant="outline">
                       Runtime: {operation.policyDraft.runtimeEnabled ? 'habilitado' : 'desabilitado'}
