@@ -365,6 +365,104 @@ export interface McpRemoteImportApplyResult {
   sanitizedMetadata: Record<string, unknown>;
 }
 
+export interface McpRemoteCatalogEntry {
+  id: string;
+  tenantId: string;
+  workspaceId: string;
+  serverId: string;
+  externalName: string;
+  displayName: string;
+  description: string | null;
+  source: string;
+  lifecycleStatus: string;
+  riskLevel: RiskLevel;
+  requiresApproval: boolean;
+  specHash: string;
+  catalogHash: string;
+  policy: {
+    allowRuntimeExecution: boolean;
+    sandboxOnly: boolean;
+    blockedByDefault: boolean;
+    approvalMode: string;
+    runtimeEnabled: boolean;
+    remoteExecutionEnabled: boolean;
+  };
+  snapshot: {
+    snapshotId: string;
+    snapshotHash: string;
+  };
+  lastPlan: {
+    planId: string | null;
+    planHash: string | null;
+  };
+  lastApply: {
+    applyId: string | null;
+    applyHash: string | null;
+  };
+  revision: number;
+  importedByUserId: string;
+  importedAt: string;
+  approvedByUserId: string | null;
+  approvedAt: string | null;
+  deprecatedByUserId: string | null;
+  deprecatedAt: string | null;
+  deprecationReasonHash: string | null;
+  materialization: {
+    isMaterialized: boolean;
+  };
+  createdAt: string;
+  updatedAt: string;
+  deletedAt: string | null;
+}
+
+export interface McpRemoteCatalogEntryDetail
+  extends McpRemoteCatalogEntry {
+  schemas: {
+    input: unknown;
+    output: unknown;
+    summary: {
+      input: {
+        present: boolean;
+        type: string;
+        topLevelKeys: string[];
+        sizeBytes: number;
+      };
+      output: {
+        present: boolean;
+        type: string;
+        topLevelKeys: string[];
+        sizeBytes: number;
+      };
+    };
+  };
+}
+
+export interface McpRemoteCatalogMaterializationResult {
+  status: 'materialized' | 'already_materialized';
+  catalogEntryId: string;
+  serverId: string;
+  mcpTool: {
+    id: string;
+    externalName: string;
+    displayName: string;
+    riskLevel: RiskLevel;
+    requiresApproval: boolean;
+    isEnabled: boolean;
+    policy: {
+      allowRuntimeExecution: boolean;
+      sandboxOnly: boolean;
+      requiresApproval: boolean;
+      blockedByDefault: boolean;
+    };
+  };
+  safeguards: {
+    readOnly: boolean;
+    runtimeEnabled: boolean;
+    remoteExecutionEnabled: boolean;
+    toolExecutionPerformed: boolean;
+  };
+}
+
 export interface McpLocalDemoPrecheckResult {
   serverId: string;
   status: 'ready';
@@ -800,6 +898,56 @@ export const mcpService = {
       endpoints.mcp.remoteImportApply(id),
       payload,
     );
+
+    return response.data.data;
+  },
+
+  async remoteCatalogEntries(
+    serverId: string,
+  ): Promise<McpRemoteCatalogEntry[]> {
+    if (env.useMocks) return mockResponse([]);
+
+    const endpoint =
+      `${endpoints.mcp.remoteCatalogEntries}?serverId=${encodeURIComponent(serverId)}`;
+
+    const response =
+      await apiClient.get<PaginatedApiEnvelope<McpRemoteCatalogEntry>>(
+        endpoint,
+      );
+
+    return response.data.data;
+  },
+
+  async remoteCatalogEntry(
+    entryId: string,
+  ): Promise<McpRemoteCatalogEntryDetail> {
+    if (env.useMocks) {
+      throw new Error(
+        'Remote Catalog MCP não é simulado. Use um ambiente governado conectado.',
+      );
+    }
+
+    const response =
+      await apiClient.get<ApiEnvelope<McpRemoteCatalogEntryDetail>>(
+        endpoints.mcp.remoteCatalogEntry(entryId),
+      );
+
+    return response.data.data;
+  },
+
+  async materializeRemoteCatalogEntry(
+    entryId: string,
+  ): Promise<McpRemoteCatalogMaterializationResult> {
+    if (env.useMocks) {
+      throw new Error(
+        'Materialização MCP remota não é simulada. Use um ambiente governado conectado.',
+      );
+    }
+
+    const response =
+      await apiClient.post<ApiEnvelope<McpRemoteCatalogMaterializationResult>>(
+        endpoints.mcp.remoteCatalogMaterialize(entryId),
+      );
 
     return response.data.data;
   },

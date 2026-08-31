@@ -34,6 +34,7 @@ import type { RiskLevel } from '@/types';
 import { mcpService } from '@/services/mcp.service';
 import type {
   McpLocalDemoPrecheckResult,
+  McpRemoteCatalogEntry,
   McpRemoteDiscoveryResult,
   McpRemoteImportApplyResult,
   McpRemoteImportPlanResult,
@@ -44,6 +45,10 @@ import {
   buildMcpRemoteManualApplyPayload,
   isMcpRemoteManualApplyReady,
 } from './mcpRemoteApproval';
+import {
+  isMcpRemoteCatalogEntryMaterializable,
+  remoteMaterializationSummary,
+} from './mcpRemoteMaterialization';
 import { toast } from '@/hooks/use-toast';
 
 const riskColors: Record<RiskLevel, string> = {
@@ -167,7 +172,8 @@ export default function McpDetailPage() {
   const { id } = useParams<{ id: string }>();
   const serverQuery = useMcpServer(id);
   const { data: currentSession } = useCurrentSession();
-  const { data: mockMcpTools = [] } = useMcpTools(id);
+  const toolsQuery = useMcpTools(id);
+  const { data: mockMcpTools = [] } = toolsQuery;
   const { data: mockMcpResources = [] } = useMcpResources(id);
   const { data: mockMcpPrompts = [] } = useMcpPrompts(id);
   const { data: mockMcpBindings = [] } = useMcpBindings();
@@ -177,6 +183,9 @@ export default function McpDetailPage() {
   const navigate = useNavigate();
   const server = serverQuery.data;
   const currentUser = currentSession?.user;
+  const currentUserPermissions =
+    (currentUser as { permissions?: string[] } | undefined)?.permissions ?? [];
+  const canManageMcp = currentUserPermissions.includes('mcp.manage');
 
   const tools = useMemo(() => mockMcpTools.filter(t => t.serverId === id), [mockMcpTools, id]);
   const resources = useMemo(() => mockMcpResources.filter(r => r.serverId === id), [mockMcpResources, id]);
@@ -194,6 +203,13 @@ export default function McpDetailPage() {
   const [remoteDiscovery, setRemoteDiscovery] = useState<McpRemoteDiscoveryResult | null>(null);
   const [remoteImportPlan, setRemoteImportPlan] = useState<McpRemoteImportPlanResult | null>(null);
   const [remoteApplyResult, setRemoteApplyResult] = useState<McpRemoteImportApplyResult | null>(null);
+  const [remoteCatalogEntries, setRemoteCatalogEntries] = useState<McpRemoteCatalogEntry[]>([]);
+  const [remoteCatalogLoading, setRemoteCatalogLoading] = useState(false);
+  const [remoteCatalogError, setRemoteCatalogError] = useState<string | null>(null);
+  const [materializationDialogOpen, setMaterializationDialogOpen] = useState(false);
+  const [materializationEntry, setMaterializationEntry] = useState<McpRemoteCatalogEntry | null>(null);
+  const [materializationConfirmed, setMaterializationConfirmed] = useState(false);
+  const [materializationPending, setMaterializationPending] = useState(false);
   const [manualApplyDialogOpen, setManualApplyDialogOpen] = useState(false);
   const [approvalReason, setApprovalReason] = useState('');
   const [manualApplyConfirmed, setManualApplyConfirmed] = useState(false);
@@ -205,6 +221,55 @@ export default function McpDetailPage() {
   useEffect(() => {
     setApprovalStates(Object.fromEntries(tools.map(t => [t.id, t.requiresApproval])));
   }, [tools]);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    const remoteServer =
+      server?.serverType === 'remote'
+      || server?.serverType === 'external';
+
+    if (!id || !remoteServer || !currentUser || !canManageMcp) {
+      setRemoteCatalogEntries([]);
+      setRemoteCatalogLoading(false);
+      setRemoteCatalogError(null);
+      return undefined;
+    }
+
+    setRemoteCatalogLoading(true);
+    setRemoteCatalogError(null);
+
+    void mcpService.remoteCatalogEntries(id)
+      .then((entries) => {
+        if (!cancelled) {
+          setRemoteCatalogEntries(entries);
+        }
+      })
+      .catch((error) => {
+        if (!cancelled) {
+          setRemoteCatalogEntries([]);
+          setRemoteCatalogError(
+            error instanceof Error
+              ? error.message
+              : 'Não foi possível carregar o catálogo governado.',
+          );
+        }
+      })
+      .finally(() => {
+        if (!cancelled) {
+          setRemoteCatalogLoading(false);
+        }
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    id,
+    server?.serverType,
+    currentUser,
+    canManageMcp,
+  ]);
 
   const filteredTools = useMemo(() => {
     return tools.filter(t => !toolSearch || t.name.toLowerCase().includes(toolSearch.toLowerCase()) || t.description.toLowerCase().includes(toolSearch.toLowerCase()));
@@ -223,6 +288,112 @@ export default function McpDetailPage() {
   const isRemoteServer = server.serverType === 'remote' || server.serverType === 'external';
   const serverMetadata = metadataRecord(server.metadata);
   const isLocalDemo = server.serverType === 'local' && serverMetadata.localDemo === true && serverMetadata.phase === '18D';
+
+  const materializationSummary = !canManageMcp
+    ? 'Não verificada'
+    : remoteCatalogLoading
+      ? 'Carregando…'
+      : remoteCatalogError
+        ? 'Indisponível'
+        : remoteMaterializationSummary(remoteCatalogEntries);
+
+  const refreshRemoteCatalog = async () => {
+    if (!id || !isRemoteServer || !canManageMcp) return;
+
+    try {
+      setRemoteCatalogError(null);
+
+      const entries = await mcpService.remoteCatalogEntries(id);
+      setRemoteCatalogEntries(entries);
+    } catch (error) {
+      setRemoteCatalogError(
+        error instanceof Error
+          ? error.message
+          : 'Não foi possível atualizar o catálogo governado.',
+      );
+    }
+  };
+
+  const openMaterializationDialog = (
+    entry: McpRemoteCatalogEntry,
+  ) => {
+    if (!isMcpRemoteCatalogEntryMaterializable(entry)) {
+      toast({
+        title: 'Materialização não disponível',
+        description:
+          'A entrada não atende aos gates governados de materialização.',
+        variant: 'destructive',
+      });
+      return;
+    }
+
+    setMaterializationEntry(entry);
+    setMaterializationConfirmed(false);
+    setMaterializationDialogOpen(true);
+  };
+
+  const materializeRemoteCatalogEntry = async () => {
+    if (
+      !materializationEntry
+      || !currentUser
+      || !canManageMcp
+    ) {
+      return;
+    }
+
+    if (
+      !isMcpRemoteCatalogEntryMaterializable(
+        materializationEntry,
+      )
+    ) {
+      toast({
+        title: 'Materialização bloqueada',
+        description:
+          'O catálogo mudou e a entrada não atende mais aos gates governados.',
+        variant: 'destructive',
+      });
+      return;
+    }
+
+    try {
+      setMaterializationPending(true);
+
+      const result =
+        await mcpService.materializeRemoteCatalogEntry(
+          materializationEntry.id,
+        );
+
+      setMaterializationDialogOpen(false);
+      setMaterializationConfirmed(false);
+      setMaterializationEntry(null);
+
+      await Promise.all([
+        refreshRemoteCatalog(),
+        toolsQuery.refetch(),
+        serverQuery.refetch(),
+      ]);
+
+      toast({
+        title:
+          result.status === 'materialized'
+            ? 'Ferramenta materializada'
+            : 'Ferramenta já materializada',
+        description:
+          `${result.mcpTool.displayName} foi registrada como McpTool desabilitada. Runtime e execução remota permanecem bloqueados.`,
+      });
+    } catch (error) {
+      toast({
+        title: 'Materialização não concluída',
+        description:
+          error instanceof Error
+            ? error.message
+            : 'A governança bloqueou ou não concluiu a materialização.',
+        variant: 'destructive',
+      });
+    } finally {
+      setMaterializationPending(false);
+    }
+  };
 
   const checkLocalDemo = async () => {
     if (!id) return;
@@ -451,7 +622,7 @@ export default function McpDetailPage() {
           <div className="space-y-2">
             <p className="text-xs text-muted-foreground">{isLocalDemo
               ? 'Este catálogo é local, determinístico e imutável na interface. A pré-checagem valida disponibilidade e políticas sem executar ferramenta, abrir rede, chamar provedor, gerar embeddings ou iniciar Chat/AgentRun.'
-              : 'O MCP remoto permanece governado e somente leitura. Execução remota e ferramentas de escrita continuam bloqueadas; a única mutação disponível nesta fase é a aprovação humana do catálogo governado.'}</p>
+              : 'O MCP remoto permanece governado e somente leitura. Execução remota e ferramentas de escrita continuam bloqueadas. Aprovação humana e materialização governada do catálogo são separadas da autorização de execução.'}</p>
             {isLocalDemo && (
               <Button variant="outline" size="sm" disabled={remoteCheckPending !== null} onClick={() => { void checkLocalDemo(); }}>
                 {remoteCheckPending === 'local_precheck' ? <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" /> : <Shield className="mr-1 h-3.5 w-3.5" />}
@@ -583,7 +754,9 @@ export default function McpDetailPage() {
               </div>
               <div className="rounded border bg-background/70 p-3">
                 <p className="text-muted-foreground">Materialização</p>
-                <p className="mt-1 font-medium">Não realizada</p>
+                <p className="mt-1 font-medium">
+                  {materializationSummary}
+                </p>
               </div>
             </div>
 
@@ -690,11 +863,249 @@ export default function McpDetailPage() {
                   </div>
                   <div>
                     <p className="text-muted-foreground">McpTool</p>
-                    <p className="font-medium">Não materializado</p>
+                    <p className="font-medium">
+                      {materializationSummary}
+                    </p>
                   </div>
                 </div>
               </div>
             )}
+          </div>
+        )}
+
+        {isRemoteServer && canManageMcp && (
+          <div className="rounded-lg border bg-card p-5 space-y-4">
+            <div className="flex flex-wrap items-start justify-between gap-3">
+              <div>
+                <div className="flex items-center gap-2">
+                  <Wrench className="h-4 w-4 text-primary" />
+                  <h3 className="font-semibold">
+                    Catálogo governado
+                  </h3>
+                </div>
+                <p className="mt-1 text-xs text-muted-foreground">
+                  Entradas aprovadas são materializadas separadamente como
+                  McpTool. Materializar não autoriza runtime nem execução remota.
+                </p>
+              </div>
+
+              <Badge variant="outline">
+                Materialização: {materializationSummary}
+              </Badge>
+            </div>
+
+            {remoteCatalogLoading && (
+              <div className="flex items-center gap-2 rounded border p-4 text-xs text-muted-foreground">
+                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                Carregando catálogo governado…
+              </div>
+            )}
+
+            {!remoteCatalogLoading && remoteCatalogError && (
+              <div className="rounded border border-destructive/30 bg-destructive/5 p-4 text-xs">
+                <p className="font-medium text-destructive">
+                  Catálogo governado indisponível
+                </p>
+                <p className="mt-1 text-muted-foreground">
+                  {remoteCatalogError}
+                </p>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="mt-3"
+                  onClick={() => {
+                    void refreshRemoteCatalog();
+                  }}
+                >
+                  Tentar novamente
+                </Button>
+              </div>
+            )}
+
+            {!remoteCatalogLoading
+              && !remoteCatalogError
+              && remoteCatalogEntries.length === 0 && (
+                <div className="rounded border p-4 text-xs text-muted-foreground">
+                  Nenhuma entrada governada está disponível para este servidor.
+                </div>
+              )}
+
+            {!remoteCatalogLoading
+              && !remoteCatalogError
+              && remoteCatalogEntries.map((entry) => {
+                const materializedTool = tools.find((tool) => {
+                  const metadata = metadataRecord(tool.metadata);
+
+                  return metadata.remoteCatalogEntryId === entry.id;
+                });
+
+                const materializable =
+                  isMcpRemoteCatalogEntryMaterializable(entry);
+
+                return (
+                  <div
+                    key={entry.id}
+                    className="rounded-lg border bg-background/70 p-4"
+                  >
+                    <div className="flex flex-wrap items-start justify-between gap-3">
+                      <div>
+                        <div className="flex flex-wrap items-center gap-2">
+                          <p className="font-medium">
+                            {entry.displayName}
+                          </p>
+
+                          <Badge
+                            variant={
+                              entry.lifecycleStatus === 'approved_for_catalog'
+                                ? 'default'
+                                : 'secondary'
+                            }
+                          >
+                            {entry.lifecycleStatus === 'approved_for_catalog'
+                              ? 'Aprovada para catálogo'
+                              : entry.lifecycleStatus}
+                          </Badge>
+
+                          <Badge
+                            variant={
+                              entry.materialization.isMaterialized
+                                ? 'default'
+                                : 'outline'
+                            }
+                          >
+                            {entry.materialization.isMaterialized
+                              ? 'Materializada'
+                              : 'Não materializada'}
+                          </Badge>
+                        </div>
+
+                        <p className="mt-1 font-mono text-xs text-muted-foreground">
+                          {entry.externalName}
+                        </p>
+
+                        {entry.description && (
+                          <p className="mt-2 text-xs text-muted-foreground">
+                            {entry.description}
+                          </p>
+                        )}
+                      </div>
+
+                      {materializable && (
+                        <Button
+                          size="sm"
+                          disabled={materializationPending}
+                          onClick={() => {
+                            openMaterializationDialog(entry);
+                          }}
+                        >
+                          <Wrench className="mr-1 h-3.5 w-3.5" />
+                          Materializar ferramenta
+                        </Button>
+                      )}
+                    </div>
+
+                    <div className="mt-4 grid gap-2 text-xs sm:grid-cols-2 lg:grid-cols-4">
+                      <div className="rounded border p-3">
+                        <p className="text-muted-foreground">
+                          Aprovação
+                        </p>
+                        <p className="mt-1 font-medium">
+                          {entry.approvedAt
+                            ? `Registrada em ${formatDateTimePtBr(entry.approvedAt)}`
+                            : 'Não registrada'}
+                        </p>
+                      </div>
+
+                      <div className="rounded border p-3">
+                        <p className="text-muted-foreground">
+                          Runtime
+                        </p>
+                        <p className="mt-1 font-medium">
+                          {entry.policy.runtimeEnabled
+                            ? 'Habilitado'
+                            : 'Desabilitado'}
+                        </p>
+                      </div>
+
+                      <div className="rounded border p-3">
+                        <p className="text-muted-foreground">
+                          Execução remota
+                        </p>
+                        <p className="mt-1 font-medium">
+                          {entry.policy.remoteExecutionEnabled
+                            ? 'Habilitada'
+                            : 'Bloqueada'}
+                        </p>
+                      </div>
+
+                      <div className="rounded border p-3">
+                        <p className="text-muted-foreground">
+                          McpTool
+                        </p>
+                        <p className="mt-1 font-medium">
+                          {!entry.materialization.isMaterialized
+                            ? 'Não materializada'
+                            : materializedTool
+                              ? materializedTool.isEnabled
+                                ? 'Habilitada'
+                                : 'Desabilitada'
+                              : 'Sincronizando catálogo'}
+                        </p>
+                      </div>
+                    </div>
+
+                    <div className="mt-3 flex flex-wrap gap-2">
+                      <Badge variant="outline">
+                        Aprovação: {entry.requiresApproval
+                          ? 'obrigatória'
+                          : 'não'}
+                      </Badge>
+
+                      <Badge variant="outline">
+                        Sandbox: {entry.policy.sandboxOnly
+                          ? 'obrigatório'
+                          : 'não'}
+                      </Badge>
+
+                      <Badge variant="outline">
+                        Bloqueado por padrão: {
+                          entry.policy.blockedByDefault
+                            ? 'sim'
+                            : 'não'
+                        }
+                      </Badge>
+
+                      <Badge variant="outline">
+                        Execução pelo runtime: {
+                          entry.policy.allowRuntimeExecution
+                            ? 'permitida'
+                            : 'bloqueada'
+                        }
+                      </Badge>
+                    </div>
+
+                    {entry.materialization.isMaterialized
+                      && materializedTool && (
+                        <div className="mt-3 rounded border border-success/30 bg-success/5 p-3 text-xs">
+                          <div className="flex items-center gap-2">
+                            <CheckCircle2 className="h-3.5 w-3.5 text-success" />
+                            <span className="font-medium">
+                              {entry.displayName} está registrada como McpTool
+                            </span>
+                          </div>
+
+                          <p className="mt-1 text-muted-foreground">
+                            Estado operacional: {
+                              materializedTool.isEnabled
+                                ? 'habilitada'
+                                : 'desabilitada'
+                            }. Execução remota permanece bloqueada.
+                          </p>
+                        </div>
+                      )}
+                  </div>
+                );
+              })}
           </div>
         )}
 
@@ -1123,6 +1534,148 @@ export default function McpDetailPage() {
                 <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" />
               )}
               Aprovar inclusão no catálogo
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog
+        open={materializationDialogOpen}
+        onOpenChange={(open) => {
+          if (!materializationPending) {
+            setMaterializationDialogOpen(open);
+
+            if (!open) {
+              setMaterializationEntry(null);
+              setMaterializationConfirmed(false);
+            }
+          }
+        }}
+      >
+        <DialogContent className="max-w-xl">
+          <DialogHeader>
+            <DialogTitle>
+              Materializar ferramenta
+            </DialogTitle>
+            <DialogDescription>
+              Esta ação transforma a entrada aprovada do catálogo governado
+              em uma McpTool real do Orchestra. A ferramenta será criada
+              desabilitada e não autoriza runtime ou execução remota.
+            </DialogDescription>
+          </DialogHeader>
+
+          {materializationEntry && (
+            <div className="space-y-4">
+              <div className="rounded-lg border bg-muted/30 p-4">
+                <p className="font-medium">
+                  {materializationEntry.displayName}
+                </p>
+                <p className="mt-1 font-mono text-xs text-muted-foreground">
+                  {materializationEntry.externalName}
+                </p>
+
+                <div className="mt-4 grid gap-2 text-xs sm:grid-cols-2">
+                  <div className="flex justify-between gap-3">
+                    <span className="text-muted-foreground">
+                      McpTool
+                    </span>
+                    <span className="font-medium">
+                      Será criada desabilitada
+                    </span>
+                  </div>
+
+                  <div className="flex justify-between gap-3">
+                    <span className="text-muted-foreground">
+                      Aprovação
+                    </span>
+                    <span className="font-medium">
+                      Obrigatória
+                    </span>
+                  </div>
+
+                  <div className="flex justify-between gap-3">
+                    <span className="text-muted-foreground">
+                      Runtime
+                    </span>
+                    <span className="font-medium">
+                      Desabilitado
+                    </span>
+                  </div>
+
+                  <div className="flex justify-between gap-3">
+                    <span className="text-muted-foreground">
+                      Execução remota
+                    </span>
+                    <span className="font-medium">
+                      Bloqueada
+                    </span>
+                  </div>
+                </div>
+              </div>
+
+              {currentUser && (
+                <div className="rounded-lg border p-3 text-sm">
+                  <p className="text-xs text-muted-foreground">
+                    A materialização será auditada em nome de
+                  </p>
+                  <p className="mt-1 font-medium">
+                    {currentUser.name}
+                  </p>
+                  <p className="text-xs text-muted-foreground">
+                    {currentUser.email}
+                  </p>
+                </div>
+              )}
+
+              <label className="flex items-start gap-3 rounded-lg border p-3">
+                <Switch
+                  checked={materializationConfirmed}
+                  onCheckedChange={setMaterializationConfirmed}
+                />
+
+                <div>
+                  <p className="text-sm font-medium">
+                    Confirmo a materialização governada
+                  </p>
+                  <p className="text-xs text-muted-foreground">
+                    Confirmo somente a criação da McpTool desabilitada.
+                    Esta ação não concede autorização de execução.
+                  </p>
+                </div>
+              </label>
+            </div>
+          )}
+
+          <DialogFooter>
+            <Button
+              variant="outline"
+              disabled={materializationPending}
+              onClick={() => {
+                setMaterializationDialogOpen(false);
+                setMaterializationEntry(null);
+                setMaterializationConfirmed(false);
+              }}
+            >
+              Cancelar
+            </Button>
+
+            <Button
+              disabled={
+                materializationPending
+                || !materializationConfirmed
+                || !materializationEntry
+                || !currentUser
+                || !canManageMcp
+              }
+              onClick={() => {
+                void materializeRemoteCatalogEntry();
+              }}
+            >
+              {materializationPending && (
+                <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" />
+              )}
+
+              Materializar ferramenta
             </Button>
           </DialogFooter>
         </DialogContent>
