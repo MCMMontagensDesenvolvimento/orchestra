@@ -183,9 +183,8 @@ export default function McpDetailPage() {
   const navigate = useNavigate();
   const server = serverQuery.data;
   const currentUser = currentSession?.user;
-  const currentUserPermissions =
-    (currentUser as { permissions?: string[] } | undefined)?.permissions ?? [];
-  const canManageMcp = currentUserPermissions.includes('mcp.manage');
+  const canManageMcp =
+    currentSession?.permissions.includes('mcp.manage') ?? false;
 
   const tools = useMemo(() => mockMcpTools.filter(t => t.serverId === id), [mockMcpTools, id]);
   const resources = useMemo(() => mockMcpResources.filter(r => r.serverId === id), [mockMcpResources, id]);
