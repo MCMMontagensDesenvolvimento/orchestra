@@ -15,6 +15,7 @@ import {
   mcpPromptCreateSchema,
   mcpResourceCreateSchema,
   mcpExecutionRequestSchema,
+  mcpRemoteCatalogMaterializeSchema,
   mcpRemoteImportApplySchema,
   mcpServerChildParamsSchema,
   mcpServerCreateSchema,
@@ -48,6 +49,17 @@ export function createMcpRouter() {
       void mcpRemoteCatalogAdminController.getEntry(req, res).catch(next);
     },
   );
+  router.post(
+    '/remote-catalog/entries/:id/materialize',
+    requireAuth,
+    requirePermission('mcp.manage'),
+    validateParams(idParamsSchema),
+    validateBody(mcpRemoteCatalogMaterializeSchema),
+    (req, res, next) => {
+      void mcpController.materializeRemoteCatalogEntry(req, res).catch(next);
+    },
+  );
+
   router.get(
     '/remote-catalog/apply-ledgers',
     requireAuth,

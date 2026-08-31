@@ -20,6 +20,7 @@ import { mcpRemoteDiscoveryService } from './remote/mcp-remote-discovery.service
 import { mcpRemoteDiscoveryApprovalService } from './remote/mcp-remote-discovery-approval.service';
 import { mcpRemoteCatalogImportPlanService } from './remote/mcp-remote-catalog-import-plan.service';
 import { mcpRemoteCatalogImportPlanPersistenceRepository } from './remote/mcp-remote-catalog-import-plan.repository';
+import { mcpRemoteCatalogMaterializationRepository } from './remote/mcp-remote-catalog-materialization.repository';
 import { McpRemoteCatalogImportApplyService } from './remote/mcp-remote-catalog-import-apply.service';
 import { McpRemoteCatalogImportApplyPersistenceRepository } from './remote/mcp-remote-catalog-import-apply.repository';
 import { mcpRemoteCatalogAdminRepository } from './remote/mcp-remote-catalog-admin.repository';
@@ -861,6 +862,101 @@ export const mcpService = {
     });
 
     return mapMcpServer(server);
+  },
+
+  async materializeRemoteCatalogEntry(
+    entryId: string,
+    user: AuthenticatedUser,
+    context: RequestContext,
+  ) {
+    const result = await mcpRemoteCatalogMaterializationRepository.materialize({
+      entryId,
+      tenantId: user.tenant.id,
+      workspaceIds: userWorkspaceIds(user),
+    });
+
+    if (result.status === 'not_found') {
+      throw new AppError(
+        404,
+        'MCP_REMOTE_CATALOG_ENTRY_NOT_FOUND',
+        'Entrada do catálogo MCP remoto não encontrada.',
+      );
+    }
+
+    if (result.status === 'blocked') {
+      const messages: Record<string, string> = {
+        entry_not_approved:
+          'A entrada remota precisa estar aprovada para o catálogo antes da materialização.',
+        approval_missing:
+          'A entrada remota não possui aprovação humana válida.',
+        policy_not_closed:
+          'A política da entrada remota não atende aos requisitos fechados de materialização.',
+        server_not_remote:
+          'A entrada não pertence a um servidor MCP remoto.',
+        server_not_active:
+          'O servidor MCP remoto precisa estar ativo para materialização.',
+        materialization_integrity_failed:
+          'O vínculo de materialização existente está inconsistente.',
+      };
+
+      throw new AppError(
+        409,
+        'MCP_REMOTE_CATALOG_MATERIALIZATION_BLOCKED',
+        messages[result.reason] ?? 'Materialização MCP remota bloqueada.',
+      );
+    }
+
+    const policy = result.tool.policies?.[0];
+
+    await audit({
+      user,
+      context,
+      action: result.status === 'materialized'
+        ? 'mcp_remote_catalog_entry_materialized'
+        : 'mcp_remote_catalog_entry_materialization_replayed',
+      entity: 'mcp_remote_catalog_entry',
+      entityId: result.entry.id,
+      workspaceId: result.entry.workspaceId,
+      metadata: {
+        mcpServerId: result.entry.mcpServerId,
+        mcpToolId: result.tool.id,
+        externalName: result.entry.externalName,
+        riskLevel: result.tool.riskLevel,
+        requiresApproval: result.tool.requiresApproval,
+        isEnabled: result.tool.isEnabled,
+        materializationStatus: result.status,
+        allowRuntimeExecution: policy?.allowRuntimeExecution ?? false,
+        sandboxOnly: policy?.sandboxOnly ?? true,
+        blockedByDefault: policy?.blockedByDefault ?? true,
+        noRemoteExecution: true,
+      },
+    });
+
+    return {
+      status: result.status,
+      catalogEntryId: result.entry.id,
+      serverId: result.entry.mcpServerId,
+      mcpTool: {
+        id: result.tool.id,
+        externalName: result.entry.externalName,
+        displayName: result.entry.displayName,
+        riskLevel: result.tool.riskLevel,
+        requiresApproval: result.tool.requiresApproval,
+        isEnabled: result.tool.isEnabled,
+        policy: {
+          allowRuntimeExecution: policy?.allowRuntimeExecution ?? false,
+          sandboxOnly: policy?.sandboxOnly ?? true,
+          requiresApproval: policy?.requiresApproval ?? true,
+          blockedByDefault: policy?.blockedByDefault ?? true,
+        },
+      },
+      safeguards: {
+        readOnly: true,
+        runtimeEnabled: false,
+        remoteExecutionEnabled: false,
+        toolExecutionPerformed: false,
+      },
+    };
   },
 
   async listTools(serverId: string, user: AuthenticatedUser, context: RequestContext) {

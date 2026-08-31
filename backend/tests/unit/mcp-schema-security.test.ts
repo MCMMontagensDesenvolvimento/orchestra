@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { mapMcpServer } from '../../src/modules/mcp/mcp.mapper';
 import {
   mcpExecutionRequestSchema,
+  mcpRemoteCatalogMaterializeSchema,
   mcpServerCreateSchema,
 } from '../../src/modules/mcp/mcp.schema';
 
@@ -45,6 +46,32 @@ describe('MCP public request and response secret boundary', () => {
       mode: 'sandbox',
       input: { apiKey: 'raw-key-fixture' },
     }).success).toBe(false);
+  });
+
+  it('keeps remote catalog materialization free of client-controlled execution authority', () => {
+    expect(
+      mcpRemoteCatalogMaterializeSchema.parse(undefined),
+    ).toEqual({});
+
+    expect(
+      mcpRemoteCatalogMaterializeSchema.parse({}),
+    ).toEqual({});
+
+    const forbiddenBodies = [
+      { isEnabled: true },
+      { requiresApproval: false },
+      { allowRuntimeExecution: true },
+      { sandboxOnly: false },
+      { blockedByDefault: false },
+      { runtimeEnabled: true },
+      { remoteExecutionEnabled: true },
+    ];
+
+    for (const body of forbiddenBodies) {
+      expect(
+        mcpRemoteCatalogMaterializeSchema.safeParse(body).success,
+      ).toBe(false);
+    }
   });
 
   it('maps only credentialConfigured to the public server DTO', () => {

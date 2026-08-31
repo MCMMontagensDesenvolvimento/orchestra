@@ -72,6 +72,19 @@ export const mcpController = {
     return res.status(201).json({ data, requestId: req.requestId });
   },
 
+  async materializeRemoteCatalogEntry(req: Request, res: Response) {
+    const data = await mcpService.materializeRemoteCatalogEntry(
+      req.params.id,
+      req.user!,
+      requestContext(req),
+    );
+
+    return res.status(200).json({
+      data,
+      requestId: req.requestId,
+    });
+  },
+
   async updateServer(req: Request, res: Response) {
     const data = await mcpService.updateServer(req.params.id, req.body, req.user!, requestContext(req));
     return res.status(200).json({ data, requestId: req.requestId });

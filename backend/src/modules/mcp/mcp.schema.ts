@@ -129,6 +129,11 @@ export const mcpServerChildParamsSchema = z.object({
   id: z.string().uuid(),
 });
 
+export const mcpRemoteCatalogMaterializeSchema = z
+  .object({})
+  .strict()
+  .default({});
+
 export const mcpToolCreateSchema = z.object({
   name: z.string().trim().min(2).max(160),
   description: z.string().trim().max(1000).optional(),
