@@ -3,6 +3,7 @@ import { AppError } from '../../shared/errors/app-error';
 import type { AuthenticatedUser } from '../../shared/types/auth';
 import { paginationMeta } from '../../shared/validation/pagination';
 import { recordAuditEvent } from '../audit/audit.service';
+import { llmService } from '../llm/llm.service';
 import { mapAssistant, mapAssistantApprovalRequest, mapAssistantExecutionPolicy, mapAssistantFeedback, mapAssistantPublication, mapAssistantShare, mapAssistantTestResult, mapAssistantVersion } from './assistants.mapper';
 import { assistantPolicies, type AssistantPolicySubject } from './assistants.policy';
 import { assistantsRepository } from './assistants.repository';
@@ -16,6 +17,83 @@ interface RequestContext {
 
 const userWorkspaceIds = (user: AuthenticatedUser) => user.workspaces.map((workspace) => workspace.id);
 const unsafeMetadataKeys = new Set(['instructions', 'prompt', 'content', 'secret', 'token', 'password', 'apiKey', 'authorization']);
+
+export interface AssistantModelCatalogItem {
+  provider: 'openai';
+  model: string;
+  label: string;
+  isDefault: boolean;
+}
+
+const assistantModelCatalogPermissions = [
+  'assistants.read',
+  'assistants.create',
+  'assistants.update',
+] as const;
+
+function assistantModelLabel(model: string) {
+  if (model === 'gpt-4o-mini') return 'GPT-4o Mini';
+  return model;
+}
+
+async function getAssistantModelCatalog(): Promise<AssistantModelCatalogItem[]> {
+  const capabilities = await llmService.capabilities('openai');
+
+  if (!capabilities.enabled || !capabilities.configured) {
+    return [];
+  }
+
+  return capabilities.models.map((model) => ({
+    provider: 'openai',
+    model,
+    label: assistantModelLabel(model),
+    isDefault: model === capabilities.defaultModel,
+  }));
+}
+
+function canReadAssistantModelCatalog(user: AuthenticatedUser) {
+  return assistantModelCatalogPermissions.some((permission) =>
+    user.permissions.includes(permission)
+  );
+}
+
+async function assertAssistantModelAvailable(
+  modelProvider?: string | null,
+  modelName?: string | null,
+) {
+  const provider = modelProvider?.trim() || null;
+  const model = modelName?.trim() || null;
+
+  if (!provider && !model) return;
+
+  if (!provider || !model) {
+    throw new AppError(
+      422,
+      'MODEL_CONFIGURATION_INCOMPLETE',
+      'Provider e modelo devem ser informados juntos.',
+    );
+  }
+
+  if (provider !== 'openai') {
+    throw new AppError(
+      422,
+      'MODEL_PROVIDER_NOT_AVAILABLE',
+      'O provider LLM informado não está disponível para Assistants neste ambiente.',
+    );
+  }
+
+  const catalog = await getAssistantModelCatalog();
+
+  if (!catalog.some((item) =>
+    item.provider === provider && item.model === model
+  )) {
+    throw new AppError(
+      422,
+      'MODEL_NOT_AVAILABLE',
+      'O modelo LLM informado não está disponível neste ambiente.',
+    );
+  }
+}
 
 function subjectFromAssistant(assistant: AssistantPolicySubject): AssistantPolicySubject {
   return {
@@ -105,6 +183,18 @@ async function resolveVersionOrThrow(assistantId: string, versionId?: string) {
 }
 
 export const assistantsService = {
+  async modelCatalog(user: AuthenticatedUser) {
+    if (!canReadAssistantModelCatalog(user)) {
+      throw new AppError(
+        403,
+        'ASSISTANT_MODEL_CATALOG_FORBIDDEN',
+        'Usuário sem permissão para consultar modelos disponíveis para Assistants.',
+      );
+    }
+
+    return getAssistantModelCatalog();
+  },
+
   async list(user: AuthenticatedUser, query: AssistantsQuery) {
     const result = await assistantsRepository.list(user.tenant.id, userWorkspaceIds(user), query);
     return {
@@ -138,6 +228,11 @@ export const assistantsService = {
     if (input.status === 'published') {
       throw new AppError(422, 'PUBLISH_ACTION_REQUIRED', 'Use o endpoint de publicacao para publicar assistentes.');
     }
+
+    await assertAssistantModelAvailable(
+      input.version?.modelProvider,
+      input.version?.modelName,
+    );
 
     const assistant = await assistantsRepository.create({
       ...input,
@@ -287,6 +382,11 @@ export const assistantsService = {
       user,
       assistant,
       context,
+    );
+
+    await assertAssistantModelAvailable(
+      input.modelProvider,
+      input.modelName,
     );
 
     const version = await assistantsRepository.createVersion({

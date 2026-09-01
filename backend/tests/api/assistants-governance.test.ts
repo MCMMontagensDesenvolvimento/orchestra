@@ -47,6 +47,7 @@ const mocks = vi.hoisted(() => {
   return {
     assistantsRepository,
     recordAuditEvent: vi.fn().mockResolvedValue(undefined),
+    llmCapabilities: vi.fn(),
   };
 });
 
@@ -56,6 +57,12 @@ vi.mock('../../src/modules/assistants/assistants.repository', () => ({
 
 vi.mock('../../src/modules/audit/audit.service', () => ({
   recordAuditEvent: mocks.recordAuditEvent,
+}));
+
+vi.mock('../../src/modules/llm/llm.service', () => ({
+  llmService: {
+    capabilities: mocks.llmCapabilities,
+  },
 }));
 
 const workspaceId = '00000000-0000-0000-0000-000000000020';
@@ -676,5 +683,207 @@ describe('assistant governance endpoints', () => {
 
     expect(response.body.code).toBe('VALIDATION_ERROR');
     expect(response.body.fieldErrors.some((field: { field: string }) => field.field === 'input')).toBe(true);
+  });
+});
+
+describe('assistant model catalog governance', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+
+    mocks.llmCapabilities.mockResolvedValue({
+      provider: 'openai',
+      status: 'healthy',
+      enabled: true,
+      configured: true,
+      executionEnabled: false,
+      supportsChatCompletion: true,
+      supportsStreaming: false,
+      supportsToolCalling: false,
+      supportsStructuredOutput: false,
+      supportsEmbeddings: false,
+      supportsRagContext: true,
+      supportsMcpContext: true,
+      secretsConfigured: true,
+      models: ['gpt-4o-mini'],
+      defaultModel: 'gpt-4o-mini',
+      maxInputPreviewChars: 500,
+      maxOutputPreviewChars: 800,
+    });
+
+    mocks.assistantsRepository.findById.mockResolvedValue(assistantFixture());
+    mocks.assistantsRepository.create.mockResolvedValue(assistantFixture());
+    mocks.assistantsRepository.createVersion.mockResolvedValue(
+      versionFixture(),
+    );
+  });
+
+  it('lists only the sanitized real Assistant model catalog without llm.providers.read', async () => {
+    const creator: AuthenticatedUser = {
+      ...testUser,
+      permissions: ['assistants.create'],
+    };
+
+    const response = await request(createApp())
+      .get('/api/v1/assistants/model-catalog')
+      .set('Cookie', sessionCookie(creator));
+
+    expect(response.status).toBe(200);
+    expect(response.body.data).toEqual([
+      {
+        provider: 'openai',
+        model: 'gpt-4o-mini',
+        label: 'GPT-4o Mini',
+        isDefault: true,
+      },
+    ]);
+
+    expect(JSON.stringify(response.body)).not.toMatch(
+      /secret|apiKey|health|executionEnabled|baseUrl/i,
+    );
+  });
+
+  it.each([
+    'assistants.read',
+    'assistants.update',
+  ])(
+    'allows the sanitized model catalog with %s and without llm.providers.read',
+    async (permission) => {
+      const user: AuthenticatedUser = {
+        ...testUser,
+        permissions: [permission],
+      };
+
+      const response = await request(createApp())
+        .get('/api/v1/assistants/model-catalog')
+        .set('Cookie', sessionCookie(user));
+
+      expect(response.status).toBe(200);
+      expect(response.body.data).toEqual([
+        {
+          provider: 'openai',
+          model: 'gpt-4o-mini',
+          label: 'GPT-4o Mini',
+          isDefault: true,
+        },
+      ]);
+    },
+  );
+
+  it('blocks model catalog for authenticated users outside the Assistant domain', async () => {
+    const user: AuthenticatedUser = {
+      ...testUser,
+      permissions: [],
+    };
+
+    const response = await request(createApp())
+      .get('/api/v1/assistants/model-catalog')
+      .set('Cookie', sessionCookie(user));
+
+    expect(response.status).toBe(403);
+    expect(response.body.error?.code ?? response.body.code).toBe(
+      'ASSISTANT_MODEL_CATALOG_FORBIDDEN',
+    );
+  });
+
+  it('accepts the real configured GPT-4o Mini when creating an Assistant', async () => {
+    const response = await request(createApp())
+      .post('/api/v1/assistants')
+      .set('Cookie', sessionCookie())
+      .send({
+        workspaceId,
+        name: 'Corporate Readonly Assistant',
+        status: 'draft',
+        version: {
+          displayName: 'Initial draft',
+          modelProvider: 'openai',
+          modelName: 'gpt-4o-mini',
+          temperature: 0.3,
+        },
+      });
+
+    expect(response.status).toBe(201);
+    expect(mocks.assistantsRepository.create).toHaveBeenCalledTimes(1);
+  });
+
+  it('rejects an OpenAI model that is not available in the real catalog', async () => {
+    const response = await request(createApp())
+      .post('/api/v1/assistants')
+      .set('Cookie', sessionCookie())
+      .send({
+        workspaceId,
+        name: 'Invalid Model Assistant',
+        status: 'draft',
+        version: {
+          displayName: 'Initial draft',
+          modelProvider: 'openai',
+          modelName: 'gpt-4o',
+        },
+      });
+
+    expect(response.status).toBe(422);
+    expect(response.body.error?.code ?? response.body.code).toBe(
+      'MODEL_NOT_AVAILABLE',
+    );
+    expect(mocks.assistantsRepository.create).not.toHaveBeenCalled();
+  });
+
+  it('rejects an unsupported provider', async () => {
+    const response = await request(createApp())
+      .post('/api/v1/assistants')
+      .set('Cookie', sessionCookie())
+      .send({
+        workspaceId,
+        name: 'Invalid Provider Assistant',
+        status: 'draft',
+        version: {
+          displayName: 'Initial draft',
+          modelProvider: 'anthropic',
+          modelName: 'claude-3.5-sonnet',
+        },
+      });
+
+    expect(response.status).toBe(422);
+    expect(response.body.error?.code ?? response.body.code).toBe(
+      'MODEL_PROVIDER_NOT_AVAILABLE',
+    );
+    expect(mocks.assistantsRepository.create).not.toHaveBeenCalled();
+  });
+
+  it('rejects incomplete provider/model configuration', async () => {
+    const response = await request(createApp())
+      .post('/api/v1/assistants')
+      .set('Cookie', sessionCookie())
+      .send({
+        workspaceId,
+        name: 'Incomplete Model Assistant',
+        status: 'draft',
+        version: {
+          displayName: 'Initial draft',
+          modelProvider: 'openai',
+        },
+      });
+
+    expect(response.status).toBe(422);
+    expect(response.body.error?.code ?? response.body.code).toBe(
+      'MODEL_CONFIGURATION_INCOMPLETE',
+    );
+    expect(mocks.assistantsRepository.create).not.toHaveBeenCalled();
+  });
+
+  it('rejects an unavailable model before creating a new Assistant version', async () => {
+    const response = await request(createApp())
+      .post(`/api/v1/assistants/${assistantId}/versions`)
+      .set('Cookie', sessionCookie())
+      .send({
+        displayName: 'Invalid model version',
+        modelProvider: 'openai',
+        modelName: 'gpt-4o',
+      });
+
+    expect(response.status).toBe(422);
+    expect(response.body.error?.code ?? response.body.code).toBe(
+      'MODEL_NOT_AVAILABLE',
+    );
+    expect(mocks.assistantsRepository.createVersion).not.toHaveBeenCalled();
   });
 });

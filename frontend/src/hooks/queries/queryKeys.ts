@@ -12,6 +12,7 @@ export const queryKeys = {
   },
   assistants: {
     all: ['assistants'] as const,
+    modelCatalog: () => [...queryKeys.assistants.all, 'model-catalog'] as const,
     list: () => [...queryKeys.assistants.all, 'list'] as const,
     detail: (id: string) => [...queryKeys.assistants.all, 'detail', id] as const,
     versions: (id: string) => [...queryKeys.assistants.all, 'versions', id] as const,

@@ -28,6 +28,7 @@ export const endpoints = {
   },
   assistants: {
     list: '/assistants',
+    modelCatalog: '/assistants/model-catalog',
     detail: (id: string) => `/assistants/${id}`,
     archive: (id: string) => `/assistants/${id}/archive`,
     restore: (id: string) => `/assistants/${id}/restore`,

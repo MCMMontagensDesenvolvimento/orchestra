@@ -27,8 +27,8 @@ const formData: AssistantWizardFormData = {
   restrictions: 'Não acessar dados bancários.',
   criticalInstructions: 'Escalonar qualquer suspeita de fraude.',
   modelProvider: 'openai',
-  model: 'gpt-4o',
-  fallbackModel: 'gpt-4o-mini',
+  model: 'gpt-4o-mini',
+  fallbackModel: '',
   temperature: '0.4',
   responseFormat: 'Tópicos numerados.',
   positiveExamples: 'Pergunta válida -> resposta com fonte.',
@@ -103,7 +103,6 @@ describe('assistant Wizard serialization', () => {
       '## Persona',
       '## Tom e Voz',
       '## Regras',
-      '## Modelo',
       '## Ferramentas',
       '## Formato',
       '## Exemplos',
@@ -113,6 +112,8 @@ describe('assistant Wizard serialization', () => {
     expect(instructions).toContain('### Tarefas proibidas\nNão aprovar pagamentos.');
     expect(instructions).toContain('### Instruções críticas\nEscalonar qualquer suspeita de fraude.');
     expect(instructions).toContain('### Negativos\nNão inventar valores.');
+    expect(instructions).not.toContain('## Modelo');
+    expect(instructions).not.toContain('Modelo fallback');
 
     const positions = headings.map(heading => instructions.indexOf(heading));
     expect(positions.every(position => position >= 0)).toBe(true);

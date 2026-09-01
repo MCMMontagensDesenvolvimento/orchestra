@@ -7,14 +7,18 @@ import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { Slider } from '@/components/ui/slider';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { useAssistant, useCreateAssistantMutation, useUpdateAssistantMutation } from '@/hooks/queries/useAssistants';
+import {
+  useAssistant,
+  useAssistantModelCatalog,
+  useCreateAssistantMutation,
+  useUpdateAssistantMutation,
+} from '@/hooks/queries/useAssistants';
 import { useAssistantKnowledgeBindings, useKnowledgeBases } from '@/hooks/queries/useKnowledge';
 import { useMcpTools } from '@/hooks/queries/useMcp';
 import { useCurrentSession } from '@/hooks/queries/useAuth';
 import {
   createDefaultWizardForm,
   hydrateWizardForm,
-  inferModelProvider,
 } from './assistantWizard.serialization';
 import { AssistantWizardSaveError } from '@/services/assistants.service';
 import { toast } from 'sonner';
@@ -46,6 +50,7 @@ export default function AssistantWizardPage() {
   const { data: mockKnowledgeBases = [] } = useKnowledgeBases();
   const { data: mockMcpTools = [] } = useMcpTools();
   const sessionQuery = useCurrentSession();
+  const modelCatalogQuery = useAssistantModelCatalog();
   const navigate = useNavigate();
   const { id } = useParams();
   const isEditing = !!id;
@@ -88,6 +93,54 @@ export default function AssistantWizardPage() {
     }));
   };
 
+  const modelOptions = useMemo(
+    () => (modelCatalogQuery.data ?? []).map((item) => ({
+      value: item.model,
+      provider: item.provider,
+      label: item.label,
+      isDefault: item.isDefault,
+      desc: item.isDefault
+        ? 'Modelo padrão disponível neste ambiente'
+        : 'Modelo disponível neste ambiente',
+    })),
+    [modelCatalogQuery.data],
+  );
+
+  useEffect(() => {
+    if (isEditing) return;
+
+    const catalog = modelCatalogQuery.data ?? [];
+    if (catalog.length === 0) return;
+
+    setFormData((previous) => {
+      const current = catalog.find(
+        (item) =>
+          item.provider === previous.modelProvider
+          && item.model === previous.model,
+      );
+
+      const selected =
+        current
+        ?? catalog.find((item) => item.isDefault)
+        ?? catalog[0];
+
+      if (
+        previous.modelProvider === selected.provider
+        && previous.model === selected.model
+        && previous.fallbackModel === ''
+      ) {
+        return previous;
+      }
+
+      return {
+        ...previous,
+        modelProvider: selected.provider,
+        model: selected.model,
+        fallbackModel: '',
+      };
+    });
+  }, [isEditing, modelCatalogQuery.data]);
+
   // Scoring
   const scores = useMemo(() => {
     const fields = [
@@ -121,7 +174,10 @@ export default function AssistantWizardPage() {
         case 2: return true;
         case 3: return true;
         case 4: return true;
-        case 5: return true;
+        case 5:
+          return modelOptions.some(
+            (option) => option.value === formData.model,
+          );
         case 6: return true;
         case 7: return true;
         case 8: return true;
@@ -131,9 +187,16 @@ export default function AssistantWizardPage() {
         default: return true;
       }
     });
-  }, [formData]);
+  }, [formData, modelOptions]);
 
   const handleSave = async (publish: boolean) => {
+    if (!modelOptions.some((option) => option.value === formData.model)) {
+      toast.error('Modelo indisponível', {
+        description: 'Selecione um modelo realmente disponível neste ambiente.',
+      });
+      return;
+    }
+
     try {
       if (isEditing && id) {
         await updateAssistantMutation.mutateAsync({
@@ -170,14 +233,6 @@ export default function AssistantWizardPage() {
       });
     }
   };
-
-  const modelOptions = [
-    { value: 'gpt-4o', label: 'GPT-4o', desc: 'Mais capaz, custo médio' },
-    { value: 'gpt-4o-mini', label: 'GPT-4o Mini', desc: 'Rápido e barato' },
-    { value: 'claude-3.5-sonnet', label: 'Claude 3.5 Sonnet', desc: 'Alta qualidade textual' },
-    { value: 'claude-3.5-haiku', label: 'Claude 3.5 Haiku', desc: 'Rápido, bom custo-benefício' },
-    { value: 'gemini-2.0', label: 'Gemini 2.0', desc: 'Google, contexto longo' },
-  ];
 
   const renderStepContent = () => {
     switch (currentStep) {
@@ -324,37 +379,75 @@ export default function AssistantWizardPage() {
           <div className="space-y-5">
             <div className="space-y-2">
               <Label>Modelo principal</Label>
-              <div className="grid gap-2 sm:grid-cols-2">
-                {modelOptions.map(m => (
-                  <label key={m.value} className={`flex items-center gap-3 rounded-lg border p-3 cursor-pointer transition-colors ${formData.model === m.value ? 'border-primary bg-primary/5' : 'hover:bg-muted/50'}`}>
-                    <input
-                      type="radio"
-                      name="model"
-                      checked={formData.model === m.value}
-                      onChange={() => setFormData(previous => ({
-                        ...previous,
-                        model: m.value,
-                        modelProvider: inferModelProvider(m.value),
-                      }))}
-                      className="accent-primary"
-                    />
-                    <div>
-                      <p className="text-sm font-medium">{m.label}</p>
-                      <p className="text-xs text-muted-foreground">{m.desc}</p>
-                    </div>
-                  </label>
-                ))}
-              </div>
+              {modelCatalogQuery.isLoading ? (
+                <div className="rounded-lg border p-4 text-sm text-muted-foreground">
+                  Consultando modelos disponíveis neste ambiente...
+                </div>
+              ) : modelCatalogQuery.isError ? (
+                <div className="rounded-lg border border-destructive/30 bg-destructive/5 p-4">
+                  <p className="text-sm font-medium text-destructive">
+                    Não foi possível consultar o catálogo de modelos
+                  </p>
+                  <p className="mt-1 text-xs text-muted-foreground">
+                    O Wizard permanece bloqueado até que o backend confirme
+                    os modelos realmente disponíveis.
+                  </p>
+                </div>
+              ) : modelOptions.length === 0 ? (
+                <div className="rounded-lg border border-warning/30 bg-warning/5 p-4">
+                  <p className="text-sm font-medium">
+                    Nenhum modelo disponível
+                  </p>
+                  <p className="mt-1 text-xs text-muted-foreground">
+                    O backend não informou um modelo LLM configurado para
+                    este ambiente.
+                  </p>
+                </div>
+              ) : (
+                <div className="grid gap-2 sm:grid-cols-2">
+                  {modelOptions.map((model) => (
+                    <label
+                      key={model.value}
+                      className={`flex items-center gap-3 rounded-lg border p-3 cursor-pointer transition-colors ${
+                        formData.model === model.value
+                          ? 'border-primary bg-primary/5'
+                          : 'hover:bg-muted/50'
+                      }`}
+                    >
+                      <input
+                        type="radio"
+                        name="model"
+                        checked={formData.model === model.value}
+                        onChange={() =>
+                          setFormData((previous) => ({
+                            ...previous,
+                            model: model.value,
+                            modelProvider: model.provider,
+                            fallbackModel: '',
+                          }))
+                        }
+                        className="accent-primary"
+                      />
+                      <div>
+                        <p className="text-sm font-medium">{model.label}</p>
+                        <p className="text-xs text-muted-foreground">
+                          {model.desc}
+                        </p>
+                      </div>
+                    </label>
+                  ))}
+                </div>
+              )}
             </div>
             <div className="space-y-2">
               <Label>Modelo fallback</Label>
-              <Select value={formData.fallbackModel} onValueChange={v => update('fallbackModel', v)}>
-                <SelectTrigger><SelectValue /></SelectTrigger>
-                <SelectContent>
-                  {modelOptions.map(m => <SelectItem key={m.value} value={m.value}>{m.label} — {m.desc}</SelectItem>)}
-                </SelectContent>
-              </Select>
-              <Hint>Usado quando o modelo principal está indisponível ou excede limites.</Hint>
+              <div className="rounded-lg border bg-muted/20 p-3">
+                <p className="text-sm font-medium">Não configurado</p>
+                <p className="mt-1 text-xs text-muted-foreground">
+                  Não existe atualmente um segundo modelo real disponível
+                  para funcionar como fallback.
+                </p>
+              </div>
             </div>
             <div className="space-y-3">
               <div className="flex items-center justify-between">
@@ -694,9 +787,7 @@ function ReviewStep({ formData, scores, stepValidation }: {
   stepValidation: boolean[];
 }) {
   const modelLabels: Record<string, string> = {
-    'gpt-4o': 'GPT-4o', 'gpt-4o-mini': 'GPT-4o Mini',
-    'claude-3.5-sonnet': 'Claude 3.5 Sonnet', 'claude-3.5-haiku': 'Claude 3.5 Haiku',
-    'gemini-2.0': 'Gemini 2.0',
+    'gpt-4o-mini': 'GPT-4o Mini',
   };
 
   const checklist = [

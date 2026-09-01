@@ -397,7 +397,33 @@ async function publishSavedAssistant(assistantId: string) {
   }
 }
 
+export interface AssistantModelCatalogItem {
+  provider: 'openai';
+  model: string;
+  label: string;
+  isDefault: boolean;
+}
+
 export const assistantsService = {
+  async modelCatalog(): Promise<AssistantModelCatalogItem[]> {
+    if (env.useMocks) {
+      return mockResponse([
+        {
+          provider: 'openai',
+          model: 'gpt-4o-mini',
+          label: 'GPT-4o Mini',
+          isDefault: true,
+        },
+      ]);
+    }
+
+    const response = await apiClient.get<ApiEnvelope<AssistantModelCatalogItem[]>>(
+      endpoints.assistants.modelCatalog,
+    );
+
+    return response.data.data;
+  },
+
   async list(): Promise<Assistant[]> {
     if (env.useMocks) return mockResponse(mockAssistants);
     const response = await apiClient.get<PaginatedApiEnvelope<ApiAssistant>>(endpoints.assistants.list);

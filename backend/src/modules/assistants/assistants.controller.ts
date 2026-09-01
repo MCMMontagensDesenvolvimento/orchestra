@@ -2,6 +2,11 @@ import type { Request, Response } from 'express';
 import { assistantsService } from './assistants.service';
 
 export const assistantsController = {
+  async modelCatalog(req: Request, res: Response) {
+    const data = await assistantsService.modelCatalog(req.user!);
+    return res.status(200).json({ data, requestId: req.requestId });
+  },
+
   async list(req: Request, res: Response) {
     const result = await assistantsService.list(req.user!, req.query as any);
     return res.status(200).json({ ...result, requestId: req.requestId });

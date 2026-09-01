@@ -62,6 +62,12 @@ export const useAssistantTestResults = (id: string | undefined) =>
     enabled: !!id,
   });
 
+export const useAssistantModelCatalog = () =>
+  useQuery({
+    queryKey: queryKeys.assistants.modelCatalog(),
+    queryFn: () => assistantsService.modelCatalog(),
+  });
+
 export const useCreateAssistantMutation = () => {
   const queryClient = useQueryClient();
   return useMutation({

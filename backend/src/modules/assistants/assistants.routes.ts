@@ -34,6 +34,11 @@ export function createAssistantsRouter() {
   router.get('/', requireAuth, requirePermission('assistants.read'), validateQuery(assistantsQuerySchema), (req, res, next) => {
     void assistantsController.list(req, res).catch(next);
   });
+
+  router.get('/model-catalog', requireAuth, (req, res, next) => {
+    void assistantsController.modelCatalog(req, res).catch(next);
+  });
+
   router.get('/:id/versions', requireAuth, requirePermission('assistants.read'), validateParams(idParamsSchema), (req, res, next) => {
     void assistantsController.listVersions(req, res).catch(next);
   });
