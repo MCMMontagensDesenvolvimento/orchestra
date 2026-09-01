@@ -30,6 +30,22 @@ const mcpServerInclude = {
 const mcpToolInclude = {
   server: true,
   policies: { take: 1 },
+  remoteCatalogEntry: {
+    select: {
+      id: true,
+      materializedMcpToolId: true,
+      lifecycleStatus: true,
+      requiresApproval: true,
+      allowRuntimeExecution: true,
+      sandboxOnly: true,
+      blockedByDefault: true,
+      approvalMode: true,
+      runtimeEnabled: true,
+      remoteExecutionEnabled: true,
+      approvedAt: true,
+      deletedAt: true,
+    },
+  },
 } satisfies Prisma.McpToolInclude;
 
 const bindingInclude = {
@@ -41,7 +57,24 @@ const bindingInclude = {
   },
   tool: {
     include: {
+      server: true,
       policies: { take: 1 },
+      remoteCatalogEntry: {
+        select: {
+          id: true,
+          materializedMcpToolId: true,
+          lifecycleStatus: true,
+          requiresApproval: true,
+          allowRuntimeExecution: true,
+          sandboxOnly: true,
+          blockedByDefault: true,
+          approvalMode: true,
+          runtimeEnabled: true,
+          remoteExecutionEnabled: true,
+          approvedAt: true,
+          deletedAt: true,
+        },
+      },
     },
   },
 } satisfies Prisma.AssistantMcpBindingInclude;

@@ -98,6 +98,7 @@ import {
 } from 'lucide-react';
 import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, BarChart, Bar } from 'recharts';
 import { toast } from 'sonner';
+import { buildAssistantMcpBindingPayload, canUseMcpBindingInSandbox, isRemoteMaterializedMcpTool } from './assistantMcpGovernance';
 
 type TabId = 'overview' | 'config' | 'governance' | 'runs' | 'knowledge' | 'tools' | 'prompt' | 'tests' | 'analytics' | 'audit';
 type LlmPolicyUpdatePayload = Pick<AssistantExecutionPolicy, 'allowExternalLlmProviders' | 'allowedLlmProviders'> & {
@@ -247,9 +248,33 @@ export default function AssistantDetailPage() {
       ? mcpTools.filter(tool => assistant.mcpTools.includes(tool.id))
       : [];
   const knowledgeBindingByBaseId = new Map(assistantKnowledgeBindings.map(binding => [binding.knowledgeBaseId, binding.id]));
-  const mcpBindingByToolId = new Map(assistantMcpBindings.filter(binding => binding.mcpToolId).map(binding => [binding.mcpToolId, binding.id]));
+  const mcpBindingByToolId = new Map(
+    assistantMcpBindings
+      .filter(binding => binding.mcpToolId)
+      .map(binding => [binding.mcpToolId, binding.id])
+  );
+  const sandboxMcpTools = env.useMocks
+    ? tools
+    : tools.filter((tool) => {
+        const binding = assistantMcpBindings.find(
+          (item) => item.mcpToolId === tool.id,
+        );
+
+        return canUseMcpBindingInSandbox(binding);
+      });
+
+  const sandboxMcpToolIds = new Set(
+    sandboxMcpTools.map((tool) => tool.id),
+  );
   const availableKnowledgeBases = knowledgeBases.filter(kb => !kbs.some(bound => bound.id === kb.id));
-  const availableMcpTools = mcpTools.filter(tool => !tools.some(bound => bound.id === tool.id));
+  const availableMcpTools = mcpTools.filter(
+    (tool) =>
+      !tools.some((bound) => bound.id === tool.id)
+      && (tool.isEnabled || isRemoteMaterializedMcpTool(tool)),
+  );
+  const selectedMcpBindingTool = availableMcpTools.find(
+    (tool) => tool.id === selectedMcpToolId,
+  );
   const auditLogs = auditLogsData.filter(l => l.resource === assistant.name || l.resource.includes(assistant.name.split(' ')[0]));
 
   const positiveFeedbacks = feedbacks.filter(f => f.type === 'positive').length;
@@ -261,8 +286,12 @@ export default function AssistantDetailPage() {
   const ragHistory = ragQueriesQuery.data ?? [];
   const ragBlockedReasons = ragReadiness?.blockedReasons ?? ragReadiness?.missingRequirements ?? [];
   const ragReady = ragReadiness?.ready ?? ragReadiness?.canUseKnowledge ?? false;
-  const activeSandboxToolId = selectedSandboxToolId || tools[0]?.id || '';
-  const selectedSandboxTool = tools.find(tool => tool.id === activeSandboxToolId);
+  const activeSandboxToolId =
+    sandboxMcpTools.some((tool) => tool.id === selectedSandboxToolId)
+      ? selectedSandboxToolId
+      : sandboxMcpTools[0]?.id ?? '';
+  const selectedSandboxTool =
+    sandboxMcpTools.find((tool) => tool.id === activeSandboxToolId);
   const selectedMcpToolCall = (
     selectedMcpToolCallId
       ? assistantMcpToolCalls.find(call => call.id === selectedMcpToolCallId)
@@ -340,16 +369,15 @@ export default function AssistantDetailPage() {
     try {
       await createMcpBindingMutation.mutateAsync({
         assistantId: assistant.id,
-        payload: {
-          mcpServerId: tool.mcpServerId ?? tool.serverId,
-          mcpToolId: tool.id,
-          mode: 'sandbox_only',
-          requiresApprovalOverride: tool.requiresApproval ? true : null,
-        },
+        payload: buildAssistantMcpBindingPayload(tool),
       });
       setSelectedMcpToolId('');
       setMcpBindingDialogOpen(false);
-      toast.success('Tool MCP vinculada em modo sandbox');
+      toast.success(
+        isRemoteMaterializedMcpTool(tool)
+          ? 'Tool MCP vinculada em estado governado'
+          : 'Tool MCP vinculada em modo sandbox',
+      );
     } catch (error) {
       toast.error('Nao foi possivel vincular a tool MCP', {
         description: error instanceof Error ? error.message : 'Tente novamente em instantes.',
@@ -371,8 +399,10 @@ export default function AssistantDetailPage() {
   };
 
   const handleMcpSandboxPrecheck = async (toolId = activeSandboxToolId) => {
-    if (!toolId) {
-      toast.error('Selecione uma ferramenta MCP');
+    if (!toolId || !sandboxMcpToolIds.has(toolId)) {
+      toast.error('Ferramenta MCP indisponível para sandbox', {
+        description: 'O vínculo está desabilitado ou a ferramenta permanece bloqueada pela governança.',
+      });
       return;
     }
     try {
@@ -393,8 +423,10 @@ export default function AssistantDetailPage() {
   };
 
   const handleMcpSandboxRun = async (toolId = activeSandboxToolId) => {
-    if (!toolId) {
-      toast.error('Selecione uma ferramenta MCP');
+    if (!toolId || !sandboxMcpToolIds.has(toolId)) {
+      toast.error('Ferramenta MCP indisponível para execução', {
+        description: 'O vínculo está desabilitado ou a ferramenta permanece bloqueada pela governança.',
+      });
       return;
     }
     try {
@@ -685,7 +717,7 @@ ${assistant.escalationPolicy || 'Não definida'}
 ${kbs.map(kb => `- ${kb.name} (${kb.documentCount} documentos, ${kb.totalChunks} trechos)`).join('\n') || '- Nenhuma'}
 
 ## Ferramentas MCP
-${tools.map(t => `- ${t.name}: ${t.description}${t.requiresApproval ? ' [REQUER APROVAÇÃO]' : ''}`).join('\n') || '- Nenhuma'}`;
+${tools.map(mcpToolPromptLine).join('\n') || '- Nenhuma'}`;
 
   const handleAction = (action: string) => {
     if (!env.useMocks) {
@@ -859,9 +891,23 @@ ${tools.map(t => `- ${t.name}: ${t.description}${t.requiresApproval ? ' [REQUER 
                         <p className="font-mono text-xs font-medium">{t.name}</p>
                         <p className="text-xs text-muted-foreground">{t.description}</p>
                       </div>
-                      <div className="flex items-center gap-2">
+                      <div className="flex flex-wrap items-center gap-2">
                         <StatusBadge status={t.riskLevel} />
-                        {t.requiresApproval && <span className="text-[10px] text-warning">Aprovação</span>}
+                        {isRemoteMaterializedMcpTool(t) && (
+                          <Badge variant="outline" className="text-[10px]">
+                            Governada
+                          </Badge>
+                        )}
+                        {t.isEnabled === false && (
+                          <Badge variant="outline" className="text-[10px]">
+                            Desabilitada
+                          </Badge>
+                        )}
+                        {t.requiresApproval && (
+                          <span className="text-[10px] text-warning">
+                            Aprovação
+                          </span>
+                        )}
                       </div>
                     </div>
                   )) : <p className="text-sm text-muted-foreground">Nenhuma ferramenta vinculada</p>}
@@ -1475,8 +1521,13 @@ ${tools.map(t => `- ${t.name}: ${t.description}${t.requiresApproval ? ' [REQUER 
           <div className="space-y-4">
             <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
               <div>
-                <h3 className="text-sm font-semibold">Ferramentas MCP Habilitadas ({tools.length})</h3>
-                <p className="text-xs text-muted-foreground">Pré-checagem e execução em sandbox local com políticas do backend.</p>
+                <h3 className="text-sm font-semibold">
+                  Ferramentas MCP vinculadas ({tools.length})
+                </h3>
+
+                <p className="text-xs text-muted-foreground">
+                  Vínculos governados. Apenas ferramentas habilitadas podem participar do sandbox.
+                </p>
               </div>
               <Button variant="outline" size="sm" onClick={() => setMcpBindingDialogOpen(true)}><Server className="h-3.5 w-3.5 mr-1" />Vincular Ferramenta</Button>
             </div>
@@ -1490,15 +1541,34 @@ ${tools.map(t => `- ${t.name}: ${t.description}${t.requiresApproval ? ' [REQUER 
                   </div>
                   <Badge variant="outline" className="text-[10px]">Sandbox</Badge>
                 </div>
+
+                {tools.length > 0 && sandboxMcpTools.length === 0 && (
+                  <div className="mb-4 rounded-md border border-warning/30 bg-warning/5 p-3">
+                    <p className="text-xs font-medium text-warning">
+                      Nenhuma ferramenta habilitada para sandbox
+                    </p>
+                    <p className="mt-1 text-xs text-muted-foreground">
+                      Os vínculos atuais permanecem associados ao Assistant, mas estão
+                      desabilitados pela governança. Nenhuma execução MCP está disponível.
+                    </p>
+                  </div>
+                )}
+
                 <div className="space-y-4">
                   <div className="space-y-2">
                     <Label>Ferramenta</Label>
                     <Select value={activeSandboxToolId || 'none'} onValueChange={value => setSelectedSandboxToolId(value === 'none' ? '' : value)}>
                       <SelectTrigger><SelectValue /></SelectTrigger>
                       <SelectContent>
-                        {tools.length === 0 && <SelectItem value="none">Nenhuma ferramenta vinculada</SelectItem>}
-                        {tools.map(tool => (
-                          <SelectItem key={tool.id} value={tool.id}>{tool.name} · {riskLevelLabel(tool.riskLevel)}</SelectItem>
+                        {sandboxMcpTools.length === 0 && (
+                          <SelectItem value="none">
+                            Nenhuma ferramenta habilitada para sandbox
+                          </SelectItem>
+                        )}
+                        {sandboxMcpTools.map((tool) => (
+                          <SelectItem key={tool.id} value={tool.id}>
+                            {tool.name} · {riskLevelLabel(tool.riskLevel)}
+                          </SelectItem>
                         ))}
                       </SelectContent>
                     </Select>
@@ -1512,7 +1582,14 @@ ${tools.map(t => `- ${t.name}: ${t.description}${t.requiresApproval ? ' [REQUER 
                   )}
                   <div className="space-y-2">
                     <Label>Entrada</Label>
-                    <Textarea value={mcpSandboxInput} onChange={event => setMcpSandboxInput(event.target.value)} rows={6} maxLength={4000} className="font-mono text-xs" />
+                    <Textarea
+                      value={mcpSandboxInput}
+                      onChange={event => setMcpSandboxInput(event.target.value)}
+                      rows={6}
+                      maxLength={4000}
+                      className="font-mono text-xs"
+                      disabled={!activeSandboxToolId}
+                    />
                     <p className="text-[10px] text-muted-foreground">{mcpSandboxInput.length}/4000</p>
                   </div>
                   <div className="flex flex-col gap-2 sm:flex-row">
@@ -1566,7 +1643,23 @@ ${tools.map(t => `- ${t.name}: ${t.description}${t.requiresApproval ? ' [REQUER 
                   <tbody>
                     {tools.map(t => (
                       <tr key={t.id} className="border-b hover:bg-muted/30 transition-colors">
-                        <td className="px-4 py-3 font-mono text-xs font-medium">{t.name}</td>
+                        <td className="px-4 py-3">
+                          <div className="space-y-1">
+                            <p className="font-mono text-xs font-medium">{t.name}</p>
+                            <div className="flex flex-wrap gap-1">
+                              {isRemoteMaterializedMcpTool(t) && (
+                                <Badge variant="outline" className="text-[9px]">
+                                  Governada
+                                </Badge>
+                              )}
+                              {t.isEnabled === false && (
+                                <Badge variant="outline" className="text-[9px]">
+                                  Desabilitada
+                                </Badge>
+                              )}
+                            </div>
+                          </div>
+                        </td>
                         <td className="px-4 py-3 text-xs text-muted-foreground">{t.description}</td>
                         <td className="px-4 py-3"><StatusBadge status={t.riskLevel} /></td>
                         <td className="px-4 py-3">
@@ -1579,16 +1672,29 @@ ${tools.map(t => `- ${t.name}: ${t.description}${t.requiresApproval ? ' [REQUER 
                         <td className="px-4 py-3 text-right text-xs">{t.executionCount.toLocaleString()}</td>
                         <td className="px-4 py-3">
                           <div className="flex justify-end gap-1">
-                            <Button variant="ghost" size="sm" className="h-7 px-2 text-xs" onClick={() => { setSelectedSandboxToolId(t.id); void handleMcpSandboxPrecheck(t.id); }} disabled={mcpSandboxPrecheckMutation.isPending}>
+                            <Button variant="ghost" size="sm" className="h-7 px-2 text-xs" onClick={() => { setSelectedSandboxToolId(t.id); void handleMcpSandboxPrecheck(t.id); }} disabled={!sandboxMcpToolIds.has(t.id) || mcpSandboxPrecheckMutation.isPending}>
                               <Shield className="h-3.5 w-3.5" />
                             </Button>
-                            <Button variant="ghost" size="sm" className="h-7 px-2 text-xs" onClick={() => { setSelectedSandboxToolId(t.id); void handleMcpSandboxRun(t.id); }} disabled={mcpSandboxToolCallMutation.isPending}>
+                            <Button variant="ghost" size="sm" className="h-7 px-2 text-xs" onClick={() => { setSelectedSandboxToolId(t.id); void handleMcpSandboxRun(t.id); }} disabled={!sandboxMcpToolIds.has(t.id) || mcpSandboxToolCallMutation.isPending}>
                               <Play className="h-3.5 w-3.5" />
                             </Button>
                             {mcpBindingByToolId.has(t.id) ? (
-                              <Button variant="ghost" size="sm" className="h-7 px-2 text-xs" onClick={() => { void handleRemoveMcpBinding(t.id); }} disabled={removeMcpBindingMutation.isPending}>
-                                <X className="h-3.5 w-3.5" />
-                              </Button>
+                              isRemoteMaterializedMcpTool(t) ? (
+                                <span className="flex items-center gap-1 px-2 text-[10px] text-muted-foreground">
+                                  <Shield className="h-3 w-3" />
+                                  governado
+                                </span>
+                              ) : (
+                                <Button
+                                  variant="ghost"
+                                  size="sm"
+                                  className="h-7 px-2 text-xs"
+                                  onClick={() => { void handleRemoveMcpBinding(t.id); }}
+                                  disabled={removeMcpBindingMutation.isPending}
+                                >
+                                  <X className="h-3.5 w-3.5" />
+                                </Button>
+                              )
                             ) : (
                               <span className="px-2 text-xs text-muted-foreground">legado</span>
                             )}
@@ -1986,27 +2092,90 @@ ${tools.map(t => `- ${t.name}: ${t.description}${t.requiresApproval ? ' [REQUER 
           <DialogContent className="max-w-md">
             <DialogHeader>
               <DialogTitle>Vincular ferramenta MCP</DialogTitle>
-              <DialogDescription>Crie um vínculo governado em modo sandbox, sem execução MCP real.</DialogDescription>
+              <DialogDescription>
+                {selectedMcpBindingTool && isRemoteMaterializedMcpTool(selectedMcpBindingTool)
+                  ? 'A ferramenta será associada ao Assistant em estado governado e desabilitado, sem execução MCP real.'
+                  : 'Crie um vínculo governado em modo sandbox, sem execução MCP real.'}
+              </DialogDescription>
             </DialogHeader>
+
             {availableMcpTools.length > 0 ? (
-              <div className="space-y-2">
-                <Label>Ferramenta</Label>
-                <Select value={selectedMcpToolId} onValueChange={setSelectedMcpToolId}>
-                  <SelectTrigger><SelectValue placeholder="Selecione uma ferramenta" /></SelectTrigger>
-                  <SelectContent>
-                    {availableMcpTools.map(tool => (
-                      <SelectItem key={tool.id} value={tool.id}>{tool.name} · risco {riskLevelLabel(tool.riskLevel)}</SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
+              <div className="space-y-3">
+                <div className="space-y-2">
+                  <Label>Ferramenta</Label>
+                  <Select value={selectedMcpToolId} onValueChange={setSelectedMcpToolId}>
+                    <SelectTrigger>
+                      <SelectValue placeholder="Selecione uma ferramenta" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {availableMcpTools.map((tool) => (
+                        <SelectItem key={tool.id} value={tool.id}>
+                          {tool.name}
+                          {' · risco '}
+                          {riskLevelLabel(tool.riskLevel)}
+                          {isRemoteMaterializedMcpTool(tool) ? ' · governada' : ''}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+
+                {selectedMcpBindingTool
+                  && isRemoteMaterializedMcpTool(selectedMcpBindingTool) && (
+                  <div className="rounded-md border border-warning/30 bg-warning/5 p-3">
+                    <div className="flex items-center gap-2">
+                      <Shield className="h-4 w-4 text-warning" />
+                      <p className="text-xs font-medium">
+                        Materialização remota governada
+                      </p>
+                    </div>
+
+                    <div className="mt-3 grid grid-cols-2 gap-2 text-xs">
+                      <div className="rounded border bg-background/50 p-2">
+                        <p className="text-[10px] text-muted-foreground">Vínculo</p>
+                        <p className="font-medium">Desabilitado</p>
+                      </div>
+                      <div className="rounded border bg-background/50 p-2">
+                        <p className="text-[10px] text-muted-foreground">McpTool</p>
+                        <p className="font-medium">Desabilitada</p>
+                      </div>
+                      <div className="rounded border bg-background/50 p-2">
+                        <p className="text-[10px] text-muted-foreground">Runtime</p>
+                        <p className="font-medium">Bloqueado</p>
+                      </div>
+                      <div className="rounded border bg-background/50 p-2">
+                        <p className="text-[10px] text-muted-foreground">Execução remota</p>
+                        <p className="font-medium">Bloqueada</p>
+                      </div>
+                    </div>
+
+                    <p className="mt-3 text-xs text-muted-foreground">
+                      A aprovação permanece obrigatória. Este vínculo não cria
+                      chamada de ferramenta nem libera execução.
+                    </p>
+                  </div>
+                )}
               </div>
             ) : (
-              <p className="text-sm text-muted-foreground">Não há ferramentas disponíveis para vincular.</p>
+              <p className="text-sm text-muted-foreground">
+                Não há ferramentas disponíveis para vincular.
+              </p>
             )}
+
             <DialogFooter>
-              <Button variant="outline" onClick={() => setMcpBindingDialogOpen(false)}>Cancelar</Button>
-              <Button onClick={() => { void handleBindMcpTool(); }} disabled={!selectedMcpToolId || createMcpBindingMutation.isPending}>
-                Vincular
+              <Button
+                variant="outline"
+                onClick={() => setMcpBindingDialogOpen(false)}
+              >
+                Cancelar
+              </Button>
+              <Button
+                onClick={() => { void handleBindMcpTool(); }}
+                disabled={!selectedMcpToolId || createMcpBindingMutation.isPending}
+              >
+                {selectedMcpBindingTool && isRemoteMaterializedMcpTool(selectedMcpBindingTool)
+                  ? 'Vincular governada'
+                  : 'Vincular'}
               </Button>
             </DialogFooter>
           </DialogContent>
@@ -2023,6 +2192,28 @@ interface PromptSection {
   title: string;
   content: string;
   editable: boolean;
+}
+
+function mcpToolPromptLine(tool: McpTool) {
+  const markers: string[] = [];
+
+  if (isRemoteMaterializedMcpTool(tool)) {
+    markers.push('GOVERNADA');
+  }
+
+  if (tool.isEnabled === false) {
+    markers.push('DESABILITADA');
+  }
+
+  if (tool.requiresApproval) {
+    markers.push('REQUER APROVAÇÃO');
+  }
+
+  const suffix = markers.length > 0
+    ? ` [${markers.join(' · ')}]`
+    : '';
+
+  return `- ${tool.name}: ${tool.description || 'Sem descrição'}${suffix}`;
 }
 
 function buildSections(a: Assistant, kbs: KnowledgeBase[], tls: McpTool[]): PromptSection[] {
@@ -2042,7 +2233,7 @@ function buildSections(a: Assistant, kbs: KnowledgeBase[], tls: McpTool[]): Prom
     { id: 'escalation', title: 'Política de Escalonamento', content: a.escalationPolicy || 'Não definida', editable: true },
     { id: 'model', title: 'Configuração do Modelo', content: `- Modelo principal: ${a.model}\n- Modelo fallback: ${a.fallbackModel}\n- Temperatura: ${a.temperature}`, editable: false },
     { id: 'knowledge', title: 'Bases de Conhecimento', content: kbs.length > 0 ? kbs.map(kb => `- ${kb.name} (${kb.documentCount} documentos, ${kb.totalChunks} trechos)`).join('\n') : '- Nenhuma', editable: false },
-    { id: 'tools_section', title: 'Ferramentas MCP', content: tls.length > 0 ? tls.map(t => `- ${t.name}: ${t.description}${t.requiresApproval ? ' [REQUER APROVAÇÃO]' : ''}`).join('\n') : '- Nenhuma', editable: false },
+    { id: 'tools_section', title: 'Ferramentas MCP', content: tls.length > 0 ? tls.map(mcpToolPromptLine).join('\n') : '- Nenhuma', editable: false },
   ];
 }
 

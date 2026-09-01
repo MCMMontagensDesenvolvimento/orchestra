@@ -150,6 +150,70 @@ function requiresApprovalForRisk(riskLevel: string) {
   return riskLevel === 'high' || riskLevel === 'critical';
 }
 
+type BindableMcpTool = NonNullable<
+  Awaited<ReturnType<typeof mcpRepository.findTool>>
+>;
+
+function isClosedGovernedRemoteMaterializedTool(tool: BindableMcpTool) {
+  const catalogEntry = tool.remoteCatalogEntry;
+  const toolPolicy = tool.policies?.[0];
+
+  return Boolean(
+    catalogEntry
+      && catalogEntry.deletedAt === null
+      && catalogEntry.materializedMcpToolId === tool.id
+      && catalogEntry.lifecycleStatus === 'approved_for_catalog'
+      && catalogEntry.approvedAt
+      && catalogEntry.requiresApproval === true
+      && catalogEntry.allowRuntimeExecution === false
+      && catalogEntry.sandboxOnly === true
+      && catalogEntry.blockedByDefault === true
+      && catalogEntry.approvalMode === 'manual'
+      && catalogEntry.runtimeEnabled === false
+      && catalogEntry.remoteExecutionEnabled === false
+      && (tool.server.serverType === 'remote' || tool.server.serverType === 'external')
+      && tool.isEnabled === false
+      && tool.requiresApproval === true
+      && toolPolicy
+      && toolPolicy.allowRuntimeExecution === false
+      && toolPolicy.sandboxOnly === true
+      && toolPolicy.requiresApproval === true
+      && toolPolicy.blockedByDefault === true
+  );
+}
+
+function assertClosedGovernedRemoteBindingCreate(
+  input: AssistantMcpBindingCreateInput,
+) {
+  if (
+    input.isEnabled !== false
+    || input.mode !== 'disabled'
+    || input.requiresApprovalOverride === false
+  ) {
+    throw new AppError(
+      422,
+      'MCP_REMOTE_BINDING_GOVERNANCE_REQUIRED',
+      'Tools MCP remotas materializadas só podem ser vinculadas desabilitadas, em modo disabled e com aprovação preservada.',
+    );
+  }
+}
+
+function assertClosedGovernedRemoteBindingUpdate(
+  input: AssistantMcpBindingUpdateInput,
+) {
+  if (
+    input.isEnabled === true
+    || (input.mode !== undefined && input.mode !== 'disabled')
+    || input.requiresApprovalOverride === false
+  ) {
+    throw new AppError(
+      422,
+      'MCP_REMOTE_BINDING_GOVERNANCE_REQUIRED',
+      'O vínculo MCP remoto materializado deve permanecer desabilitado até a abertura governada da execução.',
+    );
+  }
+}
+
 function truncate(value: string, max = 600) {
   return value.length > max ? `${value.slice(0, max - 15)}...[truncated]` : value;
 }
@@ -174,12 +238,25 @@ function selectVersionId(assistant: AssistantForMcpExecution, agentRun: AgentRun
   return agentRun?.assistantVersionId ?? assistant.versions[0]?.id ?? null;
 }
 
-function selectBinding(bindings: MatchingMcpBinding[], toolId: string) {
-  const enabled = bindings.filter((binding) => binding.isEnabled && binding.mode !== 'disabled');
+function isRemoteMcpServerType(serverType: string) {
+  return serverType === 'remote' || serverType === 'external';
+}
+
+function selectBinding(
+  bindings: MatchingMcpBinding[],
+  toolId: string,
+  allowServerWideBinding = true,
+) {
+  const enabled = bindings.filter(
+    (binding) => binding.isEnabled && binding.mode !== 'disabled',
+  );
+
   return (
-    enabled.find((binding) => binding.mcpToolId === toolId) ??
-    enabled.find((binding) => binding.mcpToolId === null) ??
-    null
+    enabled.find((binding) => binding.mcpToolId === toolId)
+    ?? (allowServerWideBinding
+      ? enabled.find((binding) => binding.mcpToolId === null)
+      : undefined)
+    ?? null
   );
 }
 
@@ -322,7 +399,14 @@ async function buildMcpExecutionPrecheck(
   const tool = await getToolForExecutionOrThrow(input.mcpToolId, user);
   const policy = assistant.executionPolicy ?? (await mcpRepository.getExecutionPolicy(assistant));
   const bindings = await mcpRepository.listMatchingBindings(assistant.id, tool.mcpServerId, tool.id, user.tenant.id, userWorkspaceIds(user));
-  const binding = selectBinding(bindings, tool.id);
+  const explicitToolBindingRequired = isRemoteMcpServerType(tool.server.serverType);
+  const binding = selectBinding(
+    bindings,
+    tool.id,
+    !explicitToolBindingRequired,
+  );
+  const exactToolBinding =
+    bindings.find((item) => item.mcpToolId === tool.id) ?? null;
   const toolPolicy = tool.policies?.[0] ?? null;
   const reasons: string[] = [];
   const warnings: Array<{ code: string; message: string }> = [];
@@ -336,7 +420,23 @@ async function buildMcpExecutionPrecheck(
   else if (!tool.isEnabled) reasons.push('tool_disabled');
 
   if (!binding) {
-    reasons.push(bindings.length > 0 ? 'binding_disabled' : 'tool_not_bound_to_assistant');
+    if (
+      exactToolBinding
+      && (!exactToolBinding.isEnabled || exactToolBinding.mode === 'disabled')
+    ) {
+      reasons.push('binding_disabled');
+    } else if (
+      explicitToolBindingRequired
+      && bindings.some((item) => item.mcpToolId === null)
+    ) {
+      reasons.push('remote_tool_requires_explicit_binding');
+    } else {
+      reasons.push(
+        bindings.length > 0
+          ? 'binding_disabled'
+          : 'tool_not_bound_to_assistant',
+      );
+    }
   } else if (!['sandbox_only', 'enabled_placeholder'].includes(binding.mode)) {
     reasons.push('sandbox_not_allowed');
   }
@@ -1177,12 +1277,38 @@ export const mcpService = {
       throw new AppError(403, 'WORKSPACE_SCOPE_MISMATCH', 'MCP server e assistente devem pertencer ao mesmo workspace.');
     }
 
+    if (isRemoteMcpServerType(server.serverType) && !input.mcpToolId) {
+      throw new AppError(
+        422,
+        'MCP_REMOTE_BINDING_TOOL_REQUIRED',
+        'Bindings de servidores MCP remotos exigem uma ferramenta explícita.',
+      );
+    }
+
     const tool = input.mcpToolId ? await mcpRepository.findTool(input.mcpToolId, user.tenant.id, userWorkspaceIds(user)) : null;
     if (input.mcpToolId && (!tool || tool.mcpServerId !== server.id)) {
       throw new AppError(404, 'MCP_TOOL_NOT_FOUND', 'MCP tool nao encontrada no server informado.');
     }
-    if (tool && (!tool.isEnabled || tool.deletedAt)) {
-      throw new AppError(409, 'MCP_TOOL_NOT_BINDABLE', 'MCP tool deve estar habilitada para ser vinculada.');
+    const governedRemoteMaterializedTool = tool ? isClosedGovernedRemoteMaterializedTool(tool) : false;
+
+    if (tool?.deletedAt) {
+      throw new AppError(
+        409,
+        'MCP_TOOL_NOT_BINDABLE',
+        'MCP tool arquivada não pode ser vinculada.',
+      );
+    }
+
+    if (tool && !tool.isEnabled && !governedRemoteMaterializedTool) {
+      throw new AppError(
+        409,
+        'MCP_TOOL_NOT_BINDABLE',
+        'MCP tool deve estar habilitada para ser vinculada.',
+      );
+    }
+
+    if (governedRemoteMaterializedTool) {
+      assertClosedGovernedRemoteBindingCreate(input);
     }
     if (isMcpLocalDemoMetadata(server.metadata)) {
       const toolMetadata = tool?.metadata;
@@ -1206,6 +1332,15 @@ export const mcpService = {
     const binding = await mcpRepository.createBinding({
       ...input,
       mcpToolId: input.mcpToolId ?? null,
+
+      ...(governedRemoteMaterializedTool
+        ? {
+            isEnabled: false,
+            mode: 'disabled' as const,
+            requiresApprovalOverride: true,
+          }
+        : {}),
+
       tenantId: user.tenant.id,
       workspaceId: assistant.workspaceId,
       assistantId: assistant.id,
@@ -1244,13 +1379,56 @@ export const mcpService = {
       throw new AppError(404, 'MCP_BINDING_NOT_FOUND', 'Binding MCP nao encontrado.');
     }
     assertLocalDemoCatalogMutable(current.server?.metadata);
-    if (current.tool && (current.tool.requiresApproval || requiresApprovalForRisk(current.tool.riskLevel)) && input.requiresApprovalOverride === false) {
-      throw new AppError(422, 'MCP_APPROVAL_REQUIRED', 'Esta MCP tool exige approval e nao aceita override falso.');
+
+    const governedRemoteMaterializedTool =
+      current.tool
+        ? isClosedGovernedRemoteMaterializedTool(
+            current.tool as BindableMcpTool,
+          )
+        : false;
+
+    if (governedRemoteMaterializedTool) {
+      assertClosedGovernedRemoteBindingUpdate(input);
     }
 
-    const binding = await mcpRepository.updateBinding(assistant.id, bindingId, user.tenant.id, userWorkspaceIds(user), input);
+    if (
+      current.tool
+      && (
+        current.tool.requiresApproval
+        || requiresApprovalForRisk(current.tool.riskLevel)
+      )
+      && input.requiresApprovalOverride === false
+    ) {
+      throw new AppError(
+        422,
+        'MCP_APPROVAL_REQUIRED',
+        'Esta MCP tool exige approval e nao aceita override falso.',
+      );
+    }
+
+    const effectiveInput = governedRemoteMaterializedTool
+      ? {
+          ...input,
+          isEnabled: false,
+          mode: 'disabled' as const,
+          requiresApprovalOverride: true,
+        }
+      : input;
+
+    const binding = await mcpRepository.updateBinding(
+      assistant.id,
+      bindingId,
+      user.tenant.id,
+      userWorkspaceIds(user),
+      effectiveInput,
+    );
+
     if (!binding) {
-      throw new AppError(404, 'MCP_BINDING_NOT_FOUND', 'Binding MCP nao encontrado.');
+      throw new AppError(
+        404,
+        'MCP_BINDING_NOT_FOUND',
+        'Binding MCP nao encontrado.',
+      );
     }
 
     await audit({
@@ -1264,7 +1442,7 @@ export const mcpService = {
         assistantId: assistant.id,
         mcpServerId: binding.mcpServerId,
         mcpToolId: binding.mcpToolId,
-        changedFields: Object.keys(input),
+        changedFields: Object.keys(effectiveInput),
         isEnabled: binding.isEnabled,
       },
     });

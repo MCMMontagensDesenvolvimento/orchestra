@@ -727,6 +727,64 @@ function mcpBindingFixture() {
   };
 }
 
+function governedRemoteCatalogEntryFixture(
+  overrides: Record<string, unknown> = {},
+) {
+  return {
+    id: '00000000-0000-0000-0000-000000000831',
+    materializedMcpToolId: mcpToolId,
+    lifecycleStatus: 'approved_for_catalog',
+    requiresApproval: true,
+    allowRuntimeExecution: false,
+    sandboxOnly: true,
+    blockedByDefault: true,
+    approvalMode: 'manual',
+    runtimeEnabled: false,
+    remoteExecutionEnabled: false,
+    approvedAt: now,
+    deletedAt: null,
+    ...overrides,
+  };
+}
+
+function governedRemoteMcpToolFixture(
+  overrides: Record<string, unknown> = {},
+) {
+  return mcpToolFixture({
+    name: 'corporate.status.read',
+    description: 'Governed remote corporate readonly tool.',
+    riskLevel: 'low',
+    requiresApproval: true,
+    isEnabled: false,
+    server: mcpServerFixture({
+      serverType: 'remote',
+      status: 'active',
+      deletedAt: null,
+    }),
+    policies: [mcpPolicyFixture(mcpToolId)],
+    remoteCatalogEntry: governedRemoteCatalogEntryFixture(),
+    ...overrides,
+  });
+}
+
+function governedRemoteMcpBindingFixture(
+  overrides: Record<string, unknown> = {},
+) {
+  return {
+    ...mcpBindingFixture(),
+    isEnabled: false,
+    mode: 'disabled',
+    requiresApprovalOverride: true,
+    server: mcpServerFixture({
+      serverType: 'remote',
+      status: 'active',
+      deletedAt: null,
+    }),
+    tool: governedRemoteMcpToolFixture(),
+    ...overrides,
+  };
+}
+
 function assistantExecutionPolicyFixture(overrides: Record<string, unknown> = {}) {
   return {
     id: '00000000-0000-0000-0000-000000000922',
@@ -2383,6 +2441,262 @@ describe('knowledge and MCP catalog endpoints', () => {
       .expect(422);
 
     expect(blockedResponse.body.code).toBe('MCP_APPROVAL_REQUIRED');
+  });
+
+  it('creates a closed binding for a governed remote materialized tool without creating tool calls', async () => {
+    mocks.mcpRepository.findTool.mockResolvedValueOnce(
+      governedRemoteMcpToolFixture(),
+    );
+    mocks.mcpRepository.createBinding.mockResolvedValueOnce(
+      governedRemoteMcpBindingFixture(),
+    );
+
+    const response = await request(createApp())
+      .post(`/api/v1/assistants/${assistantId}/mcp-bindings`)
+      .set('Cookie', [sessionCookie()])
+      .send({
+        mcpServerId,
+        mcpToolId,
+        isEnabled: false,
+        mode: 'disabled',
+        requiresApprovalOverride: true,
+      })
+      .expect(201);
+
+    expect(response.body.data).toMatchObject({
+      mcpToolId,
+      isEnabled: false,
+      mode: 'disabled',
+      requiresApprovalOverride: true,
+    });
+
+    expect(mocks.mcpRepository.createBinding).toHaveBeenCalledWith(
+      expect.objectContaining({
+        assistantId,
+        mcpServerId,
+        mcpToolId,
+        isEnabled: false,
+        mode: 'disabled',
+        requiresApprovalOverride: true,
+      }),
+    );
+
+    expect(
+      mocks.mcpRepository.createMcpToolCallWithEvents,
+    ).not.toHaveBeenCalled();
+  });
+
+  it('rejects attempts to open a governed remote materialized binding during creation', async () => {
+    mocks.mcpRepository.findTool.mockResolvedValue(
+      governedRemoteMcpToolFixture(),
+    );
+
+    const invalidPayloads = [
+      {
+        mcpServerId,
+        mcpToolId,
+        isEnabled: true,
+        mode: 'disabled',
+        requiresApprovalOverride: true,
+      },
+      {
+        mcpServerId,
+        mcpToolId,
+        isEnabled: false,
+        mode: 'sandbox_only',
+        requiresApprovalOverride: true,
+      },
+      {
+        mcpServerId,
+        mcpToolId,
+        isEnabled: false,
+        mode: 'disabled',
+        requiresApprovalOverride: false,
+      },
+    ];
+
+    for (const payload of invalidPayloads) {
+      const response = await request(createApp())
+        .post(`/api/v1/assistants/${assistantId}/mcp-bindings`)
+        .set('Cookie', [sessionCookie()])
+        .send(payload)
+        .expect(422);
+
+      expect(response.body.code).toBe(
+        'MCP_REMOTE_BINDING_GOVERNANCE_REQUIRED',
+      );
+    }
+
+    expect(mocks.mcpRepository.createBinding).not.toHaveBeenCalled();
+  });
+
+  it('keeps an ordinary disabled MCP tool non-bindable', async () => {
+    mocks.mcpRepository.findTool.mockResolvedValueOnce(
+      mcpToolFixture({
+        isEnabled: false,
+        remoteCatalogEntry: null,
+      }),
+    );
+
+    const response = await request(createApp())
+      .post(`/api/v1/assistants/${assistantId}/mcp-bindings`)
+      .set('Cookie', [sessionCookie()])
+      .send({
+        mcpServerId,
+        mcpToolId,
+        isEnabled: false,
+        mode: 'disabled',
+        requiresApprovalOverride: true,
+      })
+      .expect(409);
+
+    expect(response.body.code).toBe('MCP_TOOL_NOT_BINDABLE');
+    expect(mocks.mcpRepository.createBinding).not.toHaveBeenCalled();
+  });
+
+  it('does not treat a partially open remote catalog entry as a governed bindable tool', async () => {
+    mocks.mcpRepository.findTool.mockResolvedValueOnce(
+      governedRemoteMcpToolFixture({
+        remoteCatalogEntry: governedRemoteCatalogEntryFixture({
+          allowRuntimeExecution: true,
+        }),
+      }),
+    );
+
+    const response = await request(createApp())
+      .post(`/api/v1/assistants/${assistantId}/mcp-bindings`)
+      .set('Cookie', [sessionCookie()])
+      .send({
+        mcpServerId,
+        mcpToolId,
+        isEnabled: false,
+        mode: 'disabled',
+        requiresApprovalOverride: true,
+      })
+      .expect(409);
+
+    expect(response.body.code).toBe('MCP_TOOL_NOT_BINDABLE');
+    expect(mocks.mcpRepository.createBinding).not.toHaveBeenCalled();
+  });
+
+  it('requires an explicit tool for remote MCP bindings', async () => {
+    const response = await request(createApp())
+      .post(`/api/v1/assistants/${assistantId}/mcp-bindings`)
+      .set('Cookie', [sessionCookie()])
+      .send({
+        mcpServerId,
+        isEnabled: false,
+        mode: 'disabled',
+        requiresApprovalOverride: true,
+      })
+      .expect(422);
+
+    expect(response.body.code).toBe('MCP_REMOTE_BINDING_TOOL_REQUIRED');
+    expect(mocks.mcpRepository.findTool).not.toHaveBeenCalled();
+    expect(mocks.mcpRepository.createBinding).not.toHaveBeenCalled();
+  });
+
+  it('rejects PATCH attempts that open a governed remote materialized binding', async () => {
+    mocks.mcpRepository.listBindings.mockResolvedValue([
+      governedRemoteMcpBindingFixture(),
+    ]);
+
+    const invalidUpdates = [
+      { isEnabled: true },
+      { mode: 'sandbox_only' },
+      { requiresApprovalOverride: false },
+    ];
+
+    for (const payload of invalidUpdates) {
+      const response = await request(createApp())
+        .patch(
+          `/api/v1/assistants/${assistantId}/mcp-bindings/${mcpBindingId}`,
+        )
+        .set('Cookie', [sessionCookie()])
+        .send(payload)
+        .expect(422);
+
+      expect(response.body.code).toBe(
+        'MCP_REMOTE_BINDING_GOVERNANCE_REQUIRED',
+      );
+    }
+
+    expect(mocks.mcpRepository.updateBinding).not.toHaveBeenCalled();
+  });
+
+  it('keeps governed remote materialized tool blocked in MCP precheck with zero tool calls', async () => {
+    mocks.mcpRepository.findToolForExecution.mockResolvedValueOnce(
+      governedRemoteMcpToolFixture(),
+    );
+    mocks.mcpRepository.listMatchingBindings.mockResolvedValueOnce([
+      governedRemoteMcpBindingFixture(),
+    ]);
+
+    const response = await request(createApp())
+      .post(`/api/v1/assistants/${assistantId}/mcp/precheck`)
+      .set('Cookie', [sessionCookie()])
+      .send({
+        mcpToolId,
+        mode: 'sandbox',
+        input: { query: 'status corporativo' },
+      })
+      .expect(200);
+
+    expect(response.body.data.canExecute).toBe(false);
+    expect(response.body.data.status).toBe('blocked');
+    expect(response.body.data.reasons).toEqual(
+      expect.arrayContaining([
+        'tool_disabled',
+        'binding_disabled',
+      ]),
+    );
+
+    expect(
+      mocks.mcpRepository.createMcpToolCallWithEvents,
+    ).not.toHaveBeenCalled();
+  });
+
+  it('ignores server-wide bindings when prechecking remote MCP tools', async () => {
+    mocks.mcpRepository.findToolForExecution.mockResolvedValueOnce(
+      mcpToolFixture({
+        riskLevel: 'low',
+        requiresApproval: false,
+        isEnabled: true,
+        server: mcpServerFixture({
+          serverType: 'remote',
+          status: 'active',
+        }),
+      }),
+    );
+
+    mocks.mcpRepository.listMatchingBindings.mockResolvedValueOnce([
+      {
+        ...mcpBindingFixture(),
+        mcpToolId: null,
+        isEnabled: true,
+        mode: 'sandbox_only',
+      },
+    ]);
+
+    const response = await request(createApp())
+      .post(`/api/v1/assistants/${assistantId}/mcp/precheck`)
+      .set('Cookie', [sessionCookie()])
+      .send({
+        mcpToolId,
+        mode: 'sandbox',
+        input: { query: 'remote wildcard must not authorize' },
+      })
+      .expect(200);
+
+    expect(response.body.data.canExecute).toBe(false);
+    expect(response.body.data.status).toBe('blocked');
+    expect(response.body.data.reasons).toContain(
+      'remote_tool_requires_explicit_binding',
+    );
+
+    expect(
+      mocks.mcpRepository.createMcpToolCallWithEvents,
+    ).not.toHaveBeenCalled();
   });
 
   it('prechecks MCP sandbox execution as allowed for bound low risk tools', async () => {
