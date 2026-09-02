@@ -3,6 +3,7 @@ from __future__ import annotations
 import hmac
 import json
 import os
+from pathlib import Path
 import re
 import threading
 import time
@@ -116,6 +117,32 @@ def _optional_url(value: str, name: str, *, allow_http: bool) -> str | None:
     if not parsed.hostname or parsed.username or parsed.password or parsed.query or parsed.fragment:
         raise BridgeConfigurationError(f"{name} has an unsafe shape.")
     return candidate.rstrip("/")
+
+
+
+def _resolve_secret(env, value_name: str, file_name: str) -> str | None:
+    """
+    Resolve a provider credential without exposing it unnecessarily.
+
+    If FILE is configured, it is authoritative and fail-closed:
+    unreadable or empty files do not fall back to the environment value.
+
+    Environment fallback remains available for local/development use.
+    """
+    file_path = (env.get(file_name) or "").strip()
+
+    if file_path:
+        try:
+            value = Path(file_path).read_text(encoding="utf-8").strip()
+        except OSError as exc:
+            raise ValueError(f"{file_name} could not be read") from exc
+
+        if not value:
+            raise ValueError(f"{file_name} points to an empty secret file")
+
+        return value
+
+    return (env.get(value_name) or "").strip() or None
 
 
 @dataclass(frozen=True)
@@ -245,7 +272,11 @@ class BridgeConfig:
             max_tool_calls=max_tool_calls,
             tool_gateway_enabled=tool_gateway_enabled,
             tool_gateway_url=tool_gateway_url,
-            openai_api_key=env.get("OPENAI_API_KEY", "").strip() or None,
+            openai_api_key=_resolve_secret(
+                env,
+                "OPENAI_API_KEY",
+                "OPENAI_API_KEY_FILE",
+            ),
             azure_openai_api_key=env.get("AZURE_OPENAI_API_KEY", "").strip() or None,
             azure_openai_endpoint=_optional_url(
                 env.get("AZURE_OPENAI_ENDPOINT", ""),

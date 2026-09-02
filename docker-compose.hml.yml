@@ -7,9 +7,6 @@ services:
     restart: unless-stopped
     environment:
       NODE_ENV: production
-      OPENAI_API_KEY: ""
-      AZURE_OPENAI_API_KEY: ""
-      ANTHROPIC_API_KEY: ""
       DATABASE_URL: "${DATABASE_URL:?DATABASE_URL is required}"
       JWT_SECRET: "${JWT_SECRET:?JWT_SECRET is required}"
       FRONTEND_ORIGIN: "${FRONTEND_ORIGIN:?FRONTEND_ORIGIN is required}"
@@ -127,7 +124,8 @@ services:
       AGNO_BRIDGE_DEFAULT_MODEL: "${AGNO_BRIDGE_DEFAULT_MODEL:-gpt-4o-mini}"
       AGNO_BRIDGE_MODEL_DISCOVERY_CACHE_TTL_SECONDS: "${AGNO_BRIDGE_MODEL_DISCOVERY_CACHE_TTL_SECONDS:-600}"
       AGNO_BRIDGE_MODEL_DISCOVERY_TIMEOUT_MS: "${AGNO_BRIDGE_MODEL_DISCOVERY_TIMEOUT_MS:-5000}"
-      OPENAI_API_KEY: "${OPENAI_API_KEY:?OPENAI_API_KEY is required}"
+      # HML provider credential is mounted exclusively into this service.
+      OPENAI_API_KEY_FILE: "/run/secrets/openai_api_key"
       AGNO_RUNTIME_HTTP_HOST: "0.0.0.0"
       AGNO_RUNTIME_HTTP_PORT: "8091"
       AGNO_RUNTIME_HTTP_REQUIRE_SECURITY_KEY: "true"
@@ -137,6 +135,11 @@ services:
       AGNO_RUNTIME_HTTP_MAX_TOOL_CALLS: "0"
       AGNO_RUNTIME_HTTP_TOOL_GATEWAY_ENABLED: "false"
       ORCHESTRA_TOOL_GATEWAY_URL: "http://backend:3000/api/v1/runtime/agno/tool-calls"
+    volumes:
+      - type: bind
+        source: /etc/orchestra/secrets/hml/openai_api_key
+        target: /run/secrets/openai_api_key
+        read_only: true
     expose:
       - "8091"
     healthcheck:
