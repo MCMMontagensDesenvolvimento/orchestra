@@ -19,6 +19,8 @@ from bridge import (  # noqa: E402
     ExecutionPlan,
     ExecutorResult,
     GatewaySession,
+    _is_openai_assistant_model,
+    _openai_model_api,
     create_server,
 )
 
@@ -331,6 +333,102 @@ class AgnoBridgeTests(unittest.TestCase):
         self.assertTrue(session.gateway_metadata["mcpRemoteReadOnly"])
         self.assertEqual(session.gateway_metadata["mcpRemoteHost"], "mcp.example.test")
 
+    def test_openai_assistant_model_compatibility_filters_specialized_families(self):
+        eligible = [
+            "gpt-3.5-turbo",
+            "gpt-3.5-turbo-0125",
+            "gpt-4",
+            "gpt-4-0613",
+            "gpt-4-turbo",
+            "gpt-4-turbo-2024-04-09",
+            "gpt-4o-mini",
+            "gpt-4o-2024-11-20",
+            "gpt-4.1",
+            "gpt-4.1-mini-2025-04-14",
+            "gpt-5",
+            "gpt-5.3-chat-latest",
+            "gpt-5.6-luna",
+            "gpt-5.6-terra",
+            "gpt-5.6-sol",
+            "o1",
+            "o1-pro",
+            "o3-mini",
+            "o4-mini",
+        ]
+
+        specialized = [
+            "babbage-002",
+            "gpt-3.5-turbo-instruct",
+            "davinci-002",
+            "gpt-4o-mini-transcribe",
+            "gpt-4o-mini-tts",
+            "gpt-4o-search-preview",
+            "gpt-5-codex",
+            "gpt-5-search-api",
+            "gpt-audio",
+            "gpt-image-2",
+            "gpt-realtime-2.1",
+            "o4-mini-deep-research",
+            "omni-moderation-latest",
+            "sora-2",
+            "text-embedding-3-small",
+            "whisper-1",
+        ]
+
+        for model in eligible:
+            with self.subTest(model=model):
+                self.assertTrue(_is_openai_assistant_model(model))
+
+        for model in specialized:
+            with self.subTest(model=model):
+                self.assertFalse(_is_openai_assistant_model(model))
+
+    def test_openai_model_api_routes_general_models_to_responses_and_chat_aliases_to_chat(self):
+        self.assertEqual(_openai_model_api("gpt-4o-mini"), "responses")
+        self.assertEqual(_openai_model_api("gpt-4.1"), "responses")
+        self.assertEqual(_openai_model_api("gpt-5.6-sol"), "responses")
+        self.assertEqual(_openai_model_api("o3"), "responses")
+        self.assertEqual(_openai_model_api("gpt-5.3-chat-latest"), "chat")
+
+    def test_provider_discovery_catalog_excludes_specialized_openai_models(self):
+        provider_payload = {
+            "object": "list",
+            "data": [
+                {"id": "gpt-4o-mini", "object": "model"},
+                {"id": "gpt-5.6-sol", "object": "model"},
+                {"id": "gpt-image-2", "object": "model"},
+                {"id": "gpt-realtime-2.1", "object": "model"},
+                {"id": "text-embedding-3-small", "object": "model"},
+                {"id": "sora-2", "object": "model"},
+            ],
+        }
+
+        real = config(
+            AGNO_BRIDGE_EXECUTION_MODE="real",
+            AGNO_BRIDGE_PROVIDER="openai",
+            AGNO_BRIDGE_MODEL_DISCOVERY="provider",
+            AGNO_BRIDGE_ALLOWED_MODELS="",
+            AGNO_BRIDGE_DEFAULT_MODEL="gpt-4o-mini",
+            OPENAI_API_KEY="test-openai-discovery-key-never-sent",
+        )
+
+        with patch(
+            "bridge.urlopen",
+            return_value=BytesIO(json.dumps(provider_payload).encode("utf-8")),
+        ):
+            with RunningServer(real) as server:
+                status, capabilities = server.request("/capabilities")
+
+        self.assertEqual(status, 200)
+        self.assertEqual(
+            capabilities["modelCatalog"],
+            {
+                "provider": "openai",
+                "models": ["gpt-4o-mini", "gpt-5.6-sol"],
+                "defaultModel": "gpt-4o-mini",
+            },
+        )
+
     def test_real_openai_capabilities_expose_only_governed_model_catalog(self):
         api_key = "test-openai-key-never-sent"
         real = config(
@@ -406,7 +504,6 @@ class AgnoBridgeTests(unittest.TestCase):
             "models": [
                 "gpt-4.1",
                 "gpt-4o-mini",
-                "text-embedding-3-small",
             ],
             "defaultModel": "gpt-4o-mini",
         })

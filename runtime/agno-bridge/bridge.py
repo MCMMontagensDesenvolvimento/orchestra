@@ -25,6 +25,54 @@ from contract import (
 )
 
 
+_OPENAI_ASSISTANT_MODEL_PREFIXES = (
+    "gpt-3.5-turbo",
+    "gpt-4",
+    "gpt-5",
+    "o1",
+    "o3",
+    "o4",
+)
+
+_OPENAI_ASSISTANT_MODEL_EXCLUDED_MARKERS = (
+    "audio",
+    "image",
+    "realtime",
+    "transcribe",
+    "tts",
+    "embedding",
+    "moderation",
+    "search",
+    "codex",
+    "deep-research",
+    "instruct",
+    "sora",
+    "whisper",
+    "cyber",
+)
+
+
+def _is_openai_assistant_model(model_id: str) -> bool:
+    normalized = model_id.strip().lower()
+
+    if not normalized.startswith(_OPENAI_ASSISTANT_MODEL_PREFIXES):
+        return False
+
+    return not any(
+        marker in normalized
+        for marker in _OPENAI_ASSISTANT_MODEL_EXCLUDED_MARKERS
+    )
+
+
+def _openai_model_api(model_id: str) -> str:
+    normalized = model_id.strip().lower()
+
+    if normalized.endswith("-chat-latest"):
+        return "chat"
+
+    return "responses"
+
+
 class BridgeConfigurationError(ValueError):
     pass
 
@@ -422,9 +470,37 @@ class AgnoExecutor:
             if source in model_spec:
                 model_options[target] = model_spec[source]
         if self.config.provider == "openai":
+            api = _openai_model_api(plan.model)
+
+            if api == "responses":
+                from agno.models.openai import OpenAIResponses
+
+                responses_options: dict[str, Any] = {
+                    "timeout": model_options["timeout"],
+                }
+
+                if "temperature" in model_spec:
+                    responses_options["temperature"] = model_spec["temperature"]
+
+                if "topP" in model_spec:
+                    responses_options["top_p"] = model_spec["topP"]
+
+                if "maxTokens" in model_spec:
+                    responses_options["max_output_tokens"] = model_spec["maxTokens"]
+
+                return OpenAIResponses(
+                    id=plan.model,
+                    api_key=self.config.openai_api_key,
+                    **responses_options,
+                )
+
             from agno.models.openai import OpenAIChat
 
-            return OpenAIChat(id=plan.model, api_key=self.config.openai_api_key, **model_options)
+            return OpenAIChat(
+                id=plan.model,
+                api_key=self.config.openai_api_key,
+                **model_options,
+            )
         if self.config.provider == "azure_openai":
             from agno.models.azure import AzureOpenAI
 
@@ -567,6 +643,13 @@ class BridgeService:
                 )
             else:
                 models = discovered_models
+
+        if self.config.provider == "openai":
+            models = tuple(
+                model
+                for model in models
+                if _is_openai_assistant_model(model)
+            )
 
         if not models:
             return None
