@@ -46,6 +46,7 @@ const mocks = vi.hoisted(() => {
 
   return {
     assistantsRepository,
+    runtimeCapabilities: vi.fn(),
     recordAuditEvent: vi.fn().mockResolvedValue(undefined),
     llmCapabilities: vi.fn(),
   };
@@ -57,6 +58,12 @@ vi.mock('../../src/modules/assistants/assistants.repository', () => ({
 
 vi.mock('../../src/modules/audit/audit.service', () => ({
   recordAuditEvent: mocks.recordAuditEvent,
+}));
+
+vi.mock('../../src/modules/runtime/runtime.service', () => ({
+  runtimeService: {
+    capabilities: mocks.runtimeCapabilities,
+  },
 }));
 
 vi.mock('../../src/modules/llm/llm.service', () => ({
@@ -238,6 +245,17 @@ function executionPolicyFixture(overrides: Record<string, unknown> = {}) {
 describe('assistant governance endpoints', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    mocks.runtimeCapabilities.mockResolvedValue({
+      provider: 'agno_http',
+      status: 'healthy',
+      supportsExternalProviders: true,
+      modelCatalog: {
+        provider: 'openai',
+        models: ['gpt-4o-mini'],
+        defaultModel: 'gpt-4o-mini',
+      },
+    });
+
     mocks.recordAuditEvent.mockResolvedValue(undefined);
     mocks.assistantsRepository.getExecutionPolicy.mockResolvedValue(executionPolicyFixture());
     mocks.assistantsRepository.countPendingApprovals.mockResolvedValue(0);

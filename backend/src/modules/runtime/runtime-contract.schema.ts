@@ -552,6 +552,22 @@ export const runtimeHealthResponseV1Schema = z.object({
   }
 });
 
+const runtimeModelCatalogV1Schema = z.object({
+  provider: z.enum(['openai', 'azure_openai', 'anthropic']),
+  models: z.array(
+    z.string().trim().min(1).max(160),
+  ).min(1).max(1000),
+  defaultModel: z.string().trim().min(1).max(160),
+}).strict().superRefine((value, ctx) => {
+  if (!value.models.includes(value.defaultModel)) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ['defaultModel'],
+      message: 'defaultModel deve pertencer ao catalogo de modelos permitido.',
+    });
+  }
+});
+
 export const runtimeCapabilitiesResponseV1Schema = z.object({
   provider: z.literal('agno'),
   protocolVersion: z.literal(assistantRuntimeSpecVersionV1),
@@ -562,6 +578,7 @@ export const runtimeCapabilitiesResponseV1Schema = z.object({
   supportsFileInputs: z.boolean(),
   maxInputChars: z.number().int().positive().safe().optional(),
   maxToolCalls: z.number().int().nonnegative().max(50).optional(),
+  modelCatalog: runtimeModelCatalogV1Schema.optional(),
 }).strict();
 
 export function parseAssistantRuntimeSpecV1(value: unknown) {

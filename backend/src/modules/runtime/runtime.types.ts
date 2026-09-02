@@ -36,6 +36,12 @@ export type RuntimeExecutionStatus = typeof runtimeExecutionStatusValues[number]
 export type RuntimeEventType = typeof runtimeEventTypeValues[number];
 export type RuntimeCapabilityMode = boolean | 'simulated' | 'planned';
 
+export interface RuntimeModelCatalog {
+  provider: 'openai' | 'azure_openai' | 'anthropic';
+  models: string[];
+  defaultModel: string;
+}
+
 export interface RuntimeCapabilities {
   provider: RuntimeProvider;
   status: RuntimeHealthStatus;
@@ -50,6 +56,7 @@ export interface RuntimeCapabilities {
   supportsTraceEvents: RuntimeCapabilityMode;
   maxInputPreviewChars: number;
   maxOutputPreviewChars: number;
+  modelCatalog?: RuntimeModelCatalog;
 }
 
 export interface RuntimeHealth {

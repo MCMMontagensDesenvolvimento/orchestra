@@ -75,6 +75,10 @@ class BridgeConfig:
     execution_mode: str
     provider: str
     allowed_models: tuple[str, ...]
+    model_discovery: str
+    default_model: str | None
+    model_discovery_cache_ttl_seconds: int
+    model_discovery_timeout_ms: int
     host: str
     port: int
     require_security_key: bool
@@ -145,13 +149,42 @@ class BridgeConfig:
         elif max_tool_calls != 0:
             raise BridgeConfigurationError("Tool calls must remain zero while the gateway is disabled.")
 
-        allowed_models = tuple(
+        allowed_models = tuple(dict.fromkeys(
             item.strip() for item in env.get("AGNO_BRIDGE_ALLOWED_MODELS", "").split(",") if item.strip()
+        ))
+
+        model_discovery = env.get("AGNO_BRIDGE_MODEL_DISCOVERY", "static").strip().lower()
+        if model_discovery not in {"static", "provider"}:
+            raise BridgeConfigurationError("AGNO_BRIDGE_MODEL_DISCOVERY is invalid.")
+        if model_discovery == "provider" and provider != "openai":
+            raise BridgeConfigurationError(
+                "Provider model discovery is currently supported only for OpenAI."
+            )
+
+        default_model = env.get("AGNO_BRIDGE_DEFAULT_MODEL", "").strip() or None
+
+        model_discovery_cache_ttl_seconds = _parse_int(
+            env.get("AGNO_BRIDGE_MODEL_DISCOVERY_CACHE_TTL_SECONDS", "600"),
+            "AGNO_BRIDGE_MODEL_DISCOVERY_CACHE_TTL_SECONDS",
+            0,
+            86_400,
         )
+
+        model_discovery_timeout_ms = _parse_int(
+            env.get("AGNO_BRIDGE_MODEL_DISCOVERY_TIMEOUT_MS", "5000"),
+            "AGNO_BRIDGE_MODEL_DISCOVERY_TIMEOUT_MS",
+            250,
+            30_000,
+        )
+
         return cls(
             execution_mode=execution_mode,
             provider=provider,
             allowed_models=allowed_models,
+            model_discovery=model_discovery,
+            default_model=default_model,
+            model_discovery_cache_ttl_seconds=model_discovery_cache_ttl_seconds,
+            model_discovery_timeout_ms=model_discovery_timeout_ms,
             host=env.get("AGNO_RUNTIME_HTTP_HOST", "0.0.0.0").strip() or "0.0.0.0",
             port=_parse_int(env.get("AGNO_RUNTIME_HTTP_PORT", "8091"), "AGNO_RUNTIME_HTTP_PORT", 1, 65_535),
             require_security_key=require_security_key,
@@ -478,6 +511,8 @@ class BridgeService:
     def __init__(self, config: BridgeConfig, executor: RuntimeExecutor | None = None) -> None:
         self.config = config
         self.executor = executor or (StubExecutor() if config.execution_mode == "stub" else AgnoExecutor(config))
+        self._model_catalog_lock = threading.Lock()
+        self._model_catalog_cache: tuple[float, tuple[str, ...]] | None = None
 
     def health(self) -> dict[str, Any]:
         ready = self.config.provider_ready
@@ -496,7 +531,7 @@ class BridgeService:
         }
 
     def capabilities(self) -> dict[str, Any]:
-        return {
+        capabilities: dict[str, Any] = {
             "provider": "agno",
             "protocolVersion": ASSISTANT_SPEC_VERSION,
             "supportsStreaming": False,
@@ -507,6 +542,130 @@ class BridgeService:
             "maxInputChars": 16_000,
             "maxToolCalls": self.config.max_tool_calls,
         }
+
+        model_catalog = self._model_catalog()
+        if model_catalog is not None:
+            capabilities["modelCatalog"] = model_catalog
+
+        return capabilities
+
+    def _model_catalog(self) -> dict[str, Any] | None:
+        if self.config.execution_mode != "real" or not self.config.provider_ready:
+            return None
+
+        if self.config.model_discovery == "static":
+            models = tuple(dict.fromkeys(self.config.allowed_models))
+        else:
+            discovered_models = self._discover_openai_models()
+
+            if self.config.allowed_models:
+                available = set(discovered_models)
+                models = tuple(
+                    model
+                    for model in self.config.allowed_models
+                    if model in available
+                )
+            else:
+                models = discovered_models
+
+        if not models:
+            return None
+
+        default_model = (
+            self.config.default_model
+            if self.config.default_model in models
+            else models[0]
+        )
+
+        return {
+            "provider": self.config.provider,
+            "models": list(models),
+            "defaultModel": default_model,
+        }
+
+    def _discover_openai_models(self) -> tuple[str, ...]:
+        if self.config.provider != "openai" or not self.config.openai_api_key:
+            return ()
+
+        now = time.monotonic()
+
+        with self._model_catalog_lock:
+            cached = self._model_catalog_cache
+            if cached is not None and cached[0] > now:
+                return cached[1]
+
+        request = Request(
+            "https://api.openai.com/v1/models",
+            method="GET",
+            headers={
+                "Authorization": f"Bearer {self.config.openai_api_key}",
+                "Accept": "application/json",
+            },
+        )
+
+        try:
+            with urlopen(
+                request,
+                timeout=self.config.model_discovery_timeout_ms / 1_000,
+            ) as response:
+                raw = response.read(1_000_001)
+
+            if len(raw) > 1_000_000:
+                return ()
+
+            payload = json.loads(raw.decode("utf-8"))
+        except (
+            HTTPError,
+            URLError,
+            TimeoutError,
+            OSError,
+            UnicodeDecodeError,
+            json.JSONDecodeError,
+        ):
+            return ()
+
+        if not isinstance(payload, dict) or payload.get("object") != "list":
+            return ()
+
+        data = payload.get("data")
+        if not isinstance(data, list):
+            return ()
+
+        model_ids: list[str] = []
+
+        for item in data:
+            if not isinstance(item, dict):
+                return ()
+
+            value = item.get("id")
+            if not isinstance(value, str):
+                continue
+
+            model_id = value.strip()
+
+            if (
+                not model_id
+                or len(model_id) > 160
+                or not re.fullmatch(r"[A-Za-z0-9._:/-]+", model_id)
+            ):
+                continue
+
+            model_ids.append(model_id)
+
+        models = tuple(sorted(set(model_ids), key=str.lower))
+
+        if not models:
+            return ()
+
+        ttl = self.config.model_discovery_cache_ttl_seconds
+        if ttl > 0:
+            with self._model_catalog_lock:
+                self._model_catalog_cache = (
+                    time.monotonic() + ttl,
+                    models,
+                )
+
+        return models
 
     def execute(self, payload: Any) -> tuple[int, dict[str, Any]]:
         started = time.monotonic()
@@ -561,8 +720,20 @@ class BridgeService:
         elif requested_provider != self.config.provider:
             raise BridgePolicyBlocked("Requested provider does not match bridge configuration.")
         requested_model = spec["model"]["model"].strip()
-        if self.config.allowed_models and requested_model not in self.config.allowed_models:
-            raise BridgePolicyBlocked("Requested model is not allowlisted.")
+
+        if self.config.execution_mode == "real":
+            model_catalog = self._model_catalog()
+
+            if model_catalog is None:
+                raise BridgePolicyBlocked(
+                    "No governed model catalog is available for runtime execution."
+                )
+
+            if requested_model not in model_catalog["models"]:
+                raise BridgePolicyBlocked(
+                    "Requested model is not available in the governed model catalog."
+                )
+
         if (
             self.config.provider == "azure_openai"
             and self.config.azure_openai_deployment

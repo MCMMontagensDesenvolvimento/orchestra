@@ -136,6 +136,103 @@ describe('Agno HTTP runtime client', () => {
     await expect(client.getCapabilities()).resolves.toEqual(expect.objectContaining({ supportsStreaming: false }));
   });
 
+  it('accepts a governed model catalog in capabilities', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => jsonResponse({
+      provider: 'agno',
+      protocolVersion: assistantRuntimeSpecVersionV1,
+      supportsStreaming: false,
+      supportsTools: false,
+      supportsRagContext: true,
+      supportsExternalProviders: true,
+      supportsFileInputs: false,
+      maxInputChars: 16000,
+      maxToolCalls: 0,
+      modelCatalog: {
+        provider: 'openai',
+        models: ['gpt-4o-mini'],
+        defaultModel: 'gpt-4o-mini',
+      },
+    })));
+
+    const client = new AgnoHttpRuntimeClient({
+      baseUrl: 'http://127.0.0.1:8091',
+      timeoutMs: 15000,
+    });
+
+    await expect(client.getCapabilities()).resolves.toEqual(
+      expect.objectContaining({
+        supportsExternalProviders: true,
+        modelCatalog: {
+          provider: 'openai',
+          models: ['gpt-4o-mini'],
+          defaultModel: 'gpt-4o-mini',
+        },
+      }),
+    );
+  });
+
+  it('rejects a capabilities model catalog whose default model is not allowlisted', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => jsonResponse({
+      provider: 'agno',
+      protocolVersion: assistantRuntimeSpecVersionV1,
+      supportsStreaming: false,
+      supportsTools: false,
+      supportsRagContext: true,
+      supportsExternalProviders: true,
+      supportsFileInputs: false,
+      maxInputChars: 16000,
+      maxToolCalls: 0,
+      modelCatalog: {
+        provider: 'openai',
+        models: ['gpt-4o-mini'],
+        defaultModel: 'gpt-4o',
+      },
+    })));
+
+    const client = new AgnoHttpRuntimeClient({
+      baseUrl: 'http://127.0.0.1:8091',
+      timeoutMs: 15000,
+    });
+
+    await expect(client.getCapabilities()).rejects.toMatchObject({
+      code: 'RUNTIME_INVALID_RESPONSE',
+    });
+  });
+
+  it('accepts a dynamic model catalog larger than the former static limit', async () => {
+    const models = Array.from(
+      { length: 40 },
+      (_, index) => `gpt-dynamic-test-${index + 1}`,
+    );
+
+    vi.stubGlobal('fetch', vi.fn(async () => jsonResponse({
+      provider: 'agno',
+      protocolVersion: assistantRuntimeSpecVersionV1,
+      supportsStreaming: false,
+      supportsTools: false,
+      supportsRagContext: true,
+      supportsExternalProviders: true,
+      supportsFileInputs: false,
+      maxInputChars: 16000,
+      maxToolCalls: 0,
+      modelCatalog: {
+        provider: 'openai',
+        models,
+        defaultModel: models[0],
+      },
+    })));
+
+    const client = new AgnoHttpRuntimeClient({
+      baseUrl: 'http://127.0.0.1:8091',
+      timeoutMs: 15000,
+    });
+
+    const capabilities = await client.getCapabilities();
+
+    expect(capabilities.modelCatalog?.models).toHaveLength(40);
+    expect(capabilities.modelCatalog?.defaultModel).toBe(models[0]);
+  });
+
   it('sends RuntimeExecuteRequestV1 and validates RuntimeExecuteResponseV1', async () => {
     const calls: Array<{ url: string; init?: RequestInit; body?: unknown }> = [];
     vi.stubGlobal('fetch', vi.fn(async (url: string, init?: RequestInit) => {

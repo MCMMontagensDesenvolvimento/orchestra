@@ -3,7 +3,7 @@ import { AppError } from '../../shared/errors/app-error';
 import type { AuthenticatedUser } from '../../shared/types/auth';
 import { paginationMeta } from '../../shared/validation/pagination';
 import { recordAuditEvent } from '../audit/audit.service';
-import { llmService } from '../llm/llm.service';
+import { runtimeService } from '../runtime/runtime.service';
 import { mapAssistant, mapAssistantApprovalRequest, mapAssistantExecutionPolicy, mapAssistantFeedback, mapAssistantPublication, mapAssistantShare, mapAssistantTestResult, mapAssistantVersion } from './assistants.mapper';
 import { assistantPolicies, type AssistantPolicySubject } from './assistants.policy';
 import { assistantsRepository } from './assistants.repository';
@@ -37,17 +37,23 @@ function assistantModelLabel(model: string) {
 }
 
 async function getAssistantModelCatalog(): Promise<AssistantModelCatalogItem[]> {
-  const capabilities = await llmService.capabilities('openai');
+  const capabilities = await runtimeService.capabilities();
+  const catalog = capabilities.modelCatalog;
 
-  if (!capabilities.enabled || !capabilities.configured) {
+  if (
+    capabilities.status !== 'healthy'
+    || capabilities.supportsExternalProviders !== true
+    || !catalog
+    || catalog.provider !== 'openai'
+  ) {
     return [];
   }
 
-  return capabilities.models.map((model) => ({
+  return catalog.models.map((model) => ({
     provider: 'openai',
     model,
     label: assistantModelLabel(model),
-    isDefault: model === capabilities.defaultModel,
+    isDefault: model === catalog.defaultModel,
   }));
 }
 

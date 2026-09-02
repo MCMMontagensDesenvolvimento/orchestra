@@ -578,6 +578,15 @@ function normalizeCapabilities(
     supportsTraceEvents: true,
     maxInputPreviewChars: response.maxInputChars ?? config.agnoMaxInputPreviewChars,
     maxOutputPreviewChars,
+    ...(response.modelCatalog
+      ? {
+          modelCatalog: {
+            provider: response.modelCatalog.provider,
+            models: [...response.modelCatalog.models],
+            defaultModel: response.modelCatalog.defaultModel,
+          },
+        }
+      : {}),
   };
 }
 

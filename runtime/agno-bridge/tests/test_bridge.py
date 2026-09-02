@@ -1,7 +1,9 @@
 import json
+from io import BytesIO
 import sys
 import threading
 import unittest
+from unittest.mock import patch
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.error import HTTPError
@@ -329,6 +331,244 @@ class AgnoBridgeTests(unittest.TestCase):
         self.assertTrue(session.gateway_metadata["mcpRemoteReadOnly"])
         self.assertEqual(session.gateway_metadata["mcpRemoteHost"], "mcp.example.test")
 
+    def test_real_openai_capabilities_expose_only_governed_model_catalog(self):
+        api_key = "test-openai-key-never-sent"
+        real = config(
+            AGNO_BRIDGE_EXECUTION_MODE="real",
+            AGNO_BRIDGE_PROVIDER="openai",
+            AGNO_BRIDGE_ALLOWED_MODELS="gpt-4o-mini",
+            OPENAI_API_KEY=api_key,
+        )
+
+        with RunningServer(real) as server:
+            status, capabilities = server.request("/capabilities")
+
+        self.assertEqual(status, 200)
+        self.assertTrue(capabilities["supportsExternalProviders"])
+        self.assertEqual(
+            capabilities["modelCatalog"],
+            {
+                "provider": "openai",
+                "models": ["gpt-4o-mini"],
+                "defaultModel": "gpt-4o-mini",
+            },
+        )
+        self.assertNotIn(api_key, json.dumps(capabilities))
+
+    def test_real_openai_without_allowed_models_omits_model_catalog(self):
+        real = config(
+            AGNO_BRIDGE_EXECUTION_MODE="real",
+            AGNO_BRIDGE_PROVIDER="openai",
+            AGNO_BRIDGE_ALLOWED_MODELS="",
+            OPENAI_API_KEY="test-openai-key-never-sent",
+        )
+
+        with RunningServer(real) as server:
+            status, capabilities = server.request("/capabilities")
+
+        self.assertEqual(status, 200)
+        self.assertTrue(capabilities["supportsExternalProviders"])
+        self.assertNotIn("modelCatalog", capabilities)
+
+    def test_provider_discovery_lists_available_openai_models_and_caches(self):
+        api_key = "test-openai-discovery-key-never-sent"
+
+        provider_payload = {
+            "object": "list",
+            "data": [
+                {"id": "gpt-4o-mini", "object": "model"},
+                {"id": "gpt-4.1", "object": "model"},
+                {"id": "text-embedding-3-small", "object": "model"},
+            ],
+        }
+
+        real = config(
+            AGNO_BRIDGE_EXECUTION_MODE="real",
+            AGNO_BRIDGE_PROVIDER="openai",
+            AGNO_BRIDGE_MODEL_DISCOVERY="provider",
+            AGNO_BRIDGE_ALLOWED_MODELS="",
+            AGNO_BRIDGE_DEFAULT_MODEL="gpt-4o-mini",
+            AGNO_BRIDGE_MODEL_DISCOVERY_CACHE_TTL_SECONDS="600",
+            OPENAI_API_KEY=api_key,
+        )
+
+        fake_response = BytesIO(json.dumps(provider_payload).encode("utf-8"))
+
+        with patch("bridge.urlopen", return_value=fake_response) as provider_request:
+            with RunningServer(real) as server:
+                first_status, first = server.request("/capabilities")
+                second_status, second = server.request("/capabilities")
+
+        self.assertEqual(first_status, 200)
+        self.assertEqual(second_status, 200)
+        self.assertEqual(first["modelCatalog"], {
+            "provider": "openai",
+            "models": [
+                "gpt-4.1",
+                "gpt-4o-mini",
+                "text-embedding-3-small",
+            ],
+            "defaultModel": "gpt-4o-mini",
+        })
+        self.assertEqual(second["modelCatalog"], first["modelCatalog"])
+        self.assertEqual(provider_request.call_count, 1)
+
+        request = provider_request.call_args.args[0]
+        self.assertEqual(request.full_url, "https://api.openai.com/v1/models")
+        self.assertEqual(
+            request.get_header("Authorization"),
+            f"Bearer {api_key}",
+        )
+        self.assertNotIn(api_key, json.dumps(first))
+
+    def test_provider_discovery_intersects_openai_models_with_governed_allowlist(self):
+        provider_payload = {
+            "object": "list",
+            "data": [
+                {"id": "gpt-4o-mini", "object": "model"},
+                {"id": "gpt-4.1", "object": "model"},
+                {"id": "text-embedding-3-small", "object": "model"},
+            ],
+        }
+
+        real = config(
+            AGNO_BRIDGE_EXECUTION_MODE="real",
+            AGNO_BRIDGE_PROVIDER="openai",
+            AGNO_BRIDGE_MODEL_DISCOVERY="provider",
+            AGNO_BRIDGE_ALLOWED_MODELS="gpt-4o-mini,gpt-4.1",
+            AGNO_BRIDGE_DEFAULT_MODEL="gpt-4.1",
+            OPENAI_API_KEY="test-openai-discovery-key-never-sent",
+        )
+
+        with patch(
+            "bridge.urlopen",
+            return_value=BytesIO(json.dumps(provider_payload).encode("utf-8")),
+        ):
+            with RunningServer(real) as server:
+                status, capabilities = server.request("/capabilities")
+
+        self.assertEqual(status, 200)
+        self.assertEqual(capabilities["modelCatalog"], {
+            "provider": "openai",
+            "models": ["gpt-4o-mini", "gpt-4.1"],
+            "defaultModel": "gpt-4.1",
+        })
+
+    def test_provider_discovery_failure_omits_model_catalog_fail_closed(self):
+        real = config(
+            AGNO_BRIDGE_EXECUTION_MODE="real",
+            AGNO_BRIDGE_PROVIDER="openai",
+            AGNO_BRIDGE_MODEL_DISCOVERY="provider",
+            AGNO_BRIDGE_ALLOWED_MODELS="",
+            OPENAI_API_KEY="test-openai-discovery-key-never-sent",
+        )
+
+        with patch("bridge.urlopen", side_effect=OSError("provider unavailable")):
+            with RunningServer(real) as server:
+                status, capabilities = server.request("/capabilities")
+
+        self.assertEqual(status, 200)
+        self.assertTrue(capabilities["supportsExternalProviders"])
+        self.assertNotIn("modelCatalog", capabilities)
+
+    def test_provider_discovery_allows_execution_only_for_discovered_model(self):
+        provider_payload = {
+            "object": "list",
+            "data": [
+                {"id": "gpt-4o-mini", "object": "model"},
+                {"id": "gpt-4.1", "object": "model"},
+            ],
+        }
+
+        real = config(
+            AGNO_BRIDGE_EXECUTION_MODE="real",
+            AGNO_BRIDGE_PROVIDER="openai",
+            AGNO_BRIDGE_MODEL_DISCOVERY="provider",
+            AGNO_BRIDGE_ALLOWED_MODELS="",
+            AGNO_BRIDGE_DEFAULT_MODEL="gpt-4o-mini",
+            OPENAI_API_KEY="test-openai-discovery-key-never-sent",
+        )
+
+        executor = RecordingExecutor()
+        payload = execute_payload()
+        payload["assistantRuntimeSpec"]["model"] = {
+            "provider": "openai",
+            "model": "gpt-4o-mini",
+        }
+
+        with patch(
+            "bridge.urlopen",
+            return_value=BytesIO(json.dumps(provider_payload).encode("utf-8")),
+        ):
+            with RunningServer(real, executor) as server:
+                status, response = server.request("/execute", payload=payload)
+
+        self.assertEqual(status, 200)
+        self.assertEqual(response["status"], "succeeded")
+        self.assertEqual(len(executor.plans), 1)
+        self.assertEqual(executor.plans[0].provider, "openai")
+        self.assertEqual(executor.plans[0].model, "gpt-4o-mini")
+
+    def test_provider_discovery_blocks_execution_for_model_not_in_effective_catalog(self):
+        provider_payload = {
+            "object": "list",
+            "data": [
+                {"id": "gpt-4o-mini", "object": "model"},
+            ],
+        }
+
+        real = config(
+            AGNO_BRIDGE_EXECUTION_MODE="real",
+            AGNO_BRIDGE_PROVIDER="openai",
+            AGNO_BRIDGE_MODEL_DISCOVERY="provider",
+            AGNO_BRIDGE_ALLOWED_MODELS="",
+            AGNO_BRIDGE_DEFAULT_MODEL="gpt-4o-mini",
+            OPENAI_API_KEY="test-openai-discovery-key-never-sent",
+        )
+
+        executor = RecordingExecutor()
+        payload = execute_payload()
+        payload["assistantRuntimeSpec"]["model"] = {
+            "provider": "openai",
+            "model": "gpt-not-returned-by-provider",
+        }
+
+        with patch(
+            "bridge.urlopen",
+            return_value=BytesIO(json.dumps(provider_payload).encode("utf-8")),
+        ):
+            with RunningServer(real, executor) as server:
+                status, response = server.request("/execute", payload=payload)
+
+        self.assertEqual(status, 403)
+        self.assertEqual(response["status"], "blocked")
+        self.assertEqual(response["error"]["code"], "RUNTIME_POLICY_BLOCKED")
+        self.assertEqual(len(executor.plans), 0)
+
+    def test_real_static_mode_without_governed_models_blocks_execution(self):
+        real = config(
+            AGNO_BRIDGE_EXECUTION_MODE="real",
+            AGNO_BRIDGE_PROVIDER="openai",
+            AGNO_BRIDGE_MODEL_DISCOVERY="static",
+            AGNO_BRIDGE_ALLOWED_MODELS="",
+            OPENAI_API_KEY="test-openai-key-never-sent",
+        )
+
+        executor = RecordingExecutor()
+        payload = execute_payload()
+        payload["assistantRuntimeSpec"]["model"] = {
+            "provider": "openai",
+            "model": "arbitrary-model",
+        }
+
+        with RunningServer(real, executor) as server:
+            status, response = server.request("/execute", payload=payload)
+
+        self.assertEqual(status, 403)
+        self.assertEqual(response["status"], "blocked")
+        self.assertEqual(response["error"]["code"], "RUNTIME_POLICY_BLOCKED")
+        self.assertEqual(len(executor.plans), 0)
+
     def test_real_mode_without_provider_key_is_misconfigured_and_fails_closed(self):
         real = config(
             AGNO_BRIDGE_EXECUTION_MODE="real",
@@ -343,6 +583,7 @@ class AgnoBridgeTests(unittest.TestCase):
 
         self.assertEqual(health["status"], "misconfigured")
         self.assertFalse(capabilities["supportsExternalProviders"])
+        self.assertNotIn("modelCatalog", capabilities)
         self.assertEqual(status, 502)
         self.assertEqual(response["error"]["code"], "RUNTIME_PROVIDER_FAILED")
         self.assertTrue(response["error"]["details"]["failedClosed"])
