@@ -234,7 +234,7 @@ const mapAssistant = (assistant: ApiAssistant): Assistant => {
       ?? 'Responsável não disponível',
     status: assistant.status,
     model: modelName,
-    fallbackModel: configuration?.model.fallbackModel || modelName,
+    fallbackModel: configuration?.model.fallbackModel || '',
     modelProvider: latestVersion?.modelProvider ?? undefined,
     temperature: latestVersion?.temperature ?? 0.2,
     version: latestVersion?.version ?? '0.1.0',

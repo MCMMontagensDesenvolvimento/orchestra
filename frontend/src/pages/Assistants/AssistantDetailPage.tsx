@@ -710,7 +710,7 @@ ${assistant.escalationPolicy || 'Não definida'}
 
 ## Configuração do Modelo
 - Modelo principal: ${assistant.model}
-- Modelo fallback: ${assistant.fallbackModel}
+- Modelo fallback: ${assistant.fallbackModel || 'Não configurado'}
 - Temperatura: ${assistant.temperature}
 
 ## Bases de Conhecimento
@@ -858,7 +858,7 @@ ${tools.map(mcpToolPromptLine).join('\n') || '- Nenhuma'}`;
                 )}
                 <div className="grid grid-cols-2 gap-3 text-sm">
                   <div><p className="text-xs text-muted-foreground">Modelo</p><p className="font-medium">{assistant.model}</p></div>
-                  <div><p className="text-xs text-muted-foreground">Fallback</p><p className="font-medium">{assistant.fallbackModel}</p></div>
+                  <div><p className="text-xs text-muted-foreground">Fallback</p><p className="font-medium">{assistant.fallbackModel || 'Não configurado'}</p></div>
                   <div><p className="text-xs text-muted-foreground">Persona</p><p className="font-medium">{assistant.persona || '—'}</p></div>
                   <div><p className="text-xs text-muted-foreground">Tom</p><p className="font-medium">{assistant.tone || '—'}</p></div>
                 </div>
@@ -1002,7 +1002,7 @@ ${tools.map(mcpToolPromptLine).join('\n') || '- Nenhuma'}`;
               </Section>
               <Section title="Modelo e Parâmetros">
                 <Field label="Modelo principal" value={assistant.model} />
-                <Field label="Modelo fallback" value={assistant.fallbackModel} />
+                <Field label="Modelo fallback" value={assistant.fallbackModel || 'Não configurado'} />
                 <Field label="Temperatura" value={String(assistant.temperature)} />
               </Section>
               <Section title="Resposta e Limites">
@@ -2231,7 +2231,7 @@ function buildSections(a: Assistant, kbs: KnowledgeBase[], tls: McpTool[]): Prom
     { id: 'negative', title: 'Exemplos Negativos', content: a.negativeExamples || '—', editable: true },
     { id: 'limits', title: 'Limites', content: a.limits || 'Não definidos', editable: true },
     { id: 'escalation', title: 'Política de Escalonamento', content: a.escalationPolicy || 'Não definida', editable: true },
-    { id: 'model', title: 'Configuração do Modelo', content: `- Modelo principal: ${a.model}\n- Modelo fallback: ${a.fallbackModel}\n- Temperatura: ${a.temperature}`, editable: false },
+    { id: 'model', title: 'Configuração do Modelo', content: `- Modelo principal: ${a.model}\n- Modelo fallback: ${a.fallbackModel || 'Não configurado'}\n- Temperatura: ${a.temperature}`, editable: false },
     { id: 'knowledge', title: 'Bases de Conhecimento', content: kbs.length > 0 ? kbs.map(kb => `- ${kb.name} (${kb.documentCount} documentos, ${kb.totalChunks} trechos)`).join('\n') : '- Nenhuma', editable: false },
     { id: 'tools_section', title: 'Ferramentas MCP', content: tls.length > 0 ? tls.map(mcpToolPromptLine).join('\n') : '- Nenhuma', editable: false },
   ];

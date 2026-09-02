@@ -174,10 +174,21 @@ export default function AssistantWizardPage() {
         case 2: return true;
         case 3: return true;
         case 4: return true;
-        case 5:
-          return modelOptions.some(
+        case 5: {
+          const primaryAvailable = modelOptions.some(
             (option) => option.value === formData.model,
           );
+          const fallbackAvailable =
+            formData.fallbackModel === ''
+            || (
+              formData.fallbackModel !== formData.model
+              && modelOptions.some(
+                (option) => option.value === formData.fallbackModel,
+              )
+            );
+
+          return primaryAvailable && fallbackAvailable;
+        }
         case 6: return true;
         case 7: return true;
         case 8: return true;
@@ -193,6 +204,22 @@ export default function AssistantWizardPage() {
     if (!modelOptions.some((option) => option.value === formData.model)) {
       toast.error('Modelo indisponível', {
         description: 'Selecione um modelo realmente disponível neste ambiente.',
+      });
+      return;
+    }
+
+    if (
+      formData.fallbackModel
+      && (
+        formData.fallbackModel === formData.model
+        || !modelOptions.some(
+          (option) => option.value === formData.fallbackModel,
+        )
+      )
+    ) {
+      toast.error('Modelo fallback inválido', {
+        description:
+          'O fallback deve estar disponível neste ambiente e ser diferente do modelo principal.',
       });
       return;
     }
@@ -376,9 +403,10 @@ export default function AssistantWizardPage() {
         );
       case 5:
         return (
-          <div className="space-y-5">
+          <div className="space-y-6">
             <div className="space-y-2">
               <Label>Modelo principal</Label>
+
               {modelCatalogQuery.isLoading ? (
                 <div className="rounded-lg border p-4 text-sm text-muted-foreground">
                   Consultando modelos disponíveis neste ambiente...
@@ -404,62 +432,125 @@ export default function AssistantWizardPage() {
                   </p>
                 </div>
               ) : (
-                <div className="grid gap-2 sm:grid-cols-2">
-                  {modelOptions.map((model) => (
-                    <label
-                      key={model.value}
-                      className={`flex items-center gap-3 rounded-lg border p-3 cursor-pointer transition-colors ${
-                        formData.model === model.value
-                          ? 'border-primary bg-primary/5'
-                          : 'hover:bg-muted/50'
-                      }`}
-                    >
-                      <input
-                        type="radio"
-                        name="model"
-                        checked={formData.model === model.value}
-                        onChange={() =>
-                          setFormData((previous) => ({
-                            ...previous,
-                            model: model.value,
-                            modelProvider: model.provider,
-                            fallbackModel: '',
-                          }))
-                        }
-                        className="accent-primary"
-                      />
-                      <div>
-                        <p className="text-sm font-medium">{model.label}</p>
-                        <p className="text-xs text-muted-foreground">
-                          {model.desc}
-                        </p>
-                      </div>
-                    </label>
-                  ))}
-                </div>
+                <>
+                  <Select
+                    value={formData.model}
+                    onValueChange={(value) => {
+                      const selected = modelOptions.find(
+                        (option) => option.value === value,
+                      );
+
+                      if (!selected) return;
+
+                      setFormData((previous) => ({
+                        ...previous,
+                        model: selected.value,
+                        modelProvider: selected.provider,
+                        fallbackModel:
+                          previous.fallbackModel === selected.value
+                            ? ''
+                            : previous.fallbackModel,
+                      }));
+                    }}
+                  >
+                    <SelectTrigger className="w-full">
+                      <SelectValue placeholder="Selecione o modelo principal" />
+                    </SelectTrigger>
+
+                    <SelectContent className="max-h-[320px]">
+                      {modelOptions.map((model) => (
+                        <SelectItem
+                          key={model.value}
+                          value={model.value}
+                        >
+                          <div className="flex items-center gap-2">
+                            <span>{model.label}</span>
+                            {model.isDefault && (
+                              <span className="text-xs text-muted-foreground">
+                                — padrão
+                              </span>
+                            )}
+                          </div>
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+
+                  <Hint>
+                    Somente modelos descobertos e autorizados pelo runtime
+                    governado deste ambiente são exibidos.
+                  </Hint>
+                </>
               )}
             </div>
+
             <div className="space-y-2">
               <Label>Modelo fallback</Label>
-              <div className="rounded-lg border bg-muted/20 p-3">
-                <p className="text-sm font-medium">Não configurado</p>
-                <p className="mt-1 text-xs text-muted-foreground">
-                  Não existe atualmente um segundo modelo real disponível
-                  para funcionar como fallback.
-                </p>
-              </div>
+
+              <Select
+                value={formData.fallbackModel || '__none__'}
+                disabled={
+                  modelCatalogQuery.isLoading
+                  || modelCatalogQuery.isError
+                  || modelOptions.length === 0
+                }
+                onValueChange={(value) =>
+                  update(
+                    'fallbackModel',
+                    value === '__none__' ? '' : value,
+                  )
+                }
+              >
+                <SelectTrigger className="w-full">
+                  <SelectValue placeholder="Não configurado" />
+                </SelectTrigger>
+
+                <SelectContent className="max-h-[320px]">
+                  <SelectItem value="__none__">
+                    Não configurado
+                  </SelectItem>
+
+                  {modelOptions
+                    .filter(
+                      (model) => model.value !== formData.model,
+                    )
+                    .map((model) => (
+                      <SelectItem
+                        key={model.value}
+                        value={model.value}
+                      >
+                        {model.label}
+                      </SelectItem>
+                    ))}
+                </SelectContent>
+              </Select>
+
+              <Hint>
+                Opcional. O fallback deve ser diferente do modelo principal.
+                A execução automática de fallback ainda não está habilitada
+                nesta fase.
+              </Hint>
             </div>
+
             <div className="space-y-3">
-              <div className="flex items-center justify-between">
-                <Label>Temperatura: {formData.temperature}</Label>
+              <div className="flex items-center justify-between gap-4">
+                <Label>Temperatura</Label>
+                <span className="text-sm font-medium tabular-nums">
+                  {formData.temperature}
+                </span>
               </div>
+
               <Slider
-                value={[parseFloat(formData.temperature)]}
-                onValueChange={v => update('temperature', v[0].toFixed(1))}
-                min={0} max={1} step={0.1}
-                className="w-full"
+                value={[Number(formData.temperature)]}
+                min={0}
+                max={1}
+                step={0.1}
+                onValueChange={([value]) =>
+                  update('temperature', String(value))
+                }
               />
-              <div className="flex justify-between text-xs text-muted-foreground">
+
+              <div className="flex justify-between text-[11px] text-muted-foreground">
                 <span>0.0 — Determinístico</span>
                 <span>0.5 — Equilibrado</span>
                 <span>1.0 — Criativo</span>
@@ -832,7 +923,14 @@ function ReviewStep({ formData, scores, stepValidation }: {
           <ReviewField label="Área" value={formData.area} />
           <ReviewField label="Ambiente" value={formData.environment} />
           <ReviewField label="Modelo" value={modelLabels[formData.model] || formData.model} />
-          <ReviewField label="Fallback" value={modelLabels[formData.fallbackModel] || formData.fallbackModel} />
+          <ReviewField
+            label="Fallback"
+            value={
+              formData.fallbackModel
+                ? modelLabels[formData.fallbackModel] || formData.fallbackModel
+                : 'Não configurado'
+            }
+          />
           <ReviewField label="Temperatura" value={formData.temperature} />
           <ReviewField label="Tom" value={formData.tone} />
           <ReviewField label="Humor" value={formData.humor} />
