@@ -26,6 +26,14 @@ services:
       RUNTIME_PROVIDER: "${RUNTIME_PROVIDER:-local}"
       RUNTIME_ALLOW_PROVIDER_FALLBACK: "false"
       RUNTIME_ALLOW_EXTERNAL_TOOLS: "false"
+      RUNTIME_ADAPTER_ENABLED: "${RUNTIME_ADAPTER_ENABLED:-false}"
+      AGNO_RUNTIME_HTTP_ENABLED: "${AGNO_RUNTIME_HTTP_ENABLED:-false}"
+      AGNO_RUNTIME_HTTP_BASE_URL: "http://agno-bridge:8091"
+      AGNO_RUNTIME_HTTP_REQUIRE_SECURITY_KEY: "true"
+      AGNO_RUNTIME_HTTP_SECURITY_KEY: "${AGNO_RUNTIME_HTTP_SECURITY_KEY:?AGNO_RUNTIME_HTTP_SECURITY_KEY is required}"
+      AGNO_RUNTIME_HTTP_TOOLS_ENABLED: "false"
+      AGNO_RUNTIME_HTTP_MAX_TOOL_CALLS: "0"
+      AGNO_RUNTIME_HTTP_TOOL_GATEWAY_ENABLED: "false"
       AGNO_ENABLED: "false"
       AGNO_EXECUTION_ENABLED: "false"
       AGNO_HEALTHCHECK_ENABLED: "false"
@@ -59,6 +67,8 @@ services:
         condition: service_healthy
       migrate:
         condition: service_completed_successfully
+      agno-bridge:
+        condition: service_healthy
     healthcheck:
       test:
         [
@@ -99,6 +109,47 @@ services:
       interval: 10s
       timeout: 5s
       retries: 10
+      start_period: 20s
+
+  agno-bridge:
+    build:
+      context: ./runtime/agno-bridge
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    environment:
+      AGNO_BRIDGE_EXECUTION_MODE: "${AGNO_BRIDGE_EXECUTION_MODE:-offline}"
+      AGNO_BRIDGE_PROVIDER: "${AGNO_BRIDGE_PROVIDER:-openai}"
+      AGNO_BRIDGE_MODEL_DISCOVERY: "${AGNO_BRIDGE_MODEL_DISCOVERY:-static}"
+      AGNO_BRIDGE_ALLOWED_MODELS: "${AGNO_BRIDGE_ALLOWED_MODELS:-}"
+      AGNO_BRIDGE_DEFAULT_MODEL: "${AGNO_BRIDGE_DEFAULT_MODEL:-gpt-4o-mini}"
+      AGNO_BRIDGE_MODEL_DISCOVERY_CACHE_TTL_SECONDS: "${AGNO_BRIDGE_MODEL_DISCOVERY_CACHE_TTL_SECONDS:-600}"
+      AGNO_BRIDGE_MODEL_DISCOVERY_TIMEOUT_MS: "${AGNO_BRIDGE_MODEL_DISCOVERY_TIMEOUT_MS:-5000}"
+
+      OPENAI_API_KEY: "${OPENAI_API_KEY:?OPENAI_API_KEY is required}"
+
+      AGNO_RUNTIME_HTTP_HOST: "0.0.0.0"
+      AGNO_RUNTIME_HTTP_PORT: "8091"
+      AGNO_RUNTIME_HTTP_REQUIRE_SECURITY_KEY: "true"
+      AGNO_RUNTIME_HTTP_SECURITY_KEY: "${AGNO_RUNTIME_HTTP_SECURITY_KEY:?AGNO_RUNTIME_HTTP_SECURITY_KEY is required}"
+
+      AGNO_RUNTIME_HTTP_RAG_CONTEXT_ENABLED: "false"
+      AGNO_RUNTIME_HTTP_TOOLS_ENABLED: "false"
+      AGNO_RUNTIME_HTTP_MAX_TOOL_CALLS: "0"
+      AGNO_RUNTIME_HTTP_TOOL_GATEWAY_ENABLED: "false"
+
+      ORCHESTRA_TOOL_GATEWAY_URL: "http://backend:3000/api/v1/runtime/agno/tool-calls"
+    expose:
+      - "8091"
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "python",
+          "healthcheck.py"
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
       start_period: 20s
 
   migrate:
