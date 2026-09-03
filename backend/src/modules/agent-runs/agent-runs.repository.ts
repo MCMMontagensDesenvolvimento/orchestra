@@ -151,10 +151,12 @@ export const agentRunsRepository = {
               name: true,
               description: true,
               inputSchema: true,
+              outputSchema: true,
               riskLevel: true,
               requiresApproval: true,
               isEnabled: true,
               deletedAt: true,
+              metadata: true,
               policies: {
                 take: 1,
                 select: {
@@ -170,7 +172,10 @@ export const agentRunsRepository = {
             select: {
               id: true,
               name: true,
+              serverType: true,
               status: true,
+              trustLevel: true,
+              riskLevel: true,
               deletedAt: true,
             },
           },

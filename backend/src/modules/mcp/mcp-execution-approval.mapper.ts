@@ -1,0 +1,35 @@
+import type { McpExecutionApprovalWithRelations } from './mcp-execution-approval.repository';
+
+export function mapMcpExecutionApproval(approval: McpExecutionApprovalWithRelations) {
+  return {
+    id: approval.id,
+    tenantId: approval.tenantId,
+    workspaceId: approval.workspaceId,
+    assistantId: approval.assistantId,
+    assistantVersionId: approval.assistantVersionId,
+    mcpServerId: approval.mcpServerId,
+    mcpToolId: approval.mcpToolId,
+    assistantMcpBindingId: approval.assistantMcpBindingId,
+    requestedById: approval.requestedById,
+    decidedById: approval.decidedById,
+    status: approval.status,
+    reason: approval.reason,
+    decisionReason: approval.decisionReason,
+    claimedByAgentRunId: approval.claimedByAgentRunId,
+    consumedByToolCallId: approval.consumedByToolCallId,
+    approvedAt: approval.approvedAt?.toISOString() ?? null,
+    expiresAt: approval.expiresAt?.toISOString() ?? null,
+    claimedAt: approval.claimedAt?.toISOString() ?? null,
+    consumedAt: approval.consumedAt?.toISOString() ?? null,
+    rejectedAt: approval.rejectedAt?.toISOString() ?? null,
+    cancelledAt: approval.cancelledAt?.toISOString() ?? null,
+    metadata: approval.metadata,
+    createdAt: approval.createdAt.toISOString(),
+    updatedAt: approval.updatedAt.toISOString(),
+    requestedBy: approval.requestedBy,
+    decidedBy: approval.decidedBy,
+    server: approval.server,
+    tool: approval.tool,
+    binding: approval.assistantMcpBinding,
+  };
+}

@@ -8,117 +8,119 @@ datasource db {
 }
 
 model Tenant {
-  id                         String                        @id @default(uuid()) @db.Uuid
-  name                       String
-  slug                       String                        @unique
-  status                     String                        @default("active")
-  createdAt                  DateTime                      @default(now()) @map("created_at")
-  updatedAt                  DateTime                      @updatedAt @map("updated_at")
-  deletedAt                  DateTime?                     @map("deleted_at")
-  workspaces                 Workspace[]
-  users                      User[]
-  externalIdentities         ExternalIdentity[]
-  roles                      Role[]
-  settings                   Setting[]
-  auditLogs                  AuditLog[]
-  assistants                 Assistant[]
-  assistantPublications      AssistantPublication[]
-  assistantFeedbacks         AssistantFeedback[]
-  assistantTestResults       AssistantTestResult[]
-  assistantApprovals         AssistantApprovalRequest[]
-  assistantExecutionPolicies AssistantExecutionPolicy[]
-  knowledgeBases             KnowledgeBase[]
-  knowledgeDocuments         KnowledgeDocument[]
-  knowledgeDataSources       KnowledgeDataSource[]
-  knowledgeChunks            KnowledgeChunk[]
-  knowledgeChunkEmbeddings   KnowledgeChunkEmbedding[]
-  knowledgeSourceReferences  KnowledgeSourceReference[]
-  knowledgeIngestionJobs     KnowledgeIngestionJob[]
-  knowledgeIngestionEvents   KnowledgeIngestionEvent[]
-  knowledgePolicies          KnowledgePolicy[]
-  assistantKnowledgeBindings AssistantKnowledgeBinding[]
-  mcpServers                 McpServer[]
-  mcpTools                   McpTool[]
-  mcpResources               McpResource[]
-  mcpPrompts                 McpPrompt[]
-  mcpToolPolicies            McpToolPolicy[]
-  assistantMcpBindings       AssistantMcpBinding[]
-  providerConfigs            ProviderConfig[]
-  usageRecords               UsageRecord[]
-  aiRunUsageEvents           AiRunUsageEvent[]
-  aiUsageLimitPolicies       AiUsageLimitPolicy[]
+  id                          String                             @id @default(uuid()) @db.Uuid
+  name                        String
+  slug                        String                             @unique
+  status                      String                             @default("active")
+  createdAt                   DateTime                           @default(now()) @map("created_at")
+  updatedAt                   DateTime                           @updatedAt @map("updated_at")
+  deletedAt                   DateTime?                          @map("deleted_at")
+  workspaces                  Workspace[]
+  users                       User[]
+  externalIdentities          ExternalIdentity[]
+  roles                       Role[]
+  settings                    Setting[]
+  auditLogs                   AuditLog[]
+  assistants                  Assistant[]
+  assistantPublications       AssistantPublication[]
+  assistantFeedbacks          AssistantFeedback[]
+  assistantTestResults        AssistantTestResult[]
+  assistantApprovals          AssistantApprovalRequest[]
+  assistantExecutionPolicies  AssistantExecutionPolicy[]
+  knowledgeBases              KnowledgeBase[]
+  knowledgeDocuments          KnowledgeDocument[]
+  knowledgeDataSources        KnowledgeDataSource[]
+  knowledgeChunks             KnowledgeChunk[]
+  knowledgeChunkEmbeddings    KnowledgeChunkEmbedding[]
+  knowledgeSourceReferences   KnowledgeSourceReference[]
+  knowledgeIngestionJobs      KnowledgeIngestionJob[]
+  knowledgeIngestionEvents    KnowledgeIngestionEvent[]
+  knowledgePolicies           KnowledgePolicy[]
+  assistantKnowledgeBindings  AssistantKnowledgeBinding[]
+  mcpServers                  McpServer[]
+  mcpTools                    McpTool[]
+  mcpResources                McpResource[]
+  mcpPrompts                  McpPrompt[]
+  mcpToolPolicies             McpToolPolicy[]
+  assistantMcpBindings        AssistantMcpBinding[]
+  mcpExecutionApprovals       McpExecutionApproval[]
+  providerConfigs             ProviderConfig[]
+  usageRecords                UsageRecord[]
+  aiRunUsageEvents            AiRunUsageEvent[]
+  aiUsageLimitPolicies        AiUsageLimitPolicy[]
   aiObservabilityAlertRules   AiObservabilityAlertRule[]
-  aiQualityTestSets          AiQualityTestSet[]
-  aiQualityTestCases         AiQualityTestCase[]
-  aiQualityEvaluationRuns    AiQualityEvaluationRun[]
-  aiQualityEvaluationResults AiQualityEvaluationResult[]
-  agentRuns                  AgentRun[]
-  agentRunEvents             AgentRunEvent[]
-  ragQueries                 RagQuery[]
-  ragQueryResults            RagQueryResult[]
-  mcpToolCalls               McpToolCall[]
-  mcpToolCallEvents          McpToolCallEvent[]
-  mcpRemoteCatalogEntries    McpRemoteCatalogEntry[]
-  mcpRemoteCatalogLedgers    McpRemoteCatalogApplyLedger[]
+  aiQualityTestSets           AiQualityTestSet[]
+  aiQualityTestCases          AiQualityTestCase[]
+  aiQualityEvaluationRuns     AiQualityEvaluationRun[]
+  aiQualityEvaluationResults  AiQualityEvaluationResult[]
+  agentRuns                   AgentRun[]
+  agentRunEvents              AgentRunEvent[]
+  ragQueries                  RagQuery[]
+  ragQueryResults             RagQueryResult[]
+  mcpToolCalls                McpToolCall[]
+  mcpToolCallEvents           McpToolCallEvent[]
+  mcpRemoteCatalogEntries     McpRemoteCatalogEntry[]
+  mcpRemoteCatalogLedgers     McpRemoteCatalogApplyLedger[]
   mcpRemoteCatalogImportPlans McpRemoteCatalogImportPlanRecord[]
-  conversations              Conversation[]
-  conversationMessages       ConversationMessage[]
+  conversations               Conversation[]
+  conversationMessages        ConversationMessage[]
 
   @@map("tenants")
 }
 
 model Workspace {
-  id                         String                        @id @default(uuid()) @db.Uuid
-  tenantId                   String                        @map("tenant_id") @db.Uuid
-  name                       String
-  slug                       String
-  description                String?
-  status                     String                        @default("active")
-  createdAt                  DateTime                      @default(now()) @map("created_at")
-  updatedAt                  DateTime                      @updatedAt @map("updated_at")
-  deletedAt                  DateTime?                     @map("deleted_at")
-  tenant                     Tenant                        @relation(fields: [tenantId], references: [id], onDelete: Cascade)
-  memberships                WorkspaceMembership[]
-  settings                   Setting[]
-  auditLogs                  AuditLog[]
-  assistants                 Assistant[]
-  assistantPublications      AssistantPublication[]
-  assistantFeedbacks         AssistantFeedback[]
-  assistantTestResults       AssistantTestResult[]
-  assistantApprovals         AssistantApprovalRequest[]
-  assistantExecutionPolicies AssistantExecutionPolicy[]
-  knowledgeBases             KnowledgeBase[]
-  knowledgeDocuments         KnowledgeDocument[]
-  knowledgeDataSources       KnowledgeDataSource[]
-  knowledgeChunks            KnowledgeChunk[]
-  knowledgeChunkEmbeddings   KnowledgeChunkEmbedding[]
-  knowledgeSourceReferences  KnowledgeSourceReference[]
-  knowledgeIngestionJobs     KnowledgeIngestionJob[]
-  knowledgeIngestionEvents   KnowledgeIngestionEvent[]
-  knowledgePolicies          KnowledgePolicy[]
-  assistantKnowledgeBindings AssistantKnowledgeBinding[]
-  mcpServers                 McpServer[]
-  mcpTools                   McpTool[]
-  mcpResources               McpResource[]
-  mcpPrompts                 McpPrompt[]
-  mcpToolPolicies            McpToolPolicy[]
-  assistantMcpBindings       AssistantMcpBinding[]
-  agentRuns                  AgentRun[]
-  agentRunEvents             AgentRunEvent[]
-  ragQueries                 RagQuery[]
-  ragQueryResults            RagQueryResult[]
-  mcpToolCalls               McpToolCall[]
-  mcpToolCallEvents          McpToolCallEvent[]
-  mcpRemoteCatalogEntries    McpRemoteCatalogEntry[]
-  mcpRemoteCatalogLedgers    McpRemoteCatalogApplyLedger[]
+  id                          String                             @id @default(uuid()) @db.Uuid
+  tenantId                    String                             @map("tenant_id") @db.Uuid
+  name                        String
+  slug                        String
+  description                 String?
+  status                      String                             @default("active")
+  createdAt                   DateTime                           @default(now()) @map("created_at")
+  updatedAt                   DateTime                           @updatedAt @map("updated_at")
+  deletedAt                   DateTime?                          @map("deleted_at")
+  tenant                      Tenant                             @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  memberships                 WorkspaceMembership[]
+  settings                    Setting[]
+  auditLogs                   AuditLog[]
+  assistants                  Assistant[]
+  assistantPublications       AssistantPublication[]
+  assistantFeedbacks          AssistantFeedback[]
+  assistantTestResults        AssistantTestResult[]
+  assistantApprovals          AssistantApprovalRequest[]
+  assistantExecutionPolicies  AssistantExecutionPolicy[]
+  knowledgeBases              KnowledgeBase[]
+  knowledgeDocuments          KnowledgeDocument[]
+  knowledgeDataSources        KnowledgeDataSource[]
+  knowledgeChunks             KnowledgeChunk[]
+  knowledgeChunkEmbeddings    KnowledgeChunkEmbedding[]
+  knowledgeSourceReferences   KnowledgeSourceReference[]
+  knowledgeIngestionJobs      KnowledgeIngestionJob[]
+  knowledgeIngestionEvents    KnowledgeIngestionEvent[]
+  knowledgePolicies           KnowledgePolicy[]
+  assistantKnowledgeBindings  AssistantKnowledgeBinding[]
+  mcpServers                  McpServer[]
+  mcpTools                    McpTool[]
+  mcpResources                McpResource[]
+  mcpPrompts                  McpPrompt[]
+  mcpToolPolicies             McpToolPolicy[]
+  assistantMcpBindings        AssistantMcpBinding[]
+  mcpExecutionApprovals       McpExecutionApproval[]
+  agentRuns                   AgentRun[]
+  agentRunEvents              AgentRunEvent[]
+  ragQueries                  RagQuery[]
+  ragQueryResults             RagQueryResult[]
+  mcpToolCalls                McpToolCall[]
+  mcpToolCallEvents           McpToolCallEvent[]
+  mcpRemoteCatalogEntries     McpRemoteCatalogEntry[]
+  mcpRemoteCatalogLedgers     McpRemoteCatalogApplyLedger[]
   mcpRemoteCatalogImportPlans McpRemoteCatalogImportPlanRecord[]
-  aiRunUsageEvents           AiRunUsageEvent[]
-  aiUsageLimitPolicies       AiUsageLimitPolicy[]
+  aiRunUsageEvents            AiRunUsageEvent[]
+  aiUsageLimitPolicies        AiUsageLimitPolicy[]
   aiObservabilityAlertRules   AiObservabilityAlertRule[]
-  aiQualityTestSets          AiQualityTestSet[]
-  aiQualityEvaluationRuns    AiQualityEvaluationRun[]
-  conversations              Conversation[]
-  conversationMessages       ConversationMessage[]
+  aiQualityTestSets           AiQualityTestSet[]
+  aiQualityEvaluationRuns     AiQualityEvaluationRun[]
+  conversations               Conversation[]
+  conversationMessages        ConversationMessage[]
 
   @@unique([tenantId, slug])
   @@index([tenantId])
@@ -126,62 +128,64 @@ model Workspace {
 }
 
 model User {
-  id                                String                        @id @default(uuid()) @db.Uuid
-  tenantId                          String                        @map("tenant_id") @db.Uuid
-  email                             String                        @unique
-  name                              String
-  passwordHash                      String?                       @map("password_hash")
-  status                            String                        @default("active")
-  lastLoginAt                       DateTime?                     @map("last_login_at")
-  createdAt                         DateTime                      @default(now()) @map("created_at")
-  updatedAt                         DateTime                      @updatedAt @map("updated_at")
-  deletedAt                         DateTime?                     @map("deleted_at")
-  tenant                            Tenant                        @relation(fields: [tenantId], references: [id], onDelete: Cascade)
-  roles                             UserRole[]
-  memberships                       WorkspaceMembership[]
-  sessions                          Session[]
-  externalIdentities                ExternalIdentity[]
-  auditLogs                         AuditLog[]                    @relation("ActorAuditLogs")
-  assistants                        Assistant[]                   @relation("AssistantCreator")
-  versions                          AssistantVersion[]            @relation("AssistantVersionCreator")
-  publishedAssistantPublications    AssistantPublication[]        @relation("AssistantPublicationPublisher")
-  unpublishedAssistantPublications  AssistantPublication[]        @relation("AssistantPublicationUnpublisher")
-  requestedAssistantApprovals       AssistantApprovalRequest[]    @relation("AssistantApprovalRequester")
-  decidedAssistantApprovals         AssistantApprovalRequest[]    @relation("AssistantApprovalDecider")
-  updatedAssistantExecutionPolicies AssistantExecutionPolicy[]    @relation("AssistantExecutionPolicyUpdater")
-  assistantShares                   AssistantShare[]              @relation("AssistantShareCreator")
-  assistantFeedbacks                AssistantFeedback[]           @relation("AssistantFeedbackUser")
-  assistantTestResults              AssistantTestResult[]         @relation("AssistantTestResultTester")
-  conversations                     Conversation[]                  @relation("ConversationOwner")
-  messages                          ConversationMessage[]
-  agentRuns                         AgentRun[]                    @relation("AgentRunRequester")
-  toolCalls                         ToolCall[]
-  ownedKnowledgeBases               KnowledgeBase[]               @relation("KnowledgeBaseOwner")
-  createdKnowledgeDocuments         KnowledgeDocument[]           @relation("KnowledgeDocumentCreator")
-  createdKnowledgeDataSources       KnowledgeDataSource[]         @relation("KnowledgeDataSourceCreator")
-  createdKnowledgeIngestionJobs     KnowledgeIngestionJob[]       @relation("KnowledgeIngestionJobCreator")
-  createdAssistantKnowledgeBindings AssistantKnowledgeBinding[]   @relation("AssistantKnowledgeBindingCreator")
-  createdMcpServers                 McpServer[]                   @relation("McpServerCreator")
-  createdAssistantMcpBindings       AssistantMcpBinding[]         @relation("AssistantMcpBindingCreator")
-  ragQueries                        RagQuery[]                    @relation("RagQueryCreator")
-  mcpToolCalls                      McpToolCall[]                 @relation("McpToolCallRequester")
-  importedMcpRemoteCatalogEntries   McpRemoteCatalogEntry[]       @relation("McpRemoteCatalogEntryImporter")
-  approvedMcpRemoteCatalogEntries   McpRemoteCatalogEntry[]       @relation("McpRemoteCatalogEntryApprover")
-  deprecatedMcpRemoteCatalogEntries McpRemoteCatalogEntry[]       @relation("McpRemoteCatalogEntryDeprecator")
-  approvedMcpRemoteCatalogLedgers   McpRemoteCatalogApplyLedger[] @relation("McpRemoteCatalogApplyLedgerApprover")
+  id                                   String                             @id @default(uuid()) @db.Uuid
+  tenantId                             String                             @map("tenant_id") @db.Uuid
+  email                                String                             @unique
+  name                                 String
+  passwordHash                         String?                            @map("password_hash")
+  status                               String                             @default("active")
+  lastLoginAt                          DateTime?                          @map("last_login_at")
+  createdAt                            DateTime                           @default(now()) @map("created_at")
+  updatedAt                            DateTime                           @updatedAt @map("updated_at")
+  deletedAt                            DateTime?                          @map("deleted_at")
+  tenant                               Tenant                             @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  roles                                UserRole[]
+  memberships                          WorkspaceMembership[]
+  sessions                             Session[]
+  externalIdentities                   ExternalIdentity[]
+  auditLogs                            AuditLog[]                         @relation("ActorAuditLogs")
+  assistants                           Assistant[]                        @relation("AssistantCreator")
+  versions                             AssistantVersion[]                 @relation("AssistantVersionCreator")
+  publishedAssistantPublications       AssistantPublication[]             @relation("AssistantPublicationPublisher")
+  unpublishedAssistantPublications     AssistantPublication[]             @relation("AssistantPublicationUnpublisher")
+  requestedAssistantApprovals          AssistantApprovalRequest[]         @relation("AssistantApprovalRequester")
+  decidedAssistantApprovals            AssistantApprovalRequest[]         @relation("AssistantApprovalDecider")
+  requestedMcpExecutionApprovals       McpExecutionApproval[]             @relation("McpExecutionApprovalRequester")
+  decidedMcpExecutionApprovals         McpExecutionApproval[]             @relation("McpExecutionApprovalDecider")
+  updatedAssistantExecutionPolicies    AssistantExecutionPolicy[]         @relation("AssistantExecutionPolicyUpdater")
+  assistantShares                      AssistantShare[]                   @relation("AssistantShareCreator")
+  assistantFeedbacks                   AssistantFeedback[]                @relation("AssistantFeedbackUser")
+  assistantTestResults                 AssistantTestResult[]              @relation("AssistantTestResultTester")
+  conversations                        Conversation[]                     @relation("ConversationOwner")
+  messages                             ConversationMessage[]
+  agentRuns                            AgentRun[]                         @relation("AgentRunRequester")
+  toolCalls                            ToolCall[]
+  ownedKnowledgeBases                  KnowledgeBase[]                    @relation("KnowledgeBaseOwner")
+  createdKnowledgeDocuments            KnowledgeDocument[]                @relation("KnowledgeDocumentCreator")
+  createdKnowledgeDataSources          KnowledgeDataSource[]              @relation("KnowledgeDataSourceCreator")
+  createdKnowledgeIngestionJobs        KnowledgeIngestionJob[]            @relation("KnowledgeIngestionJobCreator")
+  createdAssistantKnowledgeBindings    AssistantKnowledgeBinding[]        @relation("AssistantKnowledgeBindingCreator")
+  createdMcpServers                    McpServer[]                        @relation("McpServerCreator")
+  createdAssistantMcpBindings          AssistantMcpBinding[]              @relation("AssistantMcpBindingCreator")
+  ragQueries                           RagQuery[]                         @relation("RagQueryCreator")
+  mcpToolCalls                         McpToolCall[]                      @relation("McpToolCallRequester")
+  importedMcpRemoteCatalogEntries      McpRemoteCatalogEntry[]            @relation("McpRemoteCatalogEntryImporter")
+  approvedMcpRemoteCatalogEntries      McpRemoteCatalogEntry[]            @relation("McpRemoteCatalogEntryApprover")
+  deprecatedMcpRemoteCatalogEntries    McpRemoteCatalogEntry[]            @relation("McpRemoteCatalogEntryDeprecator")
+  approvedMcpRemoteCatalogLedgers      McpRemoteCatalogApplyLedger[]      @relation("McpRemoteCatalogApplyLedgerApprover")
   requestedMcpRemoteCatalogImportPlans McpRemoteCatalogImportPlanRecord[] @relation("McpRemoteCatalogImportPlanRequester")
-  aiRunUsageEvents                  AiRunUsageEvent[]             @relation("AiRunUsageEventUser")
-  scopedAiUsageLimitPolicies        AiUsageLimitPolicy[]          @relation("AiUsageLimitPolicyScopedUser")
-  createdAiUsageLimitPolicies       AiUsageLimitPolicy[]          @relation("AiUsageLimitPolicyCreatedBy")
-  updatedAiUsageLimitPolicies       AiUsageLimitPolicy[]          @relation("AiUsageLimitPolicyUpdatedBy")
-  scopedAiObservabilityAlertRules   AiObservabilityAlertRule[]    @relation("AiObservabilityAlertRuleScopedUser")
-  createdAiObservabilityAlertRules  AiObservabilityAlertRule[]    @relation("AiObservabilityAlertRuleCreatedBy")
-  updatedAiObservabilityAlertRules  AiObservabilityAlertRule[]    @relation("AiObservabilityAlertRuleUpdatedBy")
-  createdAiQualityTestSets          AiQualityTestSet[]            @relation("AiQualityTestSetCreatedBy")
-  updatedAiQualityTestSets          AiQualityTestSet[]            @relation("AiQualityTestSetUpdatedBy")
-  createdAiQualityTestCases         AiQualityTestCase[]           @relation("AiQualityTestCaseCreatedBy")
-  updatedAiQualityTestCases         AiQualityTestCase[]           @relation("AiQualityTestCaseUpdatedBy")
-  createdAiQualityEvaluationRuns    AiQualityEvaluationRun[]      @relation("AiQualityEvaluationRunCreatedBy")
+  aiRunUsageEvents                     AiRunUsageEvent[]                  @relation("AiRunUsageEventUser")
+  scopedAiUsageLimitPolicies           AiUsageLimitPolicy[]               @relation("AiUsageLimitPolicyScopedUser")
+  createdAiUsageLimitPolicies          AiUsageLimitPolicy[]               @relation("AiUsageLimitPolicyCreatedBy")
+  updatedAiUsageLimitPolicies          AiUsageLimitPolicy[]               @relation("AiUsageLimitPolicyUpdatedBy")
+  scopedAiObservabilityAlertRules      AiObservabilityAlertRule[]         @relation("AiObservabilityAlertRuleScopedUser")
+  createdAiObservabilityAlertRules     AiObservabilityAlertRule[]         @relation("AiObservabilityAlertRuleCreatedBy")
+  updatedAiObservabilityAlertRules     AiObservabilityAlertRule[]         @relation("AiObservabilityAlertRuleUpdatedBy")
+  createdAiQualityTestSets             AiQualityTestSet[]                 @relation("AiQualityTestSetCreatedBy")
+  updatedAiQualityTestSets             AiQualityTestSet[]                 @relation("AiQualityTestSetUpdatedBy")
+  createdAiQualityTestCases            AiQualityTestCase[]                @relation("AiQualityTestCaseCreatedBy")
+  updatedAiQualityTestCases            AiQualityTestCase[]                @relation("AiQualityTestCaseUpdatedBy")
+  createdAiQualityEvaluationRuns       AiQualityEvaluationRun[]           @relation("AiQualityEvaluationRunCreatedBy")
 
   @@index([tenantId])
   @@map("users")
@@ -342,40 +346,41 @@ model Setting {
 }
 
 model Assistant {
-  id                String                      @id @default(uuid()) @db.Uuid
-  tenantId          String                      @map("tenant_id") @db.Uuid
-  workspaceId       String                      @map("workspace_id") @db.Uuid
-  name              String
-  description       String?
-  status            String                      @default("draft")
-  createdById       String                      @map("created_by_id") @db.Uuid
-  createdAt         DateTime                    @default(now()) @map("created_at")
-  updatedAt         DateTime                    @updatedAt @map("updated_at")
-  deletedAt         DateTime?                   @map("deleted_at")
-  tenant            Tenant                      @relation(fields: [tenantId], references: [id], onDelete: Cascade)
-  workspace         Workspace                   @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
-  createdBy         User                        @relation("AssistantCreator", fields: [createdById], references: [id], onDelete: Restrict)
-  versions          AssistantVersion[]
-  shares            AssistantShare[]
-  publications      AssistantPublication[]
-  feedbacks         AssistantFeedback[]
-  testResults       AssistantTestResult[]
-  approvalRequests  AssistantApprovalRequest[]
-  executionPolicy   AssistantExecutionPolicy?
-  conversations     Conversation[]
-  conversationMessages ConversationMessage[]
-  agentRuns         AgentRun[]
-  usageRecords      UsageRecord[]
-  aiRunUsageEvents  AiRunUsageEvent[]
-  aiUsageLimitPolicies AiUsageLimitPolicy[]
+  id                        String                      @id @default(uuid()) @db.Uuid
+  tenantId                  String                      @map("tenant_id") @db.Uuid
+  workspaceId               String                      @map("workspace_id") @db.Uuid
+  name                      String
+  description               String?
+  status                    String                      @default("draft")
+  createdById               String                      @map("created_by_id") @db.Uuid
+  createdAt                 DateTime                    @default(now()) @map("created_at")
+  updatedAt                 DateTime                    @updatedAt @map("updated_at")
+  deletedAt                 DateTime?                   @map("deleted_at")
+  tenant                    Tenant                      @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  workspace                 Workspace                   @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  createdBy                 User                        @relation("AssistantCreator", fields: [createdById], references: [id], onDelete: Restrict)
+  versions                  AssistantVersion[]
+  shares                    AssistantShare[]
+  publications              AssistantPublication[]
+  feedbacks                 AssistantFeedback[]
+  testResults               AssistantTestResult[]
+  approvalRequests          AssistantApprovalRequest[]
+  executionPolicy           AssistantExecutionPolicy?
+  conversations             Conversation[]
+  conversationMessages      ConversationMessage[]
+  agentRuns                 AgentRun[]
+  usageRecords              UsageRecord[]
+  aiRunUsageEvents          AiRunUsageEvent[]
+  aiUsageLimitPolicies      AiUsageLimitPolicy[]
   aiObservabilityAlertRules AiObservabilityAlertRule[]
-  aiQualityTestSets AiQualityTestSet[]
-  aiQualityTestCases AiQualityTestCase[]
-  aiQualityEvaluationRuns AiQualityEvaluationRun[]
-  knowledgeBindings AssistantKnowledgeBinding[]
-  mcpBindings       AssistantMcpBinding[]
-  ragQueries        RagQuery[]
-  mcpToolCalls      McpToolCall[]
+  aiQualityTestSets         AiQualityTestSet[]
+  aiQualityTestCases        AiQualityTestCase[]
+  aiQualityEvaluationRuns   AiQualityEvaluationRun[]
+  knowledgeBindings         AssistantKnowledgeBinding[]
+  mcpBindings               AssistantMcpBinding[]
+  mcpExecutionApprovals     McpExecutionApproval[]
+  ragQueries                RagQuery[]
+  mcpToolCalls              McpToolCall[]
 
   @@index([tenantId])
   @@index([workspaceId])
@@ -384,30 +389,31 @@ model Assistant {
 }
 
 model AssistantVersion {
-  id               String                     @id @default(uuid()) @db.Uuid
-  assistantId      String                     @map("assistant_id") @db.Uuid
-  version          String
-  status           String                     @default("draft")
-  displayName      String                     @map("display_name")
-  description      String?
-  instructions     String?
-  modelProvider    String?                    @map("model_provider")
-  modelName        String?                    @map("model_name")
-  temperature      Decimal?                   @db.Decimal(4, 2)
-  configuration    Json?
-  createdById      String                     @map("created_by_id") @db.Uuid
-  createdAt        DateTime                   @default(now()) @map("created_at")
-  publishedAt      DateTime?                  @map("published_at")
-  archivedAt       DateTime?                  @map("archived_at")
-  assistant        Assistant                  @relation(fields: [assistantId], references: [id], onDelete: Cascade)
-  createdBy        User                       @relation("AssistantVersionCreator", fields: [createdById], references: [id], onDelete: Restrict)
-  publications     AssistantPublication[]
-  feedbacks        AssistantFeedback[]
-  testResults      AssistantTestResult[]
-  approvalRequests AssistantApprovalRequest[]
-  agentRuns        AgentRun[]
-  ragQueries       RagQuery[]
-  mcpToolCalls     McpToolCall[]
+  id                    String                     @id @default(uuid()) @db.Uuid
+  assistantId           String                     @map("assistant_id") @db.Uuid
+  version               String
+  status                String                     @default("draft")
+  displayName           String                     @map("display_name")
+  description           String?
+  instructions          String?
+  modelProvider         String?                    @map("model_provider")
+  modelName             String?                    @map("model_name")
+  temperature           Decimal?                   @db.Decimal(4, 2)
+  configuration         Json?
+  createdById           String                     @map("created_by_id") @db.Uuid
+  createdAt             DateTime                   @default(now()) @map("created_at")
+  publishedAt           DateTime?                  @map("published_at")
+  archivedAt            DateTime?                  @map("archived_at")
+  assistant             Assistant                  @relation(fields: [assistantId], references: [id], onDelete: Cascade)
+  createdBy             User                       @relation("AssistantVersionCreator", fields: [createdById], references: [id], onDelete: Restrict)
+  publications          AssistantPublication[]
+  feedbacks             AssistantFeedback[]
+  testResults           AssistantTestResult[]
+  approvalRequests      AssistantApprovalRequest[]
+  agentRuns             AgentRun[]
+  ragQueries            RagQuery[]
+  mcpToolCalls          McpToolCall[]
+  mcpExecutionApprovals McpExecutionApproval[]
 
   @@unique([assistantId, version])
   @@index([assistantId])
@@ -935,35 +941,36 @@ model KnowledgePolicy {
 }
 
 model McpServer {
-  id                   String                        @id @default(uuid()) @db.Uuid
-  tenantId             String                        @map("tenant_id") @db.Uuid
-  workspaceId          String                        @map("workspace_id") @db.Uuid
-  name                 String
-  description          String?
-  serverType           String                        @default("remote") @map("server_type")
-  baseUrl              String?                       @map("base_url")
-  status               String                        @default("disabled")
-  trustLevel           String                        @default("restricted") @map("trust_level")
-  riskLevel            String                        @default("medium") @map("risk_level")
-  authType             String                        @default("none") @map("auth_type")
-  secretRef            String?                       @map("secret_ref")
-  metadata             Json?
-  createdById          String?                       @map("created_by_id") @db.Uuid
-  createdAt            DateTime                      @default(now()) @map("created_at")
-  updatedAt            DateTime                      @updatedAt @map("updated_at")
-  deletedAt            DateTime?                     @map("deleted_at")
-  tenant               Tenant                        @relation(fields: [tenantId], references: [id], onDelete: Cascade)
-  workspace            Workspace                     @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
-  createdBy            User?                         @relation("McpServerCreator", fields: [createdById], references: [id], onDelete: SetNull)
-  tools                McpTool[]
-  resources            McpResource[]
-  prompts              McpPrompt[]
-  bindings             AssistantMcpBinding[]
-  policies             McpToolPolicy[]
-  toolCalls            McpToolCall[]
+  id                       String                             @id @default(uuid()) @db.Uuid
+  tenantId                 String                             @map("tenant_id") @db.Uuid
+  workspaceId              String                             @map("workspace_id") @db.Uuid
+  name                     String
+  description              String?
+  serverType               String                             @default("remote") @map("server_type")
+  baseUrl                  String?                            @map("base_url")
+  status                   String                             @default("disabled")
+  trustLevel               String                             @default("restricted") @map("trust_level")
+  riskLevel                String                             @default("medium") @map("risk_level")
+  authType                 String                             @default("none") @map("auth_type")
+  secretRef                String?                            @map("secret_ref")
+  metadata                 Json?
+  createdById              String?                            @map("created_by_id") @db.Uuid
+  createdAt                DateTime                           @default(now()) @map("created_at")
+  updatedAt                DateTime                           @updatedAt @map("updated_at")
+  deletedAt                DateTime?                          @map("deleted_at")
+  tenant                   Tenant                             @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  workspace                Workspace                          @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  createdBy                User?                              @relation("McpServerCreator", fields: [createdById], references: [id], onDelete: SetNull)
+  tools                    McpTool[]
+  resources                McpResource[]
+  prompts                  McpPrompt[]
+  bindings                 AssistantMcpBinding[]
+  policies                 McpToolPolicy[]
+  toolCalls                McpToolCall[]
   remoteCatalogEntries     McpRemoteCatalogEntry[]
   remoteCatalogLedgers     McpRemoteCatalogApplyLedger[]
   remoteCatalogImportPlans McpRemoteCatalogImportPlanRecord[]
+  executionApprovals       McpExecutionApproval[]
 
   @@index([tenantId])
   @@index([workspaceId])
@@ -997,6 +1004,7 @@ model McpTool {
   toolCalls          ToolCall[]
   mcpToolCalls       McpToolCall[]
   remoteCatalogEntry McpRemoteCatalogEntry?
+  executionApprovals McpExecutionApproval[]
 
   @@index([tenantId])
   @@index([workspaceId])
@@ -1052,25 +1060,26 @@ model McpPrompt {
 }
 
 model AssistantMcpBinding {
-  id                       String        @id @default(uuid()) @db.Uuid
-  tenantId                 String        @map("tenant_id") @db.Uuid
-  workspaceId              String        @map("workspace_id") @db.Uuid
-  assistantId              String        @map("assistant_id") @db.Uuid
-  mcpServerId              String        @map("mcp_server_id") @db.Uuid
-  mcpToolId                String?       @map("mcp_tool_id") @db.Uuid
-  isEnabled                Boolean       @default(true) @map("is_enabled")
-  mode                     String        @default("sandbox_only")
-  requiresApprovalOverride Boolean?      @map("requires_approval_override")
-  createdById              String?       @map("created_by_id") @db.Uuid
-  createdAt                DateTime      @default(now()) @map("created_at")
-  updatedAt                DateTime      @updatedAt @map("updated_at")
-  tenant                   Tenant        @relation(fields: [tenantId], references: [id], onDelete: Cascade)
-  workspace                Workspace     @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
-  assistant                Assistant     @relation(fields: [assistantId], references: [id], onDelete: Cascade)
-  server                   McpServer     @relation(fields: [mcpServerId], references: [id], onDelete: Cascade)
-  tool                     McpTool?      @relation(fields: [mcpToolId], references: [id], onDelete: Cascade)
-  createdBy                User?         @relation("AssistantMcpBindingCreator", fields: [createdById], references: [id], onDelete: SetNull)
+  id                       String                 @id @default(uuid()) @db.Uuid
+  tenantId                 String                 @map("tenant_id") @db.Uuid
+  workspaceId              String                 @map("workspace_id") @db.Uuid
+  assistantId              String                 @map("assistant_id") @db.Uuid
+  mcpServerId              String                 @map("mcp_server_id") @db.Uuid
+  mcpToolId                String?                @map("mcp_tool_id") @db.Uuid
+  isEnabled                Boolean                @default(true) @map("is_enabled")
+  mode                     String                 @default("sandbox_only")
+  requiresApprovalOverride Boolean?               @map("requires_approval_override")
+  createdById              String?                @map("created_by_id") @db.Uuid
+  createdAt                DateTime               @default(now()) @map("created_at")
+  updatedAt                DateTime               @updatedAt @map("updated_at")
+  tenant                   Tenant                 @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  workspace                Workspace              @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  assistant                Assistant              @relation(fields: [assistantId], references: [id], onDelete: Cascade)
+  server                   McpServer              @relation(fields: [mcpServerId], references: [id], onDelete: Cascade)
+  tool                     McpTool?               @relation(fields: [mcpToolId], references: [id], onDelete: Cascade)
+  createdBy                User?                  @relation("AssistantMcpBindingCreator", fields: [createdById], references: [id], onDelete: SetNull)
   toolCalls                McpToolCall[]
+  executionApprovals       McpExecutionApproval[]
 
   @@unique([assistantId, mcpServerId, mcpToolId])
   @@index([tenantId])
@@ -1080,6 +1089,67 @@ model AssistantMcpBinding {
   @@index([mcpToolId])
   @@index([isEnabled])
   @@map("assistant_mcp_bindings")
+}
+
+enum McpExecutionApprovalStatus {
+  pending
+  approved
+  claimed
+  rejected
+  cancelled
+  expired
+  consumed
+}
+
+model McpExecutionApproval {
+  id                    String                     @id @default(uuid()) @db.Uuid
+  tenantId              String                     @map("tenant_id") @db.Uuid
+  workspaceId           String                     @map("workspace_id") @db.Uuid
+  assistantId           String                     @map("assistant_id") @db.Uuid
+  assistantVersionId    String                     @map("assistant_version_id") @db.Uuid
+  mcpServerId           String                     @map("mcp_server_id") @db.Uuid
+  mcpToolId             String                     @map("mcp_tool_id") @db.Uuid
+  assistantMcpBindingId String                     @map("assistant_mcp_binding_id") @db.Uuid
+  requestedById         String                     @map("requested_by_id") @db.Uuid
+  decidedById           String?                    @map("decided_by_id") @db.Uuid
+  status                McpExecutionApprovalStatus @default(pending)
+  reason                String?
+  decisionReason        String?                    @map("decision_reason")
+  claimedByAgentRunId   String?                    @unique @map("claimed_by_agent_run_id") @db.Uuid
+  consumedByToolCallId  String?                    @map("consumed_by_tool_call_id") @db.Uuid
+  approvedAt            DateTime?                  @map("approved_at")
+  expiresAt             DateTime?                  @map("expires_at")
+  claimedAt             DateTime?                  @map("claimed_at")
+  consumedAt            DateTime?                  @map("consumed_at")
+  rejectedAt            DateTime?                  @map("rejected_at")
+  cancelledAt           DateTime?                  @map("cancelled_at")
+  metadata              Json?
+  createdAt             DateTime                   @default(now()) @map("created_at")
+  updatedAt             DateTime                   @updatedAt @map("updated_at")
+  tenant                Tenant                     @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  workspace             Workspace                  @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  assistant             Assistant                  @relation(fields: [assistantId], references: [id], onDelete: Cascade)
+  assistantVersion      AssistantVersion           @relation(fields: [assistantVersionId], references: [id], onDelete: Cascade)
+  server                McpServer                  @relation(fields: [mcpServerId], references: [id], onDelete: Cascade)
+  tool                  McpTool                    @relation(fields: [mcpToolId], references: [id], onDelete: Cascade)
+  assistantMcpBinding   AssistantMcpBinding        @relation(fields: [assistantMcpBindingId], references: [id], onDelete: Cascade)
+  requestedBy           User                       @relation("McpExecutionApprovalRequester", fields: [requestedById], references: [id], onDelete: Restrict)
+  decidedBy             User?                      @relation("McpExecutionApprovalDecider", fields: [decidedById], references: [id], onDelete: SetNull)
+
+  @@index([tenantId])
+  @@index([workspaceId])
+  @@index([assistantId])
+  @@index([assistantVersionId])
+  @@index([mcpServerId])
+  @@index([mcpToolId])
+  @@index([assistantMcpBindingId])
+  @@index([requestedById])
+  @@index([decidedById])
+  @@index([status])
+  @@index([expiresAt])
+  @@index([consumedByToolCallId])
+  @@index([createdAt])
+  @@map("mcp_execution_approvals")
 }
 
 model McpToolPolicy {
@@ -1602,37 +1672,37 @@ model UsageRecord {
 }
 
 model AiRunUsageEvent {
-  id                       String     @id @default(uuid()) @db.Uuid
-  tenantId                 String     @map("tenant_id") @db.Uuid
-  workspaceId              String     @map("workspace_id") @db.Uuid
-  assistantId              String?    @map("assistant_id") @db.Uuid
-  userId                   String?    @map("user_id") @db.Uuid
-  runId                    String     @map("run_id") @db.VarChar(160)
-  traceId                  String?    @map("trace_id") @db.VarChar(160)
-  source                   String     @db.VarChar(40)
-  operation                String     @db.VarChar(80)
-  provider                 String?    @db.VarChar(80)
-  modelName                String?    @map("model") @db.VarChar(160)
-  status                   String     @db.VarChar(40)
-  blockedReason            String?    @map("blocked_reason") @db.VarChar(160)
-  errorCode                String?    @map("error_code") @db.VarChar(120)
-  errorMessageHash         String?    @map("error_message_hash") @db.Char(64)
-  inputTokens              Int?       @map("input_tokens")
-  outputTokens             Int?       @map("output_tokens")
-  totalTokens              Int?       @map("total_tokens")
-  embeddingTokens          Int?       @map("embedding_tokens")
-  cachedTokens             Int?       @map("cached_tokens")
-  latencyMs                Int?       @map("latency_ms")
-  costCurrency             String?    @map("cost_currency") @db.Char(3)
-  estimatedCostMinorUnits  BigInt?    @map("estimated_cost_minor_units")
-  metadata                 Json?
-  startedAt                DateTime   @map("started_at")
-  completedAt              DateTime?  @map("completed_at")
-  createdAt                DateTime   @default(now()) @map("created_at")
-  tenant                   Tenant     @relation(fields: [tenantId], references: [id], onDelete: Cascade)
-  workspace                Workspace  @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
-  assistant                Assistant? @relation(fields: [assistantId], references: [id], onDelete: SetNull)
-  user                     User?      @relation("AiRunUsageEventUser", fields: [userId], references: [id], onDelete: SetNull)
+  id                      String     @id @default(uuid()) @db.Uuid
+  tenantId                String     @map("tenant_id") @db.Uuid
+  workspaceId             String     @map("workspace_id") @db.Uuid
+  assistantId             String?    @map("assistant_id") @db.Uuid
+  userId                  String?    @map("user_id") @db.Uuid
+  runId                   String     @map("run_id") @db.VarChar(160)
+  traceId                 String?    @map("trace_id") @db.VarChar(160)
+  source                  String     @db.VarChar(40)
+  operation               String     @db.VarChar(80)
+  provider                String?    @db.VarChar(80)
+  modelName               String?    @map("model") @db.VarChar(160)
+  status                  String     @db.VarChar(40)
+  blockedReason           String?    @map("blocked_reason") @db.VarChar(160)
+  errorCode               String?    @map("error_code") @db.VarChar(120)
+  errorMessageHash        String?    @map("error_message_hash") @db.Char(64)
+  inputTokens             Int?       @map("input_tokens")
+  outputTokens            Int?       @map("output_tokens")
+  totalTokens             Int?       @map("total_tokens")
+  embeddingTokens         Int?       @map("embedding_tokens")
+  cachedTokens            Int?       @map("cached_tokens")
+  latencyMs               Int?       @map("latency_ms")
+  costCurrency            String?    @map("cost_currency") @db.Char(3)
+  estimatedCostMinorUnits BigInt?    @map("estimated_cost_minor_units")
+  metadata                Json?
+  startedAt               DateTime   @map("started_at")
+  completedAt             DateTime?  @map("completed_at")
+  createdAt               DateTime   @default(now()) @map("created_at")
+  tenant                  Tenant     @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  workspace               Workspace  @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  assistant               Assistant? @relation(fields: [assistantId], references: [id], onDelete: SetNull)
+  user                    User?      @relation("AiRunUsageEventUser", fields: [userId], references: [id], onDelete: SetNull)
 
   @@index([tenantId])
   @@index([workspaceId])
@@ -1698,36 +1768,36 @@ model AiUsageLimitPolicy {
 }
 
 model AiObservabilityAlertRule {
-  id                String     @id @default(uuid()) @db.Uuid
-  tenantId          String     @map("tenant_id") @db.Uuid
-  workspaceId       String?    @map("workspace_id") @db.Uuid
-  assistantId       String?    @map("assistant_id") @db.Uuid
-  userId            String?    @map("user_id") @db.Uuid
-  scopeType         String     @map("scope_type") @db.VarChar(20)
-  metric            String     @db.VarChar(40)
-  period            String     @db.VarChar(20)
-  operator          String     @db.VarChar(10)
-  thresholdValue    BigInt     @map("threshold_value")
-  severity          String     @db.VarChar(20)
-  status            String     @default("active") @db.VarChar(20)
-  source            String?    @db.VarChar(40)
-  operation         String?    @db.VarChar(80)
-  provider          String?    @db.VarChar(80)
-  modelName         String?    @map("model") @db.VarChar(160)
-  description       String?
-  metadata          Json?
-  cooldownMinutes   Int?       @map("cooldown_minutes")
-  createdByUserId   String?    @map("created_by_user_id") @db.Uuid
-  updatedByUserId   String?    @map("updated_by_user_id") @db.Uuid
-  createdAt         DateTime   @default(now()) @map("created_at")
-  updatedAt         DateTime   @updatedAt @map("updated_at")
-  deletedAt         DateTime?  @map("deleted_at")
-  tenant            Tenant     @relation(fields: [tenantId], references: [id], onDelete: Cascade)
-  workspace         Workspace? @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
-  assistant         Assistant? @relation(fields: [assistantId], references: [id], onDelete: Cascade)
-  user              User?      @relation("AiObservabilityAlertRuleScopedUser", fields: [userId], references: [id], onDelete: Cascade)
-  createdByUser     User?      @relation("AiObservabilityAlertRuleCreatedBy", fields: [createdByUserId], references: [id], onDelete: SetNull)
-  updatedByUser     User?      @relation("AiObservabilityAlertRuleUpdatedBy", fields: [updatedByUserId], references: [id], onDelete: SetNull)
+  id              String     @id @default(uuid()) @db.Uuid
+  tenantId        String     @map("tenant_id") @db.Uuid
+  workspaceId     String?    @map("workspace_id") @db.Uuid
+  assistantId     String?    @map("assistant_id") @db.Uuid
+  userId          String?    @map("user_id") @db.Uuid
+  scopeType       String     @map("scope_type") @db.VarChar(20)
+  metric          String     @db.VarChar(40)
+  period          String     @db.VarChar(20)
+  operator        String     @db.VarChar(10)
+  thresholdValue  BigInt     @map("threshold_value")
+  severity        String     @db.VarChar(20)
+  status          String     @default("active") @db.VarChar(20)
+  source          String?    @db.VarChar(40)
+  operation       String?    @db.VarChar(80)
+  provider        String?    @db.VarChar(80)
+  modelName       String?    @map("model") @db.VarChar(160)
+  description     String?
+  metadata        Json?
+  cooldownMinutes Int?       @map("cooldown_minutes")
+  createdByUserId String?    @map("created_by_user_id") @db.Uuid
+  updatedByUserId String?    @map("updated_by_user_id") @db.Uuid
+  createdAt       DateTime   @default(now()) @map("created_at")
+  updatedAt       DateTime   @updatedAt @map("updated_at")
+  deletedAt       DateTime?  @map("deleted_at")
+  tenant          Tenant     @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  workspace       Workspace? @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  assistant       Assistant? @relation(fields: [assistantId], references: [id], onDelete: Cascade)
+  user            User?      @relation("AiObservabilityAlertRuleScopedUser", fields: [userId], references: [id], onDelete: Cascade)
+  createdByUser   User?      @relation("AiObservabilityAlertRuleCreatedBy", fields: [createdByUserId], references: [id], onDelete: SetNull)
+  updatedByUser   User?      @relation("AiObservabilityAlertRuleUpdatedBy", fields: [updatedByUserId], references: [id], onDelete: SetNull)
 
   @@index([tenantId])
   @@index([workspaceId])
@@ -1748,26 +1818,26 @@ model AiObservabilityAlertRule {
 }
 
 model AiQualityTestSet {
-  id                     String                   @id @default(uuid()) @db.Uuid
-  tenantId               String                   @map("tenant_id") @db.Uuid
-  workspaceId            String?                  @map("workspace_id") @db.Uuid
-  assistantId            String?                  @map("assistant_id") @db.Uuid
-  name                   String                   @db.VarChar(160)
-  description            String?
-  status                 String                   @default("active") @db.VarChar(20)
-  metadata               Json?
-  createdByUserId        String?                  @map("created_by_user_id") @db.Uuid
-  updatedByUserId        String?                  @map("updated_by_user_id") @db.Uuid
-  createdAt              DateTime                 @default(now()) @map("created_at")
-  updatedAt              DateTime                 @updatedAt @map("updated_at")
-  deletedAt              DateTime?                @map("deleted_at")
-  tenant                 Tenant                   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
-  workspace              Workspace?               @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
-  assistant              Assistant?               @relation(fields: [assistantId], references: [id], onDelete: Cascade)
-  createdByUser          User?                    @relation("AiQualityTestSetCreatedBy", fields: [createdByUserId], references: [id], onDelete: SetNull)
-  updatedByUser          User?                    @relation("AiQualityTestSetUpdatedBy", fields: [updatedByUserId], references: [id], onDelete: SetNull)
-  testCases              AiQualityTestCase[]
-  evaluationRuns         AiQualityEvaluationRun[]
+  id              String                   @id @default(uuid()) @db.Uuid
+  tenantId        String                   @map("tenant_id") @db.Uuid
+  workspaceId     String?                  @map("workspace_id") @db.Uuid
+  assistantId     String?                  @map("assistant_id") @db.Uuid
+  name            String                   @db.VarChar(160)
+  description     String?
+  status          String                   @default("active") @db.VarChar(20)
+  metadata        Json?
+  createdByUserId String?                  @map("created_by_user_id") @db.Uuid
+  updatedByUserId String?                  @map("updated_by_user_id") @db.Uuid
+  createdAt       DateTime                 @default(now()) @map("created_at")
+  updatedAt       DateTime                 @updatedAt @map("updated_at")
+  deletedAt       DateTime?                @map("deleted_at")
+  tenant          Tenant                   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  workspace       Workspace?               @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  assistant       Assistant?               @relation(fields: [assistantId], references: [id], onDelete: Cascade)
+  createdByUser   User?                    @relation("AiQualityTestSetCreatedBy", fields: [createdByUserId], references: [id], onDelete: SetNull)
+  updatedByUser   User?                    @relation("AiQualityTestSetUpdatedBy", fields: [updatedByUserId], references: [id], onDelete: SetNull)
+  testCases       AiQualityTestCase[]
+  evaluationRuns  AiQualityEvaluationRun[]
 
   @@index([tenantId])
   @@index([workspaceId])
@@ -1817,37 +1887,37 @@ model AiQualityTestCase {
 }
 
 model AiQualityEvaluationRun {
-  id                    String                      @id @default(uuid()) @db.Uuid
-  tenantId              String                      @map("tenant_id") @db.Uuid
-  workspaceId           String?                     @map("workspace_id") @db.Uuid
-  assistantId           String?                     @map("assistant_id") @db.Uuid
-  testSetId             String                      @map("test_set_id") @db.Uuid
-  status                String                      @default("created") @db.VarChar(20)
-  mode                  String                      @default("deterministic") @db.VarChar(40)
-  startedAt             DateTime?                   @map("started_at")
-  completedAt           DateTime?                   @map("completed_at")
-  totalCases            Int                         @default(0) @map("total_cases")
-  passedCases           Int                         @default(0) @map("passed_cases")
-  failedCases           Int                         @default(0) @map("failed_cases")
-  warningCases          Int                         @default(0) @map("warning_cases")
-  errorCases            Int                         @default(0) @map("error_cases")
-  skippedCases          Int                         @default(0) @map("skipped_cases")
-  scoreBasisPoints      Int?                        @map("score_basis_points")
-  metadata              Json?
-  assistantSnapshotHash String?                     @map("assistant_snapshot_hash") @db.Char(64)
-  assistantSnapshotSummary Json?                    @map("assistant_snapshot_summary")
-  testSetSnapshotHash   String?                     @map("test_set_snapshot_hash") @db.Char(64)
-  testSetSnapshotSummary Json?                      @map("test_set_snapshot_summary")
-  createdByUserId       String?                     @map("created_by_user_id") @db.Uuid
-  createdAt             DateTime                    @default(now()) @map("created_at")
-  updatedAt             DateTime                    @updatedAt @map("updated_at")
-  deletedAt             DateTime?                   @map("deleted_at")
-  tenant                Tenant                      @relation(fields: [tenantId], references: [id], onDelete: Cascade)
-  workspace             Workspace?                  @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
-  assistant             Assistant?                  @relation(fields: [assistantId], references: [id], onDelete: SetNull)
-  testSet               AiQualityTestSet            @relation(fields: [testSetId], references: [id], onDelete: Cascade)
-  createdByUser         User?                       @relation("AiQualityEvaluationRunCreatedBy", fields: [createdByUserId], references: [id], onDelete: SetNull)
-  results               AiQualityEvaluationResult[]
+  id                       String                      @id @default(uuid()) @db.Uuid
+  tenantId                 String                      @map("tenant_id") @db.Uuid
+  workspaceId              String?                     @map("workspace_id") @db.Uuid
+  assistantId              String?                     @map("assistant_id") @db.Uuid
+  testSetId                String                      @map("test_set_id") @db.Uuid
+  status                   String                      @default("created") @db.VarChar(20)
+  mode                     String                      @default("deterministic") @db.VarChar(40)
+  startedAt                DateTime?                   @map("started_at")
+  completedAt              DateTime?                   @map("completed_at")
+  totalCases               Int                         @default(0) @map("total_cases")
+  passedCases              Int                         @default(0) @map("passed_cases")
+  failedCases              Int                         @default(0) @map("failed_cases")
+  warningCases             Int                         @default(0) @map("warning_cases")
+  errorCases               Int                         @default(0) @map("error_cases")
+  skippedCases             Int                         @default(0) @map("skipped_cases")
+  scoreBasisPoints         Int?                        @map("score_basis_points")
+  metadata                 Json?
+  assistantSnapshotHash    String?                     @map("assistant_snapshot_hash") @db.Char(64)
+  assistantSnapshotSummary Json?                       @map("assistant_snapshot_summary")
+  testSetSnapshotHash      String?                     @map("test_set_snapshot_hash") @db.Char(64)
+  testSetSnapshotSummary   Json?                       @map("test_set_snapshot_summary")
+  createdByUserId          String?                     @map("created_by_user_id") @db.Uuid
+  createdAt                DateTime                    @default(now()) @map("created_at")
+  updatedAt                DateTime                    @updatedAt @map("updated_at")
+  deletedAt                DateTime?                   @map("deleted_at")
+  tenant                   Tenant                      @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  workspace                Workspace?                  @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  assistant                Assistant?                  @relation(fields: [assistantId], references: [id], onDelete: SetNull)
+  testSet                  AiQualityTestSet            @relation(fields: [testSetId], references: [id], onDelete: Cascade)
+  createdByUser            User?                       @relation("AiQualityEvaluationRunCreatedBy", fields: [createdByUserId], references: [id], onDelete: SetNull)
+  results                  AiQualityEvaluationResult[]
 
   @@index([tenantId])
   @@index([workspaceId])

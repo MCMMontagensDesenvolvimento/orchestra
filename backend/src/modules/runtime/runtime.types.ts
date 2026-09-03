@@ -163,6 +163,8 @@ export interface RuntimeMcpSummary {
     inputSchema?: Prisma.InputJsonValue | null;
     riskLevel: string;
     requiresApproval: boolean;
+    requiresApprovalByPolicy: boolean;
+    approvalSatisfiedForRun: boolean;
     executionMode: string;
   }>;
   blockedTools: Array<{
@@ -176,6 +178,19 @@ export interface RuntimeMcpSummary {
     riskLevel: string;
   }>;
   lastToolCallIds: string[];
+}
+
+export interface RuntimeMcpExecutionApprovalGrant {
+  status: 'claimed';
+  tenantId: string;
+  workspaceId: string;
+  assistantId: string;
+  assistantVersionId: string;
+  mcpServerId: string;
+  mcpToolId: string;
+  assistantMcpBindingId: string;
+  claimedByAgentRunId: string;
+  expiresAt: Date;
 }
 
 export interface RuntimeConversationContextSummary {

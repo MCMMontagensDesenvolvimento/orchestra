@@ -52,7 +52,7 @@ export function evaluateMcpRemoteReadOnly(input: {
   if (!input.tool.readOnly) return block('tool_not_readonly');
   if (hasDangerousMcpRemoteOperation(input.tool)) return block('dangerous_operation');
   if (input.tool.riskLevel !== 'low') return block('risk_not_low');
-  if (input.tool.requiresApproval || !input.policy.approvalSatisfied) return block('approval_required');
+  if (!input.policy.approvalSatisfied) return block('approval_required');
   if (!input.policy.allowRuntimeExecution || input.policy.status !== 'allowed') return block('runtime_execution_not_allowed');
   if (input.policy.sandboxOnly) return block('sandbox_only');
   if (input.policy.blockedByDefault) return block('blocked_by_default');

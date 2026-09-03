@@ -9,6 +9,7 @@ import type {
   RuntimeConversationContext,
   RuntimeExecutionContext,
   RuntimeMcpSummary,
+  RuntimeMcpExecutionApprovalGrant,
   RuntimeProvider,
   RuntimeRagSummary,
   RuntimeResponseScopeSummary,
@@ -50,6 +51,7 @@ interface BuildRuntimeContextInput {
   resolvedRag?: RuntimeResolvedRagContext;
   responseScope?: Partial<RuntimeResponseScopeSummary>;
   runtimeSummary?: RuntimeSummary;
+  mcpExecutionApproval?: RuntimeMcpExecutionApprovalGrant;
 }
 
 function previewInput(value: string) {
@@ -141,7 +143,14 @@ function buildRagSummary(summary: RuntimeSummary, resolvedRag?: RuntimeResolvedR
   };
 }
 
-function buildMcpSummary(summary: RuntimeSummary): RuntimeMcpSummary {
+function buildMcpSummary(
+  summary: RuntimeSummary,
+  executionMode: AgentRunMode,
+  runId: string,
+  assistantId: string,
+  assistantVersionId: string | null,
+  approval?: RuntimeMcpExecutionApprovalGrant,
+): RuntimeMcpSummary {
   const allowedSandboxTools: RuntimeMcpSummary['allowedSandboxTools'] = [];
   const blockedTools: RuntimeMcpSummary['blockedTools'] = [];
   const requiresApproval: RuntimeMcpSummary['requiresApproval'] = [];
@@ -168,10 +177,35 @@ function buildMcpSummary(summary: RuntimeSummary): RuntimeMcpSummary {
     const requiresApprovalForTool = binding.requiresApprovalOverride === true
       || toolPolicy?.requiresApproval === true
       || tool.requiresApproval;
+    const remote = binding.server.serverType === 'remote' || binding.server.serverType === 'external';
+    const approvalSatisfiedForRun = Boolean(
+      approval
+      && approval.status === 'claimed'
+      && executionMode === 'published'
+      && assistantVersionId
+      && approval.tenantId === binding.tenantId
+      && approval.workspaceId === binding.workspaceId
+      && approval.assistantId === assistantId
+      && approval.assistantVersionId === assistantVersionId
+      && approval.mcpServerId === binding.server.id
+      && approval.mcpToolId === tool.id
+      && approval.assistantMcpBindingId === binding.id
+      && approval.claimedByAgentRunId === runId
+      && approval.expiresAt.getTime() > Date.now()
+      && remote
+      && binding.mcpToolId === tool.id
+      && binding.mode === 'enabled_placeholder'
+      && binding.server.trustLevel === 'trusted'
+      && binding.server.riskLevel === 'low'
+      && Boolean(tool.metadata && typeof tool.metadata === 'object' && !Array.isArray(tool.metadata) && (tool.metadata as Record<string, unknown>).readOnly === true)
+      && toolPolicy?.allowRuntimeExecution === true
+      && toolPolicy.sandboxOnly === false
+      && toolPolicy.blockedByDefault === false
+    );
     const riskRequiresExplicitFlow = tool.riskLevel === 'medium'
       || tool.riskLevel === 'high'
       || tool.riskLevel === 'critical';
-    if (requiresApprovalForTool || riskRequiresExplicitFlow) {
+    if ((requiresApprovalForTool && !approvalSatisfiedForRun) || riskRequiresExplicitFlow) {
       requiresApproval.push({ id: tool.id, name: tool.name, riskLevel: tool.riskLevel });
       continue;
     }
@@ -184,6 +218,8 @@ function buildMcpSummary(summary: RuntimeSummary): RuntimeMcpSummary {
       inputSchema: tool.inputSchema ?? null,
       riskLevel: tool.riskLevel,
       requiresApproval: requiresApprovalForTool,
+      requiresApprovalByPolicy: requiresApprovalForTool,
+      approvalSatisfiedForRun,
       executionMode: binding.mode,
     });
   }
@@ -259,7 +295,14 @@ export async function buildRuntimeExecutionContext(input: BuildRuntimeContextInp
     precheckSnapshot: input.precheckSnapshot,
     responseScope: buildResponseScopeSummary(input.executionPolicy, input.resolvedRag, input.responseScope),
     rag: buildRagSummary(summary, input.resolvedRag),
-    mcp: buildMcpSummary(summary),
+    mcp: buildMcpSummary(
+      summary,
+      input.executionMode,
+      input.runId,
+      input.assistant.id,
+      input.assistantVersionId,
+      input.mcpExecutionApproval,
+    ),
     conversationContext: input.conversationContext,
     input: {
       hash: hashInput(input.input),

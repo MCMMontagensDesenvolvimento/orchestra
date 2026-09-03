@@ -13,6 +13,7 @@ import type {
   AiUsageLimitEvaluation,
 } from '../ai-observability/ai-usage-limits.types';
 import { knowledgeService } from '../knowledge/knowledge.service';
+import { mcpExecutionApprovalService } from '../mcp/mcp-execution-approval.service';
 import { buildAssistantRuntimeSpecV1 } from '../runtime/runtime.assistant-spec.builder';
 import { getRuntimeConfig } from '../runtime/runtime.config';
 import { buildRuntimeExecutionContext } from '../runtime/runtime.context';
@@ -1205,6 +1206,105 @@ export const agentRunsService = {
     }
 
     await recordRunAudit({ user, assistant, runId, traceId, action: 'agent_run_precheck_passed', mode: input.mode, status: 'prechecking', context });
+    let claimedMcpExecutionApproval: Awaited<ReturnType<typeof mcpExecutionApprovalService.claimForAgentRun>> = null;
+    if (input.mode === 'published' && input.mcpExecutionApprovalId) {
+      claimedMcpExecutionApproval = assistantVersionId
+        ? await mcpExecutionApprovalService.claimForAgentRun({
+          approvalId: input.mcpExecutionApprovalId,
+          agentRunId: runId,
+          tenantId: user.tenant.id,
+          workspaceId: assistant.workspaceId,
+          assistantId: assistant.id,
+          assistantVersionId,
+          actorUserId: user.id,
+          context,
+        })
+        : null;
+
+      if (!claimedMcpExecutionApproval) {
+        const now = new Date();
+        const run = await agentRunsRepository.createRun({
+          id: runId,
+          tenantId: user.tenant.id,
+          workspaceId: assistant.workspaceId,
+          assistantId: assistant.id,
+          assistantVersionId,
+          assistantPublicationId,
+          conversationId: options.conversationId,
+          requestedById: user.id,
+          status: 'blocked',
+          mode: input.mode,
+          source: input.source,
+          inputSummary: summarizeInput(input.input),
+          requestId: context.requestId,
+          traceId,
+          blockedAt: now,
+          errorCode: 'MCP_EXECUTION_APPROVAL_INVALID',
+          errorMessage: 'Approval MCP inválido, expirado, já reivindicado ou fora do escopo deste run.',
+          precheckSnapshot: precheck as unknown as Prisma.InputJsonValue,
+          metadata: mergeRuntimeMetadata({
+            metadata: sanitizedMetadata,
+            provider: runtimeProvider,
+            runtimeStatus: 'blocked',
+            requestId: context.requestId,
+            traceId,
+            runId,
+            tenantId: user.tenant.id,
+            workspaceId: assistant.workspaceId,
+            assistantId: assistant.id,
+            assistantVersionId,
+            assistantPublicationId,
+            actorUserId: user.id,
+            inputHash: 'not_computed_mcp_approval_blocked',
+            errorCode: 'MCP_EXECUTION_APPROVAL_INVALID',
+          }),
+          events: [
+            ...requestedEvents,
+            {
+              type: 'run.precheck_passed',
+              status: 'prechecking',
+              message: 'Precheck estrutural aprovado.',
+              metadata: { traceId, runtimeProvider },
+            },
+            {
+              type: 'run.mcp_execution_approval_blocked',
+              status: 'blocked',
+              message: 'Approval MCP não pôde ser reivindicado para este run.',
+              metadata: { errorCode: 'MCP_EXECUTION_APPROVAL_INVALID' },
+            },
+            {
+              type: 'run.blocked',
+              status: 'blocked',
+              message: 'Execução bloqueada por approval MCP inválido.',
+              metadata: { traceId },
+            },
+          ],
+        });
+        await recordRunAudit({
+          user,
+          assistant,
+          runId,
+          traceId,
+          action: 'runtime_execution_blocked',
+          mode: input.mode,
+          status: 'blocked',
+          context,
+          metadata: { errorCode: 'MCP_EXECUTION_APPROVAL_INVALID' },
+        });
+        await recordRunAudit({
+          user,
+          assistant,
+          runId,
+          traceId,
+          action: 'agent_run_blocked',
+          mode: input.mode,
+          status: 'blocked',
+          context,
+          metadata: { errorCode: 'MCP_EXECUTION_APPROVAL_INVALID' },
+        });
+        return mapAgentRun(run);
+      }
+    }
     const usageLimitPrecheck = await evaluateRunUsageLimits({
       user,
       assistant,
@@ -1456,6 +1556,21 @@ export const agentRunsService = {
       resolvedRag,
       responseScope: responseScopeSummary,
       runtimeSummary,
+      mcpExecutionApproval: claimedMcpExecutionApproval?.claimedByAgentRunId
+        && claimedMcpExecutionApproval.expiresAt
+        ? {
+          status: 'claimed',
+          tenantId: claimedMcpExecutionApproval.tenantId,
+          workspaceId: claimedMcpExecutionApproval.workspaceId,
+          assistantId: claimedMcpExecutionApproval.assistantId,
+          assistantVersionId: claimedMcpExecutionApproval.assistantVersionId,
+          mcpServerId: claimedMcpExecutionApproval.mcpServerId,
+          mcpToolId: claimedMcpExecutionApproval.mcpToolId,
+          assistantMcpBindingId: claimedMcpExecutionApproval.assistantMcpBindingId,
+          claimedByAgentRunId: claimedMcpExecutionApproval.claimedByAgentRunId,
+          expiresAt: claimedMcpExecutionApproval.expiresAt,
+        }
+        : undefined,
     });
     let runtimeResult: RuntimeExecutionResult;
     let gatewayRunPersisted = false;

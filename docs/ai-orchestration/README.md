@@ -134,6 +134,11 @@ A Fase 18F.1A adiciona somente o preflight offline do MCP remoto governado real;
 não executa readiness, discovery, tool, rede ou provider real. Consulte
 `mcp/ORCHESTRA_MCP_REMOTO_GOVERNADO_REAL_18F.md`.
 
+A Fase 18F.2E.1A adiciona `McpExecutionApproval` temporário e one-shot, com decisão
+humana, claim atômico por `AgentRun`, revalidação e consumo no Orchestra Tool Gateway.
+Ela não aplica migration, não altera HML e não abre nenhum gate remoto. Consulte
+`mcp/ORCHESTRA_MCP_EXECUTION_APPROVAL_18F_2E_1A.md`.
+
 A Fase 14H consolida o MVP tecnico da integracao com Agno Runtime, adicionando handoff operacional, checklist de homologacao/rollback e smoke seguro de MVP para runtime HTTP minimo e fronteira de frontend, sem feature nova, migration, frontend ou mudanca de defaults.
 
 A Fase 15C adiciona conversas persistentes privadas por usuario no Chat, mensagens persistidas, arquivamento logico, envio de mensagem pelo backend de conversa e resposta do assistente vinculada ao `AgentRun`.

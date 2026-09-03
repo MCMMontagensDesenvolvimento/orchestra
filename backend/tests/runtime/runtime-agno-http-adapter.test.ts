@@ -601,6 +601,8 @@ describe('Agno HTTP runtime adapter', () => {
             },
             riskLevel: 'low',
             requiresApproval: false,
+            requiresApprovalByPolicy: false,
+            approvalSatisfiedForRun: false,
             executionMode: 'sandbox_only',
           },
         ],

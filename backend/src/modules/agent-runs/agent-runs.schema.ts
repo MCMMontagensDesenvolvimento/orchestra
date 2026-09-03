@@ -8,8 +8,9 @@ export const createAgentRunSchema = z.object({
   mode: z.enum(agentRunModeValues).default('sandbox'),
   input: z.string().trim().min(1).max(2000),
   source: z.string().trim().min(1).max(80).default('api'),
+  mcpExecutionApprovalId: z.string().uuid().optional(),
   metadata: z.record(z.unknown()).optional(),
-});
+}).strict();
 
 export const agentRunsQuerySchema = paginationQuerySchema.extend({
   sortBy: z.enum(['createdAt', 'updatedAt', 'status', 'mode']).default('createdAt'),

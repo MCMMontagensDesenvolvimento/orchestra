@@ -59,10 +59,18 @@ function binding(input: {
   toolRequiresApproval?: boolean;
   policyRequiresApproval?: boolean;
   overrideRequiresApproval?: boolean | null;
+  mode?: string;
+  remote?: boolean;
+  readOnly?: boolean;
+  runtimeAllowed?: boolean;
 }) {
   return {
     id: input.id,
-    mode: 'sandbox_only',
+    tenantId: 'tenant-1',
+    workspaceId: 'workspace-1',
+    mcpToolId: input.toolId,
+    isEnabled: true,
+    mode: input.mode ?? 'sandbox_only',
     requiresApprovalOverride: input.overrideRequiresApproval ?? null,
     tool: {
       id: input.toolId,
@@ -73,17 +81,21 @@ function binding(input: {
       requiresApproval: input.toolRequiresApproval ?? false,
       isEnabled: true,
       deletedAt: null,
+      metadata: input.readOnly ? { readOnly: true } : null,
       policies: [{
         requiresApproval: input.policyRequiresApproval ?? false,
-        allowRuntimeExecution: false,
-        sandboxOnly: true,
-        blockedByDefault: true,
+        allowRuntimeExecution: input.runtimeAllowed ?? false,
+        sandboxOnly: !(input.runtimeAllowed ?? false),
+        blockedByDefault: !(input.runtimeAllowed ?? false),
       }],
     },
     server: {
       id: 'server-1',
       name: 'Governed MCP server',
+      serverType: input.remote ? 'remote' : 'local',
       status: 'active',
+      trustLevel: 'trusted',
+      riskLevel: 'low',
       deletedAt: null,
     },
   };
@@ -181,6 +193,155 @@ describe('governed MCP runtime context', () => {
     expect(context.mcp.allowedSandboxTools).toEqual([]);
     expect(context.mcp.requiresApproval).toEqual([
       expect.objectContaining({ id: 'tool-policy-override', riskLevel: 'low' }),
+    ]);
+  });
+
+  it('admits a low-risk read-only remote tool only for its valid claimed run grant', async () => {
+    mocks.getRuntimeContextSummary.mockResolvedValueOnce({
+      knowledgeBindingsCount: 0,
+      chunkCount: 0,
+      sourceReferenceCount: 0,
+      lastRagQuery: null,
+      sourceReferences: [],
+      mcpBindings: [binding({
+        id: 'binding-approved',
+        toolId: 'tool-approved',
+        name: 'approved_lookup',
+        riskLevel: 'low',
+        toolRequiresApproval: true,
+        policyRequiresApproval: true,
+        overrideRequiresApproval: true,
+        mode: 'enabled_placeholder',
+        remote: true,
+        readOnly: true,
+        runtimeAllowed: true,
+      })],
+      lastToolCallIds: [],
+    });
+
+    const context = await buildRuntimeExecutionContext({
+      ...runtimeInput(),
+      mcpExecutionApproval: {
+        status: 'claimed',
+        tenantId: 'tenant-1',
+        workspaceId: 'workspace-1',
+        assistantId: 'assistant-1',
+        assistantVersionId: 'version-1',
+        mcpServerId: 'server-1',
+        mcpToolId: 'tool-approved',
+        assistantMcpBindingId: 'binding-approved',
+        claimedByAgentRunId: 'run-mcp-context-1',
+        expiresAt: new Date(Date.now() + 60_000),
+      },
+    });
+
+    expect(context.mcp.allowedSandboxTools).toEqual([
+      expect.objectContaining({
+        id: 'binding-approved',
+        toolId: 'tool-approved',
+        requiresApproval: true,
+        requiresApprovalByPolicy: true,
+        approvalSatisfiedForRun: true,
+      }),
+    ]);
+    expect(context.mcp.requiresApproval).toEqual([]);
+  });
+
+  it('rejects a claimed grant when its assistant, version, tool, or binding scope differs', async () => {
+    const approvedBinding = binding({
+      id: 'binding-approved',
+      toolId: 'tool-approved',
+      name: 'approved_lookup',
+      riskLevel: 'low',
+      toolRequiresApproval: true,
+      mode: 'enabled_placeholder',
+      remote: true,
+      readOnly: true,
+      runtimeAllowed: true,
+    });
+    const grant = {
+      status: 'claimed' as const,
+      tenantId: 'tenant-1',
+      workspaceId: 'workspace-1',
+      assistantId: 'assistant-1',
+      assistantVersionId: 'version-1',
+      mcpServerId: 'server-1',
+      mcpToolId: 'tool-approved',
+      assistantMcpBindingId: 'binding-approved',
+      claimedByAgentRunId: 'run-mcp-context-1',
+      expiresAt: new Date(Date.now() + 60_000),
+    };
+
+    for (const mismatch of [
+      { assistantId: 'assistant-other' },
+      { assistantVersionId: 'version-other' },
+      { mcpToolId: 'tool-other' },
+      { assistantMcpBindingId: 'binding-other' },
+    ]) {
+      mocks.getRuntimeContextSummary.mockResolvedValueOnce({
+        knowledgeBindingsCount: 0,
+        chunkCount: 0,
+        sourceReferenceCount: 0,
+        lastRagQuery: null,
+        sourceReferences: [],
+        mcpBindings: [approvedBinding],
+        lastToolCallIds: [],
+      });
+
+      const context = await buildRuntimeExecutionContext({
+        ...runtimeInput(),
+        mcpExecutionApproval: { ...grant, ...mismatch },
+      });
+
+      expect(context.mcp.allowedSandboxTools).toEqual([]);
+      expect(context.mcp.requiresApproval).toEqual([
+        expect.objectContaining({ id: 'tool-approved' }),
+      ]);
+    }
+  });
+
+  it('does not admit the same remote grant in sandbox mode', async () => {
+    const approvedBinding = binding({
+      id: 'binding-approved',
+      toolId: 'tool-approved',
+      name: 'approved_lookup',
+      riskLevel: 'low',
+      toolRequiresApproval: true,
+      mode: 'enabled_placeholder',
+      remote: true,
+      readOnly: true,
+      runtimeAllowed: true,
+    });
+    mocks.getRuntimeContextSummary.mockResolvedValueOnce({
+      knowledgeBindingsCount: 0,
+      chunkCount: 0,
+      sourceReferenceCount: 0,
+      lastRagQuery: null,
+      sourceReferences: [],
+      mcpBindings: [approvedBinding],
+      lastToolCallIds: [],
+    });
+
+    const context = await buildRuntimeExecutionContext({
+      ...runtimeInput(),
+      executionMode: 'sandbox',
+      mcpExecutionApproval: {
+        status: 'claimed',
+        tenantId: 'tenant-1',
+        workspaceId: 'workspace-1',
+        assistantId: 'assistant-1',
+        assistantVersionId: 'version-1',
+        mcpServerId: 'server-1',
+        mcpToolId: 'tool-approved',
+        assistantMcpBindingId: 'binding-approved',
+        claimedByAgentRunId: 'run-mcp-context-1',
+        expiresAt: new Date(Date.now() + 60_000),
+      },
+    });
+
+    expect(context.mcp.allowedSandboxTools).toEqual([]);
+    expect(context.mcp.requiresApproval).toEqual([
+      expect.objectContaining({ id: 'tool-approved' }),
     ]);
   });
 });

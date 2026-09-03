@@ -25,6 +25,11 @@ const mocks = vi.hoisted(() => ({
     listMatchingBindings: vi.fn(),
     createMcpToolCallWithEvents: vi.fn(),
   },
+  mcpExecutionApprovalService: {
+    validateClaimedForGateway: vi.fn(),
+    consumeForGateway: vi.fn(),
+    correlateConsumedToolCall: vi.fn(),
+  },
   recordAuditEvent: vi.fn(),
 }));
 
@@ -34,6 +39,10 @@ vi.mock('../../src/modules/agent-runs/agent-runs.repository', () => ({
 
 vi.mock('../../src/modules/mcp/mcp.repository', () => ({
   mcpRepository: mocks.mcpRepository,
+}));
+
+vi.mock('../../src/modules/mcp/mcp-execution-approval.service', () => ({
+  mcpExecutionApprovalService: mocks.mcpExecutionApprovalService,
 }));
 
 vi.mock('../../src/modules/audit/audit.service', () => ({
@@ -252,6 +261,9 @@ describe('Agno governed tool gateway', () => {
     mocks.mcpRepository.findToolForExecution.mockResolvedValue(toolFixture());
     mocks.mcpRepository.listMatchingBindings.mockResolvedValue([bindingFixture()]);
     mocks.mcpRepository.createMcpToolCallWithEvents.mockResolvedValue({ id: 'internal-call-id' });
+    mocks.mcpExecutionApprovalService.validateClaimedForGateway.mockResolvedValue(null);
+    mocks.mcpExecutionApprovalService.consumeForGateway.mockResolvedValue(null);
+    mocks.mcpExecutionApprovalService.correlateConsumedToolCall.mockResolvedValue({ count: 1 });
     mocks.recordAuditEvent.mockResolvedValue(undefined);
   });
 
@@ -395,6 +407,198 @@ describe('Agno governed tool gateway', () => {
       action: 'runtime_tool_gateway_mcp_remote_readonly_executed',
       metadata: expect.objectContaining({ externalMcpCalled: true, mcpRemoteReadOnly: true }),
     }));
+    service.deactivateRun(runId);
+  });
+
+  it('revalidates and consumes a claimed approval immediately before the remote call', async () => {
+    configureEnv({
+      MCP_REMOTE_ENABLED: true,
+      MCP_REMOTE_EXECUTION_ENABLED: true,
+      MCP_REMOTE_DISCOVERY_ENABLED: true,
+      MCP_REMOTE_READONLY_ENABLED: true,
+      MCP_REMOTE_EGRESS_ALLOWLIST: 'https://mcp.example.test',
+    });
+    mocks.mcpRepository.findToolForExecution.mockResolvedValue(toolFixture({
+      name: 'search_records',
+      metadata: { readOnly: true },
+      requiresApproval: true,
+      server: {
+        id: serverId,
+        serverType: 'remote',
+        baseUrl: 'https://mcp.example.test/v1',
+        status: 'active',
+        trustLevel: 'trusted',
+        riskLevel: 'low',
+        authType: 'none',
+        secretRef: null,
+        deletedAt: null,
+      },
+      policies: [{ sandboxOnly: false, requiresApproval: true, allowRuntimeExecution: true, blockedByDefault: false }],
+    }));
+    mocks.mcpRepository.listMatchingBindings.mockResolvedValue([
+      bindingFixture({ mode: 'enabled_placeholder', requiresApprovalOverride: true }),
+    ]);
+    mocks.mcpExecutionApprovalService.validateClaimedForGateway.mockResolvedValue({ id: 'approval-claimed' });
+    mocks.mcpExecutionApprovalService.consumeForGateway.mockResolvedValue({ id: 'approval-consumed' });
+    const executeTool = vi.fn(async () => ({
+      executionId: 'controlled-approved',
+      status: 'completed' as const,
+      content: '{"matches":1}',
+      outputHash: 'safe-output-hash',
+      durationMs: 3,
+      externalMcpCalled: true,
+      simulated: true,
+      responseBytes: 13,
+      remoteHost: 'mcp.example.test',
+      events: [],
+      sanitizedMetadata: {},
+    }));
+    const service = createRuntimeToolGatewayService({ createRemoteClient: () => ({ executeTool }) });
+    service.activateRun(specFixture({ descriptor: { name: 'search_records', approvalRequired: false } }), {
+      provider: 'agno_http',
+      assistantPublicationId: publicationId,
+    });
+
+    const response = await service.execute(toolRequest(), { requestId: 'req_approved_once' });
+
+    expect(response.status).toBe('succeeded');
+    expect(mocks.mcpExecutionApprovalService.validateClaimedForGateway).toHaveBeenCalledOnce();
+    expect(mocks.mcpExecutionApprovalService.consumeForGateway).toHaveBeenCalledOnce();
+    expect(mocks.mcpExecutionApprovalService.consumeForGateway.mock.invocationCallOrder[0])
+      .toBeLessThan(executeTool.mock.invocationCallOrder[0]);
+    expect(mocks.mcpExecutionApprovalService.correlateConsumedToolCall)
+      .toHaveBeenCalledWith(runId, expect.stringMatching(/^[0-9a-f-]{36}$/));
+    expect(mocks.mcpRepository.createMcpToolCallWithEvents).toHaveBeenCalledWith(expect.objectContaining({
+      approvalRequiredSnapshot: true,
+      policySnapshot: expect.objectContaining({
+        requiresApprovalByPolicy: true,
+        approvalSatisfiedForRun: true,
+      }),
+    }));
+    expect(JSON.stringify(service)).not.toContain('approval-claimed');
+    service.deactivateRun(runId);
+  });
+
+  it('does not trust approvalRequired=false when no claimed server-side grant exists', async () => {
+    configureEnv({
+      MCP_REMOTE_ENABLED: true,
+      MCP_REMOTE_EXECUTION_ENABLED: true,
+      MCP_REMOTE_READONLY_ENABLED: true,
+    });
+    mocks.mcpRepository.findToolForExecution.mockResolvedValue(toolFixture({
+      metadata: { readOnly: true },
+      requiresApproval: true,
+      server: {
+        id: serverId,
+        serverType: 'remote',
+        status: 'active',
+        trustLevel: 'trusted',
+        riskLevel: 'low',
+        deletedAt: null,
+      },
+      policies: [{ sandboxOnly: false, requiresApproval: true, allowRuntimeExecution: true, blockedByDefault: false }],
+    }));
+    mocks.mcpRepository.listMatchingBindings.mockResolvedValue([
+      bindingFixture({ mode: 'enabled_placeholder', requiresApprovalOverride: true }),
+    ]);
+    const createRemoteClient = vi.fn();
+    const service = createRuntimeToolGatewayService({ createRemoteClient });
+    service.activateRun(specFixture({ descriptor: { approvalRequired: false } }), {
+      provider: 'agno_http',
+      assistantPublicationId: publicationId,
+    });
+
+    const response = await service.execute(toolRequest(), { requestId: 'req_missing_grant' });
+
+    expect(response).toEqual(expect.objectContaining({
+      status: 'blocked',
+      metadata: expect.objectContaining({
+        externalMcpCalled: false,
+        mcpRemoteBlockedReason: 'approval_required',
+      }),
+    }));
+    expect(mocks.mcpExecutionApprovalService.consumeForGateway).not.toHaveBeenCalled();
+    expect(createRemoteClient).not.toHaveBeenCalled();
+    service.deactivateRun(runId);
+  });
+
+  it('blocks an expired claimed grant before consuming or calling remote MCP', async () => {
+    configureEnv({ MCP_REMOTE_ENABLED: true, MCP_REMOTE_EXECUTION_ENABLED: true, MCP_REMOTE_READONLY_ENABLED: true });
+    mocks.mcpRepository.findToolForExecution.mockResolvedValue(toolFixture({
+      metadata: { readOnly: true },
+      requiresApproval: true,
+      server: { id: serverId, serverType: 'remote', status: 'active', trustLevel: 'trusted', riskLevel: 'low', deletedAt: null },
+      policies: [{ sandboxOnly: false, requiresApproval: true, allowRuntimeExecution: true, blockedByDefault: false }],
+    }));
+    mocks.mcpRepository.listMatchingBindings.mockResolvedValue([bindingFixture({ mode: 'enabled_placeholder' })]);
+    mocks.mcpExecutionApprovalService.validateClaimedForGateway.mockResolvedValue(null);
+    const createRemoteClient = vi.fn();
+    const service = createRuntimeToolGatewayService({ createRemoteClient });
+    service.activateRun(specFixture(), { provider: 'agno_http', assistantPublicationId: publicationId });
+
+    const response = await service.execute(toolRequest(), { requestId: 'req_expired_grant' });
+
+    expect(response.status).toBe('blocked');
+    expect(response.metadata.mcpRemoteBlockedReason).toBe('approval_required');
+    expect(mocks.mcpExecutionApprovalService.consumeForGateway).not.toHaveBeenCalled();
+    expect(createRemoteClient).not.toHaveBeenCalled();
+    service.deactivateRun(runId);
+  });
+
+  it('blocks a second use of the one-shot grant', async () => {
+    configureEnv({ MCP_REMOTE_ENABLED: true, MCP_REMOTE_EXECUTION_ENABLED: true, MCP_REMOTE_READONLY_ENABLED: true });
+    mocks.mcpRepository.findToolForExecution.mockResolvedValue(toolFixture({
+      metadata: { readOnly: true },
+      requiresApproval: true,
+      server: { id: serverId, serverType: 'remote', status: 'active', trustLevel: 'trusted', riskLevel: 'low', deletedAt: null },
+      policies: [{ sandboxOnly: false, requiresApproval: true, allowRuntimeExecution: true, blockedByDefault: false }],
+    }));
+    mocks.mcpRepository.listMatchingBindings.mockResolvedValue([bindingFixture({ mode: 'enabled_placeholder' })]);
+    mocks.mcpExecutionApprovalService.validateClaimedForGateway
+      .mockResolvedValueOnce({ id: 'approval-claimed' })
+      .mockResolvedValueOnce(null);
+    mocks.mcpExecutionApprovalService.consumeForGateway.mockResolvedValueOnce({ id: 'approval-consumed' });
+    const executeTool = vi.fn(async () => ({
+      executionId: 'controlled-once', status: 'completed' as const, content: '{}', outputHash: 'hash', durationMs: 1,
+      externalMcpCalled: true, simulated: true, events: [], sanitizedMetadata: {},
+    }));
+    const service = createRuntimeToolGatewayService({ createRemoteClient: () => ({ executeTool }) });
+    service.activateRun(specFixture({ maxToolCalls: 2 }), { provider: 'agno_http', assistantPublicationId: publicationId });
+
+    const first = await service.execute(toolRequest(), { requestId: 'req_once_1' });
+    const second = await service.execute(toolRequest({ toolCallId: 'runtime-tool-call-2', sequence: 2 }), { requestId: 'req_once_2' });
+
+    expect(first.status).toBe('succeeded');
+    expect(second.status).toBe('blocked');
+    expect(executeTool).toHaveBeenCalledOnce();
+    expect(mocks.mcpExecutionApprovalService.consumeForGateway).toHaveBeenCalledOnce();
+    service.deactivateRun(runId);
+  });
+
+  it('keeps the grant consumed when remote transport fails', async () => {
+    configureEnv({ MCP_REMOTE_ENABLED: true, MCP_REMOTE_EXECUTION_ENABLED: true, MCP_REMOTE_READONLY_ENABLED: true });
+    mocks.mcpRepository.findToolForExecution.mockResolvedValue(toolFixture({
+      metadata: { readOnly: true },
+      requiresApproval: true,
+      server: { id: serverId, serverType: 'remote', status: 'active', trustLevel: 'trusted', riskLevel: 'low', deletedAt: null },
+      policies: [{ sandboxOnly: false, requiresApproval: true, allowRuntimeExecution: true, blockedByDefault: false }],
+    }));
+    mocks.mcpRepository.listMatchingBindings.mockResolvedValue([bindingFixture({ mode: 'enabled_placeholder' })]);
+    mocks.mcpExecutionApprovalService.validateClaimedForGateway.mockResolvedValue({ id: 'approval-claimed' });
+    mocks.mcpExecutionApprovalService.consumeForGateway.mockResolvedValue({ id: 'approval-consumed', status: 'consumed' });
+    const executeTool = vi.fn(async () => ({
+      executionId: 'controlled-failed', status: 'failed' as const, durationMs: 1,
+      externalMcpCalled: false, simulated: true, events: [], sanitizedMetadata: {},
+    }));
+    const service = createRuntimeToolGatewayService({ createRemoteClient: () => ({ executeTool }) });
+    service.activateRun(specFixture(), { provider: 'agno_http', assistantPublicationId: publicationId });
+
+    const response = await service.execute(toolRequest(), { requestId: 'req_transport_failed' });
+
+    expect(response.status).toBe('blocked');
+    expect(mocks.mcpExecutionApprovalService.consumeForGateway).toHaveBeenCalledOnce();
+    expect(executeTool).toHaveBeenCalledOnce();
+    expect(mocks.mcpExecutionApprovalService.correlateConsumedToolCall).not.toHaveBeenCalled();
     service.deactivateRun(runId);
   });
 

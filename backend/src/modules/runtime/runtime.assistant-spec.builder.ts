@@ -476,7 +476,11 @@ function buildGovernedToolDescriptor(
   descriptorIndex: number,
   maxSchemaChars: number,
 ): RuntimeToolDescriptor | null {
-  if (tool.requiresApproval || tool.riskLevel !== 'low') return null;
+  if (
+    tool.riskLevel !== 'low'
+    || (tool.requiresApprovalByPolicy && !tool.approvalSatisfiedForRun)
+    || (tool.requiresApproval && !tool.approvalSatisfiedForRun)
+  ) return null;
 
   const toolId = safeId(tool.toolId) ?? safeId(tool.id);
   const name = safeOptionalText(tool.name, 120);
@@ -489,7 +493,9 @@ function buildGovernedToolDescriptor(
     toolId,
     name,
     riskLevel: normalizeToolRiskLevel(tool.riskLevel),
-    approvalRequired: Boolean(tool.requiresApproval),
+    // The control plane already resolved the run-scoped grant. The gateway
+    // remains authoritative and revalidates it before any remote call.
+    approvalRequired: false,
     gatewayRef: {
       type: 'orchestra_tool_gateway',
       action: 'mcp.tool.execute',

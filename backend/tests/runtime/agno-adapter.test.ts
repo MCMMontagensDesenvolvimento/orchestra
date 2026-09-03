@@ -129,6 +129,8 @@ function context(): RuntimeExecutionContext {
           name: 'lookup_customer',
           riskLevel: 'low',
           requiresApproval: false,
+          requiresApprovalByPolicy: false,
+          approvalSatisfiedForRun: false,
           executionMode: 'sandbox_only',
         },
       ],

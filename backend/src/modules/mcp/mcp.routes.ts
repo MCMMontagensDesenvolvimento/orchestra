@@ -3,6 +3,13 @@ import { requireAuth, requirePermission } from '../../shared/middleware/auth.mid
 import { idParamsSchema } from '../../shared/validation/pagination';
 import { validateBody, validateParams, validateQuery } from '../../shared/validation/validate';
 import { mcpController } from './mcp.controller';
+import { mcpExecutionApprovalController } from './mcp-execution-approval.controller';
+import {
+  mcpExecutionApprovalCreateSchema,
+  mcpExecutionApprovalDecisionSchema,
+  mcpExecutionApprovalParamsSchema,
+  mcpExecutionApprovalsQuerySchema,
+} from './mcp-execution-approval.schema';
 import { mcpRemoteCatalogAdminController } from './remote/mcp-remote-catalog-admin.controller';
 import {
   mcpRemoteCatalogApplyLedgersQuerySchema,
@@ -216,6 +223,57 @@ export function createMcpRouter() {
 }
 
 export function registerAssistantMcpBindingRoutes(router: Router) {
+  router.get(
+    '/:id/mcp/execution-approvals',
+    requireAuth,
+    requirePermission('mcp.execution_approvals.read'),
+    validateParams(idParamsSchema),
+    validateQuery(mcpExecutionApprovalsQuerySchema),
+    (req, res, next) => {
+      void mcpExecutionApprovalController.list(req, res).catch(next);
+    },
+  );
+  router.post(
+    '/:id/mcp/execution-approvals',
+    requireAuth,
+    requirePermission('mcp.execution_approvals.request'),
+    validateParams(idParamsSchema),
+    validateBody(mcpExecutionApprovalCreateSchema),
+    (req, res, next) => {
+      void mcpExecutionApprovalController.create(req, res).catch(next);
+    },
+  );
+  router.post(
+    '/:id/mcp/execution-approvals/:approvalId/approve',
+    requireAuth,
+    requirePermission('mcp.execution_approvals.approve'),
+    validateParams(mcpExecutionApprovalParamsSchema),
+    validateBody(mcpExecutionApprovalDecisionSchema),
+    (req, res, next) => {
+      void mcpExecutionApprovalController.approve(req, res).catch(next);
+    },
+  );
+  router.post(
+    '/:id/mcp/execution-approvals/:approvalId/reject',
+    requireAuth,
+    requirePermission('mcp.execution_approvals.reject'),
+    validateParams(mcpExecutionApprovalParamsSchema),
+    validateBody(mcpExecutionApprovalDecisionSchema),
+    (req, res, next) => {
+      void mcpExecutionApprovalController.reject(req, res).catch(next);
+    },
+  );
+  router.post(
+    '/:id/mcp/execution-approvals/:approvalId/cancel',
+    requireAuth,
+    requirePermission('mcp.execution_approvals.cancel'),
+    validateParams(mcpExecutionApprovalParamsSchema),
+    validateBody(mcpExecutionApprovalDecisionSchema),
+    (req, res, next) => {
+      void mcpExecutionApprovalController.cancel(req, res).catch(next);
+    },
+  );
+
   router.post(
     '/:id/mcp/precheck',
     requireAuth,

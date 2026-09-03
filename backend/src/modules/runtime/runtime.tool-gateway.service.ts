@@ -5,6 +5,7 @@ import { recordAuditEvent } from '../audit/audit.service';
 import { agentRunsRepository } from '../agent-runs/agent-runs.repository';
 import type { AgentRunEventInput } from '../agent-runs/agent-runs.types';
 import { mcpRepository } from '../mcp/mcp.repository';
+import { mcpExecutionApprovalService } from '../mcp/mcp-execution-approval.service';
 import { McpRemoteClient } from '../mcp/remote/mcp-remote.client';
 import { getMcpRemoteConfig } from '../mcp/remote/mcp-remote.config';
 import { createGovernedMcpRemoteTransport } from '../mcp/remote/mcp-remote-transport.factory';
@@ -359,6 +360,7 @@ interface GovernanceSuccess {
   tool: NonNullable<Awaited<ReturnType<typeof mcpRepository.findToolForExecution>>>;
   binding: Awaited<ReturnType<typeof mcpRepository.listMatchingBindings>>[number];
   remote: boolean;
+  requiresApprovalByPolicy: boolean;
 }
 
 function isRemoteServerType(value: string | null | undefined) {
@@ -393,6 +395,7 @@ async function validateCurrentGovernance(
   active: ActiveGatewayRun,
   request: RuntimeToolGatewayRequest,
   descriptor: AssistantRuntimeSpecV1['tools']['descriptors'][number],
+  context: GatewayRequestContext,
 ): Promise<GovernanceFailure | GovernanceSuccess> {
   const spec = active.spec;
   const workspaceId = spec.workspace.id;
@@ -437,14 +440,30 @@ async function validateCurrentGovernance(
   ) return remote
     ? remoteGovernanceFailure(tool.id, 'runtime_execution_not_allowed', readOnly)
     : { reason: 'tool_policy_blocked' };
-  if (
-    descriptor.approvalRequired
-    || tool.requiresApproval
-    || toolPolicy?.requiresApproval
-    || binding.requiresApprovalOverride === true
-  ) return remote
+  const requiresApprovalByPolicy = tool.requiresApproval
+    || toolPolicy?.requiresApproval === true
+    || binding.requiresApprovalOverride === true;
+  if (descriptor.approvalRequired) return remote
     ? remoteGovernanceFailure(tool.id, 'approval_required', readOnly)
     : { reason: 'approval_required' };
+  if (requiresApprovalByPolicy) {
+    if (!remote || !spec.assistant.versionId) return remote
+      ? remoteGovernanceFailure(tool.id, 'approval_required', readOnly)
+      : { reason: 'approval_required' };
+    const approval = await mcpExecutionApprovalService.validateClaimedForGateway({
+      tenantId: spec.tenant.id,
+      workspaceId,
+      assistantId: spec.assistant.id,
+      assistantVersionId: spec.assistant.versionId,
+      mcpServerId: tool.mcpServerId,
+      mcpToolId: tool.id,
+      assistantMcpBindingId: binding.id,
+      agentRunId: spec.trace.runId,
+      actorUserId: spec.actor.userId,
+      context,
+    });
+    if (!approval) return remoteGovernanceFailure(tool.id, 'approval_required', readOnly);
+  }
   if (descriptor.riskLevel !== 'low' || tool.riskLevel !== 'low' || (remote && tool.server.riskLevel !== 'low')) {
     return remote
       ? remoteGovernanceFailure(tool.id, 'risk_not_low', readOnly)
@@ -469,7 +488,7 @@ async function validateCurrentGovernance(
         outputSchema: tool.outputSchema,
         metadata: tool.metadata,
         riskLevel: tool.riskLevel,
-        requiresApproval: tool.requiresApproval,
+        requiresApproval: requiresApprovalByPolicy,
         readOnly,
       },
       policy: {
@@ -493,7 +512,7 @@ async function validateCurrentGovernance(
   } else if (toolPolicy?.sandboxOnly !== true) {
     return { reason: 'tool_policy_blocked' };
   }
-  return { tool, binding, remote };
+  return { tool, binding, remote, requiresApprovalByPolicy };
 }
 
 async function recordSuccess(
@@ -506,7 +525,7 @@ async function recordSuccess(
 ) {
   const spec = active.spec;
   const workspaceId = spec.workspace.id!;
-  const { tool, binding, remote } = governance;
+  const { tool, binding, remote, requiresApprovalByPolicy } = governance;
 
   const executed = active.executed + 1;
   const internalCallId = deterministicCallId(spec.trace.runId, request.toolCallId);
@@ -523,6 +542,27 @@ async function recordSuccess(
       credentialsConfigured: Boolean(tool.server.secretRef),
       timeoutMs: Math.min(remoteConfig.defaultTimeoutMs, spec.policy.timeoutMs),
     }, remoteConfig);
+    if (requiresApprovalByPolicy) {
+      if (!spec.assistant.versionId) {
+        throw new AppError(409, 'MCP_EXECUTION_APPROVAL_INVALID', 'MCP execution approval is invalid.');
+      }
+      const consumed = await mcpExecutionApprovalService.consumeForGateway({
+        tenantId: spec.tenant.id,
+        workspaceId,
+        assistantId: spec.assistant.id,
+        assistantVersionId: spec.assistant.versionId,
+        mcpServerId: tool.mcpServerId,
+        mcpToolId: tool.id,
+        assistantMcpBindingId: binding.id,
+        agentRunId: spec.trace.runId,
+        actorUserId: spec.actor.userId,
+        toolCallId: internalCallId,
+        context,
+      });
+      if (!consumed) {
+        throw new AppError(409, 'MCP_EXECUTION_APPROVAL_INVALID', 'MCP execution approval is invalid.');
+      }
+    }
     const remoteResult = await client.executeTool({
       executionId: internalCallId,
       tenantId: spec.tenant.id,
@@ -545,7 +585,7 @@ async function recordSuccess(
         outputSchema: tool.outputSchema,
         metadata: tool.metadata,
         riskLevel: 'low',
-        requiresApproval: false,
+        requiresApproval: requiresApprovalByPolicy,
         readOnly: true,
       },
       policyDecision: {
@@ -605,7 +645,7 @@ async function recordSuccess(
     mode: remote ? 'remote_controlled' : 'sandbox',
     status: 'completed',
     riskLevelSnapshot: 'low',
-    approvalRequiredSnapshot: false,
+    approvalRequiredSnapshot: requiresApprovalByPolicy,
     requestId: context.requestId,
     traceId: spec.trace.traceId,
     inputHash: sha256(request.arguments),
@@ -613,6 +653,8 @@ async function recordSuccess(
       sandboxOnly: !remote,
       externalMcpAllowed: remote,
       remoteReadOnly: remote,
+      requiresApprovalByPolicy,
+      approvalSatisfiedForRun: requiresApprovalByPolicy,
       maxToolCalls: spec.policy.maxToolCalls,
       sequence: request.sequence,
     },
@@ -633,6 +675,12 @@ async function recordSuccess(
       publicEvent('runtime.tool_result_returned', 'completed', 'Minimized tool result returned to runtime.', metadata),
     ],
   });
+
+  if (remote && requiresApprovalByPolicy) {
+    await Promise.allSettled([
+      mcpExecutionApprovalService.correlateConsumedToolCall(spec.trace.runId, internalCallId),
+    ]);
+  }
 
   active.executed = executed;
   await Promise.allSettled([recordAuditEvent({
@@ -709,7 +757,7 @@ async function executeActive(
     if (active.executed >= spec.policy.maxToolCalls) return block('max_tool_calls_exceeded');
     if (request.sequence !== active.executed + 1) return block('sequence_out_of_order');
 
-    const governance = await validateCurrentGovernance(active, request, descriptor);
+    const governance = await validateCurrentGovernance(active, request, descriptor, context);
     if ('reason' in governance) return block(governance.reason, governance.metadata);
     if (governance.remote && run.mode === 'sandbox') {
       const failure = remoteGovernanceFailure(request.toolId, 'sandbox_only', true);
@@ -721,6 +769,10 @@ async function executeActive(
       active.calls.set(request.toolCallId, { requestHash, response });
       return response;
     } catch (error) {
+      if (error instanceof AppError && error.code === 'MCP_EXECUTION_APPROVAL_INVALID') {
+        const failure = remoteGovernanceFailure(request.toolId, 'approval_required', true);
+        return block(failure.reason, failure.metadata);
+      }
       if (error instanceof AppError && error.code.startsWith('MCP_REMOTE_')) {
         const egressBlocked = error.code === 'MCP_REMOTE_EGRESS_BLOCKED';
         const blockedReasonByCode: Partial<Record<string, RuntimeToolGatewayResponse['metadata']['mcpRemoteBlockedReason']>> = {

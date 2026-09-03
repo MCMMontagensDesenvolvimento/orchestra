@@ -122,6 +122,8 @@ function context(overrides: Partial<RuntimeExecutionContext> = {}): RuntimeExecu
           },
           riskLevel: 'low',
           requiresApproval: false,
+          requiresApprovalByPolicy: false,
+          approvalSatisfiedForRun: false,
           executionMode: 'sandbox_only',
         },
       ],
@@ -518,6 +520,34 @@ describe('AssistantRuntimeSpecV1 builder for Agno HTTP', () => {
     ]);
   });
 
+  it('emits a simple descriptor after the control plane satisfies approval without exposing grant data', () => {
+    configureRagRuntime({ AGNO_RUNTIME_HTTP_TOOLS_ENABLED: true, AGNO_RUNTIME_HTTP_MAX_TOOL_CALLS: 1 });
+    const baseContext = context();
+    const spec = buildAssistantRuntimeSpecV1({
+      context: context({
+        mcp: {
+          ...baseContext.mcp,
+          allowedSandboxTools: [{
+            ...baseContext.mcp.allowedSandboxTools[0],
+            requiresApproval: true,
+            requiresApprovalByPolicy: true,
+            approvalSatisfiedForRun: true,
+          }],
+        },
+      }),
+      timeoutMs: 15000,
+    });
+
+    expect(spec.tools.descriptors).toEqual([
+      expect.objectContaining({
+        toolId: 'tool-1',
+        approvalRequired: false,
+      }),
+    ]);
+    const serialized = JSON.stringify(spec);
+    expect(serialized).not.toMatch(/approvalId|approver|decidedBy|approvalSatisfiedForRun|requiresApprovalByPolicy/i);
+  });
+
   it('does not attach approval-required or non-low-risk tools even if an unsafe caller injects them as allowed', () => {
     configureRagRuntime({ AGNO_RUNTIME_HTTP_TOOLS_ENABLED: true, AGNO_RUNTIME_HTTP_MAX_TOOL_CALLS: 5 });
 
@@ -578,6 +608,8 @@ describe('AssistantRuntimeSpecV1 builder for Agno HTTP', () => {
               inputSchema: { type: 'object' },
               riskLevel: 'low',
               requiresApproval: false,
+              requiresApprovalByPolicy: false,
+              approvalSatisfiedForRun: false,
               executionMode: 'sandbox_only',
             },
           ],
@@ -610,6 +642,8 @@ describe('AssistantRuntimeSpecV1 builder for Agno HTTP', () => {
               inputSchema: { type: 'object' },
               riskLevel: 'low',
               requiresApproval: false,
+              requiresApprovalByPolicy: false,
+              approvalSatisfiedForRun: false,
               executionMode: 'sandbox_only',
             },
             {
@@ -621,6 +655,8 @@ describe('AssistantRuntimeSpecV1 builder for Agno HTTP', () => {
               inputSchema: { type: 'object', description: 'y'.repeat(500) },
               riskLevel: 'low',
               requiresApproval: false,
+              requiresApprovalByPolicy: false,
+              approvalSatisfiedForRun: false,
               executionMode: 'sandbox_only',
             },
           ],
@@ -665,6 +701,8 @@ describe('AssistantRuntimeSpecV1 builder for Agno HTTP', () => {
               },
               riskLevel: 'low',
               requiresApproval: false,
+              requiresApprovalByPolicy: false,
+              approvalSatisfiedForRun: false,
               executionMode: 'sandbox_only',
               rawToolManifest: 'must-not-leak',
               rawMcpServerConfig: 'must-not-leak',

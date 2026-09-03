@@ -38,6 +38,9 @@ const mocks = vi.hoisted(() => {
     recordAuditEvent: vi.fn().mockResolvedValue(undefined),
     recordAiUsageEvent: vi.fn().mockResolvedValue(undefined),
     evaluateAiUsageLimits: vi.fn(),
+    mcpExecutionApprovalService: {
+      claimForAgentRun: vi.fn(),
+    },
   };
 });
 
@@ -61,6 +64,10 @@ vi.mock('../../src/modules/ai-observability/ai-usage-limits.service', () => ({
   evaluateAiUsageLimits: mocks.evaluateAiUsageLimits,
 }));
 
+vi.mock('../../src/modules/mcp/mcp-execution-approval.service', () => ({
+  mcpExecutionApprovalService: mocks.mcpExecutionApprovalService,
+}));
+
 const workspaceId = '00000000-0000-0000-0000-000000000020';
 const tenantId = '00000000-0000-0000-0000-000000000010';
 const userId = '00000000-0000-0000-0000-000000000001';
@@ -68,6 +75,7 @@ const assistantId = '00000000-0000-0000-0000-000000000101';
 const versionId = '00000000-0000-0000-0000-000000000201';
 const publicationId = '00000000-0000-0000-0000-000000000301';
 const runId = '00000000-0000-0000-0000-000000000401';
+const executionApprovalId = '00000000-0000-0000-0000-000000000402';
 
 const originalRuntimeEnv = {
   RUNTIME_PROVIDER: env.RUNTIME_PROVIDER,
@@ -331,6 +339,7 @@ describe('agent run governance endpoints', () => {
     mocks.recordAuditEvent.mockResolvedValue(undefined);
     mocks.recordAiUsageEvent.mockResolvedValue(undefined);
     mocks.evaluateAiUsageLimits.mockResolvedValue(usageLimitEvaluationFixture({ applied: false }));
+    mocks.mcpExecutionApprovalService.claimForAgentRun.mockResolvedValue(null);
     mocks.knowledgeService.queryRag.mockResolvedValue({
       queryId: '00000000-0000-0000-0000-000000000950',
       status: 'no_results',
@@ -515,6 +524,49 @@ describe('agent run governance endpoints', () => {
       estimatedCostMinorUnits: undefined,
     }));
     expect(mocks.knowledgeService.queryRag).not.toHaveBeenCalled();
+  });
+
+  it('persists a blocked published AgentRun when the MCP approval claim fails', async () => {
+    mocks.agentRunsRepository.findAssistantForRun.mockResolvedValue(assistantFixture('published'));
+    const executeSpy = vi.spyOn(runtimeService, 'execute');
+
+    const response = await request(createApp())
+      .post(`/api/v1/assistants/${assistantId}/runs`)
+      .set('Cookie', [sessionCookie()])
+      .send({
+        mode: 'published',
+        input: 'Read corporate status once.',
+        mcpExecutionApprovalId: executionApprovalId,
+      })
+      .expect(201);
+
+    expect(response.body.data.status).toBe('blocked');
+    expect(response.body.data.errorCode).toBe('MCP_EXECUTION_APPROVAL_INVALID');
+    expect(mocks.mcpExecutionApprovalService.claimForAgentRun).toHaveBeenCalledWith(expect.objectContaining({
+      approvalId: executionApprovalId,
+      assistantId,
+      assistantVersionId: versionId,
+    }));
+    expect(mocks.agentRunsRepository.createRun).toHaveBeenCalledWith(expect.objectContaining({
+      status: 'blocked',
+      errorCode: 'MCP_EXECUTION_APPROVAL_INVALID',
+    }));
+    expect(executeSpy).not.toHaveBeenCalled();
+  });
+
+  it('does not claim or open remote MCP for a sandbox run carrying an approval id', async () => {
+    const response = await request(createApp())
+      .post(`/api/v1/assistants/${assistantId}/runs`)
+      .set('Cookie', [sessionCookie()])
+      .send({
+        mode: 'sandbox',
+        input: 'Keep this run sandboxed.',
+        mcpExecutionApprovalId: executionApprovalId,
+      })
+      .expect(201);
+
+    expect(response.body.data.status).toBe('completed');
+    expect(mocks.mcpExecutionApprovalService.claimForAgentRun).not.toHaveBeenCalled();
   });
 
   it.each([
