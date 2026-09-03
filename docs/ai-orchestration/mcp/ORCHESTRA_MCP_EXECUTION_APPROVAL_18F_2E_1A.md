@@ -125,6 +125,20 @@ São registrados os eventos:
 Metadata de auditoria contém somente IDs de correlação e escopo. Argumentos completos,
 payloads, headers, secrets e respostas remotas não são registrados.
 
+## Rollout RBAC idempotente (18F.2E.1A.1)
+
+O rollout autorizado em HML recebe as cinco permissões
+`mcp.execution_approvals.*` por uma data migration versionada e idempotente, executada
+pelo fluxo normal de `prisma migrate deploy`. A migration usa `ON CONFLICT DO NOTHING`,
+cria somente permissions ausentes e associa apenas roles já existentes chamadas
+`admin_platform`, `creator_owner`, `editor`, `consumer` e `auditor`, em qualquer tenant.
+Ela não cria roles, não remove grants extras e não altera tenants, workspaces, usuários
+ou configuração de execução.
+
+`seed-mcm` não participa desse rollout. A migration RBAC é environment-agnostic e não
+contém identidade ou tenant específico. Nesta implementação local ela foi apenas
+versionada e testada: nenhuma migration ou seed foi executada em HML.
+
 ## Gates que continuam fechados
 
 Esta fase não altera envs ou defaults. Permanecem fechados:
