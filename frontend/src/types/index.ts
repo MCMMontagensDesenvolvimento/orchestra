@@ -1178,6 +1178,7 @@ export type MicrosoftSsoErrorCode =
   | 'external_identity_conflict'
   | 'external_identity_link_failed'
   | 'user_not_found'
+  | 'user_provision_failed'
   | 'user_inactive'
   | 'tenant_inactive'
   | 'workspace_unavailable'

@@ -108,6 +108,71 @@ export const authRepository = {
     });
   },
 
+  // Provisionamento opt-in, transacional e limitado ao tenant/workspace MCM.
+  // Se um recurso esperado não existir, falha fechado em vez de criar permissões.
+  async provisionMicrosoftSsoUser(input: {
+    email: string;
+    displayName?: string;
+    providerTenantId: string;
+    providerUserId: string;
+    issuer: string;
+    emailVerified: boolean;
+    linkedAt: Date;
+  }) {
+    return prisma.$transaction(async (tx) => {
+      const tenant = await tx.tenant.findUnique({ where: { slug: 'mcm' } });
+      if (!tenant || tenant.status !== 'active' || tenant.deletedAt) {
+        throw new Error('MCM_SSO_TENANT_UNAVAILABLE');
+      }
+      const [workspace, role, existing] = await Promise.all([
+        tx.workspace.findUnique({ where: {
+          tenantId_slug: { tenantId: tenant.id, slug: 'principal' },
+        } }),
+        tx.role.findUnique({ where: {
+          tenantId_name: { tenantId: tenant.id, name: 'consumer' },
+        } }),
+        tx.user.findFirst({ where: {
+          email: { equals: input.email, mode: 'insensitive' },
+        } }),
+      ]);
+      if (!workspace || workspace.status !== 'active' || workspace.deletedAt || !role || existing) {
+        throw new Error('MCM_SSO_PROVISION_PRECONDITION_FAILED');
+      }
+
+      const user = await tx.user.create({
+        data: {
+          tenantId: tenant.id,
+          email: input.email,
+          name: input.displayName || input.email,
+          status: 'active',
+          passwordHash: null,
+          memberships: { create: { workspaceId: workspace.id, role: 'member' } },
+          roles: { create: { roleId: role.id, workspaceId: workspace.id } },
+          externalIdentities: { create: {
+            tenantId: tenant.id,
+            provider: 'microsoft',
+            providerTenantId: input.providerTenantId,
+            providerUserId: input.providerUserId,
+            issuer: input.issuer,
+            email: input.email,
+            emailVerified: input.emailVerified,
+            displayName: input.displayName ?? null,
+            linkedAt: input.linkedAt,
+            lastLoginAt: input.linkedAt,
+          } },
+        },
+        include: {
+          ...userForAuthInclude,
+          externalIdentities: { select: { id: true } },
+        },
+      });
+      if (user.externalIdentities.length !== 1) {
+        throw new Error('MCM_SSO_PROVISION_IDENTITY_INVALID');
+      }
+      return { user, externalIdentityId: user.externalIdentities[0].id };
+    });
+  },
+
   async updateExternalIdentityLogin(input: {
     id: string;
     issuer: string;

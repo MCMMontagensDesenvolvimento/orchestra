@@ -32,6 +32,7 @@ const configuredEnvironment = {
   MICROSOFT_ALLOWED_TENANT_IDS: tenantId,
   MICROSOFT_POST_LOGOUT_REDIRECT_URI: 'http://localhost:5173/login',
   MICROSOFT_SSO_AUTO_LINK_BY_EMAIL: false,
+  MICROSOFT_SSO_AUTO_PROVISION_ENABLED: false,
   FRONTEND_ORIGIN: 'http://localhost:5173',
   JWT_SECRET: jwtSecret,
 };
@@ -143,6 +144,7 @@ function createFixture(overrides: {
   autoLinkUsers?: Awaited<ReturnType<typeof authRepository.findUsersForSsoAutoLink>>;
   conflictingIdentity?: Awaited<ReturnType<typeof authRepository.findActiveExternalIdentityForUserProvider>>;
   createIdentityError?: Error;
+  provisionError?: Error;
   exchangeError?: Error;
 } = {}) {
   let authorizationRequest: MicrosoftAuthorizationRequest | undefined;
@@ -201,6 +203,25 @@ function createFixture(overrides: {
         deletedAt: null,
       };
     });
+  const provisionMicrosoftSsoUser = vi.fn<typeof authRepository.provisionMicrosoftSsoUser>()
+    .mockImplementation(async (input) => {
+      if (overrides.provisionError) throw overrides.provisionError;
+      return {
+        user: {
+          ...userFixture!,
+          email: input.email,
+          name: input.displayName ?? input.email,
+          roles: userFixture!.roles.map((item) => ({
+            ...item, role: { ...item.role, name: 'consumer' },
+          })),
+          memberships: userFixture!.memberships.map((item) => ({
+            ...item, role: 'member',
+          })),
+          externalIdentities: [{ id: '00000000-0000-0000-0000-000000000082' }],
+        },
+        externalIdentityId: '00000000-0000-0000-0000-000000000082',
+      } as Awaited<ReturnType<typeof authRepository.provisionMicrosoftSsoUser>>;
+    });
   const updateExternalIdentityLogin = vi.fn<typeof authRepository.updateExternalIdentityLogin>()
     .mockResolvedValue({
       ...externalIdentityFixture!,
@@ -217,6 +238,7 @@ function createFixture(overrides: {
     },
     repository: {
       createExternalIdentity,
+      provisionMicrosoftSsoUser,
       findActiveExternalIdentityForUserProvider,
       findExternalIdentityForSso,
       findUsersForSsoAutoLink,
@@ -233,6 +255,7 @@ function createFixture(overrides: {
     getAuthorizationUrl,
     exchangeAuthorizationCode,
     createExternalIdentity,
+    provisionMicrosoftSsoUser,
     findActiveExternalIdentityForUserProvider,
     findExternalIdentityForSso,
     findUsersForSsoAutoLink,
@@ -426,6 +449,80 @@ describe('Microsoft SSO backend flow', () => {
     expect(fixture.findUsersForSsoAutoLink).not.toHaveBeenCalled();
     expect(fixture.createExternalIdentity).not.toHaveBeenCalled();
     expect(fixture.updateLastLogin).not.toHaveBeenCalled();
+  });
+
+  it('provisions a new MCM user as consumer through Microsoft SSO opt-in', async () => {
+    const fixture = createFixture({
+      environment: { MICROSOFT_SSO_AUTO_PROVISION_ENABLED: true },
+      linkedIdentity: null,
+      autoLinkUsers: [],
+    });
+    const { start, transaction } = await startAndTransaction(fixture);
+    const result = await fixture.service.callback({
+      query: { code: 'authorization-code', state: transaction.state },
+      transactionToken: start.transactionToken,
+    }, requestContext);
+    expect(result.user.email).toBe('admin@mcm.com.br');
+    expect(result.user.roles).toContain('consumer');
+    expect(result.user.roles).not.toContain('admin_platform');
+    expect(result.user.workspaces[0].role).toBe('member');
+    expect(fixture.provisionMicrosoftSsoUser).toHaveBeenCalledWith(expect.objectContaining({
+      email: 'admin@mcm.com.br', providerUserId: 'external-oid-1',
+    }));
+    expect(fixture.recordAudit).toHaveBeenCalledWith(expect.objectContaining({
+      action: 'sso_user_provisioned',
+      metadata: expect.objectContaining({ role: 'consumer' }),
+    }));
+  });
+
+  it('never provisions over an existing unlinked user', async () => {
+    const fixture = createFixture({
+      environment: { MICROSOFT_SSO_AUTO_PROVISION_ENABLED: true },
+      linkedIdentity: null,
+      autoLinkUsers: [userFixture!],
+    });
+    const { start, transaction } = await startAndTransaction(fixture);
+    await expectCallbackFailure(fixture.service.callback({
+      query: { code: 'authorization-code', state: transaction.state },
+      transactionToken: start.transactionToken,
+    }, requestContext), 'external_identity_not_linked');
+    expect(fixture.provisionMicrosoftSsoUser).not.toHaveBeenCalled();
+  });
+
+  it('does not provision a new account with only an unstable sub', async () => {
+    const fixture = createFixture({
+      environment: { MICROSOFT_SSO_AUTO_PROVISION_ENABLED: true },
+      linkedIdentity: null,
+      autoLinkUsers: [],
+      claims: (nonce) => ({
+        iss: `https://login.microsoftonline.com/${tenantId}/v2.0`,
+        aud: clientId, tid: tenantId, nonce,
+        exp: Math.floor(now.getTime() / 1000) + 3600,
+        email: 'new@mcm.com.br', sub: 'fallback-sub',
+      }),
+    });
+    const { start, transaction } = await startAndTransaction(fixture);
+    await expectCallbackFailure(fixture.service.callback({
+      query: { code: 'authorization-code', state: transaction.state },
+      transactionToken: start.transactionToken,
+    }, requestContext), 'external_subject_missing');
+    expect(fixture.provisionMicrosoftSsoUser).not.toHaveBeenCalled();
+  });
+
+  it('fails closed when atomic SSO provisioning fails', async () => {
+    const fixture = createFixture({
+      environment: { MICROSOFT_SSO_AUTO_PROVISION_ENABLED: true },
+      linkedIdentity: null,
+      autoLinkUsers: [],
+      provisionError: new Error('DB constraint details must not leak'),
+    });
+    const { start, transaction } = await startAndTransaction(fixture);
+    await expectCallbackFailure(fixture.service.callback({
+      query: { code: 'authorization-code', state: transaction.state },
+      transactionToken: start.transactionToken,
+    }, requestContext), 'user_provision_failed');
+    expect(fixture.updateLastLogin).not.toHaveBeenCalled();
+    expect(JSON.stringify(fixture.recordAudit.mock.calls)).not.toContain('DB constraint details');
   });
 
   it('rejects an inactive internal user', async () => {

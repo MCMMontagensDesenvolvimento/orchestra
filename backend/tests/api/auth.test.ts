@@ -1,5 +1,5 @@
 import request from 'supertest';
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { createApp } from '../../src/app/app';
 import { env } from '../../src/config/env';
 import { prisma } from '../../src/infrastructure/prisma/prisma.service';
@@ -179,6 +179,10 @@ function setMicrosoftSsoEnv(overrides: Partial<MutableMicrosoftSsoEnv> = {}) {
 }
 
 describe('auth endpoints', () => {
+  beforeEach(() => {
+    env.MICROSOFT_SSO_ENABLED = false;
+  });
+
   afterEach(() => {
     vi.restoreAllMocks();
     vi.clearAllMocks();

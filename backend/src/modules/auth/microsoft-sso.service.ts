@@ -47,6 +47,7 @@ interface MicrosoftSsoServiceDependencies {
   repository: Pick<
     typeof authRepository,
     | 'createExternalIdentity'
+    | 'provisionMicrosoftSsoUser'
     | 'findActiveExternalIdentityForUserProvider'
     | 'findExternalIdentityForSso'
     | 'findUsersForSsoAutoLink'
@@ -403,66 +404,85 @@ export function createMicrosoftSsoService(
             lastLoginAt: loginAt,
           });
         } else {
-          if (!dependencies.environment.MICROSOFT_SSO_AUTO_LINK_BY_EMAIL) {
+          const autoLink = dependencies.environment.MICROSOFT_SSO_AUTO_LINK_BY_EMAIL;
+          const autoProvision = dependencies.environment.MICROSOFT_SSO_AUTO_PROVISION_ENABLED;
+          if (!autoLink && !autoProvision) {
             return callbackFailure('external_identity_not_linked', context);
           }
 
           const users = await dependencies.repository.findUsersForSsoAutoLink(validatedClaims.email);
-          if (users.length === 0) return callbackFailure('user_not_found', context);
           if (users.length > 1) return callbackFailure('external_identity_conflict', context);
 
-          user = users[0];
-          const failureReason = internalUserFailure(user);
-          if (failureReason) return callbackFailure(failureReason, context);
-
-          const conflictingIdentity = await dependencies.repository.findActiveExternalIdentityForUserProvider({
-            provider: 'microsoft',
-            userId: user.id,
-          });
-          if (
-            conflictingIdentity
-            && (
-              conflictingIdentity.providerTenantId !== validatedClaims.providerTenantId
-              || conflictingIdentity.providerUserId !== validatedClaims.providerUserId
-            )
-          ) {
-            return callbackFailure('external_identity_conflict', context);
-          }
-
-          try {
-            const createdIdentity = await dependencies.repository.createExternalIdentity({
-              tenantId: user.tenantId,
-              userId: user.id,
+          if (users.length === 0) {
+            if (!autoProvision) return callbackFailure('user_not_found', context);
+            // Novos cadastros exigem OID estável do Microsoft Entra.
+            if (validatedClaims.providerSubjectSource !== 'oid') {
+              return callbackFailure('external_subject_missing', context);
+            }
+            try {
+              const provisioned = await dependencies.repository.provisionMicrosoftSsoUser({
+                email: validatedClaims.email,
+                displayName: validatedClaims.displayName,
+                providerTenantId: validatedClaims.providerTenantId,
+                providerUserId: validatedClaims.providerUserId,
+                issuer: validatedClaims.issuer,
+                emailVerified: validatedClaims.emailVerified,
+                linkedAt: loginAt,
+              });
+              user = provisioned.user;
+              externalIdentityId = provisioned.externalIdentityId;
+            } catch {
+              return callbackFailure('user_provision_failed', context);
+            }
+            await audit('sso_user_provisioned', context, {
               provider: 'microsoft',
-              providerTenantId: validatedClaims.providerTenantId,
-              providerUserId: validatedClaims.providerUserId,
-              issuer: validatedClaims.issuer,
-              email: validatedClaims.email,
-              emailVerified: validatedClaims.emailVerified,
-              displayName: validatedClaims.displayName,
-              linkedAt: loginAt,
-              lastLoginAt: loginAt,
-            });
-            externalIdentityId = createdIdentity.id;
-          } catch {
-            return callbackFailure('external_identity_link_failed', context);
-          }
-
-          await audit(
-            'sso_identity_linked',
-            context,
-            {
-              provider: 'microsoft',
-              stage: 'identity_link',
+              stage: 'user_provision',
               externalIdentityId,
-            },
-            {
-              id: user.id,
-              tenantId: user.tenantId,
-            },
-          );
+              role: 'consumer',
+            }, { id: user.id, tenantId: user.tenantId });
+          } else {
+            // Usuários já existentes não são recriados nem têm suas roles modificadas.
+            // Vinculação de contas existentes continua exigindo opt-in próprio.
+            if (!autoLink) return callbackFailure('external_identity_not_linked', context);
+            user = users[0];
+            const failureReason = internalUserFailure(user);
+            if (failureReason) return callbackFailure(failureReason, context);
+
+            const conflictingIdentity = await dependencies.repository.findActiveExternalIdentityForUserProvider({
+              provider: 'microsoft', userId: user.id,
+            });
+            if (
+              conflictingIdentity
+              && (conflictingIdentity.providerTenantId !== validatedClaims.providerTenantId
+                || conflictingIdentity.providerUserId !== validatedClaims.providerUserId)
+            ) {
+              return callbackFailure('external_identity_conflict', context);
+            }
+            try {
+              const createdIdentity = await dependencies.repository.createExternalIdentity({
+                tenantId: user.tenantId,
+                userId: user.id,
+                provider: 'microsoft',
+                providerTenantId: validatedClaims.providerTenantId,
+                providerUserId: validatedClaims.providerUserId,
+                issuer: validatedClaims.issuer,
+                email: validatedClaims.email,
+                emailVerified: validatedClaims.emailVerified,
+                displayName: validatedClaims.displayName,
+                linkedAt: loginAt,
+                lastLoginAt: loginAt,
+              });
+              externalIdentityId = createdIdentity.id;
+            } catch {
+              return callbackFailure('external_identity_link_failed', context);
+            }
+            await audit('sso_identity_linked', context, {
+              provider: 'microsoft', stage: 'identity_link', externalIdentityId,
+            }, { id: user.id, tenantId: user.tenantId });
+          }
         }
 
+        if (!user) return callbackFailure('user_not_found', context);
         await dependencies.repository.updateLastLogin(user.id);
         const authUser = mapUserForAuth(user);
         const token = dependencies.createSessionToken({

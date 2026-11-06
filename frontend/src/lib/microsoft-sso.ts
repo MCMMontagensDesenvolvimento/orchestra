@@ -23,6 +23,7 @@ const microsoftSsoErrorMessages: Record<MicrosoftSsoErrorCode, string> = {
   external_identity_conflict: 'Sua identidade corporativa esta vinculada de forma inconsistente. Acione o administrador.',
   external_identity_link_failed: 'Nao foi possivel vincular sua identidade corporativa agora. Tente novamente.',
   user_not_found: 'Sua conta ainda nao esta liberada no Orchestra. Solicite acesso ao administrador.',
+  user_provision_failed: 'Nao foi possivel criar seu acesso agora. Acione o administrador.',
   user_inactive: 'Seu usuario esta inativo no Orchestra. Solicite suporte ao administrador.',
   tenant_inactive: 'O ambiente Orchestra associado a sua conta esta inativo. Solicite suporte ao administrador.',
   workspace_unavailable: 'Nao ha workspace ativo disponivel para sua conta. Solicite suporte ao administrador.',

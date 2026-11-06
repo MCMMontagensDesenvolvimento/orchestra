@@ -12,6 +12,7 @@ const configuredEnvironment: MicrosoftSsoEnvironment = {
   MICROSOFT_ALLOWED_TENANT_IDS: '22222222-2222-4222-8222-222222222222',
   MICROSOFT_POST_LOGOUT_REDIRECT_URI: 'http://localhost:5173/login',
   MICROSOFT_SSO_AUTO_LINK_BY_EMAIL: false,
+  MICROSOFT_SSO_AUTO_PROVISION_ENABLED: false,
 };
 
 describe('Microsoft SSO public config', () => {

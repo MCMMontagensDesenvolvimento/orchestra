@@ -258,6 +258,29 @@ Modo futuro:
 - aprovacao administrativa;
 - policies explicitas de dominio, tenant, workspace e roles.
 
+## Autocadastro Microsoft Corporativo (opt-in)
+
+A nova flag `MICROSOFT_SSO_AUTO_PROVISION_ENABLED=false` mantém o comportamento
+atual por padrão. Com valor `true`, após validar criptograficamente os claims,
+tenant Microsoft, domínios, nonce, expiração e OID, o primeiro login de uma conta
+sem usuário interno existente cria, atomicamente:
+
+- usuário ativo no tenant `mcm` sem senha local;
+- associação como `member` no workspace `principal`;
+- papel RBAC `consumer`, sem permissões administrativas;
+- vínculo `external_identities` pela combinação tenant + OID da Microsoft;
+- evento de auditoria `sso_user_provisioned` sem credenciais ou e-mail.
+
+O provisionamento falha fechado se o tenant, workspace ou papel não estiver ativo
+ou configurado, ou se o e-mail já pertencer a qualquer conta (inclusive excluída).
+A flag **não altera** usuários existentes, permissões ou o auto-link por e-mail:
+para vincular uma conta interna existente ainda sem identidade Microsoft, a flag
+separada `MICROSOFT_SSO_AUTO_LINK_BY_EMAIL` continua necessária. Erros do banco
+não são apresentados ao navegador. Não é necessária migration nova.
+
+No `docker-compose.hml.yml`, o backend recebe a variável do ambiente do Coolify;
+habilitar apenas a variável sem publicar esse Compose não ativa o recurso.
+
 ## Frontend Implementado na 08C
 
 A tela `/login`:

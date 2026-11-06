@@ -8,6 +8,7 @@ export interface MicrosoftSsoEnvironment {
   MICROSOFT_ALLOWED_TENANT_IDS?: string;
   MICROSOFT_POST_LOGOUT_REDIRECT_URI?: string;
   MICROSOFT_SSO_AUTO_LINK_BY_EMAIL: boolean;
+  MICROSOFT_SSO_AUTO_PROVISION_ENABLED: boolean;
 }
 
 export interface MicrosoftSsoPublicConfig {
@@ -71,6 +72,7 @@ export type MicrosoftSsoFailureReason =
   | 'external_identity_conflict'
   | 'external_identity_link_failed'
   | 'user_not_found'
+  | 'user_provision_failed'
   | 'user_inactive'
   | 'tenant_inactive'
   | 'workspace_unavailable'
