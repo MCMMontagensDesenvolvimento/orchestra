@@ -5,101 +5,78 @@ import { recordAuditEvent } from '../audit/audit.service';
 import { usersRepository } from './users.repository';
 import type { UserCreateInput, UsersQuery, UserUpdateInput } from './users.schema';
 
+interface AuditContext { requestId: string; ipAddress?: string; userAgent?: string }
+
 function mapUser(user: {
-  id: string;
-  tenantId: string;
-  email: string;
-  name: string;
-  status: string;
-  lastLoginAt: Date | null;
-  createdAt: Date;
-  updatedAt: Date;
+  id: string; tenantId: string; email: string; name: string; status: string;
+  lastLoginAt: Date | null; createdAt: Date; updatedAt: Date;
   roles?: Array<{ role: { id: string; name: string; description: string | null } }>;
   memberships?: Array<{ workspace: { id: string; name: string; slug: string }; role: string }>;
 }) {
   return {
-    id: user.id,
-    tenantId: user.tenantId,
-    email: user.email,
-    name: user.name,
-    status: user.status,
+    id: user.id, tenantId: user.tenantId, email: user.email,
+    name: user.name, status: user.status,
     lastLoginAt: user.lastLoginAt?.toISOString() ?? null,
     createdAt: user.createdAt.toISOString(),
     updatedAt: user.updatedAt.toISOString(),
-    roles: user.roles?.map((userRole) => ({
-      id: userRole.role.id,
-      name: userRole.role.name,
-      description: userRole.role.description,
+    roles: user.roles?.map((item) => ({
+      id: item.role.id, name: item.role.name, description: item.role.description,
     })) ?? [],
-    workspaces: user.memberships?.map((membership) => ({
-      id: membership.workspace.id,
-      name: membership.workspace.name,
-      slug: membership.workspace.slug,
-      role: membership.role,
+    workspaces: user.memberships?.map((item) => ({
+      id: item.workspace.id, name: item.workspace.name, slug: item.workspace.slug, role: item.role,
     })) ?? [],
   };
+}
+
+async function audit(action: string, targetId: string, user: AuthenticatedUser, context: AuditContext, fields?: string[]) {
+  await recordAuditEvent({
+    tenantId: user.tenant.id, actorUserId: user.id, action,
+    entity: 'user', entityId: targetId,
+    ...(fields ? { metadata: { fields: fields.join(',') } } : {}),
+    requestId: context.requestId,
+    ipAddress: context.ipAddress, userAgent: context.userAgent,
+  });
+}
+
+function ensureRoleManagement(user: AuthenticatedUser, roleId?: string) {
+  if (roleId && !user.permissions.includes('roles.manage')) {
+    throw new AppError(403, 'FORBIDDEN', 'Alteracao de perfil exige permissao de gerenciamento de roles.');
+  }
 }
 
 export const usersService = {
   async list(user: AuthenticatedUser, query: UsersQuery) {
     const result = await usersRepository.list(user.tenant.id, query);
-    return {
-      data: result.data.map(mapUser),
-      pagination: paginationMeta(query, result.total),
-    };
+    return { data: result.data.map(mapUser), pagination: paginationMeta(query, result.total) };
   },
 
   async get(id: string, user: AuthenticatedUser) {
-    const targetUser = await usersRepository.findById(id, user.tenant.id);
-    if (!targetUser) {
-      throw new AppError(404, 'USER_NOT_FOUND', 'Usuario nao encontrado.');
-    }
-    return mapUser(targetUser);
+    const target = await usersRepository.findById(id, user.tenant.id);
+    if (!target) throw new AppError(404, 'USER_NOT_FOUND', 'Usuario nao encontrado.');
+    return mapUser(target);
   },
 
-  async create(
-    input: UserCreateInput,
-    user: AuthenticatedUser,
-    context: { requestId: string; ipAddress?: string; userAgent?: string },
-  ) {
+  async create(input: UserCreateInput, user: AuthenticatedUser, context: AuditContext) {
+    ensureRoleManagement(user, input.roleId);
     const existing = await usersRepository.findByEmail(input.email);
-    if (existing) {
-      throw new AppError(409, 'USER_EMAIL_ALREADY_EXISTS', 'Ja existe usuario com este e-mail.');
-    }
+    if (existing) throw new AppError(409, 'USER_EMAIL_ALREADY_EXISTS', 'Ja existe usuario com este e-mail.');
     const created = await usersRepository.create({ ...input, tenantId: user.tenant.id });
-    await recordAuditEvent({
-      tenantId: user.tenant.id,
-      actorUserId: user.id,
-      action: 'user_created',
-      entity: 'user',
-      entityId: created.id,
-      requestId: context.requestId,
-      ipAddress: context.ipAddress,
-      userAgent: context.userAgent,
-    });
+    await audit('user_created', created.id, user, context, ['name', 'email', 'status', 'role']);
     return mapUser(created);
   },
 
-  async update(
-    id: string,
-    input: UserUpdateInput,
-    user: AuthenticatedUser,
-    context: { requestId: string; ipAddress?: string; userAgent?: string },
-  ) {
-    const updated = await usersRepository.update(id, user.tenant.id, input);
-    if (!updated) {
-      throw new AppError(404, 'USER_NOT_FOUND', 'Usuario nao encontrado.');
-    }
-    await recordAuditEvent({
-      tenantId: user.tenant.id,
-      actorUserId: user.id,
-      action: 'user_updated',
-      entity: 'user',
-      entityId: updated.id,
-      requestId: context.requestId,
-      ipAddress: context.ipAddress,
-      userAgent: context.userAgent,
-    });
+  async update(id: string, input: UserUpdateInput, user: AuthenticatedUser, context: AuditContext) {
+    ensureRoleManagement(user, input.roleId);
+    const updated = await usersRepository.update(id, user.tenant.id, input, user.id);
+    if (!updated) throw new AppError(404, 'USER_NOT_FOUND', 'Usuario nao encontrado.');
+    await audit('user_updated', updated.id, user, context, Object.keys(input));
     return mapUser(updated);
+  },
+
+  async remove(id: string, user: AuthenticatedUser, context: AuditContext) {
+    const removed = await usersRepository.remove(id, user.tenant.id, user.id);
+    if (!removed) throw new AppError(404, 'USER_NOT_FOUND', 'Usuario nao encontrado.');
+    await audit('user_deleted', removed.id, user, context);
+    return mapUser(removed);
   },
 };

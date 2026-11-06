@@ -29,4 +29,12 @@ export const usersController = {
     });
     return res.status(200).json({ data, requestId: req.requestId });
   },
+  async remove(req: Request, res: Response) {
+    await usersService.remove(req.params.id, req.user!, {
+      requestId: req.requestId,
+      ipAddress: req.ip,
+      userAgent: req.get('user-agent'),
+    });
+    return res.status(204).send();
+  },
 };

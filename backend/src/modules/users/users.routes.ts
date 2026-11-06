@@ -34,5 +34,13 @@ export function createUsersRouter() {
     },
   );
 
+  router.delete(
+    '/:id',
+    requireAuth,
+    requirePermission('users.manage'),
+    validateParams(idParamsSchema),
+    (req, res, next) => { void usersController.remove(req, res).catch(next); },
+  );
+
   return router;
 }
