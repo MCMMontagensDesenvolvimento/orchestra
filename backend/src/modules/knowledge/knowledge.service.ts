@@ -19,6 +19,7 @@ import {
 import { knowledgeRepository } from './knowledge.repository';
 import { chunkContentText, hashText, localChunkingDefaults, normalizeContentText } from './knowledge.chunking';
 import { getKnowledgeRetrievalConfig } from './knowledge.config';
+import { fuseHybridRagCandidates, HYBRID_RRF_CONFIG } from './rag-hybrid-fusion';
 import { formatKnowledgeUploadSize, parseKnowledgeUpload } from './knowledge.upload';
 import type {
   AssistantKnowledgeBindingCreateInput,
@@ -675,42 +676,49 @@ function mergeHybridOfficialRagResults(input: {
   limit: number;
   stubKeywordPriority: boolean;
 }) {
-  const byChunkId = new Map<string, OfficialRagSelectedResult>();
-  const semanticByChunkId = new Map(input.semanticResults.map((result) => [result.chunkId, result]));
+  const ranked = fuseHybridRagCandidates(input);
+  return rerankRagResults(ranked.map(({ lexical, semantic, selected, fusedScore }) => {
+    // O stub preserva o comportamento historico de prioridade keyword.
+    if (input.stubKeywordPriority) {
+      if (lexical && semantic) {
+        return withMergedMetadata(selected, {
+          semanticAuxiliary: true,
+          semanticScore: semantic.score,
+          semanticMatchType: semantic.matchType,
+          semanticMetadata: metadataRecord(semantic.metadata),
+        });
+      }
+      if (!lexical && semantic) {
+        return withMergedMetadata(selected, {
+          semanticAuxiliary: true,
+          rankingDemoted: true,
+          rankingReason: 'stub_keyword_priority',
+        });
+      }
+      return selected;
+    }
 
-  for (const lexical of input.lexicalResults) {
-    const semantic = semanticByChunkId.get(lexical.chunkId);
-    byChunkId.set(lexical.chunkId, semantic
-      ? withMergedMetadata(lexical, {
+    // Score principal passa a representar fusao de ranks, nao score lexical.
+    // Scores/ranks de origem continuam nos metadados para rastreabilidade.
+    const normalizedFusionScore = Number(fusedScore.toFixed(6));
+    return withMergedMetadata({ ...selected, score: normalizedFusionScore }, {
+      ...(lexical && semantic ? {
         semanticAuxiliary: true,
-        semanticScore: semantic.score,
         semanticMatchType: semantic.matchType,
         semanticMetadata: metadataRecord(semantic.metadata),
-      })
-      : lexical);
-  }
-
-  for (const semantic of input.semanticResults) {
-    if (byChunkId.has(semantic.chunkId)) continue;
-    byChunkId.set(semantic.chunkId, input.stubKeywordPriority
-      ? withMergedMetadata(semantic, {
-        semanticAuxiliary: true,
-        rankingDemoted: true,
-        rankingReason: 'stub_keyword_priority',
-      })
-      : semantic);
-  }
-
-  const merged = Array.from(byChunkId.values())
-    .sort((left, right) => {
-      const leftLexical = left.matchType !== 'semantic_vector';
-      const rightLexical = right.matchType !== 'semantic_vector';
-      if (input.stubKeywordPriority && leftLexical !== rightLexical) return leftLexical ? -1 : 1;
-      return right.score - left.score || left.rank - right.rank || left.chunkId.localeCompare(right.chunkId);
-    })
-    .slice(0, input.limit);
-
-  return rerankRagResults(merged);
+      } : {}),
+      fusionMethod: 'weighted_rrf',
+      fusionScore: normalizedFusionScore,
+      fusionScoreKind: 'normalized_rank_fusion_not_probability',
+      lexicalScore: lexical?.score ?? null,
+      semanticScore: semantic?.score ?? null,
+      lexicalRank: lexical?.rank ?? null,
+      semanticRank: semantic?.rank ?? null,
+      rrfK: HYBRID_RRF_CONFIG.k,
+      lexicalWeight: HYBRID_RRF_CONFIG.lexicalWeight,
+      semanticWeight: HYBRID_RRF_CONFIG.semanticWeight,
+    });
+  }));
 }
 
 function applyRagContextLimit(results: OfficialRagSelectedResult[], maxContextChars: number) {
