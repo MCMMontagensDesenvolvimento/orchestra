@@ -169,6 +169,7 @@ const envSchema = z.object({
   EMBEDDINGS_MAX_BATCH_SIZE: z.coerce.number().int().positive().default(16),
   EMBEDDINGS_STORE_RAW_INPUTS: booleanString('false'),
   EMBEDDINGS_STORE_RAW_OUTPUTS: booleanString('false'),
+  OPENAI_EMBEDDINGS_API_KEY_FILE: z.preprocess(emptyToUndefined, z.string().optional()),
   KNOWLEDGE_MAX_UPLOAD_BYTES: z.coerce.number().int().min(1024).max(10_485_760).default(1_048_576),
   KNOWLEDGE_ALLOWED_FILE_TYPES: z.string().default('txt,md,csv'),
   KNOWLEDGE_RETRIEVAL_MODE: z.enum(['keyword', 'semantic', 'hybrid']).default('hybrid'),

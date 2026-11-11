@@ -60,8 +60,19 @@ services:
       AZURE_OPENAI_EXECUTION_ENABLED: "false"
       ANTHROPIC_ENABLED: "false"
       ANTHROPIC_EXECUTION_ENABLED: "false"
-      EMBEDDINGS_ENABLED: "false"
-      EMBEDDINGS_EXECUTION_ENABLED: "false"
+      EMBEDDINGS_ENABLED: "${EMBEDDINGS_ENABLED:-false}"
+      EMBEDDINGS_PROVIDER: "${EMBEDDINGS_PROVIDER:-disabled}"
+      EMBEDDINGS_EXECUTION_ENABLED: "${EMBEDDINGS_EXECUTION_ENABLED:-false}"
+      EMBEDDINGS_MODEL: "${EMBEDDINGS_MODEL:-}"
+      EMBEDDINGS_DIMENSION: "${EMBEDDINGS_DIMENSION:-}"
+      OPENAI_EMBEDDINGS_API_KEY_FILE: "/run/secrets/openai_embeddings_api_key"
+    group_add:
+      - "29283"
+    volumes:
+      - type: bind
+        source: /etc/orchestra/secrets/hml/openai_embeddings_api_key
+        target: /run/secrets/openai_embeddings_api_key
+        read_only: true
     expose:
       - "3000"
     depends_on:

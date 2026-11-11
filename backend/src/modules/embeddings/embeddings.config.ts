@@ -1,8 +1,12 @@
 import { env } from '../../config/env';
+import { resolveOpenAiEmbeddingCredential } from './embeddings.credential';
 import type { EmbeddingsConfig } from './embeddings.types';
 
 export function getEmbeddingsConfig(): EmbeddingsConfig {
-  const openAiCredential = env.OPENAI_API_KEY;
+  const openAiCredential = resolveOpenAiEmbeddingCredential({
+    filePath: env.OPENAI_EMBEDDINGS_API_KEY_FILE,
+    fallbackValue: env.OPENAI_API_KEY,
+  });
 
   return {
     enabled: env.EMBEDDINGS_ENABLED,
