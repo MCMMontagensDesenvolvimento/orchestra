@@ -1,4 +1,4 @@
-import { useState, useMemo, useEffect } from 'react';
+import { useState, useMemo, useEffect, type Dispatch, type SetStateAction } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { AppShell } from '@/components/shared/AppShell';
 import { PageHeader } from '@/components/shared/PageHeader';
@@ -21,7 +21,7 @@ import {
 } from '@/hooks/queries/useKnowledge';
 import { QueryState, ListLoading } from '@/components/shared/QueryState';
 import { Plus, Search, Database, LayoutGrid, List, MoreHorizontal, Eye, Pencil, Trash2, Copy, RefreshCw, FileText, Upload, Link2, Filter, X, ShieldCheck } from 'lucide-react';
-import type { KnowledgeBase, DataClassification, ConnectorType, IngestionStatus, RetentionPeriod } from '@/types';
+import type { KnowledgeBase, DataClassification, ConnectorType, RetentionPeriod } from '@/types';
 import type { KnowledgeBasePayload } from '@/services/knowledge.service';
 import { toast } from '@/hooks/use-toast';
 
@@ -74,6 +74,88 @@ function buildKnowledgePayload(formData: typeof defaultFormData): KnowledgeBaseP
       phase: 'catalog_placeholder',
     },
   };
+}
+
+function KnowledgeFormFields({ formData, setFormData }: {
+  formData: typeof defaultFormData;
+  setFormData: Dispatch<SetStateAction<typeof defaultFormData>>;
+}) {
+  return (
+    <div className="space-y-4">
+      <div className="space-y-2">
+        <Label>Nome da Base</Label>
+        <Input value={formData.name} onChange={e => setFormData(p => ({ ...p, name: e.target.value }))} placeholder="Ex: Políticas de RH 2026" />
+      </div>
+      <div className="space-y-2">
+        <Label>Descrição</Label>
+        <Textarea value={formData.description} onChange={e => setFormData(p => ({ ...p, description: e.target.value }))} placeholder="Descreva o conteúdo e propósito desta base..." rows={3} />
+      </div>
+      <div className="grid grid-cols-2 gap-4">
+        <div className="space-y-2">
+          <Label>Classificação</Label>
+          <Select value={formData.classification} onValueChange={v => setFormData(p => ({ ...p, classification: v as DataClassification }))}>
+            <SelectTrigger><SelectValue /></SelectTrigger>
+            <SelectContent>
+              <SelectItem value="Público">Público</SelectItem>
+              <SelectItem value="Interno">Interno</SelectItem>
+              <SelectItem value="Confidencial">Confidencial</SelectItem>
+              <SelectItem value="Restrito">Restrito</SelectItem>
+            </SelectContent>
+          </Select>
+        </div>
+        <div className="space-y-2">
+          <Label>Conector</Label>
+          <Select value={formData.connectorType} onValueChange={v => setFormData(p => ({ ...p, connectorType: v as ConnectorType }))}>
+            <SelectTrigger><SelectValue /></SelectTrigger>
+            <SelectContent>
+              <SelectItem value="upload">Upload Manual</SelectItem>
+              <SelectItem value="sharepoint">SharePoint</SelectItem>
+              <SelectItem value="confluence">Confluence</SelectItem>
+              <SelectItem value="google_drive">Google Drive</SelectItem>
+              <SelectItem value="s3">Amazon S3</SelectItem>
+              <SelectItem value="api">API REST</SelectItem>
+            </SelectContent>
+          </Select>
+        </div>
+      </div>
+      <div className="grid grid-cols-2 gap-4">
+        <div className="space-y-2">
+          <Label>Referência de embedding</Label>
+          <Select value={formData.embeddingModel} onValueChange={v => setFormData(p => ({ ...p, embeddingModel: v }))}>
+            <SelectTrigger><SelectValue /></SelectTrigger>
+            <SelectContent>
+              <SelectItem value="placeholder-not-configured">Placeholder não configurado</SelectItem>
+              <SelectItem value="future-provider-managed">Futuro provider governado</SelectItem>
+              <SelectItem value="external-reference-only">Referência externa apenas</SelectItem>
+            </SelectContent>
+          </Select>
+        </div>
+        <div className="space-y-2">
+          <Label>Retenção</Label>
+          <Select value={formData.retention} onValueChange={v => setFormData(p => ({ ...p, retention: v as RetentionPeriod }))}>
+            <SelectTrigger><SelectValue /></SelectTrigger>
+            <SelectContent>
+              <SelectItem value="6 meses">6 meses</SelectItem>
+              <SelectItem value="1 ano">1 ano</SelectItem>
+              <SelectItem value="2 anos">2 anos</SelectItem>
+              <SelectItem value="5 anos">5 anos</SelectItem>
+              <SelectItem value="Indefinido">Indefinido</SelectItem>
+            </SelectContent>
+          </Select>
+        </div>
+      </div>
+      <div className="grid grid-cols-2 gap-4">
+        <div className="space-y-2">
+          <Label>Chunk Size (tokens)</Label>
+          <Input type="number" value={formData.chunkSize} onChange={e => setFormData(p => ({ ...p, chunkSize: e.target.value }))} />
+        </div>
+        <div className="space-y-2">
+          <Label>Chunk Overlap (tokens)</Label>
+          <Input type="number" value={formData.chunkOverlap} onChange={e => setFormData(p => ({ ...p, chunkOverlap: e.target.value }))} />
+        </div>
+      </div>
+    </div>
+  );
 }
 
 export default function KnowledgePage() {
@@ -169,12 +251,8 @@ export default function KnowledgePage() {
     }
   };
 
-  const handleReindex = (kb: KnowledgeBase) => {
-    setBases(prev => prev.map(b => b.id === kb.id ? { ...b, status: 'processing' as IngestionStatus } : b));
-    toast({ title: 'Re-indexação iniciada', description: `"${kb.name}" está sendo reprocessada.` });
-    setTimeout(() => {
-      setBases(prev => prev.map(b => b.id === kb.id ? { ...b, status: 'completed' as IngestionStatus, lastUpdated: new Date().toISOString().split('T')[0] } : b));
-    }, 3000);
+  const handleManageIndexing = (kb: KnowledgeBase) => {
+    navigate(`/app/knowledge/${kb.id}`);
   };
 
   const openEdit = (kb: KnowledgeBase) => {
@@ -196,82 +274,6 @@ export default function KnowledgePage() {
 
   const hasActiveFilters = filterStatus !== 'all' || filterClassification !== 'all' || search !== '';
 
-  const FormFields = () => (
-    <div className="space-y-4">
-      <div className="space-y-2">
-        <Label>Nome da Base</Label>
-        <Input value={formData.name} onChange={e => setFormData(p => ({ ...p, name: e.target.value }))} placeholder="Ex: Políticas de RH 2026" />
-      </div>
-      <div className="space-y-2">
-        <Label>Descrição</Label>
-        <Textarea value={formData.description} onChange={e => setFormData(p => ({ ...p, description: e.target.value }))} placeholder="Descreva o conteúdo e propósito desta base..." rows={3} />
-      </div>
-      <div className="grid grid-cols-2 gap-4">
-        <div className="space-y-2">
-          <Label>Classificação</Label>
-          <Select value={formData.classification} onValueChange={v => setFormData(p => ({ ...p, classification: v as DataClassification }))}>
-            <SelectTrigger><SelectValue /></SelectTrigger>
-            <SelectContent>
-              <SelectItem value="Público">Público</SelectItem>
-              <SelectItem value="Interno">Interno</SelectItem>
-              <SelectItem value="Confidencial">Confidencial</SelectItem>
-              <SelectItem value="Restrito">Restrito</SelectItem>
-            </SelectContent>
-          </Select>
-        </div>
-        <div className="space-y-2">
-          <Label>Conector</Label>
-          <Select value={formData.connectorType} onValueChange={v => setFormData(p => ({ ...p, connectorType: v as ConnectorType }))}>
-            <SelectTrigger><SelectValue /></SelectTrigger>
-            <SelectContent>
-              <SelectItem value="upload">Upload Manual</SelectItem>
-              <SelectItem value="sharepoint">SharePoint</SelectItem>
-              <SelectItem value="confluence">Confluence</SelectItem>
-              <SelectItem value="google_drive">Google Drive</SelectItem>
-              <SelectItem value="s3">Amazon S3</SelectItem>
-              <SelectItem value="api">API REST</SelectItem>
-            </SelectContent>
-          </Select>
-        </div>
-      </div>
-      <div className="grid grid-cols-2 gap-4">
-        <div className="space-y-2">
-          <Label>Referência de embedding</Label>
-          <Select value={formData.embeddingModel} onValueChange={v => setFormData(p => ({ ...p, embeddingModel: v }))}>
-            <SelectTrigger><SelectValue /></SelectTrigger>
-            <SelectContent>
-              <SelectItem value="placeholder-not-configured">Placeholder não configurado</SelectItem>
-              <SelectItem value="future-provider-managed">Futuro provider governado</SelectItem>
-              <SelectItem value="external-reference-only">Referência externa apenas</SelectItem>
-            </SelectContent>
-          </Select>
-        </div>
-        <div className="space-y-2">
-          <Label>Retenção</Label>
-          <Select value={formData.retention} onValueChange={v => setFormData(p => ({ ...p, retention: v as RetentionPeriod }))}>
-            <SelectTrigger><SelectValue /></SelectTrigger>
-            <SelectContent>
-              <SelectItem value="6 meses">6 meses</SelectItem>
-              <SelectItem value="1 ano">1 ano</SelectItem>
-              <SelectItem value="2 anos">2 anos</SelectItem>
-              <SelectItem value="5 anos">5 anos</SelectItem>
-              <SelectItem value="Indefinido">Indefinido</SelectItem>
-            </SelectContent>
-          </Select>
-        </div>
-      </div>
-      <div className="grid grid-cols-2 gap-4">
-        <div className="space-y-2">
-          <Label>Chunk Size (tokens)</Label>
-          <Input type="number" value={formData.chunkSize} onChange={e => setFormData(p => ({ ...p, chunkSize: e.target.value }))} />
-        </div>
-        <div className="space-y-2">
-          <Label>Chunk Overlap (tokens)</Label>
-          <Input type="number" value={formData.chunkOverlap} onChange={e => setFormData(p => ({ ...p, chunkOverlap: e.target.value }))} />
-        </div>
-      </div>
-    </div>
-  );
 
   return (
     <AppShell>
@@ -386,7 +388,7 @@ export default function KnowledgePage() {
                         <DropdownMenuItem onClick={() => navigate(`/app/knowledge/${kb.id}`)}><Eye className="h-4 w-4 mr-2" />Visualizar</DropdownMenuItem>
                         <DropdownMenuItem onClick={() => openEdit(kb)}><Pencil className="h-4 w-4 mr-2" />Editar</DropdownMenuItem>
                         <DropdownMenuItem onClick={() => { void handleDuplicate(kb); }}><Copy className="h-4 w-4 mr-2" />Duplicar</DropdownMenuItem>
-                        <DropdownMenuItem onClick={() => handleReindex(kb)}><RefreshCw className="h-4 w-4 mr-2" />Re-indexar</DropdownMenuItem>
+                        <DropdownMenuItem onClick={() => handleManageIndexing(kb)}><RefreshCw className="h-4 w-4 mr-2" />Gerenciar indexação</DropdownMenuItem>
                         <DropdownMenuSeparator />
                         <DropdownMenuItem onClick={() => openDelete(kb)} className="text-destructive"><Trash2 className="h-4 w-4 mr-2" />Arquivar</DropdownMenuItem>
                       </DropdownMenuContent>
@@ -459,7 +461,7 @@ export default function KnowledgePage() {
                           <DropdownMenuItem onClick={() => navigate(`/app/knowledge/${kb.id}`)}><Eye className="h-4 w-4 mr-2" />Visualizar</DropdownMenuItem>
                           <DropdownMenuItem onClick={() => openEdit(kb)}><Pencil className="h-4 w-4 mr-2" />Editar</DropdownMenuItem>
                           <DropdownMenuItem onClick={() => { void handleDuplicate(kb); }}><Copy className="h-4 w-4 mr-2" />Duplicar</DropdownMenuItem>
-                          <DropdownMenuItem onClick={() => handleReindex(kb)}><RefreshCw className="h-4 w-4 mr-2" />Re-indexar</DropdownMenuItem>
+                          <DropdownMenuItem onClick={() => handleManageIndexing(kb)}><RefreshCw className="h-4 w-4 mr-2" />Gerenciar indexação</DropdownMenuItem>
                           <DropdownMenuSeparator />
                           <DropdownMenuItem onClick={() => openDelete(kb)} className="text-destructive"><Trash2 className="h-4 w-4 mr-2" />Arquivar</DropdownMenuItem>
                         </DropdownMenuContent>
@@ -479,9 +481,9 @@ export default function KnowledgePage() {
         <DialogContent className="max-w-lg">
           <DialogHeader>
             <DialogTitle>Nova Base de Conhecimento</DialogTitle>
-            <DialogDescription>Configure a base no catálogo. A indexação real não é executada nesta fase.</DialogDescription>
+            <DialogDescription>Configure a base no catálogo. A ingestão de documentos e os embeddings são gerenciados na página de detalhes.</DialogDescription>
           </DialogHeader>
-          <FormFields />
+          <KnowledgeFormFields formData={formData} setFormData={setFormData} />
           <DialogFooter>
             <Button variant="outline" onClick={() => setCreateOpen(false)}>Cancelar</Button>
             <Button onClick={() => { void handleCreate(); }} disabled={!formData.name || createKnowledgeBaseMutation.isPending}>Criar Base</Button>
@@ -496,7 +498,7 @@ export default function KnowledgePage() {
             <DialogTitle>Editar Base de Conhecimento</DialogTitle>
             <DialogDescription>Atualize as configurações da base "{selectedBase?.name}".</DialogDescription>
           </DialogHeader>
-          <FormFields />
+          <KnowledgeFormFields formData={formData} setFormData={setFormData} />
           <DialogFooter>
             <Button variant="outline" onClick={() => setEditOpen(false)}>Cancelar</Button>
             <Button onClick={() => { void handleEdit(); }} disabled={!formData.name || updateKnowledgeBaseMutation.isPending}>Salvar Alterações</Button>

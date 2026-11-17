@@ -159,9 +159,14 @@ describe('services in real API mode', () => {
     });
   });
 
-  it('returns an honest empty analytics state while the real endpoint is unsupported', async () => {
+  it('loads analytics overview from runtime runs in real API mode', async () => {
+    apiGet.mockResolvedValue({ data: paginatedEmpty });
+
     await expect(analyticsService.overview()).resolves.toEqual([]);
-    expect(apiGet).not.toHaveBeenCalled();
+
+    expect(apiGet).toHaveBeenCalledWith(endpoints.analytics.runtimeRuns, {
+      params: { page: 1, perPage: 100 },
+    });
   });
 
   it('uses backend chat conversation endpoints when mocks are disabled', async () => {
