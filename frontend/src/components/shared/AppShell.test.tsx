@@ -89,20 +89,40 @@ describe('AppShell governance hardening', () => {
     await waitFor(() => expect(mocks.navigate).toHaveBeenCalledWith('/login', { replace: true }));
   });
 
-  it('shows non-interactive honest states for search, notifications and tenant/workspace context', () => {
+  it('removes search and notification placeholders and preserves workspace in the user menu', async () => {
     render(
       <MemoryRouter>
         <AppTopbar onToggleSidebar={vi.fn()} />
       </MemoryRouter>,
     );
 
-    expect(screen.getByLabelText('Busca global em breve')).toHaveTextContent('Busca global em breve');
+    expect(screen.queryByLabelText('Busca global em breve')).not.toBeInTheDocument();
+    expect(screen.queryByText('Sem notificações nesta fase')).not.toBeInTheDocument();
     expect(screen.queryByRole('textbox')).not.toBeInTheDocument();
-    expect(screen.getByLabelText('Sem notificações nesta fase')).toHaveTextContent('Sem notificações nesta fase');
-    expect(screen.queryByRole('button', { name: /notifica/i })).not.toBeInTheDocument();
-    expect(screen.getByLabelText('Contexto atual: tenant MCM, workspace Principal')).toHaveTextContent(
-      'MCM / Principal',
+
+    const userMenu = screen.getByRole('button', { name: 'Abrir menu do usuário' });
+    userMenu.focus();
+    fireEvent.keyDown(userMenu, { key: 'Enter', code: 'Enter' });
+
+    expect(await screen.findByText('MCM / Principal')).toBeInTheDocument();
+  });
+
+  it('shows primary navigation and hides management links without matching permissions', () => {
+    mocks.useCurrentSession.mockReturnValue({
+      data: { ...session, permissions: ['assistants.read', 'agent_runs.read'] },
+    });
+
+    render(
+      <MemoryRouter initialEntries={['/app/chat']}>
+        <AppShell><div>Conteúdo</div></AppShell>
+      </MemoryRouter>,
     );
+
+    expect(screen.getByRole('link', { name: 'Início' })).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 'Assistentes' })).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 'Minhas conversas' })).toHaveAttribute('aria-current', 'page');
+    expect(screen.queryByRole('link', { name: 'Bases de conhecimento' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('link', { name: 'Administração' })).not.toBeInTheDocument();
   });
 
   it('restores and persists the desktop sidebar collapsed state in localStorage', () => {
