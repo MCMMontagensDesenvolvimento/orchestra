@@ -3,7 +3,9 @@ set -euo pipefail
 
 MODE="${1:---dry-run}"
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-PHASE_BASE_COMMIT="06b4022"
+# Baseline validado antes dos ajustes de UX/UI de novembro de 2026.
+# Preserva a detecção de novas alterações de schema e migrations.
+PHASE_BASE_COMMIT="83e3c1f7c06147b7f0c5ebdf4661da9e8ab1f2fb"
 CATALOG="$ROOT_DIR/backend/src/modules/mcp/local-demo/mcp-local-demo.catalog.ts"
 SEED="$ROOT_DIR/backend/prisma/mcp-local-demo.seed.ts"
 SEED_ENTRY="$ROOT_DIR/backend/prisma/seed.ts"
@@ -211,7 +213,8 @@ reject_pattern "$FRONTEND_MOCK" '(https?://|writeOperation:[[:space:]]*true|allo
 require_pattern "$FRONTEND_MOCK" 'export const mockToolExecutionLogs: ToolExecutionLog[] = []' 'frontend demo has zero execution logs'
 require_pattern "$DETAIL" 'Verificar pré-checagem local' 'governed local precheck UI action'
 require_pattern "$DETAIL" 'execução permitida: não' 'UI communicates blocked execution'
-require_pattern "$HUB" 'Gerenciado por seed' 'dangerous Hub registration action is disabled'
+require_pattern "$HUB" '{isGovernedLocalDemo(server) ? (' 'seed-governed catalog actions are gated'
+require_pattern "$HUB" '<DropdownMenuItem disabled><Lock className="h-4 w-4 mr-2" />Catálogo protegido pelo seed</DropdownMenuItem>' 'seed-governed catalog actions remain disabled'
 
 require_exact_line "$ROOT_DIR/.env.example" 'MCP_REMOTE_ENABLED=false' 'root env keeps MCP remote disabled'
 require_exact_line "$ROOT_DIR/.env.example" 'MCP_REMOTE_EXECUTION_ENABLED=false' 'root env keeps MCP remote execution disabled'
