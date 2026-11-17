@@ -354,6 +354,74 @@ describe('critical pages in real API mode', () => {
     expect(useCreateAgentRunMutation).not.toHaveBeenCalled();
   });
 
+  it('sends a message on Enter from the chat textarea', async () => {
+    const mutateAsync = vi.fn().mockResolvedValue({});
+    useSendChatMessageMutation.mockReturnValue({ mutateAsync, isPending: false });
+
+    renderChatRouteAt('/app/chat/assistant-1?conversationId=conversation-1');
+
+    const composer = screen.getByLabelText('Mensagem');
+    fireEvent.change(composer, { target: { value: 'Mensagem por Enter' } });
+    fireEvent.keyDown(composer, { key: 'Enter', code: 'Enter' });
+
+    await waitFor(() => {
+      expect(mutateAsync).toHaveBeenCalledWith({
+        conversationId: 'conversation-1',
+        input: 'Mensagem por Enter',
+      });
+    });
+    expect(mutateAsync).toHaveBeenCalledTimes(1);
+    expect(screen.getByText('Enter para enviar · Shift+Enter para nova linha')).toBeInTheDocument();
+  });
+
+  it('allows Shift+Enter for multiline text without submitting', async () => {
+    const mutateAsync = vi.fn().mockResolvedValue({});
+    useSendChatMessageMutation.mockReturnValue({ mutateAsync, isPending: false });
+
+    renderChatRouteAt('/app/chat/assistant-1?conversationId=conversation-1');
+
+    const composer = screen.getByLabelText('Mensagem');
+    fireEvent.change(composer, { target: { value: 'Linha 1' } });
+    fireEvent.keyDown(composer, { key: 'Enter', code: 'Enter', shiftKey: true });
+    expect(mutateAsync).not.toHaveBeenCalled();
+
+    // fireEvent.keyDown nao insere caracteres no textarea como um navegador real.
+    fireEvent.change(composer, { target: { value: 'Linha 1\nLinha 2' } });
+    fireEvent.keyDown(composer, { key: 'Enter', code: 'Enter' });
+
+    await waitFor(() => {
+      expect(mutateAsync).toHaveBeenCalledWith({
+        conversationId: 'conversation-1',
+        input: 'Linha 1\nLinha 2',
+      });
+    });
+    expect(mutateAsync).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not send when Enter confirms IME composition', () => {
+    const mutateAsync = vi.fn().mockResolvedValue({});
+    useSendChatMessageMutation.mockReturnValue({ mutateAsync, isPending: false });
+
+    renderChatRouteAt('/app/chat/assistant-1?conversationId=conversation-1');
+
+    const composer = screen.getByLabelText('Mensagem');
+    fireEvent.change(composer, { target: { value: 'Texto em composicao' } });
+    fireEvent.keyDown(composer, { key: 'Enter', code: 'Enter', isComposing: true });
+    expect(mutateAsync).not.toHaveBeenCalled();
+  });
+
+  it('does not send an empty message on Enter', () => {
+    const mutateAsync = vi.fn().mockResolvedValue({});
+    useSendChatMessageMutation.mockReturnValue({ mutateAsync, isPending: false });
+
+    renderChatRouteAt('/app/chat/assistant-1?conversationId=conversation-1');
+
+    const composer = screen.getByLabelText('Mensagem');
+    fireEvent.change(composer, { target: { value: '   ' } });
+    fireEvent.keyDown(composer, { key: 'Enter', code: 'Enter' });
+    expect(mutateAsync).not.toHaveBeenCalled();
+  });
+
   it('keeps technical details for the AgentRun linked to an assistant message', () => {
     useChatConversation.mockReturnValue(queryResult(chatConversationDetail));
 

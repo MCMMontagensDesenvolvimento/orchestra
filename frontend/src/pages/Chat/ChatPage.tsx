@@ -381,8 +381,24 @@ function AssistantRunChat({ assistantId }: { assistantId: string }) {
               <Textarea
                 value={inputValue}
                 onChange={(event) => setInputValue(event.target.value)}
+                onKeyDown={(event) => {
+                  if (
+                    event.key !== 'Enter'
+                    || event.shiftKey
+                    || event.ctrlKey
+                    || event.altKey
+                    || event.metaKey
+                    || event.repeat
+                    || event.nativeEvent.isComposing
+                    || event.keyCode === 229
+                  ) return;
+
+                  event.preventDefault();
+                  void sendInput(inputValue);
+                }}
                 placeholder="Mensagem para o assistente"
                 aria-label="Mensagem"
+                aria-describedby="chat-composer-help"
                 className="max-h-40 min-h-[44px] resize-none"
                 disabled={!selectedConversationId || selectedConversationArchived || sendMessageMutation.isPending}
               />
@@ -401,6 +417,9 @@ function AssistantRunChat({ assistantId }: { assistantId: string }) {
                 )}
               </Button>
             </div>
+            <p id="chat-composer-help" className="mt-1.5 text-[11px] text-muted-foreground">
+              Enter para enviar · Shift+Enter para nova linha
+            </p>
           </form>
         </div>
       </div>
