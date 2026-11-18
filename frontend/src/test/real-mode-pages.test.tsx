@@ -4,6 +4,8 @@ import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { MemoryRouter, Route, Routes } from 'react-router-dom';
 
 const useAssistants = vi.hoisted(() => vi.fn());
+const useCurrentSession = vi.hoisted(() => vi.fn());
+const useRecentHomeConversations = vi.hoisted(() => vi.fn());
 const useAssistant = vi.hoisted(() => vi.fn());
 const useAssistantActivePublication = vi.hoisted(() => vi.fn());
 const useCreateAgentRunMutation = vi.hoisted(() => vi.fn());
@@ -34,6 +36,9 @@ vi.mock('@/lib/env', () => ({
 vi.mock('@/components/shared/AppShell', () => ({
   AppShell: ({ children }: { children: ReactNode }) => <main>{children}</main>,
 }));
+
+vi.mock('@/hooks/queries/useAuth', () => ({ useCurrentSession }));
+vi.mock('@/hooks/queries/useRecentHomeConversations', () => ({ useRecentHomeConversations }));
 
 vi.mock('@/hooks/queries/useAssistants', () => ({
   useAssistants,
@@ -238,6 +243,14 @@ describe('critical pages in real API mode', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     useAssistants.mockReturnValue(queryResult([assistant]));
+    useCurrentSession.mockReturnValue(queryResult({
+      user: { name: 'Maria Silva' },
+      permissions: ['assistants.read', 'agent_runs.read', 'agent_runs.create'],
+      workspaces: [{ id: 'workspace-1' }],
+    }));
+    useRecentHomeConversations.mockReturnValue({
+      items: [], isLoading: false, isError: false, isPartialError: false, refresh: vi.fn(),
+    });
     useAssistant.mockReturnValue(queryResult(assistant));
     useAssistantActivePublication.mockReturnValue(queryResult(assistant.activePublication));
     useAssistantRuns.mockReturnValue(queryResult([historyRun]));
@@ -268,14 +281,107 @@ describe('critical pages in real API mode', () => {
     useAnalytics.mockReturnValue(queryResult([]));
   });
 
-  it('renders only real API counts on the dashboard', () => {
-    render(<DashboardPage />);
+  it('shows the personalized Home with only active published assistants', () => {
+    useAssistants.mockReturnValue(queryResult([
+      assistant,
+      { ...assistant, id: 'assistant-draft', name: 'Rascunho interno', status: 'draft' },
+      { ...assistant, id: 'assistant-inactive', name: 'Sem publicação', activePublication: null },
+    ]));
 
+    render(<MemoryRouter><DashboardPage /></MemoryRouter>);
+
+    expect(screen.getByText('Olá, Maria!')).toBeInTheDocument();
+    expect(screen.getByText('Como a inteligência artificial pode ajudar você hoje?')).toBeInTheDocument();
     expect(screen.getByText('Assistant real')).toBeInTheDocument();
-    expect(screen.getByText('Eventos auditados')).toBeInTheDocument();
-    expect(screen.getByText(/Metricas consolidadas/i)).toBeInTheDocument();
-    expect(screen.queryByText(/Conversas por dia/i)).not.toBeInTheDocument();
+    expect(screen.getAllByRole('link', { name: /Iniciar conversa/i })).toHaveLength(1);
+    expect(screen.getByRole('link', { name: /Iniciar conversa/i })).toHaveAttribute('href', '/app/chat/assistant-1');
+    expect(screen.queryByText('Rascunho interno')).not.toBeInTheDocument();
+    expect(screen.queryByText('Sem publicação')).not.toBeInTheDocument();
+    expect(screen.queryByText('Eventos auditados')).not.toBeInTheDocument();
+    expect(useAuditLogs).not.toHaveBeenCalled();
+    expect(useMcpTools).not.toHaveBeenCalled();
     expect(useAnalytics).not.toHaveBeenCalled();
+  });
+
+  it('renders real recent conversations with links to their persisted history', () => {
+    useRecentHomeConversations.mockReturnValue({
+      items: [{
+        id: 'conversation-1', assistantId: 'assistant-1', assistantName: 'Assistant real',
+        title: 'Minha conversa real', updatedAt: '2026-07-03T12:05:00.000Z',
+      }],
+      isLoading: false, isError: false, isPartialError: false, refresh: vi.fn(),
+    });
+
+    render(<MemoryRouter><DashboardPage /></MemoryRouter>);
+    expect(screen.getByText('Minha conversa real')).toBeInTheDocument();
+    expect(screen.getByText('Minha conversa real').closest('a')).toHaveAttribute(
+      'href', '/app/chat/assistant-1?conversationId=conversation-1',
+    );
+    expect(screen.queryByText('Nenhuma conversa recente para exibir.')).not.toBeInTheDocument();
+  });
+
+  it('shows an honest empty state when no recent conversation exists', () => {
+    render(<MemoryRouter><DashboardPage /></MemoryRouter>);
+    expect(screen.getByText('Nenhuma conversa recente para exibir.')).toBeInTheDocument();
+  });
+
+  it('filters Home assistants locally by name or description, ignoring accents', () => {
+    useAssistants.mockReturnValue(queryResult([
+      assistant,
+      { ...assistant, id: 'assistant-2', name: 'Operações', description: 'Planejamento operacional' },
+    ]));
+
+    render(<MemoryRouter><DashboardPage /></MemoryRouter>);
+
+    fireEvent.change(screen.getByRole('searchbox', { name: 'Buscar assistentes na Home' }), {
+      target: { value: 'operacoes' },
+    });
+
+    expect(screen.getByText('Operações')).toBeInTheDocument();
+    expect(screen.queryByText('Assistant real')).not.toBeInTheDocument();
+    fireEvent.change(screen.getByRole('searchbox', { name: 'Buscar assistentes na Home' }), {
+      target: { value: 'não encontrado' },
+    });
+    expect(screen.getByText('Nenhum assistente encontrado para essa busca')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Limpar busca' }));
+    expect(screen.getByText('Assistant real')).toBeInTheDocument();
+  });
+
+  it('does not expose Home conversation actions without the required permission', () => {
+    useCurrentSession.mockReturnValue(queryResult({
+      user: { name: 'Maria Silva' },
+      permissions: ['assistants.read'],
+      workspaces: [{ id: 'workspace-1' }],
+    }));
+
+    render(<MemoryRouter><DashboardPage /></MemoryRouter>);
+
+    expect(screen.getByText('Nenhum assistente disponível no momento')).toBeInTheDocument();
+    expect(screen.queryByRole('link', { name: /Iniciar conversa/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole('link', { name: 'Minhas conversas' })).not.toBeInTheDocument();
+  });
+
+  it('does not expose assistants from another workspace in the Home', () => {
+    useAssistants.mockReturnValue(queryResult([
+      { ...assistant, workspaceId: 'workspace-2', name: 'Outro workspace' },
+    ]));
+    render(<MemoryRouter><DashboardPage /></MemoryRouter>);
+    expect(screen.queryByText('Outro workspace')).not.toBeInTheDocument();
+    expect(screen.getByText('Nenhum assistente disponível no momento')).toBeInTheDocument();
+  });
+
+  it('shows a retry action when the assistants API fails on the Home', () => {
+    useAssistants.mockReturnValue({
+      ...queryResult([]),
+      isError: true,
+      error: new Error('Falha de rede'),
+    });
+
+    render(<MemoryRouter><DashboardPage /></MemoryRouter>);
+
+    expect(screen.getByText('Não foi possível carregar os assistentes')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Tentar novamente' })).toBeInTheDocument();
+    expect(screen.queryByRole('link', { name: /Iniciar conversa/i })).not.toBeInTheDocument();
   });
 
   it('renders the persistent chat shell instead of the prototype placeholder', () => {
@@ -283,7 +389,7 @@ describe('critical pages in real API mode', () => {
 
     expect(screen.getByText('Assistant real')).toBeInTheDocument();
     expect(screen.getByText('Publicacao ativa')).toBeInTheDocument();
-    expect(screen.getByText('orchestra-runtime')).toBeInTheDocument();
+    expect(screen.getAllByText('orchestra-runtime').length).toBeGreaterThan(0);
     expect(screen.getByText('Conversas')).toBeInTheDocument();
     expect(screen.getAllByText('Nova conversa')[0]).toBeInTheDocument();
     expect(screen.getByText('Minha conversa')).toBeInTheDocument();

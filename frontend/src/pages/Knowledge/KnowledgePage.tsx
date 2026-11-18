@@ -1,7 +1,7 @@
 import { useState, useMemo, useEffect, type Dispatch, type SetStateAction } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import { AppShell } from '@/components/shared/AppShell';
-import { PageHeader } from '@/components/shared/PageHeader';
+import { OrchestraPageBanner } from '@/components/shared/OrchestraPageBanner';
 import { StatusBadge } from '@/components/shared/StatusBadge';
 import { EmptyState } from '@/components/shared/EmptyState';
 import { Button } from '@/components/ui/button';
@@ -15,12 +15,14 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@
 import { Badge } from '@/components/ui/badge';
 import {
   useArchiveKnowledgeBaseMutation,
+  useRestoreKnowledgeBaseMutation,
+  useArchivedKnowledgeBases,
   useCreateKnowledgeBaseMutation,
   useKnowledgeBases,
   useUpdateKnowledgeBaseMutation,
 } from '@/hooks/queries/useKnowledge';
 import { QueryState, ListLoading } from '@/components/shared/QueryState';
-import { Plus, Search, Database, LayoutGrid, List, MoreHorizontal, Eye, Pencil, Trash2, Copy, RefreshCw, FileText, Upload, Link2, Filter, X, ShieldCheck } from 'lucide-react';
+import { Plus, Search, Database, LayoutGrid, List, MoreHorizontal, Eye, Pencil, Trash2, Copy, RefreshCw, FileText, Filter, X, ShieldCheck, BookOpen, Layers3, RotateCcw } from 'lucide-react';
 import type { KnowledgeBase, DataClassification, ConnectorType, RetentionPeriod } from '@/types';
 import type { KnowledgeBasePayload } from '@/services/knowledge.service';
 import { toast } from '@/hooks/use-toast';
@@ -158,11 +160,39 @@ function KnowledgeFormFields({ formData, setFormData }: {
   );
 }
 
+function searchable(value: string): string {
+  return value.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLocaleLowerCase('pt-BR');
+}
+
+function CatalogKnowledgeIcon({ base }: { base: KnowledgeBase }) {
+  const name = searchable(base.name);
+  const Icon = /norma|seguranca|procedimento/.test(name) ? FileText
+    : /manual|guia|politica|rh/.test(name) ? BookOpen
+      : /projeto|obra/.test(name) ? Database : Layers3;
+  return <Icon className="h-6 w-6" aria-hidden="true" />;
+}
+
+/** A API de bases distingue active/archived; não confundir com ingestão dos documentos. */
+function CatalogKnowledgeStatus({ status }: { status: KnowledgeBase['status'] }) {
+  if (status === 'completed') return (
+    <span className="inline-flex items-center gap-1.5 rounded-full bg-success/10 px-2.5 py-0.5 text-xs font-medium text-success">
+      <span className="h-1.5 w-1.5 rounded-full bg-success" />Ativa
+    </span>
+  );
+  if (status === 'archived') return (
+    <span className="inline-flex items-center gap-1.5 rounded-full bg-muted px-2.5 py-0.5 text-xs font-medium text-muted-foreground">
+      <span className="h-1.5 w-1.5 rounded-full bg-muted-foreground" />Arquivada
+    </span>
+  );
+  return <StatusBadge status={status} />;
+}
+
 export default function KnowledgePage() {
   const knowledgeQuery = useKnowledgeBases();
   const createKnowledgeBaseMutation = useCreateKnowledgeBaseMutation();
   const updateKnowledgeBaseMutation = useUpdateKnowledgeBaseMutation();
   const archiveKnowledgeBaseMutation = useArchiveKnowledgeBaseMutation();
+  const restoreKnowledgeBaseMutation = useRestoreKnowledgeBaseMutation();
   const mockKnowledgeBases = useMemo(() => knowledgeQuery.data ?? [], [knowledgeQuery.data]);
   const navigate = useNavigate();
   const [bases, setBases] = useState<KnowledgeBase[]>(mockKnowledgeBases);
@@ -171,6 +201,8 @@ export default function KnowledgePage() {
   const [search, setSearch] = useState('');
   const [viewMode, setViewMode] = useState<'card' | 'table'>('card');
   const [filterStatus, setFilterStatus] = useState<string>('all');
+  // Consultar também as arquivadas para que 'Todas' represente o catálogo completo.
+  const archivedQuery = useArchivedKnowledgeBases(true);
   const [filterClassification, setFilterClassification] = useState<string>('all');
   const [showFilters, setShowFilters] = useState(false);
 
@@ -181,14 +213,33 @@ export default function KnowledgePage() {
   const [selectedBase, setSelectedBase] = useState<KnowledgeBase | null>(null);
   const [formData, setFormData] = useState(defaultFormData);
 
+  const allBases = useMemo(() => {
+    const activeIds = new Set(bases.map((kb) => kb.id));
+    const archived = (archivedQuery.data ?? []).filter((kb) => !activeIds.has(kb.id));
+    return [...bases, ...archived];
+  }, [bases, archivedQuery.data]);
+
+  const selectedBases = useMemo(
+    () => filterStatus === 'archived'
+      ? (archivedQuery.data ?? [])
+      : filterStatus === 'all' ? allBases : bases,
+    [filterStatus, archivedQuery.data, allBases, bases],
+  );
   const filtered = useMemo(() => {
-    return bases.filter(kb => {
-      const matchSearch = !search || kb.name.toLowerCase().includes(search.toLowerCase()) || kb.description.toLowerCase().includes(search.toLowerCase());
+    const query = searchable(search.trim());
+    return selectedBases.filter((kb) => {
+      const matchSearch = !query || searchable(`${kb.name} ${kb.description}`).includes(query);
       const matchStatus = filterStatus === 'all' || kb.status === filterStatus;
       const matchClass = filterClassification === 'all' || kb.classification === filterClassification;
       return matchSearch && matchStatus && matchClass;
     });
-  }, [bases, search, filterStatus, filterClassification]);
+  }, [selectedBases, search, filterStatus, filterClassification]);
+
+  const catalogTabs: { value: string; label: string; count: number | null }[] = [
+    { value: 'all', label: 'Todas', count: archivedQuery.isSuccess ? allBases.length : null },
+    { value: 'completed', label: 'Ativas', count: bases.filter((kb) => kb.status === 'completed').length },
+    { value: 'archived', label: 'Arquivadas', count: archivedQuery.isSuccess ? (archivedQuery.data?.length ?? 0) : null },
+  ];
 
   const handleCreate = async () => {
     try {
@@ -225,6 +276,17 @@ export default function KnowledgePage() {
       setSelectedBase(null);
     } catch (error) {
       toast({ title: 'Erro ao arquivar base', description: error instanceof Error ? error.message : 'Tente novamente em instantes.', variant: 'destructive' });
+    }
+  };
+
+  const handleRestore = async (kb: KnowledgeBase) => {
+    try {
+      await restoreKnowledgeBaseMutation.mutateAsync(kb.id);
+      toast({ title: 'Base restaurada', description: `"${kb.name}" voltou ao catálogo.` });
+      void archivedQuery.refetch();
+      void knowledgeQuery.refetch();
+    } catch (error) {
+      toast({ title: 'Erro ao restaurar base', description: error instanceof Error ? error.message : 'Tente novamente em instantes.', variant: 'destructive' });
     }
   };
 
@@ -277,54 +339,80 @@ export default function KnowledgePage() {
 
   return (
     <AppShell>
-      <div className="space-y-6 animate-fade-in">
-        <PageHeader title="Knowledge Hub" description="Catálogo governado de bases, documentos e preparação para ingestão">
-          <Button onClick={() => { setFormData(defaultFormData); setCreateOpen(true); }}>
-            <Plus className="h-4 w-4 mr-1" />Nova Base
-          </Button>
-        </PageHeader>
-
-        {/* Toolbar */}
-        <div className="flex flex-wrap items-center gap-2">
-          <div className="flex items-center gap-2 rounded-md border bg-muted/50 px-3 py-1.5 flex-1 max-w-md">
-            <Search className="h-3.5 w-3.5 text-muted-foreground" />
-            <input type="text" value={search} onChange={e => setSearch(e.target.value)} placeholder="Buscar bases de conhecimento..." className="bg-transparent text-sm outline-none w-full" />
-          </div>
-          <Button variant="outline" size="sm" onClick={() => setShowFilters(!showFilters)}>
-            <Filter className="h-3.5 w-3.5 mr-1" />Filtros
-            {hasActiveFilters && <span className="ml-1 h-2 w-2 rounded-full bg-primary" />}
-          </Button>
-          {hasActiveFilters && (
-            <Button variant="ghost" size="sm" onClick={clearFilters}>
-              <X className="h-3.5 w-3.5 mr-1" />Limpar
+      <div className="orchestra-front-page space-y-4 animate-fade-in pb-5">
+        <OrchestraPageBanner labelledBy="knowledge-catalog-title">
+          <div className="orchestra-banner-heading flex flex-wrap items-center justify-between gap-4">
+            <div className="flex min-w-0 items-center gap-3">
+              <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl bg-primary/10 text-primary">
+                <BookOpen className="h-6 w-6" aria-hidden="true" />
+              </div>
+              <div>
+                <h1 id="knowledge-catalog-title" className="text-xl font-bold tracking-tight sm:text-2xl">Base de Conhecimento</h1>
+                <p className="mt-0.5 text-sm text-muted-foreground">Gerencie as bases de documentos que alimentam os assistentes de IA.</p>
+              </div>
+            </div>
+            <Button onClick={() => { setFormData(defaultFormData); setCreateOpen(true); }} className="shrink-0 shadow-sm">
+              <Plus className="mr-1.5 h-4 w-4" aria-hidden="true" />Adicionar base de conhecimento
             </Button>
-          )}
-          <div className="ml-auto flex items-center gap-1 rounded-md border p-0.5">
-            <Button variant={viewMode === 'card' ? 'default' : 'ghost'} size="icon" className="h-7 w-7" onClick={() => setViewMode('card')}><LayoutGrid className="h-3.5 w-3.5" /></Button>
-            <Button variant={viewMode === 'table' ? 'default' : 'ghost'} size="icon" className="h-7 w-7" onClick={() => setViewMode('table')}><List className="h-3.5 w-3.5" /></Button>
           </div>
+          <div className="orchestra-banner-toolbar flex flex-wrap items-center justify-between gap-3">
+            <div className="flex w-full flex-wrap items-center gap-2 sm:w-auto sm:flex-1">
+              <label className="orchestra-search-field flex min-h-10 w-full min-w-0 max-w-xl flex-1 items-center gap-2 rounded-lg border bg-white px-3 shadow-sm sm:w-auto">
+                <Search className="h-4 w-4 shrink-0 text-muted-foreground" aria-hidden="true" />
+                <span className="sr-only">Buscar bases de conhecimento</span>
+                <input type="search" aria-label="Buscar bases de conhecimento" value={search}
+                  onChange={(event) => setSearch(event.target.value)} placeholder="Buscar por nome ou descrição..."
+                  className="w-full min-w-0 bg-transparent py-2 text-sm outline-none placeholder:text-muted-foreground" />
+              </label>
+              <Button variant="outline" size="sm" type="button" aria-expanded={showFilters} aria-controls="knowledge-advanced-filters"
+                onClick={() => setShowFilters(!showFilters)} className="h-10 bg-white">
+                <Filter className="mr-1.5 h-4 w-4" aria-hidden="true" />Filtros
+                {filterClassification !== 'all' && <span className="ml-1 rounded bg-primary/10 px-1.5 text-xs text-primary">1</span>}
+              </Button>
+              {hasActiveFilters && (
+                <Button variant="ghost" size="sm" type="button" onClick={clearFilters}>
+                  <X className="mr-1 h-3.5 w-3.5" aria-hidden="true" />Limpar
+                </Button>
+              )}
+            </div>
+            <div className="inline-flex h-10 items-center gap-0.5 rounded-lg border bg-white p-1" role="group" aria-label="Modo de visualização">
+              <button type="button" aria-label="Visualizar cards" aria-pressed={viewMode === 'card'}
+                onClick={() => setViewMode('card')}
+                className={`rounded-md p-2 transition-colors ${viewMode === 'card' ? 'bg-primary text-primary-foreground' : 'text-muted-foreground hover:bg-muted'}`}>
+                <LayoutGrid className="h-4 w-4" aria-hidden="true" />
+              </button>
+              <button type="button" aria-label="Visualizar tabela" aria-pressed={viewMode === 'table'}
+                onClick={() => setViewMode('table')}
+                className={`rounded-md p-2 transition-colors ${viewMode === 'table' ? 'bg-primary text-primary-foreground' : 'text-muted-foreground hover:bg-muted'}`}>
+                <List className="h-4 w-4" aria-hidden="true" />
+              </button>
+            </div>
+          </div>
+        </OrchestraPageBanner>
+
+        <div className="flex min-w-0 gap-3 overflow-x-auto border-b border-border/80" role="group" aria-label="Filtrar bases por estado">
+          {catalogTabs.map((tab) => (
+            <button type="button" key={tab.value} aria-pressed={filterStatus === tab.value}
+              onClick={() => setFilterStatus(tab.value)}
+              className={`inline-flex shrink-0 items-center gap-1.5 border-b-2 px-3 pb-2 pt-1 text-sm font-medium transition-colors ${filterStatus === tab.value ? 'border-primary text-primary' : 'border-transparent text-muted-foreground hover:text-foreground'}`}>
+              {tab.label}
+              {tab.count !== null && <span className={`rounded-md px-1.5 py-0.5 text-xs ${filterStatus === tab.value ? 'bg-primary/10 text-primary' : 'bg-muted text-muted-foreground'}`}>{tab.count}</span>}
+            </button>
+          ))}
         </div>
 
-        {/* Filters */}
+        {filterStatus === 'all' && archivedQuery.isError && (
+          <p role="alert" className="text-xs text-destructive">
+            Não foi possível consultar as bases arquivadas. A lista pode estar incompleta.
+          </p>
+        )}
+
         {showFilters && (
-          <div className="flex gap-3 p-3 rounded-lg border bg-muted/30">
-            <div className="space-y-1">
-              <Label className="text-xs">Status</Label>
-              <Select value={filterStatus} onValueChange={setFilterStatus}>
-                <SelectTrigger className="h-8 w-[140px] text-xs"><SelectValue /></SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="all">Todos</SelectItem>
-                  <SelectItem value="completed">Concluído</SelectItem>
-                  <SelectItem value="processing">Processando</SelectItem>
-                  <SelectItem value="pending">Pendente</SelectItem>
-                  <SelectItem value="failed">Falha</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-            <div className="space-y-1">
-              <Label className="text-xs">Classificação</Label>
+          <div id="knowledge-advanced-filters" className="flex flex-wrap gap-4 rounded-xl border bg-white p-4 shadow-sm">
+            <div className="space-y-1.5">
+              <Label className="text-xs">Classificação da informação</Label>
               <Select value={filterClassification} onValueChange={setFilterClassification}>
-                <SelectTrigger className="h-8 w-[140px] text-xs"><SelectValue /></SelectTrigger>
+                <SelectTrigger className="h-9 w-[180px] text-xs"><SelectValue /></SelectTrigger>
                 <SelectContent>
                   <SelectItem value="all">Todas</SelectItem>
                   <SelectItem value="Público">Público</SelectItem>
@@ -334,19 +422,19 @@ export default function KnowledgePage() {
                 </SelectContent>
               </Select>
             </div>
+            <div className="flex items-end text-xs leading-relaxed text-muted-foreground">
+              Os estados de ingestão são acompanhados nos documentos de cada base.
+            </div>
           </div>
         )}
 
-        {/* Results count */}
-        <p className="text-xs text-muted-foreground">{filtered.length} base{filtered.length !== 1 ? 's' : ''} encontrada{filtered.length !== 1 ? 's' : ''}</p>
-
         {/* Content */}
         <QueryState
-          query={knowledgeQuery}
-          isEmpty={bases.length === 0}
+          query={filterStatus === 'archived' ? archivedQuery : knowledgeQuery}
+          isEmpty={selectedBases.length === 0}
           loading={<ListLoading rows={4} />}
           emptyIcon={<Database className="h-6 w-6" />}
-          emptyTitle="Nenhuma base de conhecimento cadastrada"
+          emptyTitle={filterStatus === 'archived' ? 'Nenhuma base arquivada' : 'Nenhuma base de conhecimento cadastrada'}
           emptyDescription="Crie uma base para catalogar documentos e governar futuras integrações de recuperação."
           emptyAction={
             <Button onClick={() => { setFormData(defaultFormData); setCreateOpen(true); }}>
@@ -359,59 +447,71 @@ export default function KnowledgePage() {
         {filtered.length === 0 ? (
           <EmptyState icon={<Database className="h-6 w-6" />} title="Nenhuma base encontrada para os filtros" description="Ajuste os filtros ou crie uma nova base." action={<Button onClick={() => { setFormData(defaultFormData); setCreateOpen(true); }}><Plus className="h-4 w-4 mr-1" />Nova Base</Button>} />
         ) : viewMode === 'card' ? (
-          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-            {filtered.map(kb => (
-              <div key={kb.id} className="rounded-lg border bg-card p-5 hover:shadow-md transition-shadow cursor-pointer group" onClick={() => navigate(`/app/knowledge/${kb.id}`)}>
-                <div className="flex items-start justify-between">
-                  <div className="flex items-center gap-3">
-                    <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-info/10 text-info">
-                      <Database className="h-5 w-5" />
-                    </div>
-                    <div>
-                      <h3 className="font-semibold group-hover:text-primary transition-colors">{kb.name}</h3>
-                      <div className="flex items-center gap-2 mt-0.5">
-                        <span className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[10px] font-medium ${classificationColors[kb.classification]}`}>
-                          <ShieldCheck className="h-2.5 w-2.5 mr-0.5" />{kb.classification}
-                        </span>
-                      </div>
+          <div className="grid gap-3 lg:grid-cols-2">
+            {filtered.map((kb) => (
+              <article key={kb.id} className="group flex min-h-[176px] flex-col rounded-xl border bg-card p-4 shadow-sm transition-all hover:border-primary/25 hover:shadow-md">
+                <div className="flex min-w-0 items-start gap-3">
+                  <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl bg-primary/10 text-primary">
+                    <CatalogKnowledgeIcon base={kb} />
+                  </div>
+                  <div className="min-w-0 flex-1">
+                    <Link to={`/app/knowledge/${kb.id}`}
+                      className="orchestra-card-title block truncate text-sm font-semibold text-foreground hover:text-primary" title={kb.name}>
+                      {kb.name}
+                    </Link>
+                    <p className="mt-1 line-clamp-2 text-xs leading-relaxed text-muted-foreground">
+                      {kb.description || 'Descrição não informada.'}
+                    </p>
+                    <div className="mt-2 flex flex-wrap items-center gap-2 text-[10px]">
+                      <span className={`inline-flex items-center gap-1 rounded-full border px-2 py-0.5 font-medium ${classificationColors[kb.classification]}`}>
+                        <ShieldCheck className="h-3 w-3" aria-hidden="true" />{kb.classification}
+                      </span>
                     </div>
                   </div>
-                  <div className="flex items-center gap-1">
-                    <StatusBadge status={kb.status} />
-                    <DropdownMenu>
-                      <DropdownMenuTrigger asChild onClick={e => e.stopPropagation()}>
-                        <Button variant="ghost" size="icon" className="h-7 w-7 opacity-0 group-hover:opacity-100 transition-opacity">
-                          <MoreHorizontal className="h-4 w-4" />
+                  <DropdownMenu>
+                    <DropdownMenuTrigger asChild>
+                      <Button variant="ghost" size="icon" aria-label={`Ações da base ${kb.name}`} className="h-8 w-8 shrink-0 text-muted-foreground">
+                        <MoreHorizontal className="h-4 w-4" aria-hidden="true" />
+                      </Button>
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent align="end">
+                      <DropdownMenuItem onClick={() => navigate(`/app/knowledge/${kb.id}`)}><Eye className="mr-2 h-4 w-4" />Visualizar documentos</DropdownMenuItem>
+                      {kb.status !== 'archived' && <DropdownMenuItem onClick={() => openEdit(kb)}><Pencil className="mr-2 h-4 w-4" />Editar</DropdownMenuItem>}
+                      <DropdownMenuItem onClick={() => { void handleDuplicate(kb); }}><Copy className="mr-2 h-4 w-4" />Duplicar</DropdownMenuItem>
+                      <DropdownMenuItem onClick={() => handleManageIndexing(kb)}><RefreshCw className="mr-2 h-4 w-4" />Gerenciar ingestão</DropdownMenuItem>
+                      <DropdownMenuSeparator />
+                      {kb.status === 'archived'
+                        ? <DropdownMenuItem onClick={() => { void handleRestore(kb); }}><RotateCcw className="mr-2 h-4 w-4" />Restaurar</DropdownMenuItem>
+                        : <DropdownMenuItem onClick={() => openDelete(kb)} className="text-destructive"><Trash2 className="mr-2 h-4 w-4" />Arquivar</DropdownMenuItem>}
+                    </DropdownMenuContent>
+                  </DropdownMenu>
+                </div>
+
+                <div className="mt-auto flex flex-wrap items-center gap-3 border-t border-border/70 pt-3 sm:gap-4">
+                  <div className="inline-flex items-center gap-2 text-xs text-muted-foreground">
+                    <FileText className="h-4 w-4" aria-hidden="true" />
+                    <span>{kb.documentCount} documento{kb.documentCount !== 1 ? 's' : ''}</span>
+                  </div>
+                  <div className="hidden h-5 w-px bg-border sm:block" aria-hidden="true" />
+                  <CatalogKnowledgeStatus status={kb.status} />
+                  <div className="ml-auto flex items-center gap-1.5">
+                    {kb.status === 'archived' ? (
+                      <Button type="button" variant="outline" size="icon" className="h-8 w-8" aria-label={`Restaurar ${kb.name}`} onClick={() => { void handleRestore(kb); }}>
+                        <RotateCcw className="h-4 w-4" aria-hidden="true" />
+                      </Button>
+                    ) : (
+                      <>
+                        <Button type="button" variant="outline" size="icon" className="h-8 w-8" aria-label={`Editar ${kb.name}`} onClick={() => openEdit(kb)}>
+                          <Pencil className="h-4 w-4" aria-hidden="true" />
                         </Button>
-                      </DropdownMenuTrigger>
-                      <DropdownMenuContent align="end" onClick={e => e.stopPropagation()}>
-                        <DropdownMenuItem onClick={() => navigate(`/app/knowledge/${kb.id}`)}><Eye className="h-4 w-4 mr-2" />Visualizar</DropdownMenuItem>
-                        <DropdownMenuItem onClick={() => openEdit(kb)}><Pencil className="h-4 w-4 mr-2" />Editar</DropdownMenuItem>
-                        <DropdownMenuItem onClick={() => { void handleDuplicate(kb); }}><Copy className="h-4 w-4 mr-2" />Duplicar</DropdownMenuItem>
-                        <DropdownMenuItem onClick={() => handleManageIndexing(kb)}><RefreshCw className="h-4 w-4 mr-2" />Gerenciar indexação</DropdownMenuItem>
-                        <DropdownMenuSeparator />
-                        <DropdownMenuItem onClick={() => openDelete(kb)} className="text-destructive"><Trash2 className="h-4 w-4 mr-2" />Arquivar</DropdownMenuItem>
-                      </DropdownMenuContent>
-                    </DropdownMenu>
+                        <Button type="button" variant="outline" size="icon" className="h-8 w-8 text-destructive hover:bg-destructive/10 hover:text-destructive" aria-label={`Arquivar ${kb.name}`} onClick={() => openDelete(kb)}>
+                          <Trash2 className="h-4 w-4" aria-hidden="true" />
+                        </Button>
+                      </>
+                    )}
                   </div>
                 </div>
-                <p className="mt-3 text-sm text-muted-foreground line-clamp-2">{kb.description}</p>
-                <div className="mt-3 flex items-center gap-2 text-xs text-muted-foreground">
-                  <span className="flex items-center gap-1"><Link2 className="h-3 w-3" />{connectorLabels[kb.connectorType]}</span>
-                  <span>·</span>
-                  <span>{kb.owner}</span>
-                </div>
-                <div className="mt-4 border-t pt-3 grid grid-cols-3 gap-2 text-center">
-                  <div><p className="text-lg font-bold">{kb.documentCount}</p><p className="text-[10px] text-muted-foreground">Documentos</p></div>
-                  <div><p className="text-lg font-bold">{kb.totalChunks.toLocaleString()}</p><p className="text-[10px] text-muted-foreground">Chunks</p></div>
-                  <div><p className="text-lg font-bold">{kb.size}</p><p className="text-[10px] text-muted-foreground">Tamanho</p></div>
-                </div>
-                <div className="mt-3 flex flex-wrap gap-1">
-                  {kb.assistants.map(a => (
-                    <span key={a} className="rounded bg-muted px-2 py-0.5 text-[10px] text-muted-foreground">{a}</span>
-                  ))}
-                </div>
-              </div>
+              </article>
             ))}
           </div>
         ) : (
@@ -445,7 +545,7 @@ export default function KnowledgePage() {
                         {kb.classification}
                       </span>
                     </TableCell>
-                    <TableCell><StatusBadge status={kb.status} /></TableCell>
+                    <TableCell><CatalogKnowledgeStatus status={kb.status} /></TableCell>
                     <TableCell className="text-center">{kb.documentCount}</TableCell>
                     <TableCell className="text-center">{kb.totalChunks.toLocaleString()}</TableCell>
                     <TableCell>{kb.size}</TableCell>
@@ -463,7 +563,9 @@ export default function KnowledgePage() {
                           <DropdownMenuItem onClick={() => { void handleDuplicate(kb); }}><Copy className="h-4 w-4 mr-2" />Duplicar</DropdownMenuItem>
                           <DropdownMenuItem onClick={() => handleManageIndexing(kb)}><RefreshCw className="h-4 w-4 mr-2" />Gerenciar indexação</DropdownMenuItem>
                           <DropdownMenuSeparator />
-                          <DropdownMenuItem onClick={() => openDelete(kb)} className="text-destructive"><Trash2 className="h-4 w-4 mr-2" />Arquivar</DropdownMenuItem>
+                          {kb.status === 'archived'
+                            ? <DropdownMenuItem onClick={() => { void handleRestore(kb); }}><RotateCcw className="h-4 w-4 mr-2" />Restaurar</DropdownMenuItem>
+                            : <DropdownMenuItem onClick={() => openDelete(kb)} className="text-destructive"><Trash2 className="h-4 w-4 mr-2" />Arquivar</DropdownMenuItem>}
                         </DropdownMenuContent>
                       </DropdownMenu>
                     </TableCell>

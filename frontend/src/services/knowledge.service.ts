@@ -503,6 +503,16 @@ export const knowledgeService = {
     return response.data.data.map(mapKnowledgeBase);
   },
 
+  /** O endpoint existente suporta status=archived; a listagem padrão não inclui arquivadas. */
+  async listArchived(): Promise<KnowledgeBase[]> {
+    if (env.useMocks) return mockResponse(mockKnowledgeBases.filter((base) => base.status === 'archived'));
+    const response = await apiClient.get<PaginatedApiEnvelope<ApiKnowledgeBase>>(
+      endpoints.knowledge.list,
+      { params: { status: 'archived' } },
+    );
+    return response.data.data.map(mapKnowledgeBase);
+  },
+
   async get(id: string): Promise<KnowledgeBase> {
     if (env.useMocks) return mockFind(mockKnowledgeBases, id);
     const response = await apiClient.get<ApiEnvelope<ApiKnowledgeBase>>(endpoints.knowledge.detail(id));

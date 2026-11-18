@@ -1,199 +1,249 @@
+import { useState } from 'react';
+import { Link } from 'react-router-dom';
+import { LayoutDashboard,
+  ArrowRight,
+  ClipboardList,
+  Coins,
+  HardHat,
+  MessageSquare,
+  MessageSquareText,
+  Search,
+} from 'lucide-react';
 import { AppShell } from '@/components/shared/AppShell';
-import { PageHeader } from '@/components/shared/PageHeader';
-import { KpiCard } from '@/components/shared/KpiCard';
-import { StatusBadge } from '@/components/shared/StatusBadge';
+import { OrchestraPageBanner } from '@/components/shared/OrchestraPageBanner';
 import { QueryState, ListLoading } from '@/components/shared/QueryState';
+import { Button } from '@/components/ui/button';
 import { useAssistants } from '@/hooks/queries/useAssistants';
-import { useAuditLogs } from '@/hooks/queries/useAudit';
-import { useAnalytics } from '@/hooks/queries/useAnalytics';
-import { useMcpTools } from '@/hooks/queries/useMcp';
-import { env } from '@/lib/env';
-import { Bot, MessageSquare, DollarSign, Wrench, AlertTriangle, TrendingUp, ShieldCheck } from 'lucide-react';
-import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
+import { useCurrentSession } from '@/hooks/queries/useAuth';
+import { useRecentHomeConversations } from '@/hooks/queries/useRecentHomeConversations';
+import type { Assistant } from '@/types';
+
+function searchable(value: string): string {
+  return value.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLocaleLowerCase('pt-BR');
+}
+
+function AssistantIcon({ assistant }: { assistant: Assistant }) {
+  const context = searchable(`${assistant.area} ${assistant.name}`);
+  const Icon = /sst|seguranca|epis?\b|saude/.test(context)
+    ? HardHat
+    : /projeto|planejamento/.test(context)
+      ? ClipboardList
+      : /custo|financeir|orcamento|rateio/.test(context)
+        ? Coins
+        : MessageSquareText;
+  return <Icon className="h-6 w-6" aria-hidden="true" />;
+}
+
+function formatConversationDate(value: string): string {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return '';
+  const now = new Date();
+  const calendarDate = (day: Date) => `${day.getFullYear()}-${day.getMonth()}-${day.getDate()}`;
+  const yesterday = new Date(now);
+  yesterday.setDate(yesterday.getDate() - 1);
+  const time = new Intl.DateTimeFormat('pt-BR', { hour: '2-digit', minute: '2-digit' }).format(date);
+  if (calendarDate(date) === calendarDate(now)) return `Hoje, ${time}`;
+  if (calendarDate(date) === calendarDate(yesterday)) return `Ontem, ${time}`;
+  const day = new Intl.DateTimeFormat('pt-BR', { day: '2-digit', month: 'short' }).format(date);
+  return `${day}, ${time}`;
+}
 
 export default function DashboardPage() {
-  return env.useMocks ? <MockDashboard /> : <RealDashboard />;
-}
-
-function RealDashboard() {
   const assistantsQuery = useAssistants();
-  const auditQuery = useAuditLogs();
-  const mcpToolsQuery = useMcpTools();
-  const assistants = assistantsQuery.data ?? [];
-  const auditLogs = auditQuery.data ?? [];
-  const mcpTools = mcpToolsQuery.data ?? [];
-  const publishedAssistants = assistants.filter((assistant) => assistant.status === 'published').length;
+  const sessionQuery = useCurrentSession();
+  const [search, setSearch] = useState('');
+  const session = sessionQuery.data;
+  const firstName = session?.user.name.trim().split(/\s+/)[0] || null;
+  const permissions = session?.permissions ?? [];
+  const canViewCatalog = permissions.includes('assistants.read');
+  const canStartChat = canViewCatalog && permissions.includes('agent_runs.create');
+  const canViewChat = canViewCatalog && (canStartChat || permissions.includes('agent_runs.read'));
+  const workspaceIds = session?.workspaces.map((workspace) => workspace.id) ?? [];
+  const allowedWorkspaces = new Set(workspaceIds);
 
-  return (
-    <AppShell>
-      <div className="space-y-6 animate-fade-in">
-        <PageHeader
-          title="Dashboard"
-          description="Resumo operacional calculado a partir das APIs disponiveis"
-        />
-
-        <QueryState
-          query={assistantsQuery}
-          loading={<ListLoading rows={3} />}
-          errorTitle="Nao foi possivel carregar os assistentes"
-          errorDescription="O dashboard nao substitui falhas da API por dados de demonstracao."
-        >
-          <QueryState
-            query={auditQuery}
-            errorTitle="Nao foi possivel carregar a auditoria"
-            errorDescription="O dashboard nao substitui falhas da API por atividade ficticia."
-          >
-            <QueryState
-              query={mcpToolsQuery}
-              errorTitle="Nao foi possivel carregar o catalogo MCP"
-              errorDescription="O dashboard nao substitui falhas da API por ferramentas ficticias."
-            >
-              <div className="grid gap-3 grid-cols-2 lg:grid-cols-4">
-                <KpiCard label="Assistentes" value={assistants.length} icon={<Bot className="h-5 w-5" />} />
-                <KpiCard label="Publicados" value={publishedAssistants} icon={<ShieldCheck className="h-5 w-5" />} />
-                <KpiCard label="Tools MCP" value={mcpTools.length} icon={<Wrench className="h-5 w-5" />} />
-                <KpiCard label="Eventos auditados" value={auditLogs.length} icon={<AlertTriangle className="h-5 w-5" />} />
-              </div>
-
-              <div className="grid gap-4 lg:grid-cols-2">
-                <div className="rounded-lg border bg-card p-5">
-                  <h3 className="text-sm font-semibold">Assistentes recentes</h3>
-                  {assistants.length === 0 ? (
-                    <p className="mt-3 text-sm text-muted-foreground">Nenhum assistente cadastrado.</p>
-                  ) : (
-                    <div className="mt-3 space-y-3">
-                      {assistants.slice(0, 5).map((assistant) => (
-                        <div key={assistant.id} className="flex items-center justify-between gap-3 text-sm">
-                          <div className="min-w-0">
-                            <p className="truncate font-medium">{assistant.name}</p>
-                            <p className="truncate text-xs text-muted-foreground">{assistant.owner}</p>
-                          </div>
-                          <StatusBadge status={assistant.status} />
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                </div>
-
-                <div className="rounded-lg border bg-card p-5">
-                  <h3 className="text-sm font-semibold">Atividade recente</h3>
-                  {auditLogs.length === 0 ? (
-                    <p className="mt-3 text-sm text-muted-foreground">Nenhum evento de auditoria registrado.</p>
-                  ) : (
-                    <div className="mt-3 space-y-3">
-                      {auditLogs.slice(0, 5).map((log) => (
-                        <div key={log.id} className="flex items-start gap-2 text-sm">
-                          <StatusBadge status={log.riskLevel} />
-                          <div className="min-w-0">
-                            <p className="text-xs leading-snug">{log.description}</p>
-                            <p className="mt-0.5 text-[10px] text-muted-foreground">{log.user}</p>
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                </div>
-              </div>
-
-              <p className="text-xs text-muted-foreground">
-                Metricas consolidadas de conversas, custos e latencia permanecem indisponiveis ate existir uma API real de Analytics.
-              </p>
-            </QueryState>
-          </QueryState>
-        </QueryState>
-      </div>
-    </AppShell>
+  const publishedAssistants = (assistantsQuery.data ?? []).filter((assistant) =>
+    assistant.status === 'published'
+    && assistant.activePublication?.status === 'active'
+    && (!assistant.workspaceId || allowedWorkspaces.has(assistant.workspaceId)),
   );
-}
-
-function MockDashboard() {
-  const assistantsQuery = useAssistants();
-  const assistants = assistantsQuery.data ?? [];
-  const { data: auditLogs = [] } = useAuditLogs();
-  const { data: analytics = [] } = useAnalytics();
-  const { data: mcpTools = [] } = useMcpTools();
-  const totalConversations = assistants.reduce((acc, assistant) => acc + assistant.conversations, 0);
-  const totalCost = assistants.reduce((acc, assistant) => acc + assistant.costThisMonth, 0);
-  const publishedAssistants = assistants.filter((assistant) => assistant.status === 'published').length;
-  const topToolCalls = [...mcpTools].sort((a, b) => b.executionCount - a.executionCount).slice(0, 5);
-  const costByAssistant = [...assistants]
-    .filter((assistant) => assistant.costThisMonth > 0)
-    .sort((a, b) => b.costThisMonth - a.costThisMonth)
-    .map((assistant) => ({
-      name: assistant.name.length > 15 ? `${assistant.name.slice(0, 15)}...` : assistant.name,
-      cost: assistant.costThisMonth,
-    }));
+  const availableAssistants = canStartChat
+    ? publishedAssistants.filter((assistant) => assistant.executionPolicy?.isExecutionEnabled !== false)
+    : [];
+  const query = searchable(search.trim());
+  const visibleAssistants = availableAssistants.filter((assistant) =>
+    searchable(`${assistant.name} ${assistant.description}`).includes(query),
+  );
+  const recent = useRecentHomeConversations(
+    canViewChat ? publishedAssistants : [],
+    session?.user.id,
+    workspaceIds,
+    canViewChat && !assistantsQuery.isError,
+  );
 
   return (
     <AppShell>
-      <div className="space-y-6 animate-fade-in">
-        <PageHeader title="Dashboard" description="Prototipo local com dados de demonstracao" />
-
-        <QueryState query={assistantsQuery} loading={<ListLoading rows={3} />}>
-          <div className="grid gap-3 grid-cols-2 lg:grid-cols-4">
-            <KpiCard label="Assistentes Ativos" value={publishedAssistants} icon={<Bot className="h-5 w-5" />} />
-            <KpiCard label="Conversas (mes)" value={totalConversations.toLocaleString()} icon={<MessageSquare className="h-5 w-5" />} />
-            <KpiCard label="Custo de IA (mes)" value={`R$ ${totalCost.toFixed(2)}`} icon={<DollarSign className="h-5 w-5" />} />
-            <KpiCard label="Tools MCP" value={mcpTools.length} icon={<Wrench className="h-5 w-5" />} />
-          </div>
-
-          <div className="grid gap-4 lg:grid-cols-2">
-            <div className="rounded-lg border bg-card p-5">
-              <h3 className="text-sm font-semibold mb-4 flex items-center gap-2">
-                <TrendingUp className="h-4 w-4 text-primary" />
-                Conversas por dia
-              </h3>
-              <ResponsiveContainer width="100%" height={240}>
-                <BarChart data={analytics}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="hsl(220 13% 91%)" />
-                  <XAxis dataKey="date" tick={{ fontSize: 11 }} tickFormatter={(value: string) => value.slice(5)} />
-                  <YAxis tick={{ fontSize: 11 }} />
-                  <Tooltip />
-                  <Bar dataKey="conversations" fill="hsl(16, 99%, 55%)" radius={[4, 4, 0, 0]} />
-                </BarChart>
-              </ResponsiveContainer>
-            </div>
-
-            <div className="rounded-lg border bg-card p-5">
-              <h3 className="text-sm font-semibold mb-4">Custo por assistente (R$)</h3>
-              <ResponsiveContainer width="100%" height={240}>
-                <BarChart data={costByAssistant} layout="vertical">
-                  <CartesianGrid strokeDasharray="3 3" stroke="hsl(220 13% 91%)" />
-                  <XAxis type="number" tick={{ fontSize: 11 }} />
-                  <YAxis dataKey="name" type="category" tick={{ fontSize: 11 }} width={120} />
-                  <Tooltip />
-                  <Bar dataKey="cost" fill="hsl(16, 99%, 55%)" radius={[0, 4, 4, 0]} />
-                </BarChart>
-              </ResponsiveContainer>
-            </div>
-          </div>
-
-          <div className="grid gap-4 lg:grid-cols-2">
-            <div className="rounded-lg border bg-card p-5">
-              <h3 className="text-sm font-semibold mb-3">Ferramentas MCP mais utilizadas</h3>
-              <div className="space-y-3">
-                {topToolCalls.map((tool) => (
-                  <div key={tool.id} className="flex items-center justify-between gap-3 text-sm">
-                    <p className="truncate font-mono text-xs">{tool.name}</p>
-                    <span className="text-xs text-muted-foreground">{tool.executionCount.toLocaleString()}</span>
-                  </div>
-                ))}
+      <div className="orchestra-front-page w-full space-y-7 animate-fade-in pb-4">
+        <OrchestraPageBanner>
+          <div className="orchestra-banner-heading">
+            <div className="flex min-w-0 items-center gap-3">
+              <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl bg-primary/10 text-primary">
+                <LayoutDashboard className="h-6 w-6" aria-hidden="true" />
               </div>
-            </div>
-
-            <div className="rounded-lg border bg-card p-5">
-              <h3 className="text-sm font-semibold mb-3">Atividade recente</h3>
-              <div className="space-y-3">
-                {auditLogs.slice(0, 5).map((log) => (
-                  <div key={log.id} className="flex items-start gap-2 text-sm">
-                    <StatusBadge status={log.riskLevel} />
-                    <p className="text-xs leading-snug">{log.description}</p>
-                  </div>
-                ))}
+              <div className="min-w-0">
+                <h1 className="text-2xl font-bold tracking-tight text-foreground sm:text-3xl">
+                  {firstName ? `Olá, ${firstName}!` : 'Olá!'}
+                </h1>
+                <p className="mt-1 text-sm text-muted-foreground sm:text-base">
+                  Como a inteligência artificial pode ajudar você hoje?
+                </p>
               </div>
             </div>
           </div>
-        </QueryState>
+          <label className="orchestra-banner-toolbar orchestra-search-field flex w-full max-w-[85%] items-center gap-3 rounded-xl border border-input bg-white px-4 py-3 shadow-sm max-lg:max-w-full">
+              <Search className="h-4 w-4 shrink-0 text-muted-foreground" aria-hidden="true" />
+              <span className="sr-only">Buscar assistentes na Home</span>
+              <input
+                type="search"
+                aria-label="Buscar assistentes na Home"
+                placeholder="Buscar um assistente..."
+                value={search}
+                onChange={(event) => setSearch(event.target.value)}
+                className="w-full min-w-0 bg-transparent text-sm outline-none placeholder:text-muted-foreground"
+              />
+            </label>
+        </OrchestraPageBanner>
+
+        <section aria-labelledby="home-assistants-heading" className="space-y-4">
+          <div className="flex flex-wrap items-end justify-between gap-3">
+            <div className="flex items-start gap-3">
+              <MessageSquareText className="mt-0.5 h-6 w-6 shrink-0 text-primary" aria-hidden="true" />
+              <div>
+                <h2 id="home-assistants-heading" className="text-xl font-semibold tracking-tight">Assistentes disponíveis</h2>
+                <p className="mt-0.5 text-sm text-muted-foreground">Escolha um assistente para começar.</p>
+              </div>
+            </div>
+            {canViewCatalog && (
+              <Link to="/app/assistants" className="inline-flex items-center gap-1.5 text-sm font-semibold text-primary hover:underline">
+                Ver todos os assistentes <ArrowRight className="h-4 w-4" aria-hidden="true" />
+              </Link>
+            )}
+          </div>
+
+          <QueryState
+            query={assistantsQuery}
+            loading={<ListLoading rows={3} />}
+            errorTitle="Não foi possível carregar os assistentes"
+            errorDescription="Verifique sua conexão e tente novamente."
+          >
+            {availableAssistants.length === 0 ? (
+              <div className="rounded-2xl border border-dashed bg-card px-6 py-10 text-center" role="status">
+                <h3 className="font-semibold">Nenhum assistente disponível no momento</h3>
+                <p className="mt-1 text-sm text-muted-foreground">
+                  Os assistentes publicados e autorizados aparecerão aqui quando estiverem disponíveis para conversar.
+                </p>
+              </div>
+            ) : visibleAssistants.length === 0 ? (
+              <div className="rounded-2xl border border-dashed bg-card px-6 py-10 text-center" role="status">
+                <h3 className="font-semibold">Nenhum assistente encontrado para essa busca</h3>
+                <p className="mt-1 text-sm text-muted-foreground">Experimente outro nome ou descrição.</p>
+                <Button className="mt-4" variant="outline" size="sm" onClick={() => setSearch('')}>Limpar busca</Button>
+              </div>
+            ) : (
+              <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
+                {visibleAssistants.map((assistant) => (
+                  <article key={assistant.id} className="flex min-h-[164px] flex-col rounded-2xl border bg-card p-4 shadow-sm transition-all hover:border-primary/25 hover:shadow-md">
+                    <div className="flex min-w-0 items-start gap-3">
+                      <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-primary/5 to-primary/15 text-primary">
+                        <AssistantIcon assistant={assistant} />
+                      </div>
+                      <div className="min-w-0">
+                        <h3 className="line-clamp-1 text-sm font-semibold leading-snug" title={assistant.name}>{assistant.name}</h3>
+                        <p className="mt-1 line-clamp-2 text-xs leading-relaxed text-muted-foreground">
+                          {assistant.description || 'Sem descrição cadastrada.'}
+                        </p>
+                      </div>
+                    </div>
+                    <Link
+                      to={`/app/chat/${assistant.id}`}
+                      className="mt-auto flex min-h-10 items-center justify-center gap-2 rounded-xl bg-primary/[0.075] px-3 py-2 text-sm font-semibold text-primary transition-colors hover:bg-primary/[0.13] focus-visible:ring-2 focus-visible:ring-primary"
+                    >
+                      Iniciar conversa <ArrowRight className="h-4 w-4" aria-hidden="true" />
+                    </Link>
+                  </article>
+                ))}
+              </div>
+            )}
+          </QueryState>
+        </section>
+
+        <section aria-labelledby="home-conversations-heading" className="space-y-4">
+          <div className="flex flex-wrap items-end justify-between gap-3">
+            <div className="flex items-start gap-3">
+              <MessageSquare className="mt-0.5 h-6 w-6 shrink-0 text-primary" aria-hidden="true" />
+              <div>
+                <h2 id="home-conversations-heading" className="text-xl font-semibold tracking-tight">Suas conversas</h2>
+                <p className="mt-0.5 text-sm text-muted-foreground">Continue de onde parou.</p>
+              </div>
+            </div>
+            {canViewChat && (
+              <Link to="/app/chat" className="inline-flex items-center gap-1.5 text-sm font-semibold text-primary hover:underline">
+                Ir para minhas conversas <ArrowRight className="h-4 w-4" aria-hidden="true" />
+              </Link>
+            )}
+          </div>
+
+          {!canViewChat ? (
+            <div className="rounded-2xl border bg-card px-5 py-6 text-sm text-muted-foreground" role="status">
+              O histórico de conversas não está disponível para este perfil.
+            </div>
+          ) : recent.isLoading ? (
+            <ListLoading rows={3} />
+          ) : recent.isError && recent.items.length === 0 ? (
+            <div className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border bg-card px-5 py-6" role="status">
+              <p className="text-sm text-muted-foreground">Não foi possível carregar suas conversas recentes.</p>
+              <Button variant="outline" size="sm" onClick={recent.refresh}>Tentar novamente</Button>
+            </div>
+          ) : recent.items.length === 0 ? (
+            <div className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border bg-card px-5 py-6" role="status">
+              <p className="text-sm text-muted-foreground">Nenhuma conversa recente para exibir.</p>
+              <Link to="/app/chat" className="inline-flex items-center gap-1 text-sm font-semibold text-primary hover:underline">
+                Escolher um assistente <ArrowRight className="h-4 w-4" aria-hidden="true" />
+              </Link>
+            </div>
+          ) : (
+            <div className="overflow-hidden rounded-2xl border bg-card shadow-sm">
+              {recent.items.map((item) => (
+                <Link
+                  key={item.id}
+                  to={`/app/chat/${item.assistantId}?conversationId=${encodeURIComponent(item.id)}`}
+                  className="group flex min-w-0 items-center gap-3 border-b border-border/70 px-4 py-3 transition-colors last:border-b-0 hover:bg-muted/50 sm:gap-4"
+                >
+                  <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border bg-white text-muted-foreground">
+                    <MessageSquare className="h-5 w-5" aria-hidden="true" />
+                  </div>
+                  <div className="min-w-0 flex-1">
+                    <p className="orchestra-history-title truncate text-sm font-semibold text-foreground">{item.title || 'Conversa sem título'}</p>
+                    <p className="mt-0.5 truncate text-xs text-muted-foreground">{item.assistantName}</p>
+                  </div>
+                  <time dateTime={item.updatedAt} className="hidden shrink-0 text-xs text-muted-foreground sm:block">
+                    {formatConversationDate(item.updatedAt)}
+                  </time>
+                  <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-primary/[0.075] text-primary transition-colors group-hover:bg-primary/[0.14]">
+                    <ArrowRight className="h-4 w-4" aria-hidden="true" />
+                  </span>
+                </Link>
+              ))}
+            </div>
+          )}
+          {recent.isPartialError && (
+            <p role="status" className="text-xs text-muted-foreground">
+              Algumas conversas não puderam ser consultadas agora.
+              <button type="button" className="ml-1 font-semibold text-primary hover:underline" onClick={recent.refresh}>
+                Tentar novamente
+              </button>
+            </p>
+          )}
+        </section>
       </div>
     </AppShell>
   );

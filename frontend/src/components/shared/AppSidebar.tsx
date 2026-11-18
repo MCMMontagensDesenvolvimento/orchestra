@@ -56,7 +56,7 @@ export function AppSidebar({ collapsed, onToggle, forceExpanded = false, hideTog
     <aside
       className={cn(
         'sidebar-gradient flex h-full flex-col border-r border-sidebar-border transition-all duration-300',
-        forceExpanded ? 'w-60' : (collapsed ? 'w-16' : 'w-60'),
+        forceExpanded ? 'w-[264px]' : (collapsed ? 'w-16' : 'w-[264px]'),
       )}
     >
       <div className="flex h-14 items-center gap-2.5 border-b border-sidebar-border px-4">
