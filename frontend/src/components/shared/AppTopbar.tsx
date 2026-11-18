@@ -1,4 +1,4 @@
-import { Bell, Search, ChevronDown, LogOut, Menu } from 'lucide-react';
+import { ChevronDown, LogOut, Menu } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { Button } from '@/components/ui/button';
 import {
@@ -48,35 +48,10 @@ export function AppTopbar({ onToggleSidebar }: AppTopbarProps) {
         <Button variant="ghost" size="icon" onClick={onToggleSidebar} className="md:hidden shrink-0" aria-label="Abrir menu">
           <Menu className="h-4 w-4" />
         </Button>
-        <div
-          className="hidden min-w-0 items-center gap-2 rounded-md border bg-muted/30 px-3 py-1.5 text-muted-foreground sm:flex"
-          role="status"
-          aria-label="Busca global em breve"
-          title="Busca global indisponível nesta fase"
-        >
-          <Search className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
-          <span className="w-48 truncate text-sm lg:w-64">Busca global em breve</span>
-        </div>
+        <span className="text-sm font-semibold tracking-wide text-foreground md:hidden">ORCHESTRA</span>
       </div>
       <div className="flex items-center gap-2 shrink-0">
-        <div
-          className="hidden max-w-56 rounded-md border bg-muted/30 px-2.5 py-1 text-muted-foreground md:block"
-          role="status"
-          aria-label={`Contexto atual: tenant ${tenantName}, workspace ${workspaceName}`}
-          title="Contexto atual. A troca de tenant ou workspace está indisponível nesta fase."
-        >
-          <span className="block text-[10px] uppercase tracking-wide">Contexto atual</span>
-          <span className="block truncate text-xs font-medium text-foreground">{tenantName} / {workspaceName}</span>
-        </div>
-        <div
-          className="flex items-center gap-1.5 rounded-md border bg-muted/30 px-2 py-1.5 text-muted-foreground"
-          role="status"
-          aria-label="Sem notificações nesta fase"
-          title="Notificações em breve"
-        >
-          <Bell className="h-4 w-4" />
-          <span className="hidden text-xs xl:inline">Sem notificações nesta fase</span>
-        </div>
+
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
             <button

@@ -92,10 +92,10 @@ check_mcp_ui_fail_closed_state() {
 
   require_executable "$MCP_LOCAL_DEMO_SMOKE"
   require_pattern "$MCP_HUB" \
-    'Fase 18D · MCP demo local pronto e execução bloqueada' \
+    'MCP governado · descoberta remota disponível e execução bloqueada' \
     'MCP Hub governed local catalog remains execution-blocked'
   require_pattern "$MCP_HUB" \
-    'Rede externa, MCP remoto, tools de escrita, providers, embeddings e Chat/AgentRun reais permanecem desabilitados.' \
+    'Servidores locais e remotos operam sob políticas fail-closed. A descoberta remota pode ser consultada, enquanto execução remota, tools de escrita e integrações externas permanecem bloqueadas.' \
     'MCP Hub 18D capabilities remain disabled'
   require_pattern "$MCP_DETAIL" \
     'Este catálogo é local, determinístico e imutável na interface. A pré-checagem valida disponibilidade e políticas sem executar ferramenta, abrir rede, chamar provedor, gerar embeddings ou iniciar Chat/AgentRun.' \

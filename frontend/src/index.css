@@ -9,22 +9,22 @@
     --font-sans: 'Plus Jakarta Sans', system-ui, -apple-system, sans-serif;
 
     --background: 0 0% 100%;
-    --foreground: 220 20% 14%;
+    --foreground: 220 28% 11%;
 
     --card: 0 0% 100%;
-    --card-foreground: 220 20% 14%;
+    --card-foreground: 220 28% 11%;
 
     --popover: 0 0% 100%;
-    --popover-foreground: 220 20% 14%;
+    --popover-foreground: 220 28% 11%;
 
-    --primary: 16 99% 55%;
+    --primary: 17.14 99.14% 54.31%;
     --primary-foreground: 0 0% 100%;
 
     --secondary: 220 14% 96%;
     --secondary-foreground: 220 20% 14%;
 
     --muted: 220 14% 96%;
-    --muted-foreground: 220 9% 46%;
+    --muted-foreground: 220 15% 36%;
 
     --accent: 220 14% 96%;
     --accent-foreground: 220 20% 14%;
@@ -46,19 +46,19 @@
 
     --border: 220 13% 91%;
     --input: 220 13% 91%;
-    --ring: 16 99% 55%;
+    --ring: 17.14 99.14% 54.31%;
 
-    --radius: 0.5rem;
+    --radius: 0.625rem;
 
-    --sidebar-background: 220 20% 10%;
+    --sidebar-background: 218.57 23.33% 11.76%;
     --sidebar-foreground: 220 14% 80%;
-    --sidebar-primary: 16 99% 55%;
+    --sidebar-primary: 17.14 99.14% 54.31%;
     --sidebar-primary-foreground: 0 0% 100%;
     --sidebar-accent: 220 20% 16%;
     --sidebar-accent-foreground: 220 14% 90%;
     --sidebar-border: 220 20% 18%;
-    --sidebar-ring: 16 99% 55%;
-    --sidebar-muted: 220 14% 40%;
+    --sidebar-ring: 17.14 99.14% 54.31%;
+    --sidebar-muted: 220 14% 65%;
   }
 }
 
@@ -73,12 +73,12 @@
   }
 
   h1, h2, h3, h4, h5, h6 {
-    @apply font-semibold tracking-tight;
+    @apply font-bold tracking-tight;
   }
 
   /* Foco visível consistente em qualquer elemento interativo */
   :focus-visible {
-    @apply outline-none ring-2 ring-ring ring-offset-2 ring-offset-background;
+    @apply outline-none ring-2 ring-ring ring-offset-0 ring-offset-background;
   }
 
   /* Respeito a usuários que reduzem movimento (WCAG 2.3.3) */
@@ -110,6 +110,121 @@
   }
 
   .sidebar-gradient {
-    background: linear-gradient(180deg, hsl(220, 20%, 12%) 0%, hsl(220, 20%, 8%) 100%);
+    background: linear-gradient(180deg, #171C25 0%, #141922 100%);
   }
+}
+
+/* VIS-06A.01: o contorno pertence ao campo composto, não ao input interno.
+   O botão de limpar, quando presente, mantém seu próprio foco de teclado. */
+.orchestra-search-field:has(> input:focus) {
+  outline: 2px solid hsl(var(--ring));
+  outline-offset: -1px;
+}
+
+.orchestra-search-field > input:focus {
+  outline: none;
+  box-shadow: none;
+}
+
+@media (forced-colors: active) {
+  .orchestra-search-field:has(> input:focus) {
+    outline-color: Highlight;
+  }
+}
+
+/* VIS-06A.02/03 — padrão das páginas principais do Orchestra.
+   Os gutters acompanham o main do AppShell: p-4 sm:p-6.
+   Apenas a faixa decorativa ocupa toda a largura; os controles continuam alinhados. */
+.orchestra-front-page {
+  --orchestra-page-gutter: 1rem;
+}
+
+@media (min-width: 640px) {
+  .orchestra-front-page {
+    --orchestra-page-gutter: 1.5rem;
+  }
+}
+
+.orchestra-front-page > .orchestra-page-banner {
+  position: relative;
+  isolation: isolate;
+  overflow: hidden;
+  margin-inline: calc(-1 * var(--orchestra-page-gutter));
+  margin-top: calc(-1 * var(--orchestra-page-gutter));
+  padding-inline: var(--orchestra-page-gutter);
+  border: 0;
+  border-radius: 0;
+  box-shadow: none;
+  background: transparent;
+}
+
+/* VIS-06A.05 — padrão único de banner, baseado na Home.
+   O tamanho da decoração não depende do texto, busca ou CTA.
+   Conteúdo pode crescer em telas estreitas sem cortar controles. */
+.orchestra-page-banner {
+  --orchestra-banner-height: 188px;
+  --orchestra-banner-wave-bottom: 12px;
+  min-height: var(--orchestra-banner-height);
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  gap: 20px;
+  padding-block: 28px;
+}
+
+.orchestra-page-banner > .orchestra-banner-wave {
+  position: absolute;
+  inset: 0 0 auto auto;
+  width: min(82%, 1160px);
+  height: calc(var(--orchestra-banner-height) - var(--orchestra-banner-wave-bottom));
+  z-index: -1;
+  pointer-events: none;
+  background: url("./assets/orchestra-banner-wave.svg") right top / 100% 100% no-repeat;
+}
+
+.orchestra-page-banner > .orchestra-banner-heading,
+.orchestra-page-banner > .orchestra-banner-toolbar {
+  position: relative;
+  z-index: 1;
+  min-width: 0;
+}
+
+@media (max-width: 1023px) {
+  .orchestra-page-banner > .orchestra-banner-wave {
+    width: 88%;
+  }
+}
+
+@media (max-width: 639px) {
+  .orchestra-page-banner {
+    padding-block: 24px;
+    gap: 16px;
+  }
+
+  .orchestra-page-banner > .orchestra-banner-wave {
+    width: 100%;
+    opacity: 0.60;
+  }
+}
+
+/* Hierarquia tipográfica compartilhada, sem alterar tamanhos/fluxos de layout. */
+.orchestra-front-page h1 {
+  font-weight: 800;
+}
+
+.orchestra-front-page :where(h2, h3) {
+  font-weight: 700;
+}
+
+.orchestra-front-page article a.orchestra-card-title,
+.orchestra-front-page .orchestra-history-title {
+  font-weight: 700;
+}
+
+.orchestra-front-page :where(p.text-muted-foreground, input[type="search"]) {
+  font-weight: 500;
+}
+
+.orchestra-front-page :where(button[aria-pressed], a.text-primary) {
+  font-weight: 600;
 }

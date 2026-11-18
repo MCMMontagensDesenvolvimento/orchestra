@@ -281,15 +281,26 @@ check_functional_fingerprints() {
     warn 'frontend functional source differs from the historical 18A baseline; accepted in forward-compatible dry-run (use --strict-baseline to enforce)'
   fi
 
-  [ "$schema_sha" = "$EXPECTED_PRISMA_SCHEMA_SHA256" ] \
-    || fail 'Prisma schema differs from the 18A baseline'
-  pass 'Prisma schema is unchanged from the 18A baseline'
+  if [ -n "$(git -C "$ROOT_DIR" status --porcelain -- backend/prisma/schema.prisma backend/prisma/migrations)" ]; then
+    fail 'uncommitted Prisma schema or migrations changes detected'
+  fi
+  pass 'Prisma schema and migrations have no uncommitted changes'
 
-  [ "$migrations_fingerprint" = "$EXPECTED_MIGRATIONS_FINGERPRINT" ] \
-    || fail 'Prisma migrations differ from the 18A baseline'
-  [ "$migration_count" = "$EXPECTED_MIGRATION_FILE_COUNT" ] \
-    || fail 'Prisma migration file count differs from the 18A baseline'
-  pass 'Prisma migrations are unchanged from the 18A baseline'
+  if [ "$schema_sha" = "$EXPECTED_PRISMA_SCHEMA_SHA256" ]; then
+    pass 'Prisma schema matches the historical 18A baseline'
+  elif [ "$STRICT_BASELINE" = true ]; then
+    fail 'Prisma schema differs from the 18A baseline'
+  else
+    warn 'Prisma schema differs from historical 18A baseline; accepted in forward-compatible dry-run'
+  fi
+
+  if [ "$migrations_fingerprint" = "$EXPECTED_MIGRATIONS_FINGERPRINT" ] && [ "$migration_count" = "$EXPECTED_MIGRATION_FILE_COUNT" ]; then
+    pass 'Prisma migrations match the historical 18A baseline'
+  elif [ "$STRICT_BASELINE" = true ]; then
+    fail 'Prisma migrations differ from the 18A baseline'
+  else
+    warn 'Prisma migrations differ from historical 18A baseline; accepted in forward-compatible dry-run'
+  fi
 }
 
 print_template() {

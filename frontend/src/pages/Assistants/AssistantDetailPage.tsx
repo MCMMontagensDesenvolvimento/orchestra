@@ -344,7 +344,7 @@ export default function AssistantDetailPage() {
 
   const handleRagLocalSearch = async () => {
     if (!ragSearchQuery.trim()) {
-      toast.error('Informe um termo para busca local');
+      toast.error('Informe uma pergunta para consulta RAG');
       return;
     }
     try {
@@ -357,7 +357,7 @@ export default function AssistantDetailPage() {
         },
       });
     } catch (error) {
-      toast.error('Nao foi possivel executar consulta local', {
+      toast.error('Não foi possível executar a consulta RAG', {
         description: error instanceof Error ? error.message : 'Tente novamente em instantes.',
       });
     }
@@ -1350,7 +1350,7 @@ ${tools.map(mcpToolPromptLine).join('\n') || '- Nenhuma'}`;
                   <h3 className="text-sm font-semibold flex items-center gap-2">
                     <BookOpen className="h-4 w-4 text-primary" />Prontidão do RAG
                   </h3>
-                  <p className="text-xs text-muted-foreground">Recuperação local por palavra-chave, com fontes e citações persistidas.</p>
+                  <p className="text-xs text-muted-foreground">Consulta às bases vinculadas, com estratégia de recuperação definida pelo backend e fontes rastreáveis.</p>
                 </div>
                 <Button variant="outline" size="sm" onClick={() => { void ragReadinessQuery.refetch(); }}>
                   <RefreshCw className="h-3.5 w-3.5 mr-1" />Verificar prontidão
@@ -1389,7 +1389,7 @@ ${tools.map(mcpToolPromptLine).join('\n') || '- Nenhuma'}`;
                       <input
                         value={ragSearchQuery}
                         onChange={event => setRagSearchQuery(event.target.value)}
-                        placeholder="Consulta local em trechos autorizados"
+                        placeholder="Pergunte sobre o conhecimento vinculado ao assistente"
                         className="w-full bg-transparent text-sm outline-none"
                       />
                     </div>
@@ -1405,7 +1405,12 @@ ${tools.map(mcpToolPromptLine).join('\n') || '- Nenhuma'}`;
                             <StatusBadge status={ragQueryMutation.data.status} />
                             {ragQueryMutation.data.queryId && <span className="font-mono text-[10px] text-muted-foreground">{ragQueryMutation.data.queryId.slice(0, 8)}</span>}
                           </div>
-                          <Badge variant="outline" className="text-[10px]">local_keyword</Badge>
+                          <Badge variant="outline" className="text-[10px]" title="Modo de recuperação informado pelo backend">
+                            {ragQueryMutation.data.retrievalMode ?? 'Modo não informado'}
+                          </Badge>
+                          {ragQueryMutation.data.fallbackUsed === true && (
+                            <Badge variant="outline" className="text-[10px] text-warning">Fallback utilizado</Badge>
+                          )}
                         </div>
                         {ragQueryMutation.data.message && <p className="mt-2 text-sm text-muted-foreground">{ragQueryMutation.data.message}</p>}
                         {ragQueryMutation.data.reasons && ragQueryMutation.data.reasons.length > 0 && (
@@ -1420,7 +1425,7 @@ ${tools.map(mcpToolPromptLine).join('\n') || '- Nenhuma'}`;
                         )}
                       </div>
                       {ragQueryMutation.data.sources.length === 0 ? (
-                        ragQueryMutation.data.status !== 'blocked' && <p className="text-sm text-muted-foreground">Nenhum chunk encontrado por keyword local.</p>
+                        ragQueryMutation.data.status !== 'blocked' && <p className="text-sm text-muted-foreground">Nenhuma fonte encontrada para esta consulta.</p>
                       ) : ragQueryMutation.data.sources.map(source => (
                         <div key={`${source.chunkId}-${source.rank}`} className="rounded-md border p-3">
                           <div className="mb-2 flex flex-wrap items-center gap-2 text-xs">

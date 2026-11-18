@@ -14,6 +14,14 @@ import { queryKeys } from './queryKeys';
 export const useKnowledgeBases = () =>
   useQuery({ queryKey: queryKeys.knowledge.list(), queryFn: () => knowledgeService.list() });
 
+/** Consulta arquivadas apenas quando a aba correspondente estiver aberta. */
+export const useArchivedKnowledgeBases = (enabled: boolean) =>
+  useQuery({
+    queryKey: [...queryKeys.knowledge.list(), 'archived'] as const,
+    queryFn: () => knowledgeService.listArchived(),
+    enabled,
+  });
+
 export const useKnowledgeBase = (id: string | undefined) =>
   useQuery({
     queryKey: queryKeys.knowledge.detail(id ?? ''),

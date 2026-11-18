@@ -43,7 +43,7 @@ export function AppShell({ children }: AppShellProps) {
 
       {/* Sidebar mobile (drawer) */}
       <Sheet open={mobileOpen} onOpenChange={setMobileOpen}>
-        <SheetContent side="left" className="p-0 w-60 border-r-0">
+        <SheetContent side="left" className="p-0 w-[264px] border-r-0">
           <AppSidebar
             collapsed={false}
             onToggle={() => {}}
@@ -56,7 +56,7 @@ export function AppShell({ children }: AppShellProps) {
 
       <div className="flex flex-1 flex-col overflow-hidden min-w-0">
         <AppTopbar onToggleSidebar={() => setMobileOpen(true)} />
-        <main className="flex-1 overflow-auto p-4 sm:p-6">
+        <main className="flex-1 overflow-auto bg-[#F7F8FA] p-4 sm:p-6">
           {children}
         </main>
       </div>

@@ -3,7 +3,14 @@ import { FormEvent, useMemo, useState } from 'react';
 import { Link, useParams, useSearchParams } from 'react-router-dom';
 import {
   AlertCircle,
+  ArrowRight,
+  Search,
   Archive,
+  ArrowLeftRight,
+  Check,
+  Copy,
+  Info,
+  UserRound,
   Bot,
   Loader2,
   MessageSquare,
@@ -14,6 +21,7 @@ import {
   ShieldAlert,
 } from 'lucide-react';
 import { AppShell } from '@/components/shared/AppShell';
+import { OrchestraPageBanner } from '@/components/shared/OrchestraPageBanner';
 import { EmptyState } from '@/components/shared/EmptyState';
 import { ListLoading, QueryState } from '@/components/shared/QueryState';
 import { StatusBadge } from '@/components/shared/StatusBadge';
@@ -37,6 +45,8 @@ import {
   useAssistantActivePublication,
   useAssistants,
 } from '@/hooks/queries/useAssistants';
+import { useCurrentSession } from '@/hooks/queries/useAuth';
+import { useRecentHomeConversations } from '@/hooks/queries/useRecentHomeConversations';
 import { isApiError } from '@/services/api/api-error';
 import { HttpStatus } from '@/services/api/http-status';
 import {
@@ -100,74 +110,207 @@ export default function ChatPage() {
   return <AssistantRunChat assistantId={assistantId} />;
 }
 
+type ChatCatalogView = 'todos' | 'recentes' | 'assistentes';
+
+function normalizeChatSearch(value: string): string {
+  return value.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLocaleLowerCase('pt-BR');
+}
+
+function formatChatRecentDate(value: string): string {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return 'Data indisponível';
+  const now = new Date();
+  const calendarDay = (day: Date) => `${day.getFullYear()}-${day.getMonth()}-${day.getDate()}`;
+  const yesterday = new Date(now);
+  yesterday.setDate(yesterday.getDate() - 1);
+  const time = new Intl.DateTimeFormat('pt-BR', { hour: '2-digit', minute: '2-digit' }).format(date);
+  if (calendarDay(date) === calendarDay(now)) return `Hoje, ${time}`;
+  if (calendarDay(date) === calendarDay(yesterday)) return `Ontem, ${time}`;
+  return new Intl.DateTimeFormat('pt-BR', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' }).format(date);
+}
+
 function ChatAssistantCatalog() {
   const assistantsQuery = useAssistants();
+  const sessionQuery = useCurrentSession();
+  const [searchParams, setSearchParams] = useSearchParams();
+  const [search, setSearch] = useState('');
+  const requestedView = searchParams.get('visao');
+  const view: ChatCatalogView = requestedView === 'recentes' || requestedView === 'assistentes' ? requestedView : 'todos';
 
-  const publishedAssistants = useMemo(
-    () => (assistantsQuery.data ?? []).filter((assistant) => assistant.status === 'published'),
-    [assistantsQuery.data],
+  const session = sessionQuery.data;
+  const permissions = session?.permissions ?? [];
+  const canReadAssistants = permissions.includes('assistants.read');
+  const canStartChat = canReadAssistants && permissions.includes('agent_runs.create');
+  const canReadChat = canReadAssistants && (canStartChat || permissions.includes('agent_runs.read'));
+  const workspaceIds = session?.workspaces.map((workspace) => workspace.id) ?? [];
+  const workspaceSet = new Set(workspaceIds);
+  const availableAssistants = (canReadAssistants ? (assistantsQuery.data ?? []) : []).filter((assistant) =>
+    assistant.status === 'published'
+    && assistant.activePublication?.status === 'active'
+    && assistant.executionPolicy?.isExecutionEnabled !== false
+    && (!assistant.workspaceId || workspaceSet.has(assistant.workspaceId)),
   );
+  const recent = useRecentHomeConversations(
+    canReadChat ? availableAssistants : [],
+    session?.user.id,
+    workspaceIds,
+    canReadChat && !assistantsQuery.isError,
+    50,
+  );
+  const needle = normalizeChatSearch(search.trim());
+  const filteredAssistants = availableAssistants.filter((assistant) =>
+    normalizeChatSearch(`${assistant.name} ${assistant.description} ${assistant.area}`).includes(needle),
+  );
+  const filteredConversations = recent.items.filter((conversation) =>
+    normalizeChatSearch(`${conversation.title} ${conversation.assistantName}`).includes(needle),
+  );
+  const showAssistants = view !== 'recentes';
+  const showRecent = view !== 'assistentes';
+  const displayedConversations = view === 'todos' ? filteredConversations.slice(0, 3) : filteredConversations;
+
+  const setView = (next: ChatCatalogView) => {
+    const updated = new URLSearchParams(searchParams);
+    if (next === 'todos') updated.delete('visao');
+    else updated.set('visao', next);
+    setSearchParams(updated);
+  };
 
   return (
     <AppShell>
-      <div className="space-y-6 animate-fade-in">
-        <div>
-          <h1 className="text-2xl font-bold tracking-tight">Chat</h1>
-          <p className="mt-1 text-sm text-muted-foreground">
-            Selecione um assistente publicado para iniciar uma execucao governada.
-          </p>
-        </div>
-
-        <QueryState
-          query={assistantsQuery}
-          isEmpty={publishedAssistants.length === 0}
-          loading={<ListLoading rows={3} />}
-          emptyIcon={<Bot className="h-6 w-6" />}
-          emptyTitle="Nenhum assistente publicado"
-          emptyDescription="Publique um assistente para iniciar o chat."
-          emptyAction={(
-            <Link to="/app/assistants">
-              <Button variant="outline">Ver assistentes</Button>
-            </Link>
-          )}
-          errorTitle="Nao foi possivel carregar os assistentes"
-          errorDescription="Tente novamente em instantes."
-        >
-          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-            {publishedAssistants.map((assistant) => (
-              <Link
-                key={assistant.id}
-                to={chatRoute(assistant.id)}
-                className="rounded-lg border bg-card p-5 text-left transition-all hover:border-primary/30 hover:shadow-sm"
-              >
-                <div className="flex items-start gap-3">
-                  <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary">
-                    <Bot className="h-5 w-5" />
-                  </div>
-
-                  <div className="min-w-0">
-                    <h2 className="truncate text-sm font-semibold">{assistant.name}</h2>
-                    <p className="mt-0.5 truncate text-xs text-muted-foreground">
-                      {assistant.area}
-                    </p>
-                  </div>
-                </div>
-
-                {assistant.description && (
-                  <p className="mt-3 line-clamp-2 text-sm text-muted-foreground">
-                    {assistant.description}
-                  </p>
-                )}
-
-                <div className="mt-4 flex items-center gap-2">
-                  <StatusBadge status={assistant.status} />
-                  <Badge variant="secondary" className="max-w-[12rem] truncate">
-                    {assistant.model}
-                  </Badge>
-                </div>
-              </Link>
-            ))}
+      <div className="orchestra-front-page space-y-5 animate-fade-in pb-5">
+        <OrchestraPageBanner labelledBy="chat-catalog-title">
+          <div className="orchestra-banner-heading">
+            <div className="flex min-w-0 items-center gap-3">
+              <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl bg-primary/10 text-primary">
+                <MessageSquare className="h-6 w-6" aria-hidden="true" />
+              </div>
+              <div className="min-w-0">
+                <h1 id="chat-catalog-title" className="text-2xl font-bold tracking-tight">Minhas conversas</h1>
+                <p className="mt-1 text-sm text-muted-foreground">Escolha um assistente e comece uma nova conversa.</p>
+              </div>
+            </div>
           </div>
+          <label className="orchestra-banner-toolbar orchestra-search-field flex min-h-10 w-full max-w-4xl items-center gap-2 rounded-lg border bg-white px-3 shadow-sm">
+              <Search className="h-4 w-4 shrink-0 text-muted-foreground" aria-hidden="true" />
+              <span className="sr-only">Buscar assistentes ou conversas</span>
+              <input type="search" aria-label="Buscar assistentes ou conversas" value={search}
+                onChange={(event) => setSearch(event.target.value)} placeholder="Buscar assistentes ou conversas..."
+                className="w-full min-w-0 bg-transparent py-2 text-sm outline-none placeholder:text-muted-foreground" />
+            </label>
+        </OrchestraPageBanner>
+
+        <nav aria-label="Filtrar conversas e assistentes" className="flex flex-wrap items-center gap-2">
+          {([
+            { key: 'todos', label: 'Todos' },
+            { key: 'recentes', label: 'Recentes' },
+            { key: 'assistentes', label: 'Assistentes publicados' },
+          ] as const).map((item) => (
+            <button key={item.key} type="button" aria-pressed={view === item.key}
+              onClick={() => setView(item.key)}
+              className={`inline-flex min-h-9 items-center rounded-full border px-4 text-xs font-semibold transition-colors ${view === item.key ? 'border-primary/15 bg-primary/10 text-primary' : 'bg-white text-foreground hover:border-primary/30'}`}>
+              {item.label}
+            </button>
+          ))}
+        </nav>
+
+        <QueryState query={sessionQuery} loading={<ListLoading rows={3} />}
+          errorTitle="Não foi possível consultar sua sessão" errorDescription="Atualize a página e tente novamente.">
+          <QueryState query={assistantsQuery} loading={<ListLoading rows={3} />}
+            errorTitle="Não foi possível carregar os assistentes" errorDescription="Tente novamente em instantes.">
+            {showAssistants && (
+              <section aria-label="Assistentes disponíveis" className="space-y-3">
+                {filteredAssistants.length === 0 ? (
+                  <div className="rounded-xl border border-dashed bg-white p-6 text-sm text-muted-foreground" role="status">
+                    {availableAssistants.length === 0 ? 'Nenhum assistente disponível para conversar no momento.' : 'Nenhum assistente encontrado para essa busca.'}
+                  </div>
+                ) : (
+                  <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+                    {filteredAssistants.map((assistant) => (
+                      <article key={assistant.id} className="flex min-h-[190px] flex-col rounded-xl border bg-card p-4 shadow-sm transition-all hover:border-primary/25 hover:shadow-md">
+                        <div className="flex min-w-0 items-start gap-3">
+                          <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-primary/10 text-primary">
+                            <Bot className="h-5 w-5" aria-hidden="true" />
+                          </div>
+                          <div className="min-w-0 flex-1">
+                            <h2 className="line-clamp-2 text-sm font-semibold leading-snug" title={assistant.name}>{assistant.name}</h2>
+                          </div>
+                        </div>
+                        <p className="mt-2 line-clamp-3 min-h-10 text-xs leading-relaxed text-muted-foreground">
+                          {assistant.description || 'Sem descrição cadastrada.'}
+                        </p>
+                        <div className="mt-auto flex flex-wrap items-center gap-2 py-2">
+                          <StatusBadge status={assistant.status} />
+                          {assistant.model && <Badge variant="secondary" className="max-w-[10rem] truncate text-[10px]">{assistant.model}</Badge>}
+                        </div>
+                        {canStartChat ? (
+                          <Link to={chatRoute(assistant.id)} className="flex min-h-9 items-center justify-center gap-2 rounded-lg bg-primary/[0.09] px-3 text-xs font-semibold text-primary transition-colors hover:bg-primary/[0.16]">
+                            Iniciar conversa <ArrowRight className="h-4 w-4" aria-hidden="true" />
+                          </Link>
+                        ) : (
+                          <p className="rounded-lg bg-muted px-3 py-2 text-center text-xs text-muted-foreground">Sem permissão para iniciar conversas</p>
+                        )}
+                      </article>
+                    ))}
+                  </div>
+                )}
+              </section>
+            )}
+
+            {showRecent && canReadChat && (
+              <section aria-labelledby="chat-recent-heading" className="space-y-3">
+                <div className="flex flex-wrap items-end justify-between gap-3">
+                  <div className="flex items-start gap-3">
+                    <MessageSquare className="mt-0.5 h-5 w-5 shrink-0 text-primary" aria-hidden="true" />
+                    <div>
+                      <h2 id="chat-recent-heading" className="text-lg font-semibold tracking-tight">Conversas recentes</h2>
+                      <p className="mt-0.5 text-xs text-muted-foreground">Continue de onde parou.</p>
+                    </div>
+                  </div>
+                  {view === 'todos' && (
+                    <button type="button" className="inline-flex items-center gap-1.5 text-xs font-semibold text-primary hover:underline" onClick={() => setView('recentes')}>
+                      Ver mais conversas <ArrowRight className="h-4 w-4" aria-hidden="true" />
+                    </button>
+                  )}
+                </div>
+                {recent.isPartialError && (
+                  <p role="alert" className="text-xs text-destructive">Parte do histórico não pôde ser consultada. Os registros exibidos podem estar incompletos.</p>
+                )}
+                {recent.isError ? (
+                  <div role="alert" className="rounded-xl border bg-white px-4 py-5 text-sm text-destructive">Não foi possível carregar as conversas recentes.</div>
+                ) : recent.isLoading ? (
+                  <ListLoading rows={3} />
+                ) : displayedConversations.length === 0 ? (
+                  <div role="status" className="rounded-xl border border-dashed bg-white px-4 py-6 text-sm text-muted-foreground">
+                    {needle ? 'Nenhuma conversa encontrada para essa busca.' : 'Você ainda não possui conversas recentes para exibir.'}
+                  </div>
+                ) : (
+                  <div className="overflow-hidden rounded-xl border bg-white shadow-sm">
+                    {displayedConversations.map((conversation) => (
+                      <Link key={conversation.id} to={`${chatRoute(conversation.assistantId)}?conversationId=${encodeURIComponent(conversation.id)}`}
+                        className="flex min-w-0 items-center gap-3 border-b px-3 py-2.5 transition-colors hover:bg-muted/50 last:border-b-0">
+                        <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border bg-white text-muted-foreground">
+                          <MessageSquare className="h-4 w-4" aria-hidden="true" />
+                        </div>
+                        <div className="min-w-0 flex-1">
+                          <p className="orchestra-history-title truncate text-xs font-semibold text-foreground">{conversation.title || 'Conversa sem título'}</p>
+                          <p className="mt-0.5 truncate text-xs text-muted-foreground">{conversation.assistantName}</p>
+                        </div>
+                        <span className="hidden shrink-0 text-xs text-muted-foreground sm:block">{formatChatRecentDate(conversation.updatedAt)}</span>
+                        <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-primary/10 text-primary">
+                          <ArrowRight className="h-4 w-4" aria-hidden="true" />
+                        </span>
+                      </Link>
+                    ))}
+                  </div>
+                )}
+              </section>
+            )}
+            {!canReadChat && !canStartChat && (
+              <div role="status" className="rounded-xl border border-dashed bg-white px-4 py-6 text-sm text-muted-foreground">
+                Sua sessão não possui permissão para acessar conversas.
+              </div>
+            )}
+          </QueryState>
         </QueryState>
       </div>
     </AppShell>
@@ -312,7 +455,7 @@ function AssistantRunChat({ assistantId }: { assistantId: string }) {
 
   return (
     <AppShell>
-      <div className="grid min-h-[34rem] gap-4 lg:h-[calc(100dvh-7.5rem)] lg:grid-cols-[20rem_minmax(0,1fr)]">
+      <div className="grid min-h-[34rem] gap-3 lg:h-[calc(100dvh-7.5rem)] lg:grid-cols-[17rem_minmax(0,1fr)]">
         <ConversationsPanel
           conversations={conversations}
           selectedConversationId={selectedConversationId}
@@ -327,11 +470,11 @@ function AssistantRunChat({ assistantId }: { assistantId: string }) {
           onArchiveSelected={() => { void archiveSelectedConversation(); }}
         />
 
-        <div className="flex min-h-[34rem] flex-col overflow-hidden rounded-lg border bg-card animate-fade-in">
+        <div className="flex min-h-[34rem] min-w-0 flex-col overflow-hidden rounded-xl border bg-white shadow-sm animate-fade-in">
           <ChatHeader assistant={assistant} activePublication={activePublication} />
 
-          <ScrollArea className="flex-1 bg-background/50">
-            <div className="p-3 sm:p-5">
+          <ScrollArea className="min-h-0 flex-1 bg-white">
+            <div className="p-3 pb-8 sm:p-5 sm:pb-8">
               {!selectedConversationId ? (
                 <NoConversationSelected
                   assistant={assistant}
@@ -345,7 +488,7 @@ function AssistantRunChat({ assistantId }: { assistantId: string }) {
               ) : messages.length === 0 ? (
                 <ChatEmptyState assistant={assistant} />
               ) : (
-                <div className="space-y-4">
+                <div className="space-y-5">
                   {messages.map((message) => (
                     <ChatMessageBubble
                       key={message.id}
@@ -376,21 +519,37 @@ function AssistantRunChat({ assistantId }: { assistantId: string }) {
             </div>
           </ScrollArea>
 
-          <form onSubmit={submitMessage} className="border-t bg-card p-3">
+          <form onSubmit={submitMessage} className="border-t bg-white px-3 py-2.5">
             <div className="flex items-end gap-2">
               <Textarea
                 value={inputValue}
                 onChange={(event) => setInputValue(event.target.value)}
+                onKeyDown={(event) => {
+                  if (
+                    event.key !== 'Enter'
+                    || event.shiftKey
+                    || event.ctrlKey
+                    || event.altKey
+                    || event.metaKey
+                    || event.repeat
+                    || event.nativeEvent.isComposing
+                    || event.keyCode === 229
+                  ) return;
+
+                  event.preventDefault();
+                  void sendInput(inputValue);
+                }}
                 placeholder="Mensagem para o assistente"
                 aria-label="Mensagem"
-                className="max-h-40 min-h-[44px] resize-none"
+                aria-describedby="chat-composer-help"
+                className="max-h-36 min-h-[42px] resize-none bg-background"
                 disabled={!selectedConversationId || selectedConversationArchived || sendMessageMutation.isPending}
               />
 
               <Button
                 type="submit"
                 size="icon"
-                className="h-11 w-11 shrink-0"
+                className="h-10 w-10 shrink-0"
                 disabled={!selectedConversationId || selectedConversationArchived || !inputValue.trim() || sendMessageMutation.isPending}
                 aria-label="Enviar mensagem"
               >
@@ -401,6 +560,9 @@ function AssistantRunChat({ assistantId }: { assistantId: string }) {
                 )}
               </Button>
             </div>
+            <p id="chat-composer-help" className="mt-1.5 text-[11px] text-muted-foreground">
+              Enter para enviar · Shift+Enter para nova linha
+            </p>
           </form>
         </div>
       </div>
@@ -416,18 +578,16 @@ function ChatHeader({
   activePublication: AssistantPublication | null;
 }) {
   return (
-    <div className="flex flex-col gap-3 border-b px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
+    <header className="flex flex-wrap items-center justify-between gap-3 border-b bg-white px-3 py-3 sm:px-4">
       <div className="flex min-w-0 items-center gap-3">
-        <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary">
-          <Bot className="h-5 w-5" />
+        <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-primary/10 text-primary">
+          <Bot className="h-5 w-5" aria-hidden="true" />
         </div>
-
         <div className="min-w-0">
-          <h1 className="truncate text-base font-semibold">{assistant.name}</h1>
-
-          <div className="mt-1 flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+          <h1 className="truncate text-sm font-semibold sm:text-base">{assistant.name}</h1>
+          <div className="mt-1 flex flex-wrap items-center gap-2 text-[11px] text-muted-foreground">
             <StatusBadge status={assistant.status} />
-            <Badge variant={activePublication ? 'secondary' : 'outline'}>
+            <Badge variant={activePublication ? 'secondary' : 'outline'} className="text-[10px]">
               {activePublication ? 'Publicacao ativa' : 'Sem publicacao ativa'}
             </Badge>
             <span className="truncate">{assistant.model}</span>
@@ -435,11 +595,28 @@ function ChatHeader({
           </div>
         </div>
       </div>
-
-      <Link to="/app/chat">
-        <Button variant="outline" size="sm">Trocar</Button>
-      </Link>
-    </div>
+      <div className="flex shrink-0 items-center gap-2">
+        <details className="relative group">
+          <summary className="flex cursor-pointer list-none items-center gap-1.5 rounded-full border bg-white px-3 py-1.5 text-xs font-medium hover:bg-muted [&::-webkit-details-marker]:hidden">
+            <Info className="h-3.5 w-3.5" aria-hidden="true" />
+            Detalhes
+          </summary>
+          <div className="absolute right-0 top-full z-20 mt-2 w-64 max-w-[85vw] rounded-xl border bg-white p-3 text-xs shadow-lg">
+            <p className="mb-2 font-semibold">Informações do assistente</p>
+            <dl className="space-y-1.5 text-muted-foreground">
+              <div className="flex justify-between gap-3"><dt>Status</dt><dd className="text-right text-foreground">{assistant.status === 'published' ? 'Publicado' : assistant.status}</dd></div>
+              <div className="flex justify-between gap-3"><dt>Publicação</dt><dd className="text-right text-foreground">{activePublication ? 'Ativa' : 'Indisponível'}</dd></div>
+              <div className="flex justify-between gap-3"><dt>Modelo</dt><dd className="truncate text-right text-foreground" title={assistant.model}>{assistant.model}</dd></div>
+              <div className="flex justify-between gap-3"><dt>Versão</dt><dd className="text-right text-foreground">v{assistant.version}</dd></div>
+            </dl>
+          </div>
+        </details>
+        <Link to="/app/chat" className="inline-flex items-center gap-1.5 rounded-full border bg-white px-3 py-1.5 text-xs font-medium transition-colors hover:bg-muted">
+          <ArrowLeftRight className="h-3.5 w-3.5" aria-hidden="true" />
+          Trocar assistente
+        </Link>
+      </div>
+    </header>
   );
 }
 
@@ -506,7 +683,7 @@ function ChatMessageBubble({
   onRetry: (input: string) => void;
 }) {
   const isUser = message.role === 'user';
-
+  const [copyState, setCopyState] = useState<'idle' | 'copied' | 'error'>('idle');
   const toneClass = message.tone === 'error'
     ? 'border-destructive/30 bg-destructive/10 text-destructive'
     : message.tone === 'blocked'
@@ -514,36 +691,63 @@ function ChatMessageBubble({
       : message.tone === 'pending'
         ? 'border-blue-500/30 bg-blue-500/10 text-foreground'
         : isUser
-          ? 'border-primary bg-primary text-primary-foreground'
-          : 'border-border bg-card';
+          ? 'border-[#FFDFD0] bg-[#FFF0E9] text-foreground'
+          : 'border-[#E9EBEF] bg-[#F7F8FA] text-foreground';
+
+  const copyResponse = async () => {
+    try {
+      if (!navigator.clipboard?.writeText) throw new Error('Clipboard indisponível');
+      await navigator.clipboard.writeText(message.content);
+      setCopyState('copied');
+    } catch {
+      setCopyState('error');
+    }
+  };
 
   return (
-    <div className={`flex ${isUser ? 'justify-end' : 'justify-start'}`}>
-      <div className={`max-w-[88%] rounded-lg border px-4 py-3 shadow-sm sm:max-w-[76%] ${toneClass}`}>
-        {message.isRetry && (
-          <div className="mb-2 text-[11px] font-medium opacity-80">Reenvio manual</div>
-        )}
-
-        <div className="whitespace-pre-wrap text-sm leading-relaxed">
-          {message.content}
+    <div data-testid={`chat-message-${message.role}`} className={`flex items-start gap-2.5 ${isUser ? 'justify-end' : 'justify-start'}`}>
+      {!isUser && (
+        <div className="mt-5 flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary" aria-hidden="true">
+          <Bot className="h-4 w-4" />
         </div>
-
-        {!isUser && message.retryInput && (
-          <Button
-            type="button"
-            variant="outline"
-            size="sm"
-            className="mt-3 h-8 gap-2"
-            disabled={isSending}
-            onClick={() => onRetry(message.retryInput!)}
-          >
-            <RotateCcw className="h-3.5 w-3.5" />
-            Reenviar
-          </Button>
+      )}
+      <div className="min-w-0 max-w-[88%] sm:max-w-[78%]">
+        <p className={`mb-1.5 px-1 text-[11px] text-muted-foreground ${isUser ? 'text-right' : 'text-left'}`}>
+          {formatChatRecentDate(message.createdAt)}
+        </p>
+        <div className={`rounded-xl border px-3.5 py-3 text-sm leading-relaxed shadow-sm ${toneClass}`}>
+          {message.isRetry && <p className="mb-2 text-[11px] font-medium opacity-80">Reenvio manual</p>}
+          <div className="whitespace-pre-wrap break-words">{message.content}</div>
+          {!isUser && message.retryInput && (
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              className="mt-3 h-8 gap-2"
+              disabled={isSending}
+              onClick={() => onRetry(message.retryInput!)}
+            >
+              <RotateCcw className="h-3.5 w-3.5" />
+              Reenviar
+            </Button>
+          )}
+          {message.run && <RunDetails run={message.run} />}
+        </div>
+        {!isUser && message.content && (
+          <div className="mt-1.5 flex items-center gap-1 px-1">
+            <button type="button" className="inline-flex items-center gap-1 rounded-md px-2 py-1 text-[11px] text-muted-foreground hover:bg-muted hover:text-foreground"
+              aria-label="Copiar resposta" onClick={() => { void copyResponse(); }}>
+              {copyState === 'copied' ? <Check className="h-3.5 w-3.5" /> : <Copy className="h-3.5 w-3.5" />}
+              {copyState === 'copied' ? 'Copiado' : copyState === 'error' ? 'Cópia indisponível' : 'Copiar'}
+            </button>
+          </div>
         )}
-
-        {message.run && <RunDetails run={message.run} />}
       </div>
+      {isUser && (
+        <div className="mt-5 flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-primary/15 text-primary" aria-hidden="true">
+          <UserRound className="h-4 w-4" />
+        </div>
+      )}
     </div>
   );
 }
@@ -678,6 +882,24 @@ function safeChatEventMessage(event: AgentRunEvent) {
   return safeString(event.message, 180);
 }
 
+function conversationDayLabel(value: string): string {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return 'Sem data';
+  const now = new Date();
+  const calendarDay = (day: Date) => `${day.getFullYear()}-${day.getMonth()}-${day.getDate()}`;
+  if (calendarDay(date) === calendarDay(now)) return 'Hoje';
+  const yesterday = new Date(now);
+  yesterday.setDate(yesterday.getDate() - 1);
+  if (calendarDay(date) === calendarDay(yesterday)) return 'Ontem';
+  return new Intl.DateTimeFormat('pt-BR', { day: '2-digit', month: 'short', year: 'numeric' }).format(date);
+}
+
+function conversationClock(value: string): string {
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? '--:--'
+    : new Intl.DateTimeFormat('pt-BR', { hour: '2-digit', minute: '2-digit' }).format(date);
+}
+
 function ConversationsPanel({
   conversations,
   selectedConversationId,
@@ -703,91 +925,84 @@ function ConversationsPanel({
   onSelect: (conversationId: string | null) => void;
   onArchiveSelected: () => void;
 }) {
+  const [search, setSearch] = useState('');
+  const groups = useMemo(() => {
+    const needle = normalizeChatSearch(search.trim());
+    const filtered = [...conversations]
+      .filter((conversation) => !conversation.archivedAt)
+      .filter((conversation) => normalizeChatSearch(`${conversation.title ?? ''} ${conversation.lastMessage ?? ''}`).includes(needle))
+      .sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime());
+    const result: { label: string; items: ChatConversation[] }[] = [];
+    for (const conversation of filtered) {
+      const label = conversationDayLabel(conversation.updatedAt);
+      let group = result.find((item) => item.label === label);
+      if (!group) {
+        group = { label, items: [] };
+        result.push(group);
+      }
+      group.items.push(conversation);
+    }
+    return result;
+  }, [conversations, search]);
+
   return (
-    <aside className="flex min-h-[22rem] flex-col rounded-lg border bg-card">
-      <div className="flex items-center justify-between gap-2 border-b px-4 py-3">
+    <aside aria-label="Histórico de conversas" className="flex min-h-[22rem] min-w-0 flex-col overflow-hidden rounded-xl border bg-white shadow-sm">
+      <div className="flex items-center justify-between gap-2 border-b px-3 py-3">
         <div className="flex items-center gap-2">
-          <MessageSquare className="h-4 w-4 text-muted-foreground" />
+          <MessageSquare className="h-4 w-4 text-muted-foreground" aria-hidden="true" />
           <h2 className="text-sm font-semibold">Conversas</h2>
         </div>
-
-        <div className="flex items-center gap-1">
+        <div className="flex items-center gap-0.5">
           {selectedConversationId && (
-            <Button
-              type="button"
-              variant="ghost"
-              size="icon"
-              className="h-8 w-8"
-              onClick={onArchiveSelected}
-              disabled={isArchiving}
-              aria-label="Arquivar conversa"
-            >
+            <Button type="button" variant="ghost" size="icon" className="h-8 w-8" onClick={onArchiveSelected}
+              disabled={isArchiving} aria-label="Arquivar conversa" title="Arquivar conversa selecionada">
               {isArchiving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Archive className="h-4 w-4" />}
             </Button>
           )}
-
-          <Button
-            type="button"
-            variant="ghost"
-            size="icon"
-            className="h-8 w-8"
-            onClick={() => { void onRefresh(); }}
-            disabled={isFetching}
-            aria-label="Recarregar conversas"
-          >
+          <Button type="button" variant="ghost" size="icon" className="h-8 w-8"
+            onClick={() => { void onRefresh(); }} disabled={isFetching} aria-label="Recarregar conversas">
             <RefreshCw className={`h-4 w-4 ${isFetching ? 'animate-spin' : ''}`} />
           </Button>
         </div>
       </div>
-
-      <div className="border-b p-3">
-        <Button type="button" variant="outline" className="w-full gap-2" onClick={onNew} disabled={isCreating}>
+      <div className="space-y-2 border-b p-2.5">
+        <Button type="button" className="h-9 w-full gap-2" onClick={onNew} disabled={isCreating}>
           {isCreating ? <Loader2 className="h-4 w-4 animate-spin" /> : <Plus className="h-4 w-4" />}
           Nova conversa
         </Button>
+        <label className="orchestra-search-field flex h-9 items-center gap-2 rounded-lg border bg-white px-2.5">
+          <Search className="h-3.5 w-3.5 text-muted-foreground" aria-hidden="true" />
+          <span className="sr-only">Buscar conversas</span>
+          <input type="search" aria-label="Buscar conversas" value={search} onChange={(event) => setSearch(event.target.value)}
+            placeholder="Buscar conversas..." className="w-full min-w-0 bg-transparent text-xs outline-none placeholder:text-muted-foreground" />
+        </label>
       </div>
-
-      <ScrollArea className="flex-1">
-        <div className="space-y-2 p-3">
-          {isLoading && <ListLoading rows={4} />}
-
-          {isError && (
-            <div className="rounded-lg border border-destructive/30 bg-destructive/10 p-3 text-sm text-destructive">
-              Nao foi possivel carregar as conversas.
-            </div>
+      <ScrollArea className="min-h-0 flex-1">
+        <div className="pb-3">
+          {isLoading && <div className="p-3"><ListLoading rows={4} /></div>}
+          {isError && <p role="alert" className="m-3 rounded-lg border border-destructive/30 bg-destructive/10 p-3 text-xs text-destructive">Não foi possível carregar as conversas.</p>}
+          {!isLoading && !isError && groups.length === 0 && (
+            <p role="status" className="m-3 rounded-lg border border-dashed p-3 text-xs text-muted-foreground">
+              {search ? 'Nenhuma conversa encontrada para essa busca.' : 'Nenhuma conversa ativa.'}
+            </p>
           )}
-
-          {!isLoading && !isError && conversations.length === 0 && (
-            <div className="rounded-lg border bg-background p-3 text-sm text-muted-foreground">
-              Nenhuma conversa ativa.
-            </div>
-          )}
-
-          {!isLoading && !isError && conversations.map((conversation) => (
-            <button
-              key={conversation.id}
-              type="button"
-              className={`w-full rounded-lg border p-3 text-left transition-colors hover:border-primary/40 ${
-                conversation.id === selectedConversationId
-                  ? 'border-primary/50 bg-primary/5'
-                  : 'bg-background'
-              }`}
-              onClick={() => onSelect(conversation.id)}
-            >
-              <div className="flex items-center justify-between gap-2">
-                <h3 className="min-w-0 truncate text-sm font-medium">{conversation.title}</h3>
-                <span className="shrink-0 text-[11px] text-muted-foreground">{formatDateTime(conversation.updatedAt)}</span>
+          {!isLoading && !isError && groups.map((group) => (
+            <section key={group.label} aria-label={group.label}>
+              <h3 className="border-b bg-muted/25 px-3 py-2 text-[11px] font-semibold text-muted-foreground">{group.label}</h3>
+              <div className="divide-y">
+                {group.items.map((conversation) => (
+                  <button key={conversation.id} type="button" aria-current={conversation.id === selectedConversationId ? 'true' : undefined}
+                    onClick={() => onSelect(conversation.id)}
+                    className={`flex w-full items-center gap-2.5 px-3 py-2.5 text-left transition-colors hover:bg-primary/[0.06] ${conversation.id === selectedConversationId ? 'bg-primary/[0.10] text-primary' : 'text-foreground'}`}>
+                    <MessageSquare className="h-4 w-4 shrink-0" aria-hidden="true" />
+                    <span className="min-w-0 flex-1">
+                      <span className="block truncate text-xs font-semibold" title={conversation.title ?? ''}>{conversation.title || 'Conversa sem título'}</span>
+                      <span className="mt-0.5 block text-[11px] opacity-75">{conversationClock(conversation.updatedAt)}</span>
+                    </span>
+                  </button>
+                ))}
               </div>
-              <div className="mt-2 flex flex-wrap items-center gap-2 text-[11px] text-muted-foreground">
-                <Badge variant="outline">{conversation.visibility}</Badge>
-                <span>{conversation.messageCount} mensagens</span>
-              </div>
-              {conversation.lastMessage && (
-                <p className="mt-2 line-clamp-2 text-xs text-muted-foreground">
-                  {conversation.lastMessage}
-                </p>
-              )}
-            </button>
+            </section>
           ))}
         </div>
       </ScrollArea>
@@ -1105,17 +1320,4 @@ function toneFromRun(run: AgentRun): ChatMessageTone {
   if (run.status === 'failed' || run.status === 'cancelled') return 'error';
   if (run.status === 'queued' || run.status === 'prechecking' || run.status === 'running') return 'pending';
   return 'default';
-}
-
-function formatDateTime(value: string) {
-  const date = new Date(value);
-
-  if (Number.isNaN(date.getTime())) return value;
-
-  return new Intl.DateTimeFormat('pt-BR', {
-    day: '2-digit',
-    month: '2-digit',
-    hour: '2-digit',
-    minute: '2-digit',
-  }).format(date);
 }

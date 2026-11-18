@@ -1,7 +1,8 @@
 import { useState, useMemo } from 'react';
 import { Link } from 'react-router-dom';
 import { AppShell } from '@/components/shared/AppShell';
-import { PageHeader } from '@/components/shared/PageHeader';
+import { OrchestraPageBanner } from '@/components/shared/OrchestraPageBanner';
+import { env } from '@/lib/env';
 import { StatusBadge } from '@/components/shared/StatusBadge';
 import { Button } from '@/components/ui/button';
 import {
@@ -17,7 +18,7 @@ import {
   Plus, Bot, MessageSquare, DollarSign, ThumbsUp,
   LayoutGrid, List, Search, SlidersHorizontal, ArrowUpDown,
   MoreHorizontal, Edit, Copy, Play, Archive, Send, Eye, RotateCcw, Undo2,
-  ChevronDown, X
+  ChevronDown, X, ShieldCheck, BookOpen, Layers3, Laptop
 } from 'lucide-react';
 import {
   DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger
@@ -29,7 +30,6 @@ type ViewMode = 'cards' | 'table';
 type SortField = 'name' | 'conversations' | 'costThisMonth' | 'satisfaction' | 'updatedAt';
 type SortDir = 'asc' | 'desc';
 
-const areas = ['Todos', 'Recursos Humanos', 'Jurídico', 'Financeiro', 'Comercial', 'Compliance', 'Operações', 'TI'];
 // `owners` é derivado dos assistentes (mock/API) dentro do componente.
 const statusFilters: { label: string; value: AssistantStatus | 'all' }[] = [
   { label: 'Todos', value: 'all' },
@@ -40,6 +40,16 @@ const statusFilters: { label: string; value: AssistantStatus | 'all' }[] = [
   { label: 'Arquivados', value: 'archived' },
 ];
 
+function CatalogAssistantIcon({ assistant }: { assistant: { name: string; area: string } }) {
+  const context = `${assistant.name} ${assistant.area}`.normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '').toLowerCase();
+  const Icon = /isolamento|seguranca|sst|compliance/.test(context) ? ShieldCheck
+    : /rag|conhecimento|document/.test(context) ? BookOpen
+      : /homolog|e2e|teste/.test(context) ? Layers3
+        : /corporate|readonly|mcp|integrac/.test(context) ? Laptop : Bot;
+  return <Icon className="h-5 w-5" aria-hidden="true" />;
+}
+
 export default function AssistantsPage() {
   const assistantsQuery = useAssistants();
   const { data: session } = useCurrentSession();
@@ -48,7 +58,8 @@ export default function AssistantsPage() {
   const archiveMutation = useArchiveAssistantMutation();
   const restoreMutation = useRestoreAssistantMutation();
   const mockAssistants = useMemo(() => assistantsQuery.data ?? [], [assistantsQuery.data]);
-  const owners = ['Todos', ...Array.from(new Set(mockAssistants.map(a => a.owner)))];
+  const owners = ['Todos', ...Array.from(new Set(mockAssistants.map(a => a.owner).filter(Boolean)))];
+  const areas = ['Todos', ...Array.from(new Set(mockAssistants.map(a => a.area).filter(Boolean))).sort((a, b) => a.localeCompare(b, 'pt-BR'))];
   const [viewMode, setViewMode] = useState<ViewMode>('cards');
   const [statusFilter, setStatusFilter] = useState<AssistantStatus | 'all'>('all');
   const [areaFilter, setAreaFilter] = useState('Todos');
@@ -82,7 +93,12 @@ export default function AssistantsPage() {
     return result;
   }, [mockAssistants, statusFilter, areaFilter, ownerFilter, searchQuery, sortField, sortDir]);
 
-  const activeFilterCount = [statusFilter !== 'all', areaFilter !== 'Todos', ownerFilter !== 'Todos'].filter(Boolean).length;
+  const advancedFilterCount = [areaFilter !== 'Todos', ownerFilter !== 'Todos', !(['all', 'published', 'draft'] as string[]).includes(statusFilter)].filter(Boolean).length;
+  const statusTabs: { label: string; value: AssistantStatus | 'all'; count: number }[] = [
+    { label: 'Todos', value: 'all', count: mockAssistants.length },
+    { label: 'Publicados', value: 'published', count: mockAssistants.filter(a => a.status === 'published').length },
+    { label: 'Rascunhos', value: 'draft', count: mockAssistants.filter(a => a.status === 'draft').length },
+  ];
 
   const hasPermission = (permission: string) => session?.permissions.includes(permission) ?? false;
 
@@ -115,144 +131,142 @@ export default function AssistantsPage() {
 
   return (
     <AppShell>
-      <div className="space-y-5 animate-fade-in">
-        <PageHeader title="Assistants" description={`${filtered.length} assistente${filtered.length !== 1 ? 's' : ''} encontrado${filtered.length !== 1 ? 's' : ''}`}>
-          <Link to="/app/assistants/new">
-            <Button><Plus className="h-4 w-4 mr-1.5" />Criar Assistente</Button>
-          </Link>
-        </PageHeader>
+      <div className="orchestra-front-page space-y-4 animate-fade-in pb-5">
+        <OrchestraPageBanner labelledBy="catalog-heading">
+          <div className="orchestra-banner-heading flex flex-wrap items-center justify-between gap-4">
+            <div className="flex min-w-0 items-center gap-3">
+              <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl bg-primary/10 text-primary">
+                <Bot className="h-6 w-6" aria-hidden="true" />
+              </div>
+              <div>
+                <h1 id="catalog-heading" className="text-xl font-bold tracking-tight text-foreground sm:text-2xl">Assistentes</h1>
+                <p className="mt-0.5 text-sm text-muted-foreground">Gerencie e acompanhe os assistentes de IA da MCM.</p>
+              </div>
+            </div>
+            <Button asChild className="shrink-0 shadow-sm">
+              <Link to="/app/assistants/new"><Plus className="mr-1.5 h-4 w-4" aria-hidden="true" />Criar Assistente</Link>
+            </Button>
+          </div>
+          <div className="orchestra-banner-toolbar flex flex-wrap items-center justify-between gap-3">
+            <div className="flex w-full flex-wrap items-center gap-2 sm:w-auto sm:flex-1">
+              <label className="orchestra-search-field flex min-h-10 w-full min-w-0 max-w-xl flex-1 items-center gap-2 rounded-lg border bg-white px-3 shadow-sm sm:w-auto">
+                <Search className="h-4 w-4 shrink-0 text-muted-foreground" aria-hidden="true" />
+                <span className="sr-only">Buscar assistentes</span>
+                <input
+                  type="search"
+                  aria-label="Buscar assistentes"
+                  placeholder="Buscar por nome, descrição ou área..."
+                  value={searchQuery}
+                  onChange={e => setSearchQuery(e.target.value)}
+                  className="w-full min-w-0 bg-transparent py-2 text-sm outline-none placeholder:text-muted-foreground"
+                />
+                {searchQuery && (
+                  <button type="button" onClick={() => setSearchQuery('')} aria-label="Limpar busca" className="rounded p-1 text-muted-foreground hover:text-foreground">
+                    <X className="h-4 w-4" aria-hidden="true" />
+                  </button>
+                )}
+              </label>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                aria-expanded={showFilters}
+                onClick={() => setShowFilters(!showFilters)}
+                className="h-10 bg-white"
+              >
+                <SlidersHorizontal className="mr-1.5 h-4 w-4" aria-hidden="true" />Filtros
+                {advancedFilterCount > 0 && <span className="ml-1 rounded bg-primary/10 px-1.5 text-xs text-primary">{advancedFilterCount}</span>}
+              </Button>
+            </div>
+            <div className="inline-flex h-10 items-center gap-0.5 rounded-lg border bg-white p-1" role="group" aria-label="Modo de visualização">
+              <button type="button" aria-label="Visualizar cards" aria-pressed={viewMode === 'cards'} onClick={() => setViewMode('cards')}
+                className={`rounded-md p-2 transition-colors ${viewMode === 'cards' ? 'bg-primary text-primary-foreground' : 'text-muted-foreground hover:bg-muted hover:text-foreground'}`}>
+                <LayoutGrid className="h-4 w-4" aria-hidden="true" />
+              </button>
+              <button type="button" aria-label="Visualizar tabela" aria-pressed={viewMode === 'table'} onClick={() => setViewMode('table')}
+                className={`rounded-md p-2 transition-colors ${viewMode === 'table' ? 'bg-primary text-primary-foreground' : 'text-muted-foreground hover:bg-muted hover:text-foreground'}`}>
+                <List className="h-4 w-4" aria-hidden="true" />
+              </button>
+            </div>
+          </div>
+        </OrchestraPageBanner>
 
-        {/* Search + view toggle + filter toggle */}
-        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-          <div className="flex items-center gap-2 flex-1">
-            <div className="flex items-center gap-2 rounded-md border bg-muted/50 px-3 py-1.5 flex-1 max-w-md">
-              <Search className="h-3.5 w-3.5 text-muted-foreground" />
-              <input
-                type="text"
-                placeholder="Buscar por nome, descrição ou área..."
-                value={searchQuery}
-                onChange={e => setSearchQuery(e.target.value)}
-                className="bg-transparent text-sm outline-none w-full placeholder:text-muted-foreground"
-              />
-              {searchQuery && (
-                <button onClick={() => setSearchQuery('')} className="text-muted-foreground hover:text-foreground">
-                  <X className="h-3.5 w-3.5" />
+        <div className="flex min-w-0 gap-3 overflow-x-auto border-b border-border/80" role="group" aria-label="Filtrar por status">
+          {statusTabs.map(tab => (
+            <button
+              type="button"
+              key={tab.value}
+              aria-pressed={statusFilter === tab.value}
+              onClick={() => setStatusFilter(tab.value)}
+              className={`inline-flex shrink-0 items-center gap-1.5 border-b-2 px-3 pb-2 pt-1 text-sm font-medium transition-colors ${statusFilter === tab.value ? 'border-primary text-primary' : 'border-transparent text-muted-foreground hover:text-foreground'}`}
+            >
+              {tab.label}
+              <span className={`rounded-md px-1.5 py-0.5 text-xs ${statusFilter === tab.value ? 'bg-primary/10 text-primary' : 'bg-muted text-muted-foreground'}`}>{tab.count}</span>
+            </button>
+          ))}
+        </div>
+
+        {showFilters && (
+          <div id="catalog-advanced-filters" className="space-y-4 rounded-xl border bg-white p-4 shadow-sm animate-fade-in">
+            <div className="flex flex-wrap gap-5">
+              <div className="space-y-2">
+                <span className="block text-xs font-semibold uppercase tracking-wide text-muted-foreground">Outros estados</span>
+                <div className="flex flex-wrap gap-1.5">
+                  {statusFilters.map(option => (
+                    <button type="button" key={option.value} onClick={() => setStatusFilter(option.value)}
+                      className={`rounded-md px-2.5 py-1.5 text-xs transition-colors ${statusFilter === option.value ? 'bg-primary/10 font-semibold text-primary' : 'bg-muted/70 text-muted-foreground hover:text-foreground'}`}>
+                      {option.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+              <div className="space-y-2">
+                <span className="block text-xs font-semibold uppercase tracking-wide text-muted-foreground">Área</span>
+                <div className="flex flex-wrap gap-1.5">
+                  {areas.map(area => (
+                    <button type="button" key={area} onClick={() => setAreaFilter(area)}
+                      className={`rounded-md px-2.5 py-1.5 text-xs transition-colors ${areaFilter === area ? 'bg-primary/10 font-semibold text-primary' : 'bg-muted/70 text-muted-foreground hover:text-foreground'}`}>
+                      {area}
+                    </button>
+                  ))}
+                </div>
+              </div>
+              <div className="space-y-2">
+                <span className="block text-xs font-semibold uppercase tracking-wide text-muted-foreground">Responsável</span>
+                <div className="flex flex-wrap gap-1.5">
+                  {owners.map(owner => (
+                    <button type="button" key={owner} onClick={() => setOwnerFilter(owner)}
+                      className={`rounded-md px-2.5 py-1.5 text-xs transition-colors ${ownerFilter === owner ? 'bg-primary/10 font-semibold text-primary' : 'bg-muted/70 text-muted-foreground hover:text-foreground'}`}>
+                      {owner}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            </div>
+            <div className="flex flex-wrap items-center gap-2 border-t pt-3 text-xs text-muted-foreground">
+              <ArrowUpDown className="h-4 w-4" aria-hidden="true" />
+              <span className="font-semibold">Ordenar por:</span>
+              {([
+                ['updatedAt', 'Atualização'],
+                ['name', 'Nome'],
+                ['conversations', 'Conversas'],
+                ['costThisMonth', 'Custo'],
+                ['satisfaction', 'Satisfação'],
+              ] as [SortField, string][]).filter(([field]) => env.useMocks || ['updatedAt', 'name'].includes(field)).map(([field, label]) => (
+                <button type="button" key={field} onClick={() => toggleSort(field)}
+                  className={`rounded-md px-2 py-1 transition-colors ${sortField === field ? 'bg-primary/10 font-semibold text-primary' : 'hover:bg-muted'}`}>
+                  {label} {sortField === field && (sortDir === 'asc' ? '↑' : '↓')}
+                </button>
+              ))}
+              {(statusFilter !== 'all' || areaFilter !== 'Todos' || ownerFilter !== 'Todos') && (
+                <button type="button" onClick={() => { setStatusFilter('all'); setAreaFilter('Todos'); setOwnerFilter('Todos'); }}
+                  className="ml-auto font-semibold text-primary hover:underline">
+                  Limpar filtros
                 </button>
               )}
             </div>
-            <Button
-              variant={showFilters ? 'default' : 'outline'}
-              size="sm"
-              onClick={() => setShowFilters(!showFilters)}
-              className="relative"
-            >
-              <SlidersHorizontal className="h-3.5 w-3.5 mr-1" />
-              Filtros
-              {activeFilterCount > 0 && (
-                <span className="ml-1 flex h-4 w-4 items-center justify-center rounded-full bg-primary-foreground text-primary text-[10px] font-bold">
-                  {activeFilterCount}
-                </span>
-              )}
-            </Button>
-          </div>
-          <div className="flex items-center gap-1 rounded-md border p-0.5">
-            <button
-              onClick={() => setViewMode('cards')}
-              className={`rounded px-2.5 py-1.5 transition-colors ${viewMode === 'cards' ? 'bg-primary text-primary-foreground' : 'text-muted-foreground hover:text-foreground'}`}
-            >
-              <LayoutGrid className="h-4 w-4" />
-            </button>
-            <button
-              onClick={() => setViewMode('table')}
-              className={`rounded px-2.5 py-1.5 transition-colors ${viewMode === 'table' ? 'bg-primary text-primary-foreground' : 'text-muted-foreground hover:text-foreground'}`}
-            >
-              <List className="h-4 w-4" />
-            </button>
-          </div>
-        </div>
-
-        {/* Filters panel */}
-        {showFilters && (
-          <div className="rounded-lg border bg-card p-4 animate-fade-in">
-            <div className="flex flex-wrap gap-6">
-              <div>
-                <label className="text-xs font-medium text-muted-foreground uppercase tracking-wider mb-2 block">Status</label>
-                <div className="flex flex-wrap gap-1.5">
-                  {statusFilters.map(f => (
-                    <button
-                      key={f.value}
-                      onClick={() => setStatusFilter(f.value)}
-                      className={`rounded-md px-3 py-1.5 text-xs font-medium transition-colors ${statusFilter === f.value ? 'bg-primary text-primary-foreground' : 'bg-muted text-muted-foreground hover:bg-neutral'}`}
-                    >
-                      {f.label}
-                    </button>
-                  ))}
-                </div>
-              </div>
-              <div>
-                <label className="text-xs font-medium text-muted-foreground uppercase tracking-wider mb-2 block">Área</label>
-                <div className="flex flex-wrap gap-1.5">
-                  {areas.map(a => (
-                    <button
-                      key={a}
-                      onClick={() => setAreaFilter(a)}
-                      className={`rounded-md px-3 py-1.5 text-xs font-medium transition-colors ${areaFilter === a ? 'bg-primary text-primary-foreground' : 'bg-muted text-muted-foreground hover:bg-neutral'}`}
-                    >
-                      {a}
-                    </button>
-                  ))}
-                </div>
-              </div>
-              <div>
-                <label className="text-xs font-medium text-muted-foreground uppercase tracking-wider mb-2 block">Responsável</label>
-                <div className="flex flex-wrap gap-1.5">
-                  {owners.map(o => (
-                    <button
-                      key={o}
-                      onClick={() => setOwnerFilter(o)}
-                      className={`rounded-md px-3 py-1.5 text-xs font-medium transition-colors ${ownerFilter === o ? 'bg-primary text-primary-foreground' : 'bg-muted text-muted-foreground hover:bg-neutral'}`}
-                    >
-                      {o}
-                    </button>
-                  ))}
-                </div>
-              </div>
-            </div>
-            {activeFilterCount > 0 && (
-              <button
-                onClick={() => { setStatusFilter('all'); setAreaFilter('Todos'); setOwnerFilter('Todos'); }}
-                className="mt-3 text-xs text-primary hover:underline"
-              >
-                Limpar todos os filtros
-              </button>
-            )}
           </div>
         )}
-
-        {/* Sort controls */}
-        <div className="flex min-w-0 flex-col gap-2 text-xs text-muted-foreground sm:flex-row sm:items-center">
-          <div className="flex shrink-0 items-center gap-2">
-            <ArrowUpDown className="h-3 w-3" />
-            <span>Ordenar por:</span>
-          </div>
-          <div className="flex min-w-0 flex-wrap gap-1.5">
-            {([
-              ['updatedAt', 'Atualização'],
-              ['name', 'Nome'],
-              ['conversations', 'Conversas'],
-              ['costThisMonth', 'Custo'],
-              ['satisfaction', 'Satisfação'],
-            ] as [SortField, string][]).map(([field, label]) => (
-              <button
-                key={field}
-                onClick={() => toggleSort(field)}
-                className={`whitespace-nowrap rounded px-2 py-0.5 transition-colors ${sortField === field ? 'bg-primary/10 text-primary font-medium' : 'hover:bg-muted'}`}
-              >
-                {label} {sortField === field && (sortDir === 'asc' ? '↑' : '↓')}
-              </button>
-            ))}
-          </div>
-        </div>
 
         <QueryState
           query={assistantsQuery}
@@ -269,22 +283,24 @@ export default function AssistantsPage() {
           errorTitle="Não foi possível carregar os assistentes"
           errorDescription="Houve um problema ao buscar a lista. Tente novamente em instantes."
         >
-        {/* Cards view */}
+        {/* Cards do catálogo: proporção e hierarquia próximas ao mockup Maria */}
         {viewMode === 'cards' && (
-          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+          <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
             {filtered.map(a => (
-              <div key={a.id} className="group rounded-lg border bg-card p-5 transition-all hover:shadow-md hover:border-primary/30">
-                <div className="flex items-start justify-between">
-                  <Link to={`/assistants/${a.id}`} className="flex items-center gap-3 min-w-0 flex-1">
-                    <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-primary/10 text-primary font-bold">
-                      <Bot className="h-5 w-5" />
-                    </div>
-                    <div className="min-w-0">
-                      <h3 className="font-semibold text-card-foreground group-hover:text-primary transition-colors truncate">{a.name}</h3>
-                      <p className="text-xs text-muted-foreground">{a.area} · {a.owner}</p>
-                    </div>
-                  </Link>
-                  <div className="flex items-center gap-1.5 shrink-0">
+              <article key={a.id} className="group flex min-h-[173px] flex-col rounded-xl border bg-card p-4 shadow-sm transition-all hover:border-primary/25 hover:shadow-md">
+                <div className="flex min-w-0 items-start gap-2.5">
+                  <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-primary/10 text-primary">
+                    <CatalogAssistantIcon assistant={a} />
+                  </div>
+                  <div className="min-w-0 flex-1">
+                    <Link to={`/app/assistants/${a.id}`} title={a.name} className="orchestra-card-title block truncate text-sm font-semibold text-foreground transition-colors hover:text-primary">
+                      {a.name}
+                    </Link>
+                    <p className="mt-0.5 truncate text-xs text-muted-foreground">
+                      {a.area ? `${a.area} · ` : ''}{a.owner}
+                    </p>
+                  </div>
+                  <div className="flex shrink-0 items-center gap-1">
                     <StatusBadge status={a.status} />
                     <DropdownMenu>
                       <DropdownMenuTrigger asChild>
@@ -294,18 +310,18 @@ export default function AssistantsPage() {
                       </DropdownMenuTrigger>
                       <DropdownMenuContent align="end">
                         <DropdownMenuItem asChild>
-                          <Link to={`/assistants/${a.id}`}><Eye className="h-3.5 w-3.5 mr-2" />Ver detalhes</Link>
+                          <Link to={`/app/assistants/${a.id}`}><Eye className="h-3.5 w-3.5 mr-2" />Ver detalhes</Link>
                         </DropdownMenuItem>
                         {hasPermission('assistants.update') && (
                           <DropdownMenuItem asChild>
-                            <Link to={`/assistants/${a.id}/edit`}><Edit className="h-3.5 w-3.5 mr-2" />Editar</Link>
+                            <Link to={`/app/assistants/${a.id}/edit`}><Edit className="h-3.5 w-3.5 mr-2" />Editar</Link>
                           </DropdownMenuItem>
                         )}
                         <DropdownMenuItem onClick={() => handleAction('Duplicado', a.name)}>
                           <Copy className="h-3.5 w-3.5 mr-2" />Duplicar
                         </DropdownMenuItem>
                         <DropdownMenuItem asChild>
-                          <Link to={`/chat/${a.id}`}><Play className="h-3.5 w-3.5 mr-2" />Testar</Link>
+                          <Link to={`/app/chat/${a.id}`}><Play className="h-3.5 w-3.5 mr-2" />Testar</Link>
                         </DropdownMenuItem>
                         <DropdownMenuSeparator />
                         {a.status !== 'published' && a.status !== 'archived' && hasPermission('assistants.publish') && (
@@ -332,25 +348,29 @@ export default function AssistantsPage() {
                     </DropdownMenu>
                   </div>
                 </div>
-                <p className="mt-3 text-sm text-muted-foreground line-clamp-2">{a.description}</p>
-                <div className="mt-4 flex items-center justify-between border-t pt-3">
-                  <div className="flex items-center gap-3 text-xs text-muted-foreground">
-                    <span className="flex items-center gap-1"><MessageSquare className="h-3 w-3" />{a.conversations.toLocaleString()}</span>
-                    <span className="flex items-center gap-1"><DollarSign className="h-3 w-3" />R$ {a.costThisMonth.toFixed(0)}</span>
-                    {a.satisfaction > 0 && <span className="flex items-center gap-1"><ThumbsUp className="h-3 w-3" />{a.satisfaction}%</span>}
+                <p className="mt-3 line-clamp-2 min-h-[2.5rem] text-xs leading-relaxed text-muted-foreground">
+                  {a.description || 'Descrição não informada.'}
+                </p>
+                <div className="mt-auto border-t border-border/70 pt-2.5">
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <div className="flex flex-wrap items-center gap-3 text-xs text-muted-foreground">
+                      <span className="inline-flex items-center gap-1"><MessageSquare className="h-3.5 w-3.5" aria-hidden="true" />{env.useMocks ? `${a.conversations.toLocaleString()} conversas` : '— conversas'}</span>
+                      <span className="inline-flex items-center gap-1"><DollarSign className="h-3.5 w-3.5" aria-hidden="true" />{env.useMocks ? `R$ ${a.costThisMonth.toFixed(0)}` : '— custo'}</span>
+                    </div>
+                    <span className="text-[10px] text-muted-foreground">v{a.version}</span>
                   </div>
-                  <span className="text-[10px] text-muted-foreground">v{a.version}</span>
-                </div>
-                <div className="mt-2 flex items-center gap-1.5 flex-wrap">
-                  <span className="rounded bg-muted px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground">{a.model}</span>
-                  <span className="text-[10px] text-muted-foreground">T: {a.temperature}</span>
-                  {a.environment && (
-                    <span className={`rounded px-1.5 py-0.5 text-[10px] font-medium ${a.environment === 'production' ? 'bg-success/10 text-success' : 'bg-warning/10 text-warning'}`}>
-                      {a.environment}
+                  <div className="mt-2 flex flex-wrap items-center gap-1.5">
+                    <span className="max-w-[11rem] truncate rounded-md bg-muted px-2 py-0.5 text-[10px] font-medium text-muted-foreground" title={a.model}>
+                      {a.model === 'not-configured' ? 'Modelo não configurado' : a.model}
                     </span>
-                  )}
+                    {a.environment && (
+                      <span className={`rounded-md px-2 py-0.5 text-[10px] ${a.environment === 'production' ? 'bg-success/10 text-success' : 'bg-warning/10 text-warning'}`}>
+                        {a.environment}
+                      </span>
+                    )}
+                  </div>
                 </div>
-              </div>
+              </article>
             ))}
           </div>
         )}
@@ -394,7 +414,7 @@ export default function AssistantsPage() {
                   {filtered.map(a => (
                     <tr key={a.id} className="border-b hover:bg-muted/30 transition-colors">
                       <td className="px-4 py-3">
-                        <Link to={`/assistants/${a.id}`} className="flex items-center gap-2 hover:text-primary transition-colors">
+                        <Link to={`/app/assistants/${a.id}`} className="flex items-center gap-2 hover:text-primary transition-colors">
                           <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary/10 text-primary shrink-0">
                             <Bot className="h-4 w-4" />
                           </div>
@@ -410,10 +430,10 @@ export default function AssistantsPage() {
                       <td className="px-4 py-3">
                         <span className="rounded bg-muted px-1.5 py-0.5 text-[10px] font-medium">{a.model}</span>
                       </td>
-                      <td className="px-4 py-3 text-right font-medium">{a.conversations.toLocaleString()}</td>
-                      <td className="px-4 py-3 text-right">R$ {a.costThisMonth.toFixed(2)}</td>
+                      <td className="px-4 py-3 text-right font-medium">{env.useMocks ? a.conversations.toLocaleString() : '—'}</td>
+                      <td className="px-4 py-3 text-right">{env.useMocks ? `R$ ${a.costThisMonth.toFixed(2)}` : '—'}</td>
                       <td className="px-4 py-3 text-right">
-                        {a.satisfaction > 0 ? (
+                        {env.useMocks && a.satisfaction > 0 ? (
                           <span className="flex items-center justify-end gap-1"><ThumbsUp className="h-3 w-3 text-success" />{a.satisfaction}%</span>
                         ) : '—'}
                       </td>
@@ -427,18 +447,18 @@ export default function AssistantsPage() {
                           </DropdownMenuTrigger>
                           <DropdownMenuContent align="end">
                             <DropdownMenuItem asChild>
-                              <Link to={`/assistants/${a.id}`}><Eye className="h-3.5 w-3.5 mr-2" />Ver detalhes</Link>
+                              <Link to={`/app/assistants/${a.id}`}><Eye className="h-3.5 w-3.5 mr-2" />Ver detalhes</Link>
                             </DropdownMenuItem>
                             {hasPermission('assistants.update') && (
                               <DropdownMenuItem asChild>
-                                <Link to={`/assistants/${a.id}/edit`}><Edit className="h-3.5 w-3.5 mr-2" />Editar</Link>
+                                <Link to={`/app/assistants/${a.id}/edit`}><Edit className="h-3.5 w-3.5 mr-2" />Editar</Link>
                               </DropdownMenuItem>
                             )}
                             <DropdownMenuItem onClick={() => handleAction('Duplicado', a.name)}>
                               <Copy className="h-3.5 w-3.5 mr-2" />Duplicar
                             </DropdownMenuItem>
                             <DropdownMenuItem asChild>
-                              <Link to={`/chat/${a.id}`}><Play className="h-3.5 w-3.5 mr-2" />Testar</Link>
+                              <Link to={`/app/chat/${a.id}`}><Play className="h-3.5 w-3.5 mr-2" />Testar</Link>
                             </DropdownMenuItem>
                             <DropdownMenuSeparator />
                             {a.status !== 'published' && a.status !== 'archived' && hasPermission('assistants.publish') && (
